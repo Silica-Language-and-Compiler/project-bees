@@ -18,6 +18,11 @@ All statements about Silica below were checked against the Silica repository at 
 (commit `8aff9cdc5`, 2026-09-13; 33,824 trials green). Where the Silica specification and the implementation
 disagree, this plan follows the implementation and the trials, and names the spec section it is waiting on.
 
+**Re-verified 2026-11-04** on Apple Silicon `silica-999939` (Silica chunk 4 and chunk 15 phase 2) for everything the spike
+re-run touched: memory, actor limits, supervision, exit reports, failure results and the defects in
+[silica-defects.md](silica-defects.md). Results are in [spikes/rerun-2026-11-04.md](spikes/rerun-2026-11-04.md). Other
+statements still reflect fixed point 1, and only macOS has been re-verified.
+
 ---
 
 ## 1. Purpose
@@ -83,7 +88,7 @@ example, Elixir code calls Erlang's `lists` module, and both are compiled by dif
 2. **Process model.** A BEAM process is a **plain Silica actor** whose messages are `bees_term` values. Code that does
    not fit Silica's once-per-message behaviour (a `receive` in the middle of a function, for example) is **reshaped by
    the compiler** (D1). The compiler keeps the paused computation in the actor's state and uses BEES's runtime
-   helpers: the save queue for selective receive, the `after` timers, and memory evacuation.
+   helpers: the save queue for selective receive and the `after` timers.
    - **Every actor has a supervisor** (D18), and the compiler guarantees it: it starts a **root supervisor** at
      program start and adds to it every spawned actor that is not placed under another supervisor. Each live child
      needs a distinct child id, and ids are atoms from a fixed table, so a compiler gives each supervisor a pool of
@@ -115,9 +120,9 @@ example, Elixir code calls Erlang's `lists` module, and both are compiled by dif
      over the wire ([inter-nodal-modes §4.7](inter-nodal-modes.md#47-calls-and-casts-to-and-from-otp-behaviours)).
    - Where the state lives, where `handle_info` messages go, and how a client's cast followed by a call stays in
      order are each compiler's choice.
-6. **Memory and yielding.** Where compilers place **evacuation points** and **yield points**, and which BEES API
-   calls go at each (§4.2, §4.3). Both kinds of point sit at receive boundaries and tail calls, where the reshaped code
-   holds every live value explicitly.
+6. **Memory and yielding.** Silica releases memory itself (§4.2), so compilers place no evacuation points. They place
+   **yield points** and call the BEES API at each (§4.3). Yield points sit at receive boundaries and tail calls, where the
+   reshaped code holds every live value explicitly.
    - Silica never interrupts a message dispatch (spec §15.1.2).
    - So at a yield point, a process whose dispatch budget is spent **ends its dispatch**, exactly as it would at a
      `receive`, and continues through `cast(self())`. The budget is a BEES helper that counts the work done in the
@@ -142,7 +147,7 @@ BEES contains **only the portions of the BEAM that Silica lacks.** Every gap bel
 | --- | --- | --- | --- |
 | **U — Upstream** | Missing in Silica, but Silica is where it belongs. Either Silica's spec promises it and the runtime or compiler does not deliver it yet, or it belongs alongside what Silica already provides. A library cannot supply it. | The Silica repository. BEES tracks it as a prerequisite (Track S) and may contribute the work there. | **gen_server and state machines** (beside the `Supervisor` trait); links (a stub today); the **per-core scheduler** the spec describes (carrier threads running many actors, with fairness and priority, switching at yield points; today every actor is its own pthread); one program-wide atom table; Silica's own TCP/IP; byte buffers across the FFI boundary; bignums; region release. |
 | **B — BEES shim** | BEAM-specific runtime semantics with no place in Silica. | BEES, permanently. | **Balancing and placement across cores** (D3); the `bees_term` model and Erlang term order; BIFs; ETS; timers; the receive helpers; the process dictionary helpers; ETF; TRUST; BEAM distribution, including the OTP `gen` call protocol on the wire; `erpc`, `rpc`, `global`, `pg` and `net_kernel`; `gen_tcp`, `gen_udp`, `inet` and `file`; logging; the position map; `bees_config`. |
-| **C — Compiler** | Supplied by how a language compiler translates code. | **Each language's compiler, outside BEES.** BEES specifies the obligation in the target contract. | Pattern matching; reshaping code around `receive`; rejecting `catch` at compile time and rewriting `try` around the result-returning BIF variants (D2); defunctionalized funs; per-module dispatch entries; placing evacuation points; bit syntax and integer bitwise operators, through lookups each compiler generates; converting the OTP behaviours and libraries its language uses to Silica constructs. |
+| **C — Compiler** | Supplied by how a language compiler translates code. | **Each language's compiler, outside BEES.** BEES specifies the obligation in the target contract. | Pattern matching; reshaping code around `receive`; rejecting `catch` at compile time and rewriting `try` around the result-returning BIF variants (D2); defunctionalized funs; per-module dispatch entries; bit syntax and integer bitwise operators, through lookups each compiler generates; converting the OTP behaviours and libraries its language uses to Silica constructs. |
 | **E — Native edge** | Needs OS, board or cryptographic facilities Silica has no primitive for. Everything it returns reaches BEES only through re-creation (S-5). One audited C archive behind `dangerous_bees_*` wrappers, reached through Silica's Fifi and built for each target: against the OS on hosted targets, and against the board's own C libraries on the ESP32-S3 (S-24, D29). Every function has a named retirement trigger. | BEES, temporarily. | kqueue/epoll (until the S-22 wrappers carry the event loop), TLS 1.3 engine, SHA-512, MD5, CSPRNG, monotonic clock. |
 
 Consequences:
@@ -206,24 +211,34 @@ the contract, until the named item removes it.
 1. **Compiled BEAM code is dynamically typed, so every value is a `bees_term`.** BEES is largely monomorphic over one
    type, which makes Silica's lack of generics mostly irrelevant here. The contract specifies how compilers pack more
    than 8 arguments, because 8 is Silica's parameter limit.
-2. **Memory must be reclaimed without a garbage collector.** Erlang code allocates constantly. Silica has regions and
-   no GC, and today a per-actor arena is never reclaimed while the actor lives (a bump allocator with 8 MB
-   committed).
-   - *Rule:* a process's terms live in a region held in its actor state. At **evacuation points** the live terms are
-     copied into a fresh region and the old region is released.
-   - The contract places evacuation points at receive boundaries and tail calls. At those points every root is
-     explicit in the reshaped code (D1): the paused computation, the save queue and the dictionary, or the arguments
-     of the tail call.
-   - This is copying collection at points where the compiler knows every root, so no stack scanning is needed. It
-     **requires region release (S-15), which makes S-15 a 1.0 blocker.**
-3. **One OS thread per actor, 512 KB stack, 1 GiB virtual reservation per actor.**
-   - *Rule:* the PoC targets thousands of processes, not millions, and spike S3 measures the real ceiling.
-   - This retires when Silica's runtime delivers the per-core scheduler its spec describes, with each carrier thread
-     running many actors (S-6).
-   - Because of D1, a process holds no stack between messages. A scheduling step is therefore one message dispatch,
-     or one dispatch-budget slice ended at a yield point, and an actor's stack is needed only while that step runs.
-   - Deep body recursion in Erlang (`lists:map` over long lists) still needs growable stacks during a step: roadmap
-     chunk 1, part of S-6.
+2. **Memory is reclaimed by Silica, with no garbage collector and no BEES release step.** Since chunk 15, Silica copies
+   the new state of an actor into its state area when a dispatch ends and releases what the old state held. It frees
+   a message's region when the receiving dispatch returns, and a region is an area in the frame that can be returned,
+   kept in the state or sent in a message.
+   - *Measured on `silica-999939` (S6 re-run, `silica_defects`):* 100,000 dispatches that each replace the state
+     region peak at 4.9 MB (551 MB before). 100,000 region-carrying messages peak at 31 MB. A region held in the state of
+     a supervised child survives a restart as a fresh copy.
+   - *Rule:* a process's terms live in a region held in its actor state, and **compilers place no evacuation points and
+     make no release calls.** The contract's remaining memory rules are the shapes that keep Silica's analysis happy
+     (one reference per return, the heap as a record, a message built in a function that returns it; see the
+     compiler guide, A6).
+   - *Open:* Silica's later chunk 15 phases (on an unmerged Silica branch, and not yet verified here) change details, among
+     them a required `state_policy` spawn argument and a rule that a `buf` is a message only with its region. The contract
+     follows them when they merge. The ESP32-S3 phase of chunk 15 is not done.
+3. **Actors are scheduled by Silica's per-core carriers, and their stacks are reserved per spawn.** On the hosted paths
+   one carrier thread runs per logical core and runs many actors (Silica chunk 2, delivered). Each actor reserves
+   address space for its stack at spawn (`stack_policy(reserve, release)`, mandatory on every spawn), commits it as the
+   actor grows, and gives it back at message boundaries.
+   - *Measured on `silica-999939` (S3 re-run):* with the default reserve (the machine's memory plus swap) spawn aborts after
+     about 3,750 to 4,000 live actors, because address space runs out. With a lowered reserve, 100,000 actors take 0.6 s
+     and one million take 4.1 s at about 5 KB resident each (5.2 GB). A spawn costs about 4 us and a call round trip about
+     5.6 us. The old ceiling of 4,093 (one pthread per actor) is gone.
+   - *Rule:* compiled actors pass a lowered stack reserve; **open:** the recommended value, and a reserve per process kind
+     for `spawn_opt`.
+   - Because of D1, a process holds no stack between messages. A scheduling step is therefore one message dispatch, or one
+     dispatch-budget slice ended at a yield point, and an actor's stack is needed only while that step runs.
+   - Deep body recursion within one dispatch is bounded by the reserve; exceeding it ends the actor
+     (`(:explicit, :stack_exhausted)`). Tail calls no longer grow the stack (SD-12 closed).
 4. **Erlang integers are arbitrary precision.** *Rule:* the PoC is limited to `int64`, and overflow raises
    `system_limit`. Conformance needs Silica bignums (S-11).
 5. **Binaries and bit syntax are lowered without type conversion.** Silica has no type conversion (types must match
@@ -372,7 +387,7 @@ compiler projects can start.
   | **S3 Actor ceiling** | Maximum live actors, and RSS/VA per actor, on 16 GB and 64 GB Macs; the cost of a spawn and of one message. | PoC scale; the urgency of S-6. |
   | **S4 Native edge** | A `dangerous_bees_native` wrapper (`clock_gettime`, `poll`) called from a `spawn_dangerous` worker. What do the naming cascade and the W4001 warning look like in a consumer app? | Every E-class component. |
   | **S5 Bytes without conversion** | Hand-lower bit-syntax matching and construction, a 64-bit float decode and encode, and `bxor` on `int64`, using only lookups and same-type arithmetic. How are `uint8` literals written and matched in a `case`? Does a 256-way `case` compile to a jump table or to a chain of comparisons? What does each lowering cost? **Yet to be determined:** how `bees_cmp` compares an `int64` with a `float64` exactly, with no conversion between them, as Erlang term order requires (`1 == 1.0`). | BEES's own codecs (ETF, framing); the guidance BEES gives compiler projects. |
-  | **S6 Terms and heap** | `bees_term` as a recursive tagged tuple (`recursive_tuple_specification.md`) in a region held in actor state. Can a region be released today? What does an evacuation cost? | Contract items 1 and 6; the urgency of S-15. |
+  | **S6 Terms and heap** | `bees_term` as a recursive tagged tuple (`recursive_tuple_specification.md`) in a region held in actor state. Can a region be released today? What does an evacuation cost? **Re-run 2026-11-04: yes, Silica releases it itself; see §4.2.** | Contract items 1 and 6; the urgency of S-15. |
   | **S7 Exit reports** | Prototype D23 in a Silica branch: a supervisor that casts an `exit_report` record (`{ child, child_id, failure_reason, restarted, new_child }`) to the report sink set with `:set_report_sink` after handling each child exit, with child supervisors inheriting the sink. Measure the cost per exit, and check that reports arrive in ingress order. | S-28; the exit hub in A2. |
   | **S8 Re-creation** | Hand-write what a compiler-derived re-creation would generate for BEES's FFI flows: random bytes, digests, TLS peer information, TLS plaintext and ciphertext. Check the declared limits first, build in a fresh region, rebuild enumerations from literals, and return `:rejected` on any failure. Pin with a `.golden_fail` trial that today's checker rejects the direct path. | The shape of S-5; every path from the native edge. |
   | **S9 Reference lowerings** | Hand-lower four small Erlang programs into Silica exactly as the draft contract says a compiler should: a selective receive with `after` in mid-function (reshaped per D1), a `try` around `list_to_existing_atom` rewritten to the result-returning variant (D2), funs with `apply/3`, and binary matching. | Contract items 2–4; the first programs in the conformance kit. |
@@ -400,7 +415,7 @@ compiler would emit. If an external Erlang-to-Silica compiler exists by then, th
 - **Track A slice: shim v0.**
   - `bees_term` for `int64`, atoms (Silica atoms), tuples, lists, pids (local `actor_ref`s), and binaries as opaque
     values;
-  - region evacuation at receive boundaries;
+  - memory is released by Silica at dispatch end (§4.2), so no evacuation step;
   - the receive helpers (save queue, `after` timer);
   - `bees_timer` over a native clock;
   - the BIFs the PoC programs use: `self/0`, `spawn/3` through the module table, `element/2`, `length/1`, send, and
@@ -434,7 +449,7 @@ compiler would emit. If an external Erlang-to-Silica compiler exists by then, th
 
 | ID | Milestone | Contents | Blocks on | Exit criteria |
 | --- | --- | --- | --- | --- |
-| **A1** | Terms and memory | All `bees_term` types, with atoms as Silica atoms; Erlang term order and both equalities; the atom BIFs (`atom_to_list`, `list_to_existing_atom`, and `list_to_atom` per D16) as lookups in the atom lookup; maps in term order over `wbt_map`; binaries as `buf(uint8)` terms, and the binary BIFs; bignums; `term_to_binary`/`binary_to_term` (with `safe`) in Silica; the evacuation API. | S-1, S-11, S-15 | Worked programs, as reference lowerings, that exercise every term type, term comparison and bit syntax. A long-running process's memory stays flat under load. |
+| **A1** | Terms and memory | All `bees_term` types, with atoms as Silica atoms; Erlang term order and both equalities; the atom BIFs (`atom_to_list`, `list_to_existing_atom`, and `list_to_atom` per D16) as lookups in the atom lookup; maps in term order over `wbt_map`; binaries as `buf(uint8)` terms, and the binary BIFs; bignums; `term_to_binary`/`binary_to_term` (with `safe`) in Silica. | S-11 (S-1 and S-15 are delivered on macOS) | Worked programs, as reference lowerings, that exercise every term type, term comparison and bit syntax. A long-running process's memory stays flat under load. |
 | **A2** | Processes and signals | Runtime helpers for plain Silica actors:<br>• the save queue and `after` timers for reshaped `receive`;<br>• the process dictionary helpers;<br>• `exit/2` as a request to the target's supervisor, found through the position map (D18), which `bees_config` generates and the runtime keeps current;<br>• **the exit hub** (D23), one supervised actor per node, which receives every supervisor's exit reports and does BEES's fixed bookkeeping: removing a dead pid's names, deleting tables it owned, ending its BEES-level link partners, and telling node connections about remote links (Silica's registry removes names once S-29 lands);<br>• **a supervisor for every actor**: BEES supervisors, sharded per core, to which a plain `spawn` adds a `temporary` child;<br>• the `spawn`, `spawn_link` and `spawn_opt` BIFs over Silica spawn;<br>• registered-name BIFs over Silica's atom-keyed registry (S-29);<br>• timers (`send_after`, `start_timer`, `cancel_timer`, `read_timer`);<br>• `process_info`, `processes/0`, `is_process_alive/1`. | S-2, S-26, S-28; S-9 and S-29 (soft); S-3 (the native clock stands in) | Worked programs, as reference lowerings: a selective receive with `after`, a supervised process shut down by `exit/2`, a linked pair, and a registered name that disappears when its process exits. |
 | **A3** | ERTS modules and BIFs | The `erlang` module's BIFs, in coverage tiers. **Result-returning versions of commonly caught BIFs** (D2), for example existing-atom conversions, number parsing, and `binary_to_term`, plus a call variant that returns `timeout` as a value. `ets` (actor-owned tables over `wbt_map`, with documented concurrency differences). `persistent_term`, `atomics`, `counters`, `os`, `init` and the boot sequence, `code` over the program-wide module table. `bees_log`: BEES's own logging, which its audit log uses and which a compiler's `logger` may sit on. `crypto` (hash, HMAC, `strong_rand_bytes`) over the native edge. | A1, A2; S-5 (clock values, hashes and random bytes come from the edge); S-8 | Each BIF tier passes its trial subset. |
 | **A4** | OTP behaviours on Silica constructs | The contract's mapping of `supervisor` onto Silica's `Supervisor` trait, `gen_server` onto a call-only and a cast-only Silica gen_server-style actor (D5), and `gen_statem` onto Silica's state-machine trait, with reference lowerings. `proc_lib` and `sys` runtime support. Each documented difference from OTP (`hibernate`, `code_change`, `sys` debug) goes in the README. | S-17, S-2 | Worked programs, as reference lowerings: a supervision tree, a split `gen_server`, and a `gen_statem`. Every difference from OTP is listed in the README. |
@@ -525,7 +540,7 @@ depends on yet.
 
 | ID | Decision | Status and outcome, or proposal | Notes |
 | --- | --- | --- | --- |
-| **D1** | Process execution model. | **Decided 2026-09-14:** processes are plain Silica actors, and the compiler reshapes whatever does not fit Silica's once-per-message behaviour. BEES provides runtime helpers (save queue, `after` timers, evacuation) and does not wrap actors. | Needs no language change, because Silica forbids user `recv()` (§15.1.2). Every root is explicit at evacuation and yield points (§4.2). A process holds no stack between messages, so a scheduling step is one dispatch. |
+| **D1** | Process execution model. | **Decided 2026-09-14:** processes are plain Silica actors, and the compiler reshapes whatever does not fit Silica's once-per-message behaviour. BEES provides runtime helpers (save queue, `after` timers) and does not wrap actors. | Needs no language change, because Silica forbids user `recv()` (§15.1.2). Every root is explicit at yield points (§4.3). A process holds no stack between messages, so a scheduling step is one dispatch. |
 | **D2** | Runtime failures and exceptions. | **Decided 2026-09-15: nothing is caught inside the actor.**<br>• A failing BIF, a `badmatch`, `badarith`, `function_clause` or `case_clause`, and **`throw`** all **fail the actor**, and its supervisor reports the exit (D23).<br>• BIFs never return failures as values to compiled code. The actor stops with an explicit reason atom, for example `(:explicit, :badarg)` (S-9).<br>• **Compilers reject `catch` clauses, `after` clauses and Erlang's `catch Expr` at compile time**, with a diagnostic. An `after` block could never run when the body fails, because the failure ends the actor.<br>• **BEES offers result-returning versions of commonly caught BIFs**, for example `{ok, Atom} \| error` for `list_to_existing_atom`. A compiler may rewrite a `try` that catches exactly that BIF's failure into a call to the variant; otherwise the program calls the variant directly.<br>• **A call variant that returns `timeout` as a value**, rather than failing the caller when the callee doesn't reply in time. It covers the common OTP pattern of catching `exit:{timeout, _}` around `gen_server:call`.<br>• Stack traces come from Silica's crash report, through `FailureReporter`. | Silica aims to catch failures at compile time, so catching failures at run time goes against the language. The supervisor is the one place where failures are handled. The contract's calling convention therefore needs no exception representation. |
 | **D3** | Who schedules, balances and places processes. | **Decided 2026-09-15, revising 2026-09-14:** Silica's runtime owns per-core scheduling (carrier threads, run queues, fairness, priority, switching only at yield points), as its Actor Pinning Policy (§15.1.2) and §23.1.1 specify. **BEES owns balancing and placement across cores**, BEAM-style, through `migrate_actor()` (A6, §4.10). No scheduler interface is needed. | The 2026-09-14 outcome was "the scheduler lives in BEES", which the current Silica spec contradicts: it gives each core's scheduling to the runtime, and offers no hook for a library. |
 | **D4** | Language compilers. | **Decided 2026-09-14: out of scope.** Each language has its own language-to-Silica compiler, and BEES owns the target contract they share. | — |
@@ -564,7 +579,7 @@ depends on yet.
 | --- | --- | --- |
 | No external compiler is ready when the shim is. | I3 and 1.0 slip, and the shim is validated only by hand-written lowerings. | Publish contract v0 at Stage 0; the conformance kit makes a compiler's first steps cheap; the reference lowerings keep BEES testable on its own. |
 | The contract underspecifies something two compilers then do differently. | Code compiled by different compilers cannot interoperate. | Cross-language rules in T1; the conformance kit includes cross-language programs; the contract is versioned. |
-| Region evacuation is too slow, or S-15 is late. | Long-lived processes cannot run. | Spike S6 first; push S-15 early; tune evacuation thresholds in A1. |
+| Silica's memory model keeps changing (chunk 15 phases beyond phase 2 are on an unmerged branch). | Value shapes and message rules in compiled code and in `bees_term` need rework. | Keep every value shape in generated code (`tools/gen_bees_term.py`); re-run the trial tree on every compiler bump. |
 | Track S items slip or are declined (S-5 above all; then S-26 and S-28 for A2, S-2, S-15, S-6 and S-11, S-24 for the ESP32-S3, and S-32 for Linux x86_64). | Stage 1, A1, A2, A6 and conformance stall. | File them early with failing trials, in the order §3 gives, and offer to implement them. For S-6, spike S3's numbers say how many actors per carrier thread Silica's scheduler must reach, and spike S11's balancer is the first consumer of it. |
 | Byte handling through lookups is too slow (a 256-way `case` per byte; float encode and decode). | Binary-heavy code and ETF run slowly. | Spike S5 measures before A1; each compiler chooses its own lowering; BEES tunes its own codecs. |
 | Balancing only through `migrate_actor()` is too coarse: the runtime gives no load data, and a move takes effect only at a dispatch boundary. | A6 cannot even out load well enough. | Spike S11 measures before A6 starts. BEES keeps its own per-process work counts, and asks Silica for scheduler statistics if they prove necessary. |
