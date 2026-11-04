@@ -183,7 +183,7 @@ no bytecode is loaded.
   from `main` take 1, 2, ... in start order), so no table of positions exists at build time, `bees_config` generates
   none, and your compiler must not assume a number. What a program keeps at run time is a table from position to
   supervisor reference, filled when a supervisor is started (start it, add or find one child, read the position from the
-  child's identity) and read with `actor_id(pid) shr 32`. BEES does not provide this table yet; keep it yourself. To end
+  child's identity) and read with `actor_id(pid) shr 32`. BEES provides no such table: it is part of your compiler's output, because you write the root supervisor and know which supervisor each actor was added to. To end
   a child by pid, look up its supervisor and ask for the child by id (`:terminate_child`, which works); the supervisor's
   `:which_children` reply lists each live child's id and reference, so the id for a pid is the row whose reference
   equals the pid (that lookup is specified but not exercised by a BEES trial). `:terminate_actor`, which names the
@@ -368,8 +368,7 @@ no bytecode is loaded.
 1. The contract's versioning scheme (A1.4). The manifest and module-table formats (A1.3, A7) and the child-id scheme
    (A4.2) are decided.
 2. A recommended stack reserve for compiled actors (A3.2); a way to give a supervisor child an id without a fixed pool
-   (Silica would have to allow it); whether a restarted supervisor keeps its position (A4.6); and BEES's own run-time
-   position table (A4.6).
+   (Silica would have to allow it); whether a restarted supervisor keeps its position (A4.6).
 3. Delivering exit reasons other than `(:explicit, :killed)` (A5.5), and a non-failing send (A5.4).
 4. A structured failure report from Silica. The listener reads the text of Silica's report today, so a change to that
    text breaks it.

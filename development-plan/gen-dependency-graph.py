@@ -79,7 +79,7 @@ node("M1", "Stage 1 exit: three programs match the BEAM; latency and memory meas
 
 # ---------------- Track A ----------------
 node("A1", "Terms and memory", "BEES", "shim", start=["M1"], close=["S-11", "S-15"])
-node("A2", "Processes and signals (save queue, pdict, exit/2 via position map, exit hub, child-id pools, names)",
+node("A2", "Processes and signals (save queue, pdict, exit hub, child-id pools, names)",
      "BEES", "shim", start=["M1"], close=["A1", "S-2", "S-26", "S-28"],
      soft=[["S-9", "shutdown: 0, no terminate/2"], ["S-29", "BEES name table, hub removes names"]])
 node("A3", "ERTS modules and BIFs (tiers, result-returning variants, ets, persistent_term, code, bees_log, crypto)",

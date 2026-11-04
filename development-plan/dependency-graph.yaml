@@ -288,7 +288,7 @@ nodes:
     close: ["S-11", "S-15"]
     soft: []
   - id: "A2"
-    title: "Processes and signals (save queue, pdict, exit/2 via position map, exit hub, child-id pools, names)"
+    title: "Processes and signals (save queue, pdict, exit hub, child-id pools, names)"
     owner: "BEES"
     area: "shim"
     start: ["M1"]
