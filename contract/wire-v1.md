@@ -1,5 +1,10 @@
 # BEES wire format, version 1
 
+> **Superseded 2026-11-04.** The underlying protocol now matches the BEAM and Erlang: the Erlang distribution protocol and the
+> External Term Format. This document describes the typed, tag-free encoding built in the first codec milestone. Its limits, the
+> ASCII-only text rule, and the rejection reasons still apply to the new encoding; its frame layout and term encoding do not. It
+> stays until a revision describing the Erlang profile replaces it.
+
 **Status:** as verified by the reference implementation (`src/inter_nodal/bees_wire.silica` with the units that
 `tools/bees_config.py wire` generates) and by the trials `m1_wire_types`, `m1_wire_reject`, `m1_wire_words`,
 `m1_wire_vectors` and `m1_wire_memory`. It describes frames in memory only. How frames travel between programs is not

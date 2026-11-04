@@ -1,5 +1,9 @@
 # BEES Inter-Nodal Modes: SEMP/TRUST and Standard BEAM Distribution
 
+> **Revised 2026-11-04 (roadmap D34).** The underlying protocol matches the BEAM and Erlang in every mode. TRUST no longer has its
+> own `trust/1` term encoding (D8 is withdrawn): it uses the Erlang distribution protocol and ETF, with its security properties
+> layered on top. Where this document describes the `trust/1` term encoding (section 3.6, §1.2), it is superseded.
+
 BEAM-language programs compiled to Silica through BEES reach other nodes in one of two modes:
 
 | | **SEMP/TRUST** (default) | **Standard BEAM distribution** (explicit downgrade) |

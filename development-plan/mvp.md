@@ -1,6 +1,6 @@
 # BEES minimum viable product: messages across nodes
 
-**Status: proposed 2026-11-04, revised the same day to work with standard Silica.** The first thing BEES ships that two
+**Status: proposed 2026-11-04; revised the same day to work with standard Silica and to use the Erlang distribution protocol (D34).** The first thing BEES ships that two
 separate programs can use together. It is small on purpose and is meant to be built on. Companion documents:
 [roadmap.md](roadmap.md) (decisions D1-D32 and milestones), [gap-ledger.md](gap-ledger.md),
 [inter-nodal-modes.md](inter-nodal-modes.md) (the full design this grows into).
@@ -24,7 +24,7 @@ peer does not crash the sender; and message rate and memory are measured.
 | One node per operating-system process (2026-11-04). | The link between the nodes is a real transport. |
 | **Standard Silica actors, operators and constructs, as the specification describes (2026-11-04).** | User code is unchanged: no BEES calls in it. A **proxy actor** registered locally under the remote actor's name stands in for it, so `cast_registered(:name, msg impl ActorMessage {})` works whether the name is local or remote. Messages are typed Silica values (structural records, tuples, lists), not dynamic terms. |
 | Remote messages are addressed by **registered name**, not by pid (agreed). | No identity-to-actor table is needed. |
-| BEES uses its **own compact encoding**, not ETF (D8, agreed). | ETF and BEAM mode wait. |
+| **The underlying protocol matches the BEAM and Erlang (D34, 2026-11-04), for every mode.** The MVP is BEES to BEES using Erlang-compatible bytes. | The wire is the Erlang distribution protocol and ETF, not a BEES encoding. Interoperating with real Erlang nodes (and EPMD discovery) follows the MVP. |
 | Wire encoding, distribution and the balancer belong to BEES; bytes and the host belong to the compiler (2026-11-04). | The sockets exist only for BEES's own distribution and are not exposed to user code. |
 | Every peer is named in the program (D16). | Peers and remote names are fixed at build time. |
 | No monitors (D20). | Sends are fire-and-forget; a lost peer is seen only as the proxy ending (section 3.3). |
@@ -80,55 +80,68 @@ proxy is a supervised child like any other actor.
   learns of a lost peer the way it learns of any dead actor, and the supervisor restarts the proxy. There is no
   reconnect in the MVP, so a restarted proxy drops its messages until the program restarts the connection.
 
-### 3.4 The wire (version 1, written in [`contract/wire-v1.md`](../contract/wire-v1.md); verified in M1)
+### 3.4 The wire: the Erlang distribution protocol (D34)
 
-A **frame** is `u32 length (big-endian) | u8 version (1) | u8 kind | body`, where `length` counts the bytes after the
-length field and the whole frame is at most 4096 bytes.
+BEES sends what an Erlang node sends. The MVP implements the following profile; the exact set of distribution flags is open
+(section 9) and will be fixed against OTP's documentation and a real node. **The byte layouts below are from my knowledge of
+the OTP distribution protocol and have not yet been checked against a real node.** The installed `erl` can generate ETF test
+vectors (`term_to_binary`) to check the codec before any interop.
 
-| kind | meaning | body |
+**Handshake (version 6), 2-byte length framing before it completes:**
+
+| step | tag | contents |
 | --- | --- | --- |
-| 0 | hello | the sender's node name as an atom spelling, then the 8-byte schema digest |
-| 1 | send | `u16` message kind id, then the value |
+| initiator sends | `N` | flags (8 bytes), creation (4), name length (2), node name |
+| acceptor replies | `s` | status text, `ok` to continue |
+| acceptor sends | `N` | flags (8), challenge (4), creation (4), name length (2), node name |
+| initiator sends | `r` | its own challenge (4), then the 16-byte digest |
+| acceptor sends | `a` | the 16-byte digest |
 
-A **value** is encoded from its Silica type, with no tag bytes (the type is known from the kind id): integers of each width
-big-endian (`int8` to `int64`, `uint8` to `uint64`), `float32` and `float64` as IEEE 754 big-endian (finite values only;
-infinity and NaN are refused), `boolean` as one byte (0 or 1), `char` as its code point in a `u32`, `atom` as a `u8` byte
-count then the spelling, `string` as a `u32` byte count then the bytes, a tuple or record field by field in declared
-order, and `List[T]` as a `u32` count then the elements.
+The digest is **MD5 over the cookie followed by the challenge written as a decimal string**. The cookie is a build-time
+constant in the manifest. MD5 is written in Silica (32-bit words by same-type arithmetic). Challenges come from a PRNG
+seeded from Silica's `monotonic_time`: **not secure, test-only**; secure random bytes arrive through the foreign-function
+boundary and are tainted, so they wait on Silica's re-creation, as the receive path does. A node name the program does not
+hold is refused (D16).
 
-**Text is ASCII only in the MVP** (verified in M1): tab, newline, carriage return and `0x20` to `0x7E`, in strings, atom
-spellings and chars. Silica has no bytes-to-string conversion, so each byte becomes text through a table of one-character
-literals; a decoder refuses any other byte (`bad_text`). Widening to UTF-8 would not change the frame.
+**After the handshake**, frames carry a 4-byte big-endian length. A zero length is a net tick, answered in kind. A message
+is the byte `p` (pass-through), then the control message as ETF, then the payload as ETF. The MVP sends and receives one
+control message, `REG_SEND` (`{6, FromPid, '', ToName}`), which is exactly "send to a registered name on that node". Any
+other control message is dropped and counted. `FromPid` is a pid of the sending node built from the sending proxy's 64-bit
+identity (the id and serial fields).
 
-An atom travels as its **spelling**, because two programs have different atom tables; the receiver turns the spelling
-back into its own atom with a lookup and refuses a frame whose atom it does not hold (D16). The spelling-to-atom lookups
-in `bees_atoms` are therefore used **inside BEES** by the wire layer; they are not exposed to compilers.
+**ETF, from the declared Silica type** (the target name fixes the type; there is no message-kind id on the wire):
 
-**Types in the MVP** (verified in M1): the integer widths, `float32`, `float64`, `boolean`, `char`, `atom`, `string`,
-tuples, records, and `List[T]` of these, nested to 16 levels. **Not in the MVP:** `actor_ref`, regions and references,
-`buf`, functions, sum types, optional references, atom-literal types (**tagged tuples**: writing the tag as a literal
-would put a BEAM atom literal in a generated unit; use `(atom, T)` or a record with an `atom` field), `float16`, and the
-standard data structures (maps, sets). A message type that uses one is a build error from `bees_config`, naming the
-message, the field path and the type.
+| Silica type | ETF |
+| --- | --- |
+| `int8` to `int64`, `uint8` to `uint64`, `char` | the smallest of small integer, integer, small big; the decoder accepts any valid encoding that fits the type, and refuses anything outside its range |
+| `float32`, `float64` | new float (8 bytes, IEEE 754 big-endian); a `float32` is refused if the value does not fit exactly; infinity and NaN are refused |
+| `boolean` | the atoms `true` and `false` |
+| `atom` | small atom UTF-8 or atom UTF-8, by spelling; refused if the program does not hold it (D16) |
+| `string` | binary |
+| tuple, record | small tuple (large tuple above 255), fields in declared order |
+| `List[T]` | list with a nil tail; the empty list is nil |
 
-**Limits (tunable; the run-time copy is in `bees_wire`, the build-time copy in `tools/bees_wire_gen.py`, and a test keeps
-them equal):** frame at most 4 KiB, nesting depth at most 16, at most 256 elements in a list, atom spelling at most 255
-bytes, string at most 1 KiB.
+The decoder checks the whole term against the declared type and refuses a mismatch, an unknown tag, a bad length, a non-proper
+list, or a term outside the limits. **The M1 rules carry over:** text is ASCII only, the limits (frame 4 KiB, depth 16, 256
+list elements, atom 255 bytes, string 1 KiB), bounds-checked reads that reject instead of faulting, and nothing allocated
+before the checks. **Not in the MVP:** pids, references, ports and funs as values, maps, big integers beyond 64 bits, atom
+caches and the distribution header, compressed terms, atoms outside ASCII, tagged tuples.
 
-**The manifest** (`<unit>.wire`, read by `bees_config wire` and `bees_config generate`) is, for M1, one line per message:
-`message <name> <silica type>`, `#` for comments. Kind ids follow manifest order; the schema digest is FNV-1a (64 bit) of
-the canonical schema text. The peer, remote and local lines of section 3.1 are M3's and are not read yet.
+**The manifest** keeps `message <name> <silica type>` and adds, in M3: this node's name and cookie, `peer` lines (name, host,
+port, `listen` or `dial`), and `remote` / `local` lines that tie a registered **name** to its message type. Kind ids and the
+schema digest from the first codec are no longer on the wire; a schema mismatch shows up as a refused frame.
 
-### 3.5 The handshake and the connection
+### 3.5 The connection
 
-1. The dialing node connects and sends a `hello` frame with its node name and schema digest.
-2. The listening node checks the name against its peer table and the digest against its own. On any mismatch it closes
-   the connection without a reply. Otherwise it replies with its own `hello`.
-3. The dialer checks the reply the same way.
-4. From then on either side may send `send` frames. Frames before a completed handshake are dropped.
+1. The dialing node connects and runs the handshake above; the listening node checks the peer's name against its peer table
+   and the cookie digest. On any failure it closes the connection.
+2. After the handshake, either side sends `REG_SEND` messages and net ticks. A frame before the handshake completes is dropped.
+3. A tick is sent when the connection has been idle for a fraction of the tick time; a peer that sends nothing for the tick time
+   is treated as lost, its connection closes and its proxies end (section 3.3).
 
-There is **no authentication and no encryption** in the MVP; the demo binds to `127.0.0.1`, and every build prints a
-banner that the transport is for testing only. TRUST (mutual TLS) replaces this step later.
+There is **no encryption and only a shared-secret cookie** in the MVP; the demo binds to `127.0.0.1`, and every build prints a
+banner that the transport is for testing only. TRUST's security options (mutual TLS and certificate fingerprints) replace this
+step later, on the same protocol.
 
 ## 4. The gate: receiving bytes from the network
 
@@ -155,11 +168,12 @@ a small driver script that starts two executables and compares their outputs.
 | # | Milestone | Exit criteria |
 | --- | --- | --- |
 | **M0** | **Done 2026-11-04: blocked.** Re-creation by hand does not pass Silica's checker (trial `m0_recreation`, note S8). | The written finding: the receive path needs `Recreatable`. |
-| **M1** | **Done 2026-11-04 (in memory only; see [spikes/M1-wire-codec.md](spikes/M1-wire-codec.md)).** The schema manifest, the `bees_config` generator for encoders and decoders, and the `bees_wire` core. | Round-trip trials for every supported type and for nested values (`m1_wire_types`); rejection trials for truncated, oversized, too-deep, over-long, unknown-atom, unknown-kind, bad-text and other hostile input (`m1_wire_reject`); word packing (`m1_wire_words`); a message type with an unsupported field is a build error (`tools/test_bees_wire_gen.py`); no allocation grows on rejection: 200,000 frames, 1.9 MB peak (`m1_wire_memory`). Excluded and why: tagged tuples (atom-literal types), `float16`, non-ASCII text. |
+| **M1** | **Done 2026-11-04 as a typed tag-free codec (in memory only; superseded in part by M1b, D34; see [spikes/M1-wire-codec.md](spikes/M1-wire-codec.md)).** The schema manifest, the `bees_config` generator for encoders and decoders, and the `bees_wire` core. | Round-trip trials for every supported type and for nested values (`m1_wire_types`); rejection trials for truncated, oversized, too-deep, over-long, unknown-atom, unknown-kind, bad-text and other hostile input (`m1_wire_reject`); word packing (`m1_wire_words`); a message type with an unsupported field is a build error (`tools/test_bees_wire_gen.py`); no allocation grows on rejection: 200,000 frames, 1.9 MB peak (`m1_wire_memory`). Excluded and why: tagged tuples (atom-literal types), `float16`, non-ASCII text. |
+| **M1b** | Retarget the M1 generator and `bees_wire` from the typed tag-free encoding to **ETF** (D34): the encoders and decoders per type, dispatch by target name, ETF integers of every width and encoding, floats, atoms, binaries, tuples, lists; keep the manifest, limits, rejection reasons and the memory behaviour. Test vectors generated by the installed `erl` (`term_to_binary`) are the oracle. | Every supported type encodes to the same bytes as `term_to_binary` and decodes from every valid encoding (including the ones `erl` can produce for the same value); the rejection trials of M1 pass on ETF; the memory check holds. |
 | **M2** | The native edge sockets, `127.0.0.1` only, with a poll timeout. | Two OS processes exchange one frame of words over a TCP connection; the listener refuses non-local addresses. |
-| **M3** | `bees_net` and `bees_ingress`: the generated peer table, proxies and deliverers, the handshake, delivery by registered name. | Two plain Silica programs complete the handshake and a cast to a remote name arrives; a connection from an unlisted node, or with a different schema digest, is closed; a frame before the handshake is dropped; a closed connection ends its proxies. |
+| **M3** | `bees_net`, `bees_dist` and `bees_ingress`: MD5, the handshake, ticks, `REG_SEND`, the generated peer table, proxies and deliverers, delivery by registered name. | Two plain Silica programs complete the version-6 handshake and a cast to a remote name arrives; a connection from an unlisted node or with a wrong cookie is closed; a frame before the handshake is dropped; a tick keeps an idle link alive and its absence ends the proxies. The MD5 and the digest equal `erl`'s (`erlang:md5`). |
 | **M4** | The demo and measurements. A plain Silica service on node a and a client on node b exchange casts with a payload that uses every supported type, the service answering through `reply_to`; a node stopped mid-run; a hostile frame injected. | The answers arrive with the payload intact; the surviving node's sender sees only Silica's normal dead-actor behaviour; the hostile frame is refused; message rate and each node's peak memory are recorded in a spike note. |
-| **M5** | Documentation. `contract/wire-v1.md`; the schema manifest and node behaviour added to the compiler guide's "what BEES provides"; roadmap updated (Track B slice done to this point). | The wire spec is complete enough that a second implementation could be written from it. |
+| **M5** | Documentation. `contract/wire-v1.md` rewritten as the Erlang profile BEES implements (flags, control messages, ETF subset, limits); the node behaviour added to the compiler guide's "what BEES provides"; roadmap updated. | The profile is complete enough that a second implementation could be written from it, and says exactly where it differs from OTP. |
 
 ## 6. Dependencies
 
@@ -171,6 +185,9 @@ a small driver script that starts two executables and compares their outputs.
 | Registered names (`spawn_registered`, `cast_registered`) | Work. Silica's later `register` / `whereis` are not needed. |
 | The exit listener and hub | Exist (A2). |
 | A pair-of-processes trial driver | New, small. |
+| MD5 (the handshake digest) | New, in Silica (32-bit words, same-type arithmetic); checked against `erlang:md5` from the installed `erl`. |
+| A PRNG seeded from Silica's `monotonic_time` for handshake challenges | New; insecure, test-only. Secure random waits on re-creation. |
+| Erlang/OTP on the development machine | Installed (`/usr/local/erlang`, `epmd`, `erl`). Used only to generate test vectors in M1b and M3, not at run time. |
 | `bees_config` schema and peer generators | New. |
 | A C compiler for the edge | `clang`, already used for `native/`. No downloads. |
 
@@ -179,11 +196,12 @@ a small driver script that starts two executables and compares their outputs.
 | Left out | Why, and where it goes |
 | --- | --- |
 | **Synchronous `call` across nodes.** | A Silica call returns its reply at the end of the callee's dispatch, and results of foreign calls reach an actor as casts, so a proxy cannot hold a call open until the network reply arrives. The `reply_to` cast above covers the need. It becomes possible with a Silica deferred reply or a foreign call that returns to its caller; it is a Silica request to file. |
-| Dynamic terms (`bees_term`) as a message type | A second codec kind (tagged terms) on the same frames, for compilers of dynamic languages. |
+| Dynamic terms (`bees_term`) as a message type | ETF already carries tagged terms; a decoder to `bees_term` is the next step for compilers of dynamic languages. |
 | Sum types, optional references, maps and sets, `buf` | Added to the codec one at a time. |
-| TLS, mutual authentication, certificates | TRUST (roadmap B1); needs the TLS engine (spike S12) and re-creation. |
+| TLS, mutual authentication, certificates | TRUST's security options on the same protocol (roadmap B1); need the TLS engine (spike S12) and re-creation. |
 | Sends to a pid, links, remote spawn, node-down notification | After the MVP, once an identity-to-actor table or Silica's registry exists. |
-| ETF, EPMD, BEAM-compatible mode | Roadmap B3 and B4. |
+| EPMD discovery, and interoperating with real Erlang nodes | Next after the MVP (roadmap B3): EPMD registration and lookup, the full distribution flag set, and testing against `erl -sname`. |
+| Pids, references, ports and funs as values; links; remote spawn; the distribution header and atom cache | Later control messages and terms on the same protocol (roadmap B3, B4). |
 | Reconnect, backoff, flow control, more than one frame in flight | A later step on the same connection actor. |
 | More than two nodes | The peer table already supports it; the demo uses two. |
 | Frames larger than 4 KiB | Raised when `buf(uint8)` crosses the foreign-function boundary. |
@@ -204,8 +222,12 @@ a small driver script that starts two executables and compares their outputs.
 
 ## 9. Open points for a human
 
-1. The manifest format in section 3.1, the port numbers, and whether the schema is one file per program or per unit.
-2. The proposed frame and field limits in section 3.4.
-3. Whether a cast to a name nobody holds should leave an audit entry (proposed: yes, counted, not per message).
-4. Whether a lost connection should end its proxies (proposed) or leave them running and drop silently, which hides
-   the failure from the sender but matches the earlier "fire-and-forget" wording.
+1. The set of distribution flags BEES offers and requires, the handshake's `creation` value, and the tick time. To be fixed
+   against OTP's documentation and a real node; the byte layouts in section 3.4 are from memory and unchecked.
+2. The manifest lines for the node name, the cookie, peers and remote and local names (M3), and whether the cookie belongs in
+   a manifest at all (it is a build-time constant and test-only here).
+3. The proposed limits (frame 4 KiB, depth 16, 256 list elements, atom 255 bytes, string 1 KiB), now measured against ETF.
+4. Whether a cast to a name nobody holds should leave an audit entry (proposed: yes, counted, not per message).
+5. Whether a lost connection should end its proxies (proposed) or leave them running and drop silently.
+6. How a `float32` that does not fit exactly, and a `uint64` above the `int64` range, should be handled when ETF can carry
+   them (proposed: refuse the first, accept the second as a small big).
