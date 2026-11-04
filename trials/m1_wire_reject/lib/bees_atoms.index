@@ -1,0 +1,17 @@
+0	bad_boolean
+1	bad_float
+2	bad_frame_kind
+3	bad_text
+4	bad_version
+5	known
+6	node_a
+7	node_b
+8	rejected
+9	too_deep
+10	too_large
+11	too_long
+12	trailing
+13	truncated
+14	unknown_atom
+15	unknown_kind
+16	yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy

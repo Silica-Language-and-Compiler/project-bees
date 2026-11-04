@@ -1,0 +1,4 @@
+# The worked example of contract/wire-v1.md: three messages, their digest, and the frames the document lists.
+message a uint8
+message b { n: int16, s: string }
+message c List[boolean]

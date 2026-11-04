@@ -1,0 +1,7 @@
+wmsg -1,hello,-2.5: n=33 words=5 total=33 w0=124570894336 wlast=0 same=true pad0=true check=:ok
+wmsg int64 min,empty,1e300: n=28 words=4 total=28 w0=103096057856 wlast=-8646781971676004352 same=true pad0=true check=:ok
+List[uint8] 256 x 255: n=268 words=34 total=268 w0=1133888208897 wlast=-4294967296 same=true pad0=true check=:ok
+List[uint8] empty: n=12 words=2 total=12 w0=34376581121 wlast=0 same=true pad0=true check=:ok
+frame of 4096 bytes: n=4096 words=512 total=4096 w0=17575023017986 wlast=7740398493674204011 same=true pad0=true check=:ok
+words done
+exit=0

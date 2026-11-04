@@ -1,0 +1,114 @@
+// M1: no allocation grows without bound on rejection. One actor decodes 100,000 hostile frames (four kinds of
+// rejection, in rotation) and 100,000 valid frames (a record holding a string, a list and an atom) in a single
+// dispatch; the harness measures peak resident memory (`/usr/bin/time -l`, see the M1 note), which must stay
+// small and flat. The counts printed are the number of frames that came back with the expected verdict.
+use bees_atoms;
+use bees_wire;
+use bees_wire_msgs;
+use bees_reporter;
+
+fn small_value() -> { a: uint16, s: string, l: List[uint8, mem(normal)], at: atom, ok: boolean } {
+    sequence proc[mem(normal)]
+        e: List[uint8, mem(normal)] <- empty[uint8, mem(normal)]();
+        l1: List[uint8, mem(normal)] <- prepend[uint8, mem(normal)](9, prepend[uint8, mem(normal)](8, e));
+        r: { a: uint16, s: string, l: List[uint8, mem(normal)], at: atom, ok: boolean } <- { a: 513, s: "hello hello hello hello hello hello", l: l1, at: bees_atoms@a_known(), ok: true }
+    produces pure r end
+}
+fn fill(b: buf(L, normal, uint8, 4096), pos: int64, n: int64, v: int64) -> int64 {
+    case n <= 0 of { true -> pos; false -> fill(b, bees_wire@put_i(b, pos, v), n - 1, v) }
+}
+fn pre(b: buf(L, normal, uint8, 4096), id: int64) -> int64 {
+    bees_wire@put_i(b, bees_wire@put_i(b, bees_wire@put_i(b, bees_wire@put_i(b, bees_wire@put_u32(b, 0, 0), 1), 1), id / 256), id % 256)
+}
+fn hit(b: boolean) -> int64 { case b of { true -> 1; false -> 0 } }
+fn v(b: buf(L, normal, uint8, 4096), n: int64) -> int64 { bees_wire_msgs@validate(b, n) }
+fn reject_loop(i: int64, n: int64, ok: int64, b: buf(L, normal, uint8, 4096), len: int64) -> int64 {
+    case i >= n of {
+        true -> ok;
+        false -> reject_loop(i + 1, n, ok + hit(v(b, len) > 0), b, len)
+    }
+}
+fn accept_loop(i: int64, n: int64, ok: int64, b: buf(L, normal, uint8, 4096), len: int64) -> int64 {
+    case i >= n of {
+        true -> ok;
+        false -> accept_loop(i + 1, n, ok + hit(bees_wire_msgs@dec_small(b, len).code == 0), b, len)
+    }
+}
+// One accepted frame per dispatch, which is how the connection actor will receive them: encode a valid frame,
+// decode it, count it. Everything the decode allocated is reclaimed when the dispatch ends.
+fn cycle() -> int64 {
+    sequence proc[mem(normal)]
+        L: lifetime <- fresh_lifetime();
+        r: region(L, normal) <- alloc_region(normal);
+        b: buf(L, normal, uint8, 4096) <- alloc_buf(r, 4096);
+        n: int64 <- bees_wire_msgs@enc_small(b, small_value())
+    produces pure hit(bees_wire_msgs@dec_small(b, n).code == 0) end
+}
+fn rejects() -> int64 {
+    sequence proc[device_io, mem(normal)]
+        L: lifetime <- fresh_lifetime();
+        r: region(L, normal) <- alloc_region(normal);
+        r0: buf(L, normal, uint8, 4096) <- alloc_buf(r, 4096);
+        r1: buf(L, normal, uint8, 4096) <- alloc_buf(r, 4096);
+        r2: buf(L, normal, uint8, 4096) <- alloc_buf(r, 4096);
+        r3: buf(L, normal, uint8, 4096) <- alloc_buf(r, 4096);
+        n2: int64 <- bees_wire_msgs@enc_small(r2, small_value());
+        // list of 257 bytes: too_long
+        p0: int64 <- fill(r0, bees_wire@put_u32(r0, bees_wire@put_i(r0, pre(r0, 1), 0) - 0, 257), 257, 7);
+        n0: int64 <- bees_wire@finish(r0, p0);
+        // string with a byte over 127: bad_text
+        p1: int64 <- bees_wire@put_i(r1, bees_wire@put_i(r1, bees_wire@put_u32(r1, bees_wire@put_i(r1, pre(r1, 2), 0) - 0, 2), 97), 200);
+        n1: int64 <- bees_wire@finish(r1, p1);
+        // atom `nope`: unknown_atom
+        p3: int64 <- bees_wire@put_i(r3, bees_wire@put_i(r3, bees_wire@put_i(r3, bees_wire@put_i(r3, bees_wire@put_i(r3, pre(r3, 3), 4), 110), 111), 112), 101);
+        n3: int64 <- bees_wire@finish(r3, p3);
+        rej0: int64 <- reject_loop(0, 25000, 0, r0, n0);
+        rej1: int64 <- reject_loop(0, 25000, 0, r1, n1);
+        rej2: int64 <- reject_loop(0, 25000, 0, r2, n2 - 1);
+        rej3: int64 <- reject_loop(0, 25000, 0, r3, n3);
+        print_string("rejected frames refused (list of 257, byte 200 in a string, unknown atom, truncated; 25000 each): ");
+        _: atom <- print_int64(rej0 + rej1 + rej2 + rej3);
+        println("")
+    produces pure 0 end
+}
+// message 0: the rejection loop (100,000 hostile frames in this one dispatch); message 1: one valid frame,
+// counted in the state, after which the actor casts the next message 1 to itself (one message queued at a
+// time); at 100,000 it reports and ends the program.
+fn run(m: int64, state: int64) -> (:no_reply, int64) {
+    case m == 0 of {
+        true -> {
+            sequence
+                _: int64 <- rejects()
+            produces pure (:no_reply, state) end
+        };
+        false -> tally(state + cycle())
+    }
+}
+fn tally(count: int64) -> (:no_reply, int64) {
+    case count >= 100000 of {
+        true -> {
+            sequence proc[concurrency, device_io]
+                print_string("valid frames accepted, one per dispatch: ");
+                _: atom <- print_int64(count);
+                println("");
+                println("memory done");
+                _: boolean <- cast_exit(0)
+            produces pure (:no_reply, count) end
+        };
+        false -> {
+            sequence proc[concurrency]
+                me: actor_ref <- self();
+                _: boolean <- cast(me, 1 impl ActorMessage {})
+            produces pure (:no_reply, count) end
+        }
+    }
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- bees_reporter@start();
+        a: actor_ref <- spawn(0, run, stack_policy(0, :keep_last_message));
+        _: boolean <- cast(a, 0 impl ActorMessage {});
+        _: boolean <- cast(a, 1 impl ActorMessage {});
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

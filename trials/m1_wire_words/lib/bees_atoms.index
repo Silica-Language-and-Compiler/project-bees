@@ -1,0 +1,13 @@
+0	bad_boolean
+1	bad_float
+2	bad_frame_kind
+3	bad_text
+4	bad_version
+5	rejected
+6	too_deep
+7	too_large
+8	too_long
+9	trailing
+10	truncated
+11	unknown_atom
+12	unknown_kind

@@ -1,0 +1,5 @@
+# M1 memory trial
+message small { a: uint16, s: string, l: List[uint8], at: atom, ok: boolean }
+message lst List[uint8]
+message str string
+message tag atom

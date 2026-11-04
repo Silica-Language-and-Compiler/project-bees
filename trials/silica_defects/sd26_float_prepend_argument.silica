@@ -1,0 +1,35 @@
+// SD-26 (open on silica-999939; wrong output today: 0.0 then 1.5, correct would be 1.5 then 1.5):
+// `prepend[float64, mem(normal)](va(), e)`, a float64 that is the RESULT OF A CALL (or a field access such as `e.v`)
+// passed directly as the element argument, stores 0.0. Binding the float first (`x: float64 <- va()`) works.
+// BEES's generated decoder binds every list element first for this reason.
+fn va() -> float64 { 1.5 }
+fn direct() -> List[float64, mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[float64, mem(normal)] <- empty[float64, mem(normal)]();
+        l: List[float64, mem(normal)] <- prepend[float64, mem(normal)](va(), e)
+    produces pure l end
+}
+fn bound() -> List[float64, mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[float64, mem(normal)] <- empty[float64, mem(normal)]();
+        x: float64 <- va();
+        l: List[float64, mem(normal)] <- prepend[float64, mem(normal)](x, e)
+    produces pure l end
+}
+fn first(l: List[float64, mem(normal)]) -> float64 {
+    sequence proc[mem(normal)]
+        h: float64 <- list_at[float64, mem(normal)](l, 0)
+    produces pure h end
+}
+fn pf(x: float64) -> int64 {
+    sequence proc[device_io]
+        _: atom <- print_float64(x);
+        println("")
+    produces pure 0 end
+}
+fn main() -> int64 {
+    sequence
+        _: int64 <- pf(first(direct()));
+        _: int64 <- pf(first(bound()))
+    produces pure 0 end
+}

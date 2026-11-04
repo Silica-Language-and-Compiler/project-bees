@@ -4,6 +4,7 @@
 Commands
 
     bees_config.py generate -o OUT_DIR MANIFEST...   everything below, from one manifest list
+    bees_config.py wire     -o OUT_DIR MANIFEST...   only the wire codecs (.wire manifests; bees_wire_gen.py)
     bees_config.py atoms    -o OUT_DIR MANIFEST...   only bees_atoms (D30)
     bees_config.py check    UNIT...                  atom-literal lint
 
@@ -12,6 +13,8 @@ A compiler writes manifests next to its units. Three kinds, told apart by extens
   <unit>.atoms     one atom spelling per line (`#` comments allowed): every symbol the unit uses.
   <unit>.module    the module table entries of one module (formats below).
   <name>.pools     requests for pools of child ids (formats below).
+  <unit>.wire      message types that cross between nodes (format in tools/bees_wire_gen.py):
+                   `message <name> <silica type>`; one kind id per message in manifest order.
 
 `generate` writes, into OUT_DIR, each unit only when its manifests exist:
 
@@ -22,6 +25,10 @@ A compiler writes manifests next to its units. Three kinds, told apart by extens
   bees_modules.silica    when a `.module` file exists: dispatch by module, function and arity
                    (apply/3 style) and by fun id.
   bees_ids.silica        when a `.pools` file exists: child-id pools.
+  bees_wire_tables.silica, bees_wire_msgs.silica
+                   when a `.wire` file exists: the byte tables and the per-message encoders, decoders,
+                   kind ids, schema digest and dispatcher (hand-written core: src/inter_nodal/bees_wire.silica).
+                   A message type with a field the wire does not carry is a build error (exit 1).
 
 Everything generated is sorted, so the same manifests give byte-identical units, and none of it
 contains a BEAM atom literal outside bees_atoms (every other unit reaches atoms through
@@ -200,7 +207,7 @@ def split_manifests(paths):
     atoms_f = [p for p in paths if p.endswith(".atoms")]
     mod_f = [p for p in paths if p.endswith(".module")]
     pool_f = [p for p in paths if p.endswith(".pools")]
-    other = [p for p in paths if p not in atoms_f + mod_f + pool_f]
+    other = [p for p in paths if p not in atoms_f + mod_f + pool_f and not p.endswith(".wire")]
     if other:
         raise ManifestError("unknown manifest kind: " + ", ".join(other))
     return atoms_f, mod_f, pool_f
@@ -514,17 +521,38 @@ def gen_ids(out_dir, atoms, pools):
     return 0
 
 
+def gen_wire(out_dir, manifests):
+    """The wire codec units from the .wire manifests among `manifests` (none: only the tables)."""
+    import bees_wire_gen
+    try:
+        bees_wire_gen.generate_wire(out_dir, [p for p in manifests if p.endswith(".wire")])
+    except bees_wire_gen.WireError as e:
+        print("bees_config: " + str(e), file=sys.stderr)
+        return 1
+    return 0
+
+
 def generate(out_dir, manifests):
     try:
         atoms, modules, pools = collect(manifests)
     except ManifestError as e:
         print("bees_config: " + str(e), file=sys.stderr)
         return 1
+    # the wire manifests are read first so that a bad message type stops the build before anything is written
+    if any(p.endswith(".wire") for p in manifests):
+        import bees_wire_gen
+        try:
+            bees_wire_gen.collect([p for p in manifests if p.endswith(".wire")], warn=False)
+        except bees_wire_gen.WireError as e:
+            print("bees_config: " + str(e), file=sys.stderr)
+            return 1
     rc = write_atoms(out_dir, atoms)
     if rc == 0 and modules:
         rc = gen_modules(out_dir, atoms, modules)
     if rc == 0 and pools:
         rc = gen_ids(out_dir, atoms, pools)
+    if rc == 0 and any(p.endswith(".wire") for p in manifests):
+        rc = gen_wire(out_dir, manifests)
     return rc
 
 
@@ -560,6 +588,8 @@ def main(argv):
     if len(argv) >= 4 and argv[1] == "generate" and argv[2] == "-o":
         os.makedirs(argv[3], exist_ok=True)
         return generate(argv[3], argv[4:])
+    if len(argv) >= 4 and argv[1] == "wire" and argv[2] == "-o":
+        return gen_wire(argv[3], argv[4:])
     if len(argv) >= 3 and argv[1] == "check":
         return check(argv[2:])
     print(__doc__, file=sys.stderr)

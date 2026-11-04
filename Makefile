@@ -9,10 +9,12 @@ integrate: check-compiler native
 	@$(MAKE) -C trials integrate
 	@$(MAKE) kit
 
-# The conformance kit (contract/conformance) and the lowering-choices checker: no Silica involved.
+# The conformance kit (contract/conformance), the lowering-choices checker and the wire generator's tests: no
+# Silica is compiled (the wire test reads a recorded golden).
 kit:
 	@python3 "$(BEES_ROOT)/tools/conformance.py" check-kit
 	@python3 "$(BEES_ROOT)/tools/test_check_lowering_choices.py" 2>&1 | tail -3
+	@python3 "$(BEES_ROOT)/tools/test_bees_wire_gen.py" 2>&1 | tail -3
 
 record-golden: check-compiler
 	@$(MAKE) -C trials record-golden

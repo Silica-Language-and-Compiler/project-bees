@@ -1,0 +1,14 @@
+# The atoms bees_wire uses (rejection reasons). Every leaf that links bees_wire needs this manifest.
+rejected
+truncated
+too_large
+too_deep
+too_long
+bad_text
+unknown_atom
+unknown_kind
+bad_float
+bad_boolean
+bad_version
+bad_frame_kind
+trailing

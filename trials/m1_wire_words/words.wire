@@ -1,0 +1,4 @@
+# M1 word-packing trial
+message wmsg { a: int64, s: string, f: float64 }
+message lst List[uint8]
+message lstr List[string]

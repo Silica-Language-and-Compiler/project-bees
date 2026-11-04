@@ -56,7 +56,7 @@ local  inbox         cast  { total: int64 }
 | Unit | Role |
 | --- | --- |
 | `bees_wire` (generated parts and a small hand-written core) | Generated per message type: an encoder from the typed value to bytes and a decoder back. The core holds the byte, integer, float and string primitives (lookups and same-type arithmetic, no type conversion, as proven in spike S5). |
-| `bees_ingress` | The security boundary. Checks every frame before and while it is decoded: size, nesting depth, element counts, UTF-8 in strings and atom spellings, kind id known, and that every atom is already held by the program. Any failure drops the frame silently toward the peer and writes an audit entry. |
+| `bees_ingress` | The security boundary. Checks every frame before and while it is decoded: size, nesting depth, element counts, text in strings and atom spellings (ASCII only in the MVP), kind id known, and that every atom is already held by the program. **In M1 these checks live inside the decoder, in `bees_wire` (they must run before anything is allocated, so they cannot be a separate pass); the `bees_ingress` unit of M3 adds the audit entry and the delivery policy and calls them, rather than repeating them.** Any failure drops the frame silently toward the peer and writes an audit entry. |
 | `bees_net` | The node: its name, the peer table, one **connection actor** per peer, the generated proxies and inbound deliverers. |
 | `dangerous_bees_net` and the native edge | A small C archive and its Silica adapters: listen, accept, connect, write, read, poll with a timeout, close, on `127.0.0.1` only. Bytes cross in 8-byte words until `buf(uint8)` crosses the foreign-function boundary. |
 | `bees_peers` and the proxy/deliverer units | **Generated** by `bees_config` from the manifest. |
@@ -80,9 +80,10 @@ proxy is a supervised child like any other actor.
   learns of a lost peer the way it learns of any dead actor, and the supervisor restarts the proxy. There is no
   reconnect in the MVP, so a restarted proxy drops its messages until the program restarts the connection.
 
-### 3.4 The wire (version 1, to be written in `contract/wire-v1.md`)
+### 3.4 The wire (version 1, written in [`contract/wire-v1.md`](../contract/wire-v1.md); verified in M1)
 
-A **frame** is `u32 length (big-endian) | u8 version (1) | u8 kind | body`.
+A **frame** is `u32 length (big-endian) | u8 version (1) | u8 kind | body`, where `length` counts the bytes after the
+length field and the whole frame is at most 4096 bytes.
 
 | kind | meaning | body |
 | --- | --- | --- |
@@ -90,21 +91,33 @@ A **frame** is `u32 length (big-endian) | u8 version (1) | u8 kind | body`.
 | 1 | send | `u16` message kind id, then the value |
 
 A **value** is encoded from its Silica type, with no tag bytes (the type is known from the kind id): integers of each width
-big-endian (`int8` to `int64`, `uint8` to `uint64`), `float32` and `float64` as IEEE 754 big-endian, `boolean` as one
-byte, `char` as its code point, `atom` as a `u8` byte count then UTF-8 spelling, `string` as a `u32` byte count then UTF-8
-bytes, a tuple or record field by field in declared order, and `List[T]` as a `u32` count then the elements.
+big-endian (`int8` to `int64`, `uint8` to `uint64`), `float32` and `float64` as IEEE 754 big-endian (finite values only;
+infinity and NaN are refused), `boolean` as one byte (0 or 1), `char` as its code point in a `u32`, `atom` as a `u8` byte
+count then the spelling, `string` as a `u32` byte count then the bytes, a tuple or record field by field in declared
+order, and `List[T]` as a `u32` count then the elements.
+
+**Text is ASCII only in the MVP** (verified in M1): tab, newline, carriage return and `0x20` to `0x7E`, in strings, atom
+spellings and chars. Silica has no bytes-to-string conversion, so each byte becomes text through a table of one-character
+literals; a decoder refuses any other byte (`bad_text`). Widening to UTF-8 would not change the frame.
 
 An atom travels as its **spelling**, because two programs have different atom tables; the receiver turns the spelling
 back into its own atom with a lookup and refuses a frame whose atom it does not hold (D16). The spelling-to-atom lookups
 in `bees_atoms` are therefore used **inside BEES** by the wire layer; they are not exposed to compilers.
 
-**Types in the MVP:** the integer widths, `float32`, `float64`, `boolean`, `char`, `atom`, `string`, tuples, records
-(including tagged tuples), and `List[T]` of these. **Not in the MVP:** `actor_ref`, regions and references, `buf`,
-functions, sum types, optional references, and the standard data structures (maps, sets). A message type that uses one is
-a build error from `bees_config`.
+**Types in the MVP** (verified in M1): the integer widths, `float32`, `float64`, `boolean`, `char`, `atom`, `string`,
+tuples, records, and `List[T]` of these, nested to 16 levels. **Not in the MVP:** `actor_ref`, regions and references,
+`buf`, functions, sum types, optional references, atom-literal types (**tagged tuples**: writing the tag as a literal
+would put a BEAM atom literal in a generated unit; use `(atom, T)` or a record with an `atom` field), `float16`, and the
+standard data structures (maps, sets). A message type that uses one is a build error from `bees_config`, naming the
+message, the field path and the type.
 
-**Limits (proposed, tunable):** frame at most 4 KiB, nesting depth at most 16, at most 256 elements in a list, atom
-spelling at most 255 bytes, string at most 1 KiB.
+**Limits (tunable; the run-time copy is in `bees_wire`, the build-time copy in `tools/bees_wire_gen.py`, and a test keeps
+them equal):** frame at most 4 KiB, nesting depth at most 16, at most 256 elements in a list, atom spelling at most 255
+bytes, string at most 1 KiB.
+
+**The manifest** (`<unit>.wire`, read by `bees_config wire` and `bees_config generate`) is, for M1, one line per message:
+`message <name> <silica type>`, `#` for comments. Kind ids follow manifest order; the schema digest is FNV-1a (64 bit) of
+the canonical schema text. The peer, remote and local lines of section 3.1 are M3's and are not read yet.
 
 ### 3.5 The handshake and the connection
 
@@ -142,7 +155,7 @@ a small driver script that starts two executables and compares their outputs.
 | # | Milestone | Exit criteria |
 | --- | --- | --- |
 | **M0** | **Done 2026-11-04: blocked.** Re-creation by hand does not pass Silica's checker (trial `m0_recreation`, note S8). | The written finding: the receive path needs `Recreatable`. |
-| **M1** | The schema manifest, the `bees_config` generator for encoders and decoders, and the `bees_wire` core. In memory only. | Round-trip trials for every supported type and for nested values; rejection trials for truncated, oversized, too-deep, over-long, unknown-atom, unknown-kind and bad-UTF-8 input; a message type with an unsupported field is a build error; no allocation grows without bound on rejection. |
+| **M1** | **Done 2026-11-04 (in memory only; see [spikes/M1-wire-codec.md](spikes/M1-wire-codec.md)).** The schema manifest, the `bees_config` generator for encoders and decoders, and the `bees_wire` core. | Round-trip trials for every supported type and for nested values (`m1_wire_types`); rejection trials for truncated, oversized, too-deep, over-long, unknown-atom, unknown-kind, bad-text and other hostile input (`m1_wire_reject`); word packing (`m1_wire_words`); a message type with an unsupported field is a build error (`tools/test_bees_wire_gen.py`); no allocation grows on rejection: 200,000 frames, 1.9 MB peak (`m1_wire_memory`). Excluded and why: tagged tuples (atom-literal types), `float16`, non-ASCII text. |
 | **M2** | The native edge sockets, `127.0.0.1` only, with a poll timeout. | Two OS processes exchange one frame of words over a TCP connection; the listener refuses non-local addresses. |
 | **M3** | `bees_net` and `bees_ingress`: the generated peer table, proxies and deliverers, the handshake, delivery by registered name. | Two plain Silica programs complete the handshake and a cast to a remote name arrives; a connection from an unlisted node, or with a different schema digest, is closed; a frame before the handshake is dropped; a closed connection ends its proxies. |
 | **M4** | The demo and measurements. A plain Silica service on node a and a client on node b exchange casts with a payload that uses every supported type, the service answering through `reply_to`; a node stopped mid-run; a hostile frame injected. | The answers arrive with the payload intact; the surviving node's sender sees only Silica's normal dead-actor behaviour; the hostile frame is refused; message rate and each node's peak memory are recorded in a spike note. |

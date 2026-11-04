@@ -1,0 +1,4 @@
+rejected frames refused (list of 257, byte 200 in a string, unknown atom, truncated; 25000 each): 100000
+valid frames accepted, one per dispatch: 100000
+memory done
+exit=0
