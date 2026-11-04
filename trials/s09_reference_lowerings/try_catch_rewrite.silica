@@ -20,7 +20,7 @@ fn main() -> int64 {
         a: atom <- to_atom("hello");
         print_string(bees_atoms@spelling(a));
         print_string(" ");
-        _: atom <- print_bool(a == bees_atoms@a_hello());
+        _: atom <- print_boolean(a == bees_atoms@a_hello());
         println("");
         b: atom <- to_atom("no_such_atom");
         println(bees_atoms@spelling(b))

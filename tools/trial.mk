@@ -28,7 +28,7 @@ include $(BEES_ROOT)/tools/silica.mk
 TOPO := $(BEES_ROOT)/tools/topo_silica_config.sh
 
 BEES_CONFIG := $(BEES_ROOT)/tools/bees_config.py
-MANIFESTS   := $(strip $(wildcard $(LEAF)/lib/*.atoms) $(wildcard $(LEAF)/*.atoms))
+MANIFESTS   := $(strip $(filter-out %/silica.atoms,$(wildcard $(LEAF)/lib/*.atoms) $(wildcard $(LEAF)/*.atoms)))
 
 ALL_UNITS   := $(sort $(notdir $(wildcard $(LEAF)/*.silica)))
 FAIL_UNITS  := $(filter fail_%,$(ALL_UNITS))

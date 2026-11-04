@@ -1,2 +1,2 @@
-[silica] fault at 0xADDR in sup_record_initial_state_worker+0xADDR  addr=0xADDR  actor=0xADDR  sbase=0xADDR  ssize=0xADDR
-exit=70
+35
+exit=0

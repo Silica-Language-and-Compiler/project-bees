@@ -16,7 +16,7 @@ fn main() -> int64 {
         print_string(" ");
         _: atom <- print_int64(bees_spike_atom_b@classify(m));
         println("");
-        _: atom <- print_bool(bees_spike_atom_b@is_mango(m));
+        _: atom <- print_boolean(bees_spike_atom_b@is_mango(m));
         println("");
         println(bees_spike_atom_b@spelling(m));
         p: (atom, int64) <- bees_spike_atom_a@mint_pair();
@@ -26,18 +26,18 @@ fn main() -> int64 {
         _: atom <- print_int64(pn);
         println("");
         // Comparisons in this unit against values from bees_atoms.
-        _: atom <- print_bool(m == bees_atoms@a_mango());
+        _: atom <- print_boolean(m == bees_atoms@a_mango());
         print_string(" ");
-        _: atom <- print_bool(z == bees_atoms@a_zebra());
+        _: atom <- print_boolean(z == bees_atoms@a_zebra());
         print_string(" ");
-        _: atom <- print_bool(a != bees_atoms@a_zebra());
+        _: atom <- print_boolean(a != bees_atoms@a_zebra());
         println("");
         // The reverse lookup (list_to_existing_atom's core): a spelling the program holds, and one it doesn't.
         f1: { found: boolean, value: atom } <- bees_atoms@from_spelling("zebra");
         f2: { found: boolean, value: atom } <- bees_atoms@from_spelling("giraffe");
-        _: atom <- print_bool(f1.found and f1.value == z);
+        _: atom <- print_boolean(f1.found and f1.value == z);
         print_string(" ");
-        _: atom <- print_bool(f2.found);
+        _: atom <- print_boolean(f2.found);
         println("")
     produces pure 0 end
 }

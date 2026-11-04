@@ -1,0 +1,23 @@
+// R0.2: 700 atoms (more than a flat case may hold, E1069 at 512 arms). The generated bees_atoms
+// tiers its lookups; the first, a middle and the last atom round-trip through index and spelling.
+// Expected: 0 350 699 / atom_0000 atom_0350 atom_0699 / true
+use bees_atoms;
+
+fn main() -> int64 {
+    sequence proc[device_io]
+        _: atom <- print_int64(bees_atoms@index(bees_atoms@a_atom_0000()));
+        print_string(" ");
+        _: atom <- print_int64(bees_atoms@index(bees_atoms@a_atom_0350()));
+        print_string(" ");
+        _: atom <- print_int64(bees_atoms@index(bees_atoms@a_atom_0699()));
+        println("");
+        print_string(bees_atoms@spelling(bees_atoms@a_atom_0000()));
+        print_string(" ");
+        print_string(bees_atoms@spelling(bees_atoms@a_atom_0350()));
+        print_string(" ");
+        print_string(bees_atoms@spelling(bees_atoms@a_atom_0699()));
+        println("");
+        _: atom <- print_boolean(bees_atoms@from_spelling("atom_0699").found);
+        println("")
+    produces pure 0 end
+}

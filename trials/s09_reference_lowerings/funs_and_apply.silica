@@ -13,15 +13,15 @@
 use bees_term;
 
 // lifted closure bodies: (heap, env, args) -> result
-fn closure_0(h: { r: region(L, normal) }, env: ref?(L, normal, rec), args: ref?(L, normal, rec)) -> ref?(L, normal, rec) {
+fn closure_0(h: { r: region(L, normal) }, env: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), args: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec)))) -> ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) {
     bees_term@mk_int(h, bees_term@int_of(bees_term@nth(args, 0)) + 3)
 }
-fn closure_1(h: { r: region(L, normal) }, env: ref?(L, normal, rec), args: ref?(L, normal, rec)) -> ref?(L, normal, rec) {
+fn closure_1(h: { r: region(L, normal) }, env: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), args: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec)))) -> ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) {
     bees_term@mk_int(h, bees_term@int_of(bees_term@nth(args, 0)) * 2)
 }
 
 // the module's fun dispatch entry
-fn apply_fun(h: { r: region(L, normal) }, f: ref?(L, normal, rec), args: ref?(L, normal, rec)) -> ref?(L, normal, rec) {
+fn apply_fun(h: { r: region(L, normal) }, f: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), args: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec)))) -> ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) {
     case bees_term@int_of(bees_term@hd_of(bees_term@hd_of(f))) of {
         0 -> closure_0(h, bees_term@tl_of(bees_term@hd_of(f)), args);
         1 -> closure_1(h, bees_term@tl_of(bees_term@hd_of(f)), args);
@@ -30,22 +30,22 @@ fn apply_fun(h: { r: region(L, normal) }, f: ref?(L, normal, rec), args: ref?(L,
 }
 
 // a fun literal with an empty environment
-fn fun_lit(h: { r: region(L, normal) }, idx: int64) -> ref?(L, normal, rec) {
+fn fun_lit(h: { r: region(L, normal) }, idx: int64) -> ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) {
     bees_term@mk_fun(h, 0, bees_term@mk_cons(h, bees_term@mk_int(h, idx), bees_term@mk_nil(h)))
 }
 
 // [X] as an argument list
-fn args1(h: { r: region(L, normal) }, x: ref?(L, normal, rec)) -> ref?(L, normal, rec) {
+fn args1(h: { r: region(L, normal) }, x: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec)))) -> ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) {
     bees_term@mk_cons(h, x, bees_term@mk_nil(h))
 }
 
 // twice(F, X) -> F(F(X)).
-fn twice(h: { r: region(L, normal) }, f: ref?(L, normal, rec), x: ref?(L, normal, rec)) -> ref?(L, normal, rec) {
+fn twice(h: { r: region(L, normal) }, f: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), x: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec)))) -> ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) {
     apply_fun(h, f, args1(h, apply_fun(h, f, args1(h, x))))
 }
 
 // apply(m, twice, [F, X]) through the module's apply entry: (function index, args)
-fn apply_entry(h: { r: region(L, normal) }, fn_index: int64, args: ref?(L, normal, rec)) -> ref?(L, normal, rec) {
+fn apply_entry(h: { r: region(L, normal) }, fn_index: int64, args: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec)))) -> ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) {
     case fn_index of {
         0 -> twice(h, bees_term@nth(args, 0), bees_term@nth(args, 1));
         _: int64 -> bees_term@mk_nil(h)
@@ -60,7 +60,7 @@ fn main() -> int64 {
         _: atom <- print_int64(bees_term@int_of(twice(h, fun_lit(h, 0), bees_term@mk_int(h, 10))));
         print_string(" ");
         // dyn(): apply(m, twice, [fun(N) -> N * 2 end, 5]) through the apply entry
-        args: { c: ref?(L, normal, rec) } <- { c: bees_term@mk_cons(h, fun_lit(h, 1), bees_term@mk_cons(h, bees_term@mk_int(h, 5), bees_term@mk_nil(h))) };
+        args: { c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) } <- { c: bees_term@mk_cons(h, fun_lit(h, 1), bees_term@mk_cons(h, bees_term@mk_int(h, 5), bees_term@mk_nil(h))) };
         _: atom <- print_int64(bees_term@int_of(apply_entry(h, 0, args.c)));
         println("")
     produces pure 0 end

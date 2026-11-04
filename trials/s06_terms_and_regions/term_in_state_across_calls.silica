@@ -1,28 +1,30 @@
+use bees_reporter;
 // S6: a term (tag, int, next) as a recursive tuple in a region held in actor state,
-// grown across two calls. Optional refs are written ref?(L, normal, rec) (SD-4) and a ref is
+// grown across two calls. Optional refs are written ref?(L, normal, (atom, int64, ref?(L, normal, rec))) (SD-4) and a ref is
 // widened to ref? by returning it from a function with that return type (SD-5).
 // Expected: 51 72
-fn some_term(c: ref(L, normal, (atom, int64, ref?(L, normal, rec)))) -> ref?(L, normal, rec) {
+fn some_term(c: ref(L, normal, (atom, int64, ref?(L, normal, rec)))) -> ref?(L, normal, (atom, int64, ref?(L, normal, rec))) {
     c
 }
 
-fn beh(msg: int64, state: { r: region(L, normal), root: ref?(L, normal, rec) }) -> (:reply, int64, { r: region(L, normal), root: ref?(L, normal, rec) }) {
+fn beh(msg: int64, state: { r: region(L, normal), root: ref?(L, normal, (atom, int64, ref?(L, normal, rec))) }) -> (:reply, int64, { r: region(L, normal), root: ref?(L, normal, (atom, int64, ref?(L, normal, rec))) }) {
     sequence proc[mem(normal)]
         cell: ref(L, normal, (atom, int64, ref?(L, normal, rec))) <- case state.root of {
             :none -> alloc_rec(state.r, (:int, msg, :none));
             prev: ref(L, normal, (atom, int64, ref?(L, normal, rec))) -> alloc_rec(state.r, (:int, msg, prev))
         };
         node: (atom, int64, ref?(L, normal, rec)) <- read_ref(cell);
-        (_: atom, v: int64, nxt: ref?(L, normal, rec)) <- node;
+        (_: atom, v: int64, nxt: ref?(L, normal, (atom, int64, ref?(L, normal, rec)))) <- node;
         depth: int64 <- case nxt of { :none -> 1; _: ref(L, normal, (atom, int64, ref?(L, normal, rec))) -> 2 }
     produces pure (:reply, v * 10 + depth, { r: state.r, root: some_term(cell) }) end
 }
 
 fn main() -> int64 {
     sequence proc[concurrency, device_io, mem(normal)]
+        _: atom <- bees_reporter@start();
         L: lifetime <- fresh_lifetime();
         r: region(L, normal) <- alloc_region(normal);
-        a: actor_ref <- spawn({ r: r, root: :none }, beh);
+        a: actor_ref <- spawn({ r: r, root: :none }, beh, stack_policy(0, :keep_last_message));
         v1: int64 <- call(a, 5 impl ActorMessage {});
         v2: int64 <- call(a, 7 impl ActorMessage {});
         _: atom <- print_int64(v1);

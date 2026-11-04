@@ -721,7 +721,7 @@ fn round_trip(b: buf(L, normal, uint8, 8), i: int64) -> atom {
         _: atom <- encode_f64(b, i);
         _: atom <- show(b, 7);
         ok: boolean <- same(decode_f64(b), value(i));
-        _: atom <- print_bool(ok);
+        _: atom <- print_boolean(ok);
         println("");
         rest: atom <- case i == 6 of { true -> :ok; false -> round_trip(b, i + 1) }
     produces pure rest end

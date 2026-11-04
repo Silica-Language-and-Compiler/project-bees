@@ -16,7 +16,7 @@ import os
 
 T = "(int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))"
 R = f"ref(L, normal, {T})"
-O = "ref?(L, normal, rec)"
+O = f"ref?(L, normal, {T})"  # chunk 15: rec is valid only inside the spelled tuple
 H = "{ r: region(L, normal) }"
 C = f"{{ c: {O} }}"
 

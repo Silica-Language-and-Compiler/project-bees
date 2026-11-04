@@ -29,3 +29,24 @@ reason atoms (S-9) do not exist yet.**
   failure result; the ledger's S-9 already lists this as its open question.
 - `call_supervisor` needs no effect declaration; a sequence around it alone must not declare
   `concurrency` (E3010).
+
+## 4. Re-run 2026-11-04 on `silica-999939-macos-applesilicon`
+
+The trial was rewritten (`bif_failure_restarts_child.silica`); the 2026-09-17 results above are history.
+
+| Event | Result now |
+| --- | --- |
+| `fail_self(:badarg)` in a supervised call-only worker | Report `reason: (:explicit, :badarg)`, `reason_tag: 4`. S-9's explicit reason now exists. The supervisor restarts the worker with its initial state. |
+| Integer division by zero | Report `reason: :language_error — integer division by zero`, `reason_tag: 2` (the old tag 1 is no longer written). |
+| A `call` whose callee dies | **Raises `actor_not_found` in the caller**, which fails with `(:explicit, :actor_not_found)`. It no longer returns the zero value. **SD-9 is closed by design.** |
+| A `case` with no catch-all arm | Rejected at compile time (E2008). The old "case_clause" runtime failure can no longer be written, which fits D2 ("catch failures at compile time"). A compiler lowering Erlang `case` must emit an explicit failing catch-all (`fail_self(:case_clause)`). |
+
+Consequences for BEES:
+- D2 holds, and a BIF now names its failure: `fail_self(:badarg)` reaches the supervisor, and the
+  exit hub, as `(:explicit, :badarg)`. S-9's explicit stop is delivered.
+- D20's rationale ("a pending call already wakes with the callee's death result") is restored: the
+  death result is a failure of the caller, not a value. A BEES `call` to a dead process fails the
+  caller; code that wants a value uses the call-with-timeout variant (D2) instead.
+- The first banner order is asynchronous (reports are written by the FailureReporter); the trial
+  separates phases with a spin, so it is timing-sensitive. A deterministic version needs the
+  exit hub (S7).

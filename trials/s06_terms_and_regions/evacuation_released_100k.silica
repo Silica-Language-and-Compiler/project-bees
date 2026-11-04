@@ -1,15 +1,17 @@
+use bees_reporter;
 // S6: evacuation. Each message, the actor copies its one live term into a fresh region and
-// keeps that region as its state. Correct (prints 1000), but the replaced regions are never
-// freed: 100,000 such messages peak at 551 MB RSS. That is the S-15 gap, measured.
-fn some_term(c: ref(L, normal, (atom, int64, ref?(L, normal, rec)))) -> ref?(L, normal, rec) { c }
+// keeps that region as its state. Prints 100000. On silica-999977 the replaced regions were never
+// freed (551 MB peak RSS, the S-15 gap); on silica-999939 (chunk 15) the peak is under 5 MB:
+// /usr/bin/time -l ./evacuation_released_100k
+fn some_term(c: ref(L, normal, (atom, int64, ref?(L, normal, rec)))) -> ref?(L, normal, (atom, int64, ref?(L, normal, rec))) { c }
 
-fn beh(msg: int64, state: { r: region(L, normal), root: ref?(L, normal, rec) }) -> (:reply, int64, { r: region(L, normal), root: ref?(L, normal, rec) }) {
+fn beh(msg: int64, state: { r: region(L, normal), root: ref?(L, normal, (atom, int64, ref?(L, normal, rec))) }) -> (:reply, int64, { r: region(L, normal), root: ref?(L, normal, (atom, int64, ref?(L, normal, rec))) }) {
     sequence proc[mem(normal)]
         old_v: int64 <- case state.root of {
             :none -> 0;
             c: ref(L, normal, (atom, int64, ref?(L, normal, rec))) -> {
                 node: (atom, int64, ref?(L, normal, rec)) <- read_ref(c);
-                (_: atom, v: int64, _: ref?(L, normal, rec)) <- node;
+                (_: atom, v: int64, _: ref?(L, normal, (atom, int64, ref?(L, normal, rec)))) <- node;
                 v
             }
         };
@@ -28,10 +30,11 @@ fn send_n(a: actor_ref, n: int64) -> int64 {
 
 fn main() -> int64 {
     sequence proc[concurrency, device_io, mem(normal)]
+        _: atom <- bees_reporter@start();
         L: lifetime <- fresh_lifetime();
         r: region(L, normal) <- alloc_region(normal);
-        a: actor_ref <- spawn({ r: r, root: :none }, beh);
-        last: int64 <- send_n(a, 1000);
+        a: actor_ref <- spawn({ r: r, root: :none }, beh, stack_policy(0, :keep_last_message));
+        last: int64 <- send_n(a, 100000);
         _: atom <- print_int64(last);
         println("")
     produces pure 0 end

@@ -40,7 +40,13 @@ FIXED_ATOMS = {
     "reply", "no_reply", "none", "worker", "supervisor", "child_started", "children", "count",
     "child_info", "error", "add_child", "count_children", "get_child", "remove_child",
     "restart_child", "terminate_child", "which_children", "less", "equal", "greater",
+    # stack and state policies (spawn arguments, chunk 1 and chunk 15) and report-sink protocol
+    "release_on_return", "keep_last_message", "track_recent_peak", "release_when_idle",
+    "keep_high_water", "keep_state_area", "shrink_after_compaction", "compact_on_request",
+    "set_report_sink", "sink_set", "terminate_actor",
 }
+
+TIER = 256
 
 ATOM_RE = re.compile(r"(?<![A-Za-z0-9_'\"]):([A-Za-z_][A-Za-z0-9_]*)")
 
@@ -83,28 +89,72 @@ def gen_atoms(out_dir, manifests):
     for a in atoms:
         lines += [f"fn {accessor_name(a)}() -> atom {{ :{a} }}"]
     lines.append("")
-    lines.append("fn spelling(a: atom) -> string {")
-    lines.append("    case a of {")
-    for a in atoms:
-        lines.append(f"        :{a} -> {silica_string(a)};")
-    lines.append('        _: atom -> "?"')
-    lines.append("    }")
-    lines.append("}")
-    lines.append("")
-    lines.append("fn index(a: atom) -> int64 {")
-    lines.append("    case a of {")
-    for i, a in enumerate(atoms):
-        lines.append(f"        :{a} -> {i};")
-    lines.append("        _: atom -> -1")
-    lines.append("    }")
-    lines.append("}")
-    lines.append("")
-    lines.append("fn from_spelling(s: string) -> { found: boolean, value: atom } {")
-    # A chain of string comparisons; a compiler-generated jump table is not available for strings.
-    body = "{ found: false, value: :unknown }"
-    for a in reversed(atoms):
-        body = f"case s == {silica_string(a)} of {{ true -> {{ found: true, value: :{a} }}; false -> {body} }}"
-    lines.append("    " + body)
+    # Silica's parser rejects a case with 512 or more literal arms (E1069, ROADMAP compile-defect
+    # trial case_512_literal_arms), so above TIER atoms each lookup is split into helper functions
+    # of TIER arms that are tried in turn. At or below TIER the output is one flat case.
+    chunks = [list(enumerate(atoms))[i:i + TIER] for i in range(0, max(len(atoms), 1), TIER)]
+    if len(chunks) <= 1:
+        lines.append("fn spelling(a: atom) -> string {")
+        lines.append("    case a of {")
+        for a in atoms:
+            lines.append(f"        :{a} -> {silica_string(a)};")
+        lines.append('        _: atom -> "?"')
+        lines.append("    }")
+        lines.append("}")
+        lines.append("")
+        lines.append("fn index(a: atom) -> int64 {")
+        lines.append("    case a of {")
+        for i, a in enumerate(atoms):
+            lines.append(f"        :{a} -> {i};")
+        lines.append("        _: atom -> -1")
+        lines.append("    }")
+        lines.append("}")
+        lines.append("")
+    else:
+        for k, ch in enumerate(chunks):
+            lines.append(f"fn spelling_{k}(a: atom) -> string {{")
+            lines.append("    case a of {")
+            for i, a in ch:
+                lines.append(f"        :{a} -> {silica_string(a)};")
+            lines.append('        _: atom -> "?"')
+            lines.append("    }")
+            lines.append("}")
+            lines.append("")
+            lines.append(f"fn index_{k}(a: atom) -> int64 {{")
+            lines.append("    case a of {")
+            for i, a in ch:
+                lines.append(f"        :{a} -> {i};")
+            lines.append("        _: atom -> -1")
+            lines.append("    }")
+            lines.append("}")
+            lines.append("")
+        for name, ret, miss, test in (("spelling", "string", '"?"', 's == "?"'), ("index", "int64", "-1", "r < 0")):
+            lines.append(f"fn {name}(a: atom) -> {ret} {{")
+            expr = f"{name}_{len(chunks) - 1}(a)"
+            for k in range(len(chunks) - 2, -1, -1):
+                expr = f"case ({name}_{k}(a)) == {miss} of {{ true -> {expr}; false -> {name}_{k}(a) }}"
+            lines.append("    " + expr)
+            lines.append("}")
+            lines.append("")
+    # from_spelling: a chain of string comparisons (no jump table for strings), split into helpers of
+    # FROM_TIER comparisons each so no function nests thousands of cases.
+    FROM_TIER = 64
+    rec = "{ found: boolean, value: atom }"
+    miss = "{ found: false, value: :unknown }"
+    groups = [atoms[i:i + FROM_TIER] for i in range(0, max(len(atoms), 1), FROM_TIER)]
+    for k, g in enumerate(groups):
+        body = miss
+        for a in reversed(g):
+            body = f"case s == {silica_string(a)} of {{ true -> {{ found: true, value: :{a} }}; false -> {body} }}"
+        lines.append(f"fn from_spelling_{k}(s: string) -> {rec} {{")
+        lines.append("    " + body)
+        lines.append("}")
+        lines.append("")
+    lines.append(f"fn from_spelling(s: string) -> {rec} {{")
+    expr = f"from_spelling_{len(groups) - 1}(s)"
+    for k in range(len(groups) - 2, -1, -1):
+        expr = f"case from_spelling_{k}(s).found of {{ true -> from_spelling_{k}(s); false -> {expr} }}"
+    lines.append("    " + expr)
     lines.append("}")
     lines.append("")
     lines.append(f"fn count() -> int64 {{ {len(atoms)} }}")

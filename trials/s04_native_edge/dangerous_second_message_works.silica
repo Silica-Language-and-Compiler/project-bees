@@ -1,7 +1,8 @@
-// SD-18: a spawn_dangerous worker faults on its second message ("[silica] fault ... in
-// os_unfair_lock_lock"). The first request's result arrives ("true"); the second never does.
-// Any number of foreign calls inside ONE dispatch work (dangerous_clock_and_poll).
-module dangerous_sd18_second_message_faults;
+use bees_reporter;
+// SD-18 (fixed; silica-999939): a spawn_dangerous worker answers a SECOND message. On silica-999977
+// it faulted in os_unfair_lock_lock; now both requests are answered, so TRUST's worker-per-request
+// and D13's NIF worker no longer need to be one worker per request. Expected: true true / done
+module dangerous_second_message_works;
 
 wrapper_meta "dangerous_exposure_source/bees/silica_bees_native_wrapper.meta";
 
@@ -10,7 +11,7 @@ fn clock_monotonic_ns_raw() -> int64;
 
 fn sink(msg: int64, state: int64) -> (:no_reply, int64) {
     sequence proc[device_io]
-        _: atom <- print_bool(msg > 0);
+        _: atom <- print_boolean(msg > 0);
         println("");
         _: atom <- case state == 1 of { true -> { println("done"); :ok }; false -> :ok }
     produces pure (:no_reply, state + 1) end
@@ -25,8 +26,9 @@ fn worker(msg: int64, reply_to: actor_ref) -> (:no_reply, actor_ref) {
 
 fn main() -> int64 {
     sequence proc[concurrency, device_io]
-        s: actor_ref <- spawn(0, sink);
-        w: dangerous_actor_ref <- spawn_dangerous(s, worker);
+        _: atom <- bees_reporter@start();
+        s: actor_ref <- spawn(0, sink, stack_policy(0, :keep_last_message));
+        w: dangerous_actor_ref <- spawn_dangerous(s, worker, stack_policy(0, :keep_last_message));
         _: boolean <- cast(w, 1 impl ActorMessage {});
         _: boolean <- cast(w, 2 impl ActorMessage {});
         _: int64 <- wait_for_exit()

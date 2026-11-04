@@ -43,8 +43,12 @@ fn index(a: atom) -> int64 {
     }
 }
 
-fn from_spelling(s: string) -> { found: boolean, value: atom } {
+fn from_spelling_0(s: string) -> { found: boolean, value: atom } {
     case s == "hello" of { true -> { found: true, value: :hello }; false -> case s == "kick" of { true -> { found: true, value: :kick }; false -> case s == "ok" of { true -> { found: true, value: :ok }; false -> case s == "ping" of { true -> { found: true, value: :ping }; false -> case s == "pong" of { true -> { found: true, value: :pong }; false -> case s == "undefined" of { true -> { found: true, value: :undefined }; false -> { found: false, value: :unknown } } } } } } }
+}
+
+fn from_spelling(s: string) -> { found: boolean, value: atom } {
+    from_spelling_0(s)
 }
 
 fn count() -> int64 { 6 }

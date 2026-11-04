@@ -1,4 +1,5 @@
-// SD-6: a function declared over region(L, normal) rejects an argument typed region(M, normal)
+// SD-6 (re-check, silica-999939; Silica fixed per-call lifetime substitution in chunk 15 phase 1): a ref(M, ...) argument to a function over L. Expected: compiles.
+// Original report:  a function declared over region(L, normal) rejects an argument typed region(M, normal)
 // (E2003 "field has type ref?(M,normal,rec), expected ref?(L, normal, rec)"): lifetime
 // identifiers in signatures are matched by name, not treated as variables. Every BEES unit
 // therefore names the term lifetime L. Possibly by design; recorded because §12 reads as if
@@ -6,7 +7,7 @@
 fn count(root: ref(L, normal, (atom, int64, ref?(L, normal, rec)))) -> int64 {
     sequence proc[mem(normal)]
         node: (atom, int64, ref?(L, normal, rec)) <- read_ref(root);
-        (_: atom, v: int64, _: ref?(L, normal, rec)) <- node
+        (_: atom, v: int64, _: ref?(L, normal, (atom, int64, ref?(L, normal, rec)))) <- node
     produces pure v end
 }
 

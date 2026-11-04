@@ -1,3 +1,4 @@
+use bees_reporter;
 // SD-21: every call of a function that returns an aggregate (a record or a tuple; even a
 // one-field record) leaks stack for the life of the actor: ~32 bytes per call (~4 bytes for a
 // one-field record), never released between dispatches, until the 8 MB actor stack guard.
@@ -27,7 +28,8 @@ fn send_n(a: actor_ref, i: int64) -> atom {
 }
 fn main() -> int64 {
     sequence proc[concurrency, device_io]
-        a: actor_ref <- spawn(0, beh);
+        _: atom <- bees_reporter@start();
+        a: actor_ref <- spawn(0, beh, stack_policy(0, :keep_last_message));
         _: atom <- send_n(a, 100000);
         _: boolean <- cast(a, 0 - 1 impl ActorMessage {});
         _: int64 <- wait_for_exit()

@@ -1,0 +1,17 @@
+got msg
+cell ok
+1 len
+
+=== Silica Actor Failure ===
+actor_id:        4294967296
+agent_type_atom: 28
+reason:          :language_error
+reason_tag:      2
+supervisor_acb:  0xADDR
+call_stack:
+  #0  sd23_cast_from_region_state_child_second_dispatch_process
+  #1  _actor_thread_main
+=== End Silica Actor Failure ===
+
+actor_not_found
+exit=1

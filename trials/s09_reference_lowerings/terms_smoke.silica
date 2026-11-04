@@ -9,16 +9,16 @@ fn main() -> int64 {
         L: lifetime <- fresh_lifetime();
         r: region(L, normal) <- alloc_region(normal);
         h: { r: region(L, normal) } <- { r: r };
-        two: { c: ref?(L, normal, rec) } <- { c: bees_term@mk_cons(h, bees_term@mk_int(h, 2), bees_term@mk_nil(h)) };
-        list: { c: ref?(L, normal, rec) } <- { c: bees_term@mk_cons(h, bees_term@mk_int(h, 1), two.c) };
+        two: { c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) } <- { c: bees_term@mk_cons(h, bees_term@mk_int(h, 2), bees_term@mk_nil(h)) };
+        list: { c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) } <- { c: bees_term@mk_cons(h, bees_term@mk_int(h, 1), two.c) };
         _: atom <- print_int64(bees_term@list_len(list.c));
         print_string(" ");
         // {ping, ok, 3} as a tuple over the element list [ping, ok, 3]
-        e3: { c: ref?(L, normal, rec) } <- { c: bees_term@mk_cons(h, bees_term@mk_int(h, 3), bees_term@mk_nil(h)) };
-        e2: { c: ref?(L, normal, rec) } <- { c: bees_term@mk_cons(h, bees_term@mk_atom(h, bees_atoms@a_ok()), e3.c) };
-        e1: { c: ref?(L, normal, rec) } <- { c: bees_term@mk_cons(h, bees_term@mk_atom(h, bees_atoms@a_ping()), e2.c) };
-        t: { c: ref?(L, normal, rec) } <- { c: bees_term@mk_tuple(h, 3, e1.c) };
-        _: atom <- print_bool(bees_term@atom_of(bees_term@nth(e1.c, 0)) == bees_atoms@a_ping());
+        e3: { c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) } <- { c: bees_term@mk_cons(h, bees_term@mk_int(h, 3), bees_term@mk_nil(h)) };
+        e2: { c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) } <- { c: bees_term@mk_cons(h, bees_term@mk_atom(h, bees_atoms@a_ok()), e3.c) };
+        e1: { c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) } <- { c: bees_term@mk_cons(h, bees_term@mk_atom(h, bees_atoms@a_ping()), e2.c) };
+        t: { c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) } <- { c: bees_term@mk_tuple(h, 3, e1.c) };
+        _: atom <- print_boolean(bees_term@atom_of(bees_term@nth(e1.c, 0)) == bees_atoms@a_ping());
         print_string(" ");
         _: atom <- print_int64(bees_term@int_of(bees_term@nth(e1.c, 2)));
         print_string(" ");
@@ -26,7 +26,7 @@ fn main() -> int64 {
         L: lifetime <- fresh_lifetime();
         r2: region(L, normal) <- alloc_region(normal);
         h2: { r: region(L, normal) } <- { r: r2 };
-        _: atom <- print_bool(bees_term@eq(bees_term@copy(h2, t.c), t.c));
+        _: atom <- print_boolean(bees_term@eq(bees_term@copy(h2, t.c), t.c));
         println("")
     produces pure 0 end
 }

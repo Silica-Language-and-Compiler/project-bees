@@ -1,0 +1,112 @@
+// S7: the exit hub (D23) on today's runtime. One supervisor, one :permanent worker :w, and a report
+// sink standing in for bees_exit_hub. The sink counts reports and, for each, casts the next crash to
+// :w (the report says the worker is already restarted), so N exits run back to back. The program
+// prints the count, that every report said restarted=true with a new identity, and that the last
+// reason was :language_error. Time it from outside for the cost per exit:
+//   /usr/bin/time -l ./exit_hub_cost
+// Expected:
+//   sink set
+//   reports 5000
+//   all restarted: true
+//   all new identity: true
+//   all language_error: true
+//   0
+
+use Supervisor;
+
+impl S7Sup for Supervisor;
+
+fn init(initial_state: int64) -> (
+    { strategy: :one_for_one | :one_for_all | :rest_for_one, allowed_restart_count: int64, restarts_time_frame: int64 },
+    List[{ id: atom, agent_type: :worker | :supervisor, initial_state: int64, behavior: fn(msg: int64, state: int64) -> (:no_reply, int64), restart: :permanent | :temporary | :transient, shutdown: int64, flavor: :plain | :dangerous }, mem(normal)]
+) {
+    sequence proc[mem(normal)]
+        flags: { strategy: :one_for_one | :one_for_all | :rest_for_one, allowed_restart_count: int64, restarts_time_frame: int64 } <- { strategy: :one_for_one, allowed_restart_count: 1000000, restarts_time_frame: 10000000000 };
+        children: List[{ id: atom, agent_type: :worker | :supervisor, initial_state: int64, behavior: fn(msg: int64, state: int64) -> (:no_reply, int64), restart: :permanent | :temporary | :transient, shutdown: int64, flavor: :plain | :dangerous }, mem(normal)] <- [
+            { id: :w, agent_type: :worker, initial_state: 10, behavior: worker, restart: :permanent, shutdown: 0, flavor: :plain }
+        ]
+    produces pure (flags, children) end
+}
+
+
+fn worker(msg: int64, state: int64) -> (:no_reply, int64) {
+    case msg of {
+        0 -> (:no_reply, state / msg);
+        _: int64 -> (:no_reply, state + msg)
+    }
+}
+
+fn is_language_error(fr: :normal | :language_error | :memory_fault | (:explicit, atom) | :noproc | :unknown) -> boolean {
+    case fr of {
+        :language_error -> true;
+        _: :normal | :language_error | :memory_fault | (:explicit, atom) | :noproc | :unknown -> false
+    }
+}
+
+fn finish(st: { left: int64, restarted: boolean, fresh: boolean, lang: boolean }) -> boolean {
+    sequence proc[concurrency, device_io]
+        println("reports 5000");
+        print("all restarted: ");
+        print_boolean(st.restarted);
+        println("");
+        print("all new identity: ");
+        print_boolean(st.fresh);
+        println("");
+        print("all language_error: ");
+        print_boolean(st.lang);
+        println("");
+        ok: boolean <- cast_exit(0)
+    produces pure ok end
+}
+
+// state: (reports left, all restarted, all new identity, all language_error)
+fn sink(r: { child: actor_ref, child_id: atom, failure_reason: :normal | :language_error | :memory_fault | (:explicit, atom) | :noproc | :unknown, restarted: boolean, new_child: actor_ref }, state: { left: int64, restarted: boolean, fresh: boolean, lang: boolean }) -> (:no_reply, { left: int64, restarted: boolean, fresh: boolean, lang: boolean }) {
+    sequence proc[concurrency]
+        left: int64 <- state.left - 1;
+        same: boolean <- r.new_child == r.child;
+        st: { left: int64, restarted: boolean, fresh: boolean, lang: boolean } <- { left: left, restarted: state.restarted and r.restarted, fresh: state.fresh and not same, lang: state.lang and is_language_error(r.failure_reason) };
+        _: boolean <- case left == 0 of {
+            true -> finish(st);
+            false -> cast_registered(:w, 0 impl ActorMessage {})
+        }
+    produces pure (:no_reply, st) end
+}
+
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- start_reporter(0);
+        s: actor_ref <- spawn({ left: 5000, restarted: true, fresh: true, lang: true }, sink, stack_policy(0, :keep_last_message));
+        rt: supervisor_ref <- spawn_registered_supervisor(S7Sup, 0, :root, stack_policy(0, :keep_last_message));
+        set: { tag: :child_started | :ok | :children | :count | :child_info | :error, child: actor_ref, status: atom, children: List[{ id: atom, agent_type: :worker | :supervisor, child: actor_ref, restart: :permanent | :temporary | :transient }, mem(normal)], count: int64, child_info: { id: atom, agent_type: :worker | :supervisor, child: actor_ref, restart: :permanent | :temporary | :transient }, error: atom } <- call_supervisor(rt, { op: :set_report_sink, sink: s } impl SupervisorMessage {});
+        _: atom <- case set.status of {
+            :sink_set -> println("sink set");
+            _: atom -> println("sink NOT set")
+        };
+        _: boolean <- cast_registered(:w, 0 impl ActorMessage {});
+        _: int64 <- wait_for_exit();
+        _: atom <- println("0")
+    produces pure 0 end
+}
+fn region_dump_limit() -> int64 {
+    0
+}
+
+// A FailureReporter (spec §15.4.13.4) that keeps every report to itself, so the output holds only
+// main's and the sink's lines; without one the reports would go to standard error. Started with a
+// positive count, it ends main's wait_for_exit() with cast_exit(0) after that many reports.
+fn reporter(report: string, state: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        left: int64 <- state - 1;
+        _: boolean <- case left == 0 of {
+            true -> cast_exit(0);
+            false -> true
+        }
+    produces pure (:no_reply, left) end
+}
+
+fn start_reporter(expected: int64) -> atom {
+    sequence proc[concurrency]
+        reporter_ref: actor_ref <- spawn(expected, reporter, stack_policy(0, :keep_last_message));
+        registered: atom <- register_failure_reporter(reporter_ref)
+    produces pure registered end
+}

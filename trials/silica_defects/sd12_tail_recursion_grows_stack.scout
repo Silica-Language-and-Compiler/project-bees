@@ -1,2 +1,2 @@
-[silica] fault at 0xADDR in sd12_tail_recursion_grows_stack_loop+0xADDR  addr=0xADDR  actor=0xADDR  sbase=0xADDR  ssize=0xADDR
-exit=70
+60000003
+exit=0

@@ -1,10 +1,11 @@
+use bees_reporter;
 // SD-22: a region handle bound to a local name is freed when that function's scope exits even
 // though it was moved into a cast (§12.1.6): the next region reuses the memory, so all three
 // messages here read the LAST value (prints 333). When the fresh region flows straight from
 // new_heap() into a builder that returns the message record, never bound locally, the receiver
 // reads 1 2 3 (see trials/s09_reference_lowerings/ping_pong_selective_receive.silica).
 use bees_term;
-fn sink(msg: { r: region(L, normal), c: ref?(L, normal, rec) }, state: { h: { r: region(L, normal) }, n: int64 }) -> (:no_reply, { h: { r: region(L, normal) }, n: int64 }) {
+fn sink(msg: { r: region(L, normal), c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) }, state: { h: { r: region(L, normal) }, n: int64 }) -> (:no_reply, { h: { r: region(L, normal) }, n: int64 }) {
     sequence proc[device_io]
         _: atom <- print_int64(bees_term@int_of(msg.c));
         _: atom <- case state.n == 2 of { true -> { println(""); println("done"); :ok }; false -> :ok }
@@ -19,15 +20,16 @@ fn new_heap() -> { r: region(L, normal) } {
 fn send_bound(a: actor_ref, n: int64) -> boolean {
     sequence proc[concurrency]
         mh: { r: region(L, normal) } <- new_heap();
-        m: { r: region(L, normal), c: ref?(L, normal, rec) } <- { r: mh.r, c: bees_term@mk_int(mh, n) };
+        m: { r: region(L, normal), c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) } <- { r: mh.r, c: bees_term@mk_int(mh, n) };
         ok: boolean <- cast(a, m impl ActorMessage {})
     produces pure ok end
 }
 fn main() -> int64 {
     sequence proc[mem(normal), device_io, concurrency]
+        _: atom <- bees_reporter@start();
         L: lifetime <- fresh_lifetime();
         rs: region(L, normal) <- alloc_region(normal);
-        a: actor_ref <- spawn({ h: { r: rs }, n: 0 }, sink);
+        a: actor_ref <- spawn({ h: { r: rs }, n: 0 }, sink, stack_policy(0, :keep_last_message));
         _: boolean <- send_bound(a, 1);
         _: boolean <- send_bound(a, 2);
         _: boolean <- send_bound(a, 3);

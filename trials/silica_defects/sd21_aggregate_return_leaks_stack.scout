@@ -1,2 +1,3 @@
-[silica] fault at 0xADDR in sd21_aggregate_return_leaks_stack_mk+0xADDR  addr=0xADDR  actor=0xADDR  sbase=0xADDR  ssize=0xADDR
-exit=70
+7700154
+done
+exit=0

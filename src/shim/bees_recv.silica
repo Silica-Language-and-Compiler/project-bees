@@ -14,7 +14,7 @@ export append/3;
 export select/3;
 
 // Append the term m (already in the heap) at the end of the queue q.
-fn append(h: { r: region(L, normal) }, q: ref?(L, normal, rec), m: ref?(L, normal, rec)) -> ref?(L, normal, rec) {
+fn append(h: { r: region(L, normal) }, q: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), m: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec)))) -> ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) {
     case bees_term@tag(q) == 5 of {
         false -> bees_term@mk_cons(h, m, bees_term@mk_nil(h));
         true -> bees_term@mk_cons(h, bees_term@hd_of(q), append(h, bees_term@tl_of(q), m))
@@ -23,7 +23,7 @@ fn append(h: { r: region(L, normal) }, q: ref?(L, normal, rec), m: ref?(L, norma
 
 // The queue with the first message satisfying the predicate moved to the front; unchanged when
 // none matches. The caller tests matches(hd_of(result)).
-fn select(h: { r: region(L, normal) }, q: ref?(L, normal, rec), matches: fn(ref?(L, normal, rec)) -> boolean) -> ref?(L, normal, rec) {
+fn select(h: { r: region(L, normal) }, q: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), matches: fn(ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec)))) -> boolean) -> ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) {
     case bees_term@tag(q) == 5 of {
         false -> q;
         true -> case matches(bees_term@hd_of(q)) of {
@@ -33,12 +33,12 @@ fn select(h: { r: region(L, normal) }, q: ref?(L, normal, rec), matches: fn(ref?
     }
 }
 // rest is the tail with its match (if any) at the front: put that match ahead of q's head.
-fn reorder(h: { r: region(L, normal) }, q: ref?(L, normal, rec), rest: ref?(L, normal, rec), matches: fn(ref?(L, normal, rec)) -> boolean) -> ref?(L, normal, rec) {
+fn reorder(h: { r: region(L, normal) }, q: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), rest: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), matches: fn(ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec)))) -> boolean) -> ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) {
     case has_match(rest, matches) of {
         true -> bees_term@mk_cons(h, bees_term@hd_of(rest), bees_term@mk_cons(h, bees_term@hd_of(q), bees_term@tl_of(rest)));
         false -> q
     }
 }
-fn has_match(q: ref?(L, normal, rec), matches: fn(ref?(L, normal, rec)) -> boolean) -> boolean {
+fn has_match(q: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), matches: fn(ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec)))) -> boolean) -> boolean {
     case bees_term@tag(q) == 5 of { false -> false; true -> matches(bees_term@hd_of(q)) }
 }

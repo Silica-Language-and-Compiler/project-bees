@@ -16,25 +16,26 @@
 // Expected: pong 2 / pong 1 / done
 use bees_atoms;
 use bees_term;
+use bees_reporter;
 use bees_recv;
 
 // Message builders, one per send site: the term {tag_atom, N} or {tag_atom, Pid, N} in the
 // heap h, returned as the message record.
-fn msg2(h: { r: region(L, normal) }, a: atom, n: int64) -> { r: region(L, normal), c: ref?(L, normal, rec) } {
+fn msg2(h: { r: region(L, normal) }, a: atom, n: int64) -> { r: region(L, normal), c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) } {
     { r: h.r, c: tuple2(h, a, n) }
 }
-fn msg3(h: { r: region(L, normal) }, a: atom, p: actor_ref, n: int64) -> { r: region(L, normal), c: ref?(L, normal, rec) } {
+fn msg3(h: { r: region(L, normal) }, a: atom, p: actor_ref, n: int64) -> { r: region(L, normal), c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) } {
     { r: h.r, c: tuple3(h, a, p, n) }
 }
-fn msg_atom(h: { r: region(L, normal) }, a: atom) -> { r: region(L, normal), c: ref?(L, normal, rec) } {
+fn msg_atom(h: { r: region(L, normal) }, a: atom) -> { r: region(L, normal), c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) } {
     { r: h.r, c: bees_term@mk_atom(h, a) }
 }
 
 // {tag_atom, N} and {tag_atom, Pid, N} builders (what a compiler emits for a tuple literal).
-fn tuple2(h: { r: region(L, normal) }, a: atom, n: int64) -> ref?(L, normal, rec) {
+fn tuple2(h: { r: region(L, normal) }, a: atom, n: int64) -> ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) {
     bees_term@mk_tuple(h, 2, bees_term@mk_cons(h, bees_term@mk_atom(h, a), bees_term@mk_cons(h, bees_term@mk_int(h, n), bees_term@mk_nil(h))))
 }
-fn tuple3(h: { r: region(L, normal) }, a: atom, p: actor_ref, n: int64) -> ref?(L, normal, rec) {
+fn tuple3(h: { r: region(L, normal) }, a: atom, p: actor_ref, n: int64) -> ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) {
     bees_term@mk_tuple(h, 3, bees_term@mk_cons(h, bees_term@mk_atom(h, a), bees_term@mk_cons(h, bees_term@mk_pid(h, p), bees_term@mk_cons(h, bees_term@mk_int(h, n), bees_term@mk_nil(h)))))
 }
 
@@ -50,7 +51,7 @@ fn new_heap() -> { r: region(L, normal) } {
 }
 
 // Pattern predicates the compiler emits for each receive clause.
-fn is_pong_n(c: ref?(L, normal, rec), n: int64) -> boolean {
+fn is_pong_n(c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), n: int64) -> boolean {
     case bees_term@tag(c) == 6 and bees_term@arity(c) == 2 of {
         false -> false;
         true -> bees_term@tag(bees_term@nth(bees_term@hd_of(c), 0)) == 3
@@ -59,14 +60,14 @@ fn is_pong_n(c: ref?(L, normal, rec), n: int64) -> boolean {
             and bees_term@int_of(bees_term@nth(bees_term@hd_of(c), 1)) == n
     }
 }
-fn is_pong_2(c: ref?(L, normal, rec)) -> boolean { is_pong_n(c, 2) }
-fn is_pong_1(c: ref?(L, normal, rec)) -> boolean { is_pong_n(c, 1) }
+fn is_pong_2(c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec)))) -> boolean { is_pong_n(c, 2) }
+fn is_pong_1(c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec)))) -> boolean { is_pong_n(c, 1) }
 
 // ---- pong ----
-fn pong(msg: { r: region(L, normal), c: ref?(L, normal, rec) }, state: { h: { r: region(L, normal) } }) -> (:no_reply, { h: { r: region(L, normal) } }) {
+fn pong(msg: { r: region(L, normal), c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) }, state: { h: { r: region(L, normal) } }) -> (:no_reply, { h: { r: region(L, normal) } }) {
     sequence
-        m: { c: ref?(L, normal, rec) } <- { c: bees_term@copy(state.h, msg.c) };
-        elems: { c: ref?(L, normal, rec) } <- { c: bees_term@hd_of(m.c) };
+        m: { c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) } <- { c: bees_term@copy(state.h, msg.c) };
+        elems: { c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) } <- { c: bees_term@hd_of(m.c) };
         _: boolean <- case bees_term@tag(m.c) == 6 and bees_term@atom_of(bees_term@nth(elems.c, 0)) == bees_atoms@a_ping() of {
             true -> reply_pong(bees_term@pid_of(bees_term@nth(elems.c, 1)), bees_term@int_of(bees_term@nth(elems.c, 2)));
             false -> true
@@ -77,16 +78,16 @@ fn pong(msg: { r: region(L, normal), c: ref?(L, normal, rec) }, state: { h: { r:
 // From ! {pong, N}: the reply term is built in a fresh region, which the cast moves to From.
 fn reply_pong(from: actor_ref, n: int64) -> boolean {
     sequence proc[concurrency]
-        reply: { r: region(L, normal), c: ref?(L, normal, rec) } <- msg2(new_heap(), bees_atoms@a_pong(), n);
+        reply: { r: region(L, normal), c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) } <- msg2(new_heap(), bees_atoms@a_pong(), n);
         ok: boolean <- cast(from, reply impl ActorMessage {})
     produces pure ok end
 }
 
 // ---- ping, reshaped ----
-fn ping(msg: { r: region(L, normal), c: ref?(L, normal, rec) }, state: { h: { r: region(L, normal) }, saved: ref?(L, normal, rec), pong: actor_ref, phase: int64 }) -> (:no_reply, { h: { r: region(L, normal) }, saved: ref?(L, normal, rec), pong: actor_ref, phase: int64 }) {
+fn ping(msg: { r: region(L, normal), c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) }, state: { h: { r: region(L, normal) }, saved: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), pong: actor_ref, phase: int64 }) -> (:no_reply, { h: { r: region(L, normal) }, saved: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), pong: actor_ref, phase: int64 }) {
     sequence
-        m: { c: ref?(L, normal, rec) } <- { c: bees_term@copy(state.h, msg.c) };
-        next: { h: { r: region(L, normal) }, saved: ref?(L, normal, rec), pong: actor_ref, phase: int64 } <- case state.phase of {
+        m: { c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) } <- { c: bees_term@copy(state.h, msg.c) };
+        next: { h: { r: region(L, normal) }, saved: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), pong: actor_ref, phase: int64 } <- case state.phase of {
             0 -> phase_0(state);
             1 -> case is_pong_2(m.c) of {
                 true -> after_receive_1(state);
@@ -102,26 +103,26 @@ fn ping(msg: { r: region(L, normal), c: ref?(L, normal, rec) }, state: { h: { r:
 }
 
 // A message that matches no clause of the current receive goes to the end of the save queue.
-fn save(state: { h: { r: region(L, normal) }, saved: ref?(L, normal, rec), pong: actor_ref, phase: int64 }, m: ref?(L, normal, rec)) -> { h: { r: region(L, normal) }, saved: ref?(L, normal, rec), pong: actor_ref, phase: int64 } {
-    q: { c: ref?(L, normal, rec) } <- { c: bees_recv@append(state.h, state.saved, m) };
+fn save(state: { h: { r: region(L, normal) }, saved: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), pong: actor_ref, phase: int64 }, m: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec)))) -> { h: { r: region(L, normal) }, saved: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), pong: actor_ref, phase: int64 } {
+    q: { c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) } <- { c: bees_recv@append(state.h, state.saved, m) };
     { h: state.h, saved: q.c, pong: state.pong, phase: state.phase }
 }
 
 // Phase 0: the two sends, then enter receive 1. (A separate function: records built inside a
 // case-arm block lose their fields, SD-16's class.)
-fn phase_0(state: { h: { r: region(L, normal) }, saved: ref?(L, normal, rec), pong: actor_ref, phase: int64 }) -> { h: { r: region(L, normal) }, saved: ref?(L, normal, rec), pong: actor_ref, phase: int64 } {
+fn phase_0(state: { h: { r: region(L, normal) }, saved: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), pong: actor_ref, phase: int64 }) -> { h: { r: region(L, normal) }, saved: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), pong: actor_ref, phase: int64 } {
     sequence proc[concurrency]
         me: actor_ref <- self();
-        m1: { r: region(L, normal), c: ref?(L, normal, rec) } <- msg3(new_heap(), bees_atoms@a_ping(), me, 1);
+        m1: { r: region(L, normal), c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) } <- msg3(new_heap(), bees_atoms@a_ping(), me, 1);
         _: boolean <- cast(state.pong, m1 impl ActorMessage {});
-        m2: { r: region(L, normal), c: ref?(L, normal, rec) } <- msg3(new_heap(), bees_atoms@a_ping(), me, 2);
+        m2: { r: region(L, normal), c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) } <- msg3(new_heap(), bees_atoms@a_ping(), me, 2);
         _: boolean <- cast(state.pong, m2 impl ActorMessage {})
     produces pure enter_receive_1({ h: state.h, saved: state.saved, pong: state.pong, phase: 1 }) end
 }
 
 // Entering receive 1 (phase 1): first look in the save queue.
-fn enter_receive_1(state: { h: { r: region(L, normal) }, saved: ref?(L, normal, rec), pong: actor_ref, phase: int64 }) -> { h: { r: region(L, normal) }, saved: ref?(L, normal, rec), pong: actor_ref, phase: int64 } {
-    q: { c: ref?(L, normal, rec) } <- { c: bees_recv@select(state.h, state.saved, is_pong_2) };
+fn enter_receive_1(state: { h: { r: region(L, normal) }, saved: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), pong: actor_ref, phase: int64 }) -> { h: { r: region(L, normal) }, saved: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), pong: actor_ref, phase: int64 } {
+    q: { c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) } <- { c: bees_recv@select(state.h, state.saved, is_pong_2) };
     case is_pong_2(bees_term@hd_of(q.c)) of {
         true -> after_receive_1({ h: state.h, saved: bees_term@tl_of(q.c), pong: state.pong, phase: 1 });
         false -> { h: state.h, saved: q.c, pong: state.pong, phase: 1 }
@@ -129,10 +130,10 @@ fn enter_receive_1(state: { h: { r: region(L, normal) }, saved: ref?(L, normal, 
 }
 
 // The code after receive 1: print, then enter receive 2.
-fn after_receive_1(state: { h: { r: region(L, normal) }, saved: ref?(L, normal, rec), pong: actor_ref, phase: int64 }) -> { h: { r: region(L, normal) }, saved: ref?(L, normal, rec), pong: actor_ref, phase: int64 } {
+fn after_receive_1(state: { h: { r: region(L, normal) }, saved: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), pong: actor_ref, phase: int64 }) -> { h: { r: region(L, normal) }, saved: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), pong: actor_ref, phase: int64 } {
     sequence proc[device_io]
         println("pong 2");
-        q: { c: ref?(L, normal, rec) } <- { c: bees_recv@select(state.h, state.saved, is_pong_1) }
+        q: { c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) } <- { c: bees_recv@select(state.h, state.saved, is_pong_1) }
     produces pure case is_pong_1(bees_term@hd_of(q.c)) of {
         true -> after_receive_2({ h: state.h, saved: bees_term@tl_of(q.c), pong: state.pong, phase: 2 });
         false -> { h: state.h, saved: q.c, pong: state.pong, phase: 2 }
@@ -140,7 +141,7 @@ fn after_receive_1(state: { h: { r: region(L, normal) }, saved: ref?(L, normal, 
 }
 
 // The code after receive 2.
-fn after_receive_2(state: { h: { r: region(L, normal) }, saved: ref?(L, normal, rec), pong: actor_ref, phase: int64 }) -> { h: { r: region(L, normal) }, saved: ref?(L, normal, rec), pong: actor_ref, phase: int64 } {
+fn after_receive_2(state: { h: { r: region(L, normal) }, saved: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), pong: actor_ref, phase: int64 }) -> { h: { r: region(L, normal) }, saved: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), pong: actor_ref, phase: int64 } {
     sequence proc[device_io]
         println("pong 1");
         println("done")
@@ -149,13 +150,14 @@ fn after_receive_2(state: { h: { r: region(L, normal) }, saved: ref?(L, normal, 
 
 fn main() -> int64 {
     sequence proc[concurrency, device_io, mem(normal)]
+        _: atom <- bees_reporter@start();
         L: lifetime <- fresh_lifetime();
         rp: region(L, normal) <- alloc_region(normal);
-        pong_ref: actor_ref <- spawn({ h: { r: rp } }, pong);
+        pong_ref: actor_ref <- spawn({ h: { r: rp } }, pong, stack_policy(0, :keep_last_message));
         L: lifetime <- fresh_lifetime();
         rq: region(L, normal) <- alloc_region(normal);
-        ping_ref: actor_ref <- spawn({ h: { r: rq }, saved: :none, pong: pong_ref, phase: 0 }, ping);
-        kick: { r: region(L, normal), c: ref?(L, normal, rec) } <- msg_atom(new_heap(), bees_atoms@a_kick());
+        ping_ref: actor_ref <- spawn({ h: { r: rq }, saved: :none, pong: pong_ref, phase: 0 }, ping, stack_policy(0, :keep_last_message));
+        kick: { r: region(L, normal), c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) } <- msg_atom(new_heap(), bees_atoms@a_kick());
         _: boolean <- cast(ping_ref, kick impl ActorMessage {});
         _: int64 <- wait_for_exit()
     produces pure 0 end

@@ -316,7 +316,7 @@ land in time; if one slips, everything that closes after it slips with it.
 | **S-24** | Fifi on the ESP32-S3 | Silica | `silica` | S4 | — | — | R1 |
 | **S-8** | Mailbox introspection and a dispatch tracing hook | Silica | `silica` | — | — | — | — |
 | **S-21** | buf(uint8) across the FFI boundary | Silica | `silica` | S5 | — | — | — |
-| **S-22** | Silica's own TCP/IP | Silica | `silica` | — | — | — | — |
+| **S-22** | Socket and DNS wrappers through Fifi | BEES | `silica` | — | — | — | — |
 | **S-31** | Run-time calling-convention check | Silica | `silica` | — | — | — | — |
 | **S-32** | Silica Linux x86_64 emitter | Silica | `silica` | — | — | — | R1 |
 | **M1.A** | PoC shim v0: bees_term subset, evacuation, receive helpers, bees_timer, PoC BIFs, one Supervisor mapping | BEES | `shim` | M0 | — | — | M1.T, M1.B, M1 |

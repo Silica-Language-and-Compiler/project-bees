@@ -1,3 +1,4 @@
+use bees_reporter;
 // S3: 200,000 call round trips to one call-only actor: ~5 µs each (0.98 s wall, mostly sys).
 fn echo(msg: int64, state: int64) -> (:reply, int64, int64) { (:reply, msg + state, state) }
 fn call_n(a: actor_ref, n: int64, acc: int64) -> int64 {
@@ -8,7 +9,8 @@ fn call_n(a: actor_ref, n: int64, acc: int64) -> int64 {
 }
 fn main() -> int64 {
     sequence proc[concurrency, device_io]
-        a: actor_ref <- spawn(0, echo);
+        _: atom <- bees_reporter@start();
+        a: actor_ref <- spawn(0, echo, stack_policy(0, :keep_last_message));
         n: int64 <- call_n(a, 200000, 0);
         _: atom <- print_int64(n);
         println("")

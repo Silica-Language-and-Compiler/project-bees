@@ -1,0 +1,27 @@
+use bees_reporter;
+// S3 re-run (silica-999939): spawn 8,000 idle cast-only actors with the DEFAULT stack reservation
+// (stack_policy(0, ...) = machine memory plus swap of address space per actor). The spawn aborts
+// ("stack reservation failed", exit 71) after about 3,750 to 4,000 actors: the ceiling is now
+// virtual address space, not the thread cap (4,093 on silica-999977). Lowering the reserve removes
+// it: see ceiling_100k_1mb.
+fn idle(msg: int64, state: int64) -> (:no_reply, int64) {
+    (:no_reply, state + msg)
+}
+
+fn spawn_n(n: int64, acc: int64) -> int64 {
+    sequence proc[concurrency]
+        a: actor_ref <- spawn(0, idle, stack_policy(0, :keep_last_message));
+        ok: boolean <- cast(a, 1 impl ActorMessage {});
+        got: int64 <- case ok of { true -> 1; false -> 0 };
+        rest: int64 <- case n <= 1 of { true -> acc + got; false -> spawn_n(n - 1, acc + got) }
+    produces pure rest end
+}
+
+fn main() -> int64 {
+    sequence proc[device_io]
+        _: atom <- bees_reporter@start();
+        n: int64 <- spawn_n(8000, 0);
+        _: atom <- print_int64(n);
+        println("")
+    produces pure 0 end
+}

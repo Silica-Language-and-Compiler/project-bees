@@ -1,3 +1,0 @@
-true[silica] fault at 0xADDR
- in os_unfair_lock_lock+0xADDR  addr=0xADDR  actor=0xADDR  sbase=0xADDR  ssize=0xADDR
-exit=70

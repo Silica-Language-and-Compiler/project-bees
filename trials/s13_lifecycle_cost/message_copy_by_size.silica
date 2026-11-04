@@ -1,3 +1,4 @@
+use bees_reporter;
 // S13: the cost of a message that carries a term of N cells: the sender builds a list of N ints
 // in a fresh region and casts it; the receiver copies it into its heap (evacuation) and sums it.
 // MSGS messages of N cells; the receiver prints the total on the final -1 message.
@@ -11,28 +12,28 @@ fn new_heap() -> { r: region(L, normal) } {
     produces pure { r: r } end
 }
 
-fn int_list(h: { r: region(L, normal) }, n: int64) -> ref?(L, normal, rec) {
+fn int_list(h: { r: region(L, normal) }, n: int64) -> ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) {
     case n == 0 of {
         true -> bees_term@mk_nil(h);
         false -> bees_term@mk_cons(h, bees_term@mk_int(h, n), int_list(h, n - 1))
     }
 }
 // the message builder for one send site (SD-22: the fresh heap is never bound to a local)
-fn msg_list(h: { r: region(L, normal) }, n: int64) -> { r: region(L, normal), c: ref?(L, normal, rec) } {
+fn msg_list(h: { r: region(L, normal) }, n: int64) -> { r: region(L, normal), c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) } {
     { r: h.r, c: int_list(h, n) }
 }
-fn msg_int(h: { r: region(L, normal) }, n: int64) -> { r: region(L, normal), c: ref?(L, normal, rec) } {
+fn msg_int(h: { r: region(L, normal) }, n: int64) -> { r: region(L, normal), c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) } {
     { r: h.r, c: bees_term@mk_int(h, n) }
 }
 
-fn sum_list(c: ref?(L, normal, rec)) -> int64 {
+fn sum_list(c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec)))) -> int64 {
     case bees_term@tag(c) == 5 of {
         false -> 0;
         true -> bees_term@int_of(bees_term@hd_of(c)) + sum_list(bees_term@tl_of(c))
     }
 }
 
-fn receiver(msg: { r: region(L, normal), c: ref?(L, normal, rec) }, state: { h: { r: region(L, normal) }, total: int64 }) -> (:no_reply, { h: { r: region(L, normal) }, total: int64 }) {
+fn receiver(msg: { r: region(L, normal), c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) }, state: { h: { r: region(L, normal) }, total: int64 }) -> (:no_reply, { h: { r: region(L, normal) }, total: int64 }) {
     sequence proc[device_io]
         s: int64 <- sum_list(bees_term@copy(state.h, msg.c));
         is_end: boolean <- bees_term@tag(msg.c) == 1;
@@ -45,7 +46,7 @@ fn receiver(msg: { r: region(L, normal), c: ref?(L, normal, rec) }, state: { h: 
 
 fn send_n(a: actor_ref, i: int64, msgs: int64, n: int64) -> atom {
     sequence proc[concurrency]
-        m: { r: region(L, normal), c: ref?(L, normal, rec) } <- msg_list(new_heap(), n);
+        m: { r: region(L, normal), c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) } <- msg_list(new_heap(), n);
         _: boolean <- cast(a, m impl ActorMessage {});
         r: atom <- case i + 1 == msgs of { true -> :ok; false -> send_n(a, i + 1, msgs, n) }
     produces pure r end
@@ -53,11 +54,12 @@ fn send_n(a: actor_ref, i: int64, msgs: int64, n: int64) -> atom {
 
 fn main() -> int64 {
     sequence proc[concurrency, device_io, mem(normal)]
+        _: atom <- bees_reporter@start();
         L: lifetime <- fresh_lifetime();
         r: region(L, normal) <- alloc_region(normal);
-        a: actor_ref <- spawn({ h: { r: r }, total: 0 }, receiver);
+        a: actor_ref <- spawn({ h: { r: r }, total: 0 }, receiver, stack_policy(0, :keep_last_message));
         _: atom <- send_n(a, 0, 1000, 10);
-        fin: { r: region(L, normal), c: ref?(L, normal, rec) } <- msg_int(new_heap(), 0 - 1);
+        fin: { r: region(L, normal), c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) } <- msg_int(new_heap(), 0 - 1);
         _: boolean <- cast(a, fin impl ActorMessage {});
         _: int64 <- wait_for_exit()
     produces pure 0 end

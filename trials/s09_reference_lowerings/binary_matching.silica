@@ -10,7 +10,7 @@
 use bees_term;
 
 // <<3, 1, 2, 9, 9, 9>> as a byte list, built from the end
-fn byte_list(h: { r: region(L, normal) }, i: int64) -> ref?(L, normal, rec) {
+fn byte_list(h: { r: region(L, normal) }, i: int64) -> ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) {
     case i == 6 of {
         true -> bees_term@mk_nil(h);
         false -> bees_term@mk_cons(h, bees_term@mk_int(h, case i of { 0 -> 3; 1 -> 1; 2 -> 2; _: int64 -> 9 }), byte_list(h, i + 1))
@@ -18,7 +18,7 @@ fn byte_list(h: { r: region(L, normal) }, i: int64) -> ref?(L, normal, rec) {
 }
 
 // byte i of a binary
-fn byte_at(bin: ref?(L, normal, rec), i: int64) -> int64 {
+fn byte_at(bin: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), i: int64) -> int64 {
     bees_term@int_of(bees_term@nth(bees_term@hd_of(bin), i))
 }
 
@@ -27,7 +27,7 @@ fn main() -> int64 {
         L: lifetime <- fresh_lifetime();
         r: region(L, normal) <- alloc_region(normal);
         h: { r: region(L, normal) } <- { r: r };
-        bin: { c: ref?(L, normal, rec) } <- { c: bees_term@mk_binary(h, 6, byte_list(h, 0)) };
+        bin: { c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) } <- { c: bees_term@mk_binary(h, 6, byte_list(h, 0)) };
         size: int64 <- bees_term@int_of(bin.c);
         // the match: Len:8 at byte 0, Tag:16/big at bytes 1-2, Rest/binary from byte 3
         ok: boolean <- bees_term@tag(bin.c) == 7 and size >= 3;

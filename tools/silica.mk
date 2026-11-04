@@ -13,7 +13,7 @@ ifeq ($(filter command line,$(origin SILICA_COMPILER)),)
 SILICA_COMPILER := $(SILICA_ROOT)/binaries/silica-compiler
 endif
 
-SILICA_STDLIB := $(SILICA_ROOT)/compiler/silica-compiler/stdlib
+SILICA_STDLIB := $(SILICA_ROOT)/compiler/stdlib
 
 # Assembler and linker. Homebrew LLVM's clang is preferred when present, as in Silica's own
 # project Makefiles. The entry symbol is `main` (no C runtime, no leading underscore).

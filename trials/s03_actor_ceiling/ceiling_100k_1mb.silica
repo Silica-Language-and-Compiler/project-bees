@@ -1,13 +1,12 @@
-// S3: spawn 8,000 idle cast-only actors and message each once. Prints how many casts
-// succeeded: 4,093 on macOS, the per-process thread cap (kern.num_taskthreads = 4096) minus
-// the runtime's own threads, because every Silica actor is a pthread today (S-6).
+use bees_reporter;
+// S3 re-run: spawn 100000 idle cast-only actors with a 1048576-byte stack reservation, message each once, print the casts that succeeded.
 fn idle(msg: int64, state: int64) -> (:no_reply, int64) {
     (:no_reply, state + msg)
 }
 
 fn spawn_n(n: int64, acc: int64) -> int64 {
     sequence proc[concurrency]
-        a: actor_ref <- spawn(0, idle);
+        a: actor_ref <- spawn(0, idle, stack_policy(1048576, :keep_last_message));
         ok: boolean <- cast(a, 1 impl ActorMessage {});
         got: int64 <- case ok of { true -> 1; false -> 0 };
         rest: int64 <- case n <= 1 of { true -> acc + got; false -> spawn_n(n - 1, acc + got) }
@@ -16,7 +15,8 @@ fn spawn_n(n: int64, acc: int64) -> int64 {
 
 fn main() -> int64 {
     sequence proc[device_io]
-        n: int64 <- spawn_n(8000, 0);
+        _: atom <- bees_reporter@start();
+        n: int64 <- spawn_n(100000, 0);
         _: atom <- print_int64(n);
         println("")
     produces pure 0 end

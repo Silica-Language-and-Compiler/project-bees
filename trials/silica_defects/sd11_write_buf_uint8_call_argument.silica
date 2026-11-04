@@ -1,3 +1,4 @@
+use bees_reporter;
 // SD-11: write_buf into a buf(L, normal, uint8, N) with a function call as the value argument
 // faults at run time ("[silica] fault ... addr=0x...cc"); binding the call's result to a name
 // first works, and an int64 buffer with a call argument works.
@@ -261,17 +262,18 @@ fn low_byte(n: int64) -> uint8 {
         _: int64 -> 255
     }
 }
-fn poke(b: buf(L, normal, uint8, 8), n: int64) -> atom {
+fn poke_byte(b: buf(L, normal, uint8, 8), n: int64) -> atom {
     sequence proc[mem(normal)]
         _: atom <- write_buf(b, 1, low_byte(n))
     produces pure :ok end
 }
 fn main() -> int64 {
     sequence proc[mem(normal), device_io]
+        _: atom <- bees_reporter@start();
         L: lifetime <- fresh_lifetime();
         r: region(L, normal) <- alloc_region(normal);
         b: buf(L, normal, uint8, 8) <- alloc_buf(r, 8);
-        _: atom <- poke(b, 1234567890123);
+        _: atom <- poke_byte(b, 1234567890123);
         v: uint8 <- read_buf(b, 1);
         _: atom <- print_uint8(v);
         println("")

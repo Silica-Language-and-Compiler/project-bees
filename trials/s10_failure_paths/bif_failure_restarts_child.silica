@@ -1,59 +1,75 @@
-// S10: a "BIF failure" (integer division by zero, the analogue of badarith) inside a supervised
-// process ends the actor; the supervisor restarts the permanent child with its initial state,
-// and the crash report shows reason_tag 1. A case-clause miss (the analogue of case_clause)
-// ends the actor with reason_tag 2. There are no explicit reason atoms yet (S-9).
-// Expected: 100 (first call), then the death, then 3 (fresh state after restart), then 2 (case
-// clause death), then 7.
+// S10 (re-run 2026-11-04): failure paths on silica-999939. A call-only :permanent worker :w under a
+// supervisor. 0 divides by zero (language_error, the analogue of badarith); 99 calls
+// fail_self(:badarg) (an explicit reason atom, S-9); anything else adds to the state. A relay actor
+// calls :w on main's behalf. When the callee dies mid-call the call RAISES actor_not_found in the
+// relay, which fails with (:explicit, :actor_not_found): a death is never a zero value (SD-9 closed
+// by design). Phases are separated by a spin because the failure reports are written
+// asynchronously. Expected: 15; a :badarg report from the worker and an actor_not_found report
+// from the relay; 16 (fresh state after restart: 10 + 6); a :language_error report from the worker
+// and again actor_not_found from the relay; 17 (fresh again).
 use Supervisor;
+use bees_reporter;
 
 impl S10Sup for Supervisor;
-
-fn worker(msg: int64, state: int64) -> (:reply, int64, int64) {
-    v: int64 <- case msg of {
-        99 -> case state of { 1 -> 1 };
-        _: int64 -> state / msg
-    };
-    (:reply, v, state + 1)
-}
 
 fn init(initial_state: int64) -> (
     { strategy: :one_for_one | :one_for_all | :rest_for_one, allowed_restart_count: int64, restarts_time_frame: int64 },
     List[{ id: atom, agent_type: :worker | :supervisor, initial_state: int64, behavior: fn(msg: int64, state: int64) -> (:reply, int64, int64), restart: :permanent | :temporary | :transient, shutdown: int64, flavor: :plain | :dangerous }, mem(normal)]
 ) {
     sequence proc[mem(normal)]
-        flags: { strategy: :one_for_one | :one_for_all | :rest_for_one, allowed_restart_count: int64, restarts_time_frame: int64 } <- { strategy: :one_for_one, allowed_restart_count: 5, restarts_time_frame: 10 };
+        flags: { strategy: :one_for_one | :one_for_all | :rest_for_one, allowed_restart_count: int64, restarts_time_frame: int64 } <- { strategy: :one_for_one, allowed_restart_count: 20, restarts_time_frame: 10000000000 };
         children: List[{ id: atom, agent_type: :worker | :supervisor, initial_state: int64, behavior: fn(msg: int64, state: int64) -> (:reply, int64, int64), restart: :permanent | :temporary | :transient, shutdown: int64, flavor: :plain | :dangerous }, mem(normal)] <- [
-            { id: :s10_worker, agent_type: :worker, initial_state: initial_state, behavior: worker, restart: :permanent, shutdown: 0, flavor: :plain }
+            { id: :w, agent_type: :worker, initial_state: 10, behavior: worker, restart: :permanent, shutdown: 0, flavor: :plain }
         ]
     produces pure (flags, children) end
 }
 
-fn child_of(sup: supervisor_ref) -> actor_ref {
-    sequence
-        got: { tag: :child_started | :ok | :children | :count | :child_info | :error, child: actor_ref, status: atom, children: List[{ id: atom, agent_type: :worker | :supervisor, child: actor_ref, restart: :permanent | :temporary | :transient }, mem(normal)], count: int64, child_info: { id: atom, agent_type: :worker | :supervisor, child: actor_ref, restart: :permanent | :temporary | :transient }, error: atom } <- call_supervisor(sup, { op: :get_child, id: :s10_worker } impl SupervisorMessage {})
-    produces pure got.child end
+fn worker(msg: int64, state: int64) -> (:reply, int64, int64) {
+    case msg of {
+        0 -> (:reply, state / msg, state);
+        99 -> {
+            sequence proc[concurrency]
+                _: atom <- fail_self(:badarg)
+            produces
+                pure (:reply, state, state)
+            end
+        };
+        _: int64 -> (:reply, state + msg, state + msg)
+    }
+}
+
+fn relay(msg: int64, state: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency, device_io]
+        v: int64 <- call_registered(:w, msg impl ActorMessage {});
+        _: atom <- print_int64(v);
+        println("")
+    produces
+        pure (:no_reply, v)
+    end
+}
+
+fn spin(n: int64) -> int64 { case n == 0 of { true -> 0; false -> spin(n - 1) } }
+
+fn run_relay(msg: int64) -> boolean {
+    sequence proc[concurrency]
+        r: actor_ref <- spawn(0, relay, stack_policy(0, :keep_last_message));
+        ok: boolean <- cast(r, msg impl ActorMessage {})
+    produces pure ok end
 }
 
 fn main() -> int64 {
-    sequence proc[concurrency, device_io]
-        sup: supervisor_ref <- spawn_registered_supervisor(S10Sup, 100, :s10_sup);
-        c1: actor_ref <- child_of(sup);
-        v1: int64 <- call(c1, 1 impl ActorMessage {});
-        _: atom <- print_int64(v1);
-        println("");
-        dead: int64 <- call(c1, 0 impl ActorMessage {});
-        _: atom <- print_int64(dead);
-        println("");
-        c2: actor_ref <- child_of(sup);
-        v2: int64 <- call(c2, 33 impl ActorMessage {});
-        _: atom <- print_int64(v2);
-        println("");
-        dead2: int64 <- call(c2, 99 impl ActorMessage {});
-        _: atom <- print_int64(dead2);
-        println("");
-        c3: actor_ref <- child_of(sup);
-        v3: int64 <- call(c3, 14 impl ActorMessage {});
-        _: atom <- print_int64(v3);
-        println("")
+    sequence proc[concurrency]
+        _: atom <- bees_reporter@start();
+        sup: supervisor_ref <- spawn_registered_supervisor(S10Sup, 0, :s10_sup, stack_policy(0, :keep_last_message));
+        _: boolean <- run_relay(5);
+        _: int64 <- spin(3000000);
+        _: boolean <- run_relay(99);
+        _: int64 <- spin(3000000);
+        _: boolean <- run_relay(6);
+        _: int64 <- spin(3000000);
+        _: boolean <- run_relay(0);
+        _: int64 <- spin(3000000);
+        _: boolean <- run_relay(7);
+        _: int64 <- spin(3000000)
     produces pure 0 end
 }

@@ -31,3 +31,28 @@ not, the row says what decision is needed. Compiler generation is in `tools/sili
 | SD-21 | 2026-09-17 | **Every call of a function that returns an aggregate (record or tuple) leaks stack** for the life of the actor: ~32 bytes per call (~4 for a one-field record), never released between dispatches, until the 8 MB actor stack guard (`[silica] fault … addr = stack base + 0x800000`). 100,000 messages × 10 record-returning calls fault; 100 messages × 1,000 calls per message are fine; `int64` and single-reference returns never leak. | `trials/silica_defects/sd21_aggregate_return_leaks_stack.silica` | `bees_term` and `bees_recv` return single references (`ref?(L, normal, rec)`) everywhere; the heap is passed in as a record; message builders still return a record once per send. Design-neutral, but a long-lived process still dies after millions of sends; needs the fix. |
 | SD-22 | 2026-09-17 | **A region handle bound to a local name is freed at that scope's exit even when it was moved into a cast** (§12.1.6 says the move transfers ownership). The next `alloc_region` reuses the memory, so a receiver reads the latest sender's cells (three messages read `333`). A region that flows straight from the function that allocated it into a builder that returns the message record, never bound to a local, survives. | `trials/silica_defects/sd22_region_bound_locally_freed_after_cast.silica` | Every send site calls a builder `msg_of(new_heap(), …)` that returns the message record; the fresh region is never bound to a local. Design-neutral; the contract's send rule. |
 
+
+## Status on `silica-999939-macos-applesilicon` (chunk 4 and chunk 15 phase 2), re-run 2026-11-04
+
+Every reproducer was ported to current syntax and run; the trial named is in `trials/silica_defects/` unless noted.
+
+| # | Status | Evidence |
+| --- | --- | --- |
+| SD-1 | Still open on the previous compiler; not re-run | |
+| SD-2, SD-3 | SD-3: the compiler now keeps a build-wide `silica.atoms`; S2 still passes under D30. Not re-tested without D30. | `trials/s02_cross_unit_atoms` |
+| SD-4 | **Closed.** The spelled form is now the required form; bare `ref?(L, normal, rec)` outside a tuple is E2010. | `sd4_ref_opt_spelled_type` |
+| SD-5 | **Closed** with the spelled annotation (compiles). The bare form is rejected by design. | `sd5_ref_opt_binding_annotation` |
+| SD-6 | **Closed** (per-call lifetime substitution). | `sd6_lifetime_name_nominal` |
+| SD-7 | **Closed.** 100,000 region-carrying messages: 31 MB peak, all delivered. | `sd7_message_region_never_freed` |
+| SD-8 | **Closed:** `cast()` to a call-only actor is compile error E2237. | (repro removed) |
+| SD-9 | **Closed by design:** a `call` to a dead callee fails the caller with `(:explicit, :actor_not_found)`. | `s10_failure_paths` |
+| SD-10 | **Closed** for tuple, record and region-holding states. The cause was a SIR fallback that tagged every spawn in a supervisor module with the supervisor's trampoline. | `s01_trait_mapping` |
+| SD-11 | **Closed** (`write_buf` with a call argument prints 203). | `sd11_write_buf_uint8_call_argument` |
+| SD-12 | **Closed** (60,000,003 iterations, no fault). | `sd12_tail_recursion_grows_stack` |
+| SD-13 | **Closed** (float literal in a comparison compiles). | `sd13_float_literal_in_comparison` |
+| SD-14 | **Closed** for the parameter-clobber case (prints 5.0 and 3.0). Cases (b) and (c) not re-tested. | `sd14_float_parameter_clobbered` |
+| SD-15, SD-16, SD-17 | Not re-tested. | |
+| SD-18 | **Closed:** a `spawn_dangerous` worker answers a second message. | `s04_native_edge/dangerous_second_message_works` |
+| SD-19 | **Closed** for an int64 expression as the core. (A `uint64` core is still rejected, per Silica's open trial.) | `s11_balancing_migrate/sd19_expression_core` |
+| SD-20, SD-21, SD-22 | **Closed** (11 23; 7,700,154 calls; 1 2 3). | `sd20_*`, `sd21_*`, `sd22_*` |
+| **SD-23** (new) | **Open.** A supervised cast-only child that holds a region and an `actor_ref` in its state and calls `cast(state.collector, n)` inside a dispatch dies with `:language_error` on its SECOND message, before its first statement. Without that cast the same program passes. A supervised call-style child with the same state passes. Plain `spawn` not checked. | `s01_trait_mapping/sd23_cast_from_region_state_child_second_dispatch` (golden records the failure) |

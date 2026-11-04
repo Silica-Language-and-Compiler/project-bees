@@ -1,3 +1,4 @@
+use bees_reporter;
 // S11: message order across migrate_actor(). An actor spawned on core 1 receives numbered
 // messages while main migrates it to a different core every 100 messages (10 cores round
 // robin) and finally sends -1. The actor checks that every sequence number is the previous
@@ -20,7 +21,7 @@ fn report(count: int64, broken: boolean) -> atom {
     sequence proc[device_io]
         _: atom <- print_int64(count);
         print_string(" ");
-        _: atom <- print_bool(broken);
+        _: atom <- print_boolean(broken);
         println("");
         println("done")
     produces pure :ok end
@@ -40,7 +41,8 @@ fn send_n(a: actor_ref, i: int64, n: int64) -> atom {
 
 fn main() -> int64 {
     sequence proc[concurrency, device_io]
-        a: actor_ref <- spawn({ expect: 0, broken: false }, checker, 1);
+        _: atom <- bees_reporter@start();
+        a: actor_ref <- spawn({ expect: 0, broken: false }, checker, stack_policy(0, :keep_last_message), 1);
         _: atom <- send_n(a, 0, 100000);
         _: boolean <- cast(a, 0 - 1 impl ActorMessage {});
         _: int64 <- wait_for_exit()

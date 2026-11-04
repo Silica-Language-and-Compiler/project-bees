@@ -1,3 +1,4 @@
+use bees_reporter;
 // S11: the cost of migrate_actor() itself: 20,000 migrations of one idle actor between two
 // cores. Prints the count and "done"; the harness's wall time is the measurement (see the note).
 // The core is bound first: an expression in that position faults (SD-19).
@@ -8,7 +9,7 @@ fn idle(msg: int64, state: int64) -> (:no_reply, int64) {
 }
 
 fn migrate_n(a: actor_ref, i: int64, n: int64) -> atom {
-    sequence
+    sequence proc[concurrency]
         core: int64 <- 1 + i % 2;
         _: atom <- migrate_actor(a, core);
         r: atom <- case i + 1 == n of { true -> :ok; false -> migrate_n(a, i + 1, n) }
@@ -17,7 +18,8 @@ fn migrate_n(a: actor_ref, i: int64, n: int64) -> atom {
 
 fn main() -> int64 {
     sequence proc[concurrency, device_io]
-        a: actor_ref <- spawn(0, idle, 1);
+        _: atom <- bees_reporter@start();
+        a: actor_ref <- spawn(0, idle, stack_policy(0, :keep_last_message), 1);
         _: atom <- migrate_n(a, 0, 20000);
         _: atom <- print_int64(20000);
         println("");

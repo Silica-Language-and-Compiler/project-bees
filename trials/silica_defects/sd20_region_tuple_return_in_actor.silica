@@ -1,3 +1,4 @@
+use bees_reporter;
 // SD-20: a function that returns a tuple containing a region handle, (region(L, normal), T),
 // crashes the process when called on an actor thread: exit 70 with no report, or a fault whose
 // pc equals its address (a corrupted return). The same function called from main works
@@ -11,7 +12,7 @@ fn mk(r: region(L, normal), n: int64) -> (region(L, normal), ref(L, normal, (int
 fn val(x: ref(L, normal, (int64, ref?(L, normal, rec)))) -> int64 {
     sequence proc[mem(normal)]
         node: (int64, ref?(L, normal, rec)) <- read_ref(x);
-        (n: int64, _: ref?(L, normal, rec)) <- node
+        (n: int64, _: ref?(L, normal, (int64, ref?(L, normal, rec)))) <- node
     produces pure n end
 }
 fn beh(msg: int64, state: (region(L, normal), int64)) -> (:reply, int64, (region(L, normal), int64)) {
@@ -24,9 +25,10 @@ fn beh(msg: int64, state: (region(L, normal), int64)) -> (:reply, int64, (region
 }
 fn main() -> int64 {
     sequence proc[concurrency, device_io, mem(normal)]
+        _: atom <- bees_reporter@start();
         L: lifetime <- fresh_lifetime();
         r: region(L, normal) <- alloc_region(normal);
-        a: actor_ref <- spawn((r, 0), beh);
+        a: actor_ref <- spawn((r, 0), beh, stack_policy(0, :keep_last_message));
         v1: int64 <- call(a, 1 impl ActorMessage {});
         v2: int64 <- call(a, 2 impl ActorMessage {});
         _: atom <- print_int64(v1);

@@ -1,31 +1,32 @@
+use bees_reporter;
 // S6: a term built in its own region is moved into a message (§12.1.6); the receiving
 // actor walks it. Every region that carries terms is region(L, normal) (SD-6).
 // Expected: 11 41. The message region is never reclaimed (SD-7).
-fn some_term(c: ref(L, normal, (atom, int64, ref?(L, normal, rec)))) -> ref?(L, normal, rec) {
+fn some_term(c: ref(L, normal, (atom, int64, ref?(L, normal, rec)))) -> ref?(L, normal, (atom, int64, ref?(L, normal, rec))) {
     c
 }
 
-fn sum_chain(root: ref?(L, normal, rec)) -> int64 {
+fn sum_chain(root: ref?(L, normal, (atom, int64, ref?(L, normal, rec)))) -> int64 {
     sequence proc[mem(normal)]
         total: int64 <- case root of {
             :none -> 0;
             c: ref(L, normal, (atom, int64, ref?(L, normal, rec))) -> {
                 node: (atom, int64, ref?(L, normal, rec)) <- read_ref(c);
-                (_: atom, v: int64, nxt: ref?(L, normal, rec)) <- node;
+                (_: atom, v: int64, nxt: ref?(L, normal, (atom, int64, ref?(L, normal, rec)))) <- node;
                 v + sum_chain(nxt)
             }
         }
     produces pure total end
 }
 
-fn beh(msg: { r: region(L, normal), root: ref?(L, normal, rec) }, state: { r: region(L, normal), total: int64 }) -> (:reply, int64, { r: region(L, normal), total: int64 }) {
+fn beh(msg: { r: region(L, normal), root: ref?(L, normal, (atom, int64, ref?(L, normal, rec))) }, state: { r: region(L, normal), total: int64 }) -> (:reply, int64, { r: region(L, normal), total: int64 }) {
     sequence
         got: int64 <- sum_chain(msg.root);
         new_total: int64 <- state.total + got
     produces pure (:reply, new_total, { r: state.r, total: new_total }) end
 }
 
-fn build_message(a: int64, b: int64) -> { r: region(L, normal), root: ref?(L, normal, rec) } {
+fn build_message(a: int64, b: int64) -> { r: region(L, normal), root: ref?(L, normal, (atom, int64, ref?(L, normal, rec))) } {
     sequence proc[mem(normal)]
         L: lifetime <- fresh_lifetime();
         r: region(L, normal) <- alloc_region(normal);
@@ -36,12 +37,13 @@ fn build_message(a: int64, b: int64) -> { r: region(L, normal), root: ref?(L, no
 
 fn main() -> int64 {
     sequence proc[concurrency, device_io, mem(normal)]
+        _: atom <- bees_reporter@start();
         L: lifetime <- fresh_lifetime();
         r: region(L, normal) <- alloc_region(normal);
-        a: actor_ref <- spawn({ r: r, total: 0 }, beh);
-        m1: { r: region(L, normal), root: ref?(L, normal, rec) } <- build_message(5, 6);
+        a: actor_ref <- spawn({ r: r, total: 0 }, beh, stack_policy(0, :keep_last_message));
+        m1: { r: region(L, normal), root: ref?(L, normal, (atom, int64, ref?(L, normal, rec))) } <- build_message(5, 6);
         v1: int64 <- call(a, m1 impl ActorMessage {});
-        m2: { r: region(L, normal), root: ref?(L, normal, rec) } <- build_message(10, 20);
+        m2: { r: region(L, normal), root: ref?(L, normal, (atom, int64, ref?(L, normal, rec))) } <- build_message(10, 20);
         v2: int64 <- call(a, m2 impl ActorMessage {});
         _: atom <- print_int64(v1);
         print_string(" ");
