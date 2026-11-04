@@ -1,0 +1,71 @@
+// A2.2 probe (silica-999939): what a per-core spawn supervisor can do today. One supervisor with no
+// static children; plain actors are added with :add_child as :temporary children.
+//  1. A second :add_child with the same id ends main with duplicate_child_id (so ids must be unique
+//     among LIVE children, and the atom table is fixed at compile time).
+//  2. The id is free again once the :temporary child has stopped (stop_self(:normal)).
+// Consequence: one supervisor can hold only as many live children as it has id atoms (D18 / A2).
+
+use Supervisor;
+use bees_reporter;
+
+impl SpawnProbeSup for Supervisor;
+
+fn worker(msg: int64, state: int64) -> (:no_reply, int64) {
+    case msg of {
+        0 -> {
+            sequence proc[concurrency]
+                _: atom <- stop_self(:normal)
+            produces
+                pure (:no_reply, state)
+            end
+        };
+        _: int64 -> (:no_reply, state + msg)
+    }
+}
+
+fn spin(n: int64) -> int64 { case n == 0 of { true -> 0; false -> spin(n - 1) } }
+
+fn init(initial_state: int64) -> (
+    { strategy: :one_for_one | :one_for_all | :rest_for_one, allowed_restart_count: int64, restarts_time_frame: int64 },
+    List[{ id: atom, agent_type: :worker | :supervisor, initial_state: int64, behavior: fn(msg: int64, state: int64) -> (:no_reply, int64), restart: :permanent | :temporary | :transient, shutdown: int64, flavor: :plain | :dangerous }, mem(normal)]
+) {
+    sequence proc[mem(normal)]
+        flags: { strategy: :one_for_one | :one_for_all | :rest_for_one, allowed_restart_count: int64, restarts_time_frame: int64 } <- { strategy: :one_for_one, allowed_restart_count: 5, restarts_time_frame: 10 };
+        children: List[{ id: atom, agent_type: :worker | :supervisor, initial_state: int64, behavior: fn(msg: int64, state: int64) -> (:no_reply, int64), restart: :permanent | :temporary | :transient, shutdown: int64, flavor: :plain | :dangerous }, mem(normal)] <- []
+    produces pure (flags, children) end
+}
+
+fn add(sup: supervisor_ref) -> actor_ref {
+    sequence
+        got: { tag: :child_started | :ok | :children | :count | :child_info | :error, child: actor_ref, status: atom, children: List[ { id: atom, agent_type: :worker | :supervisor, child: actor_ref, restart: :permanent | :temporary | :transient }, mem(normal) ], count: int64, child_info: { id: atom, agent_type: :worker | :supervisor, child: actor_ref, restart: :permanent | :temporary | :transient }, error: atom } <- call_supervisor(sup, { op: :add_child, child: { id: :w, agent_type: :worker, initial_state: 0, behavior: worker, restart: :temporary, shutdown: 0, flavor: :plain } } impl SupervisorMessage {})
+    produces pure got.child end
+}
+
+fn dup_code(sup: supervisor_ref) -> int64 {
+    sequence
+        got: { tag: :child_started | :ok | :children | :count | :child_info | :error, child: actor_ref, status: atom, children: List[ { id: atom, agent_type: :worker | :supervisor, child: actor_ref, restart: :permanent | :temporary | :transient }, mem(normal) ], count: int64, child_info: { id: atom, agent_type: :worker | :supervisor, child: actor_ref, restart: :permanent | :temporary | :transient }, error: atom } <- call_supervisor(sup, { op: :add_child, child: { id: :w, agent_type: :worker, initial_state: 0, behavior: worker, restart: :temporary, shutdown: 0, flavor: :plain } } impl SupervisorMessage {})
+    produces pure case got.tag of { :error -> case got.error == :duplicate_child_id of { true -> 2; false -> 1 }; _: atom -> 0 } end
+}
+
+fn add_n(sup: supervisor_ref, n: int64) -> int64 {
+    sequence proc[concurrency]
+        a: actor_ref <- add(sup);
+        ok: boolean <- cast(a, 1 impl ActorMessage {});
+        rest: int64 <- case n <= 1 of { true -> 1; false -> add_n(sup, n - 1) }
+    produces pure rest end
+}
+
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- bees_reporter@start();
+        sup: supervisor_ref <- spawn_registered_supervisor(SpawnProbeSup, 0, :probe_sup, stack_policy(0, :keep_last_message));
+        _: atom <- println("adding first");
+        a1: actor_ref <- add(sup);
+        _: atom <- println("first added");
+        _: boolean <- cast(a1, 0 impl ActorMessage {});
+        _: int64 <- spin(3000000);
+        _: atom <- println("first child stopped");
+        a2: actor_ref <- add(sup);
+        _: atom <- println("same id accepted after the first child stopped")
+    produces pure 0 end
+}

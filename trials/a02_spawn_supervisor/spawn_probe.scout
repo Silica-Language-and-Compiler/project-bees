@@ -1,0 +1,17 @@
+adding first
+first added
+
+=== Silica Actor Failure ===
+actor_id:        4294967296
+agent_type_atom: 27
+reason:          :normal
+reason_tag:      0
+supervisor_acb:  0xADDR
+call_stack:
+  #0  spawn_probe_worker
+  #1  _actor_thread_main
+=== End Silica Actor Failure ===
+
+first child stopped
+same id accepted after the first child stopped
+exit=0
