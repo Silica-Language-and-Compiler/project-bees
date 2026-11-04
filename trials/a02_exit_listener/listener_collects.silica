@@ -1,0 +1,60 @@
+// A2 step 2: every kind of actor end reaches the BEES listener and the hub with Silica's detail.
+// Plain-spawned (unsupervised) actors: one stops normally, one divides by zero, one calls
+// fail_self(bees_atoms@a_badarg()), one is ended by kill_abnormal from a killer actor. The hub then prints its
+// counts. Reports are asynchronous, so the program spins before asking for the summary.
+// Expected: hub total=4 normal=1 language=1 memory=0 explicit=2 ffault=0 / last id=... (last-id and frame vary with order)
+use bees_atoms;
+use bees_exit;
+
+fn worker(msg: int64, state: int64) -> (:no_reply, int64) {
+    case msg of {
+        0 -> {
+            sequence proc[concurrency]
+                _: atom <- stop_self(:normal)
+            produces
+                pure (:no_reply, state)
+            end
+        };
+        1 -> (:no_reply, state / 0);
+        2 -> {
+            sequence proc[concurrency]
+                _: atom <- fail_self(bees_atoms@a_badarg())
+            produces
+                pure (:no_reply, state)
+            end
+        };
+        _: int64 -> (:no_reply, state + msg)
+    }
+}
+
+fn killer(target: actor_ref, state: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        _: atom <- kill_abnormal(target)
+    produces pure (:no_reply, state) end
+}
+
+fn spin(n: int64) -> int64 { case n == 0 of { true -> 0; false -> spin(n - 1) } }
+
+fn spawn_worker() -> actor_ref {
+    sequence proc[concurrency]
+        w: actor_ref <- spawn(0, worker, stack_policy(0, :keep_last_message))
+    produces pure w end
+}
+
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- bees_exit@start();
+        a: actor_ref <- spawn_worker();
+        b: actor_ref <- spawn_worker();
+        c: actor_ref <- spawn_worker();
+        d: actor_ref <- spawn_worker();
+        k: actor_ref <- spawn(0, killer, stack_policy(0, :keep_last_message));
+        _: boolean <- cast(a, 0 impl ActorMessage {});
+        _: boolean <- cast(b, 1 impl ActorMessage {});
+        _: boolean <- cast(c, 2 impl ActorMessage {});
+        _: boolean <- cast(k, d impl ActorMessage {});
+        _: int64 <- spin(5000000);
+        _: boolean <- bees_exit@finish();
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

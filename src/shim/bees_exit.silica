@@ -1,0 +1,206 @@
+module bees_exit;
+// The BEES exit listener and exit hub (A2; D23 as revised by D32).
+//
+// Silica sends every failure report to one registered FailureReporter, as text. The listener
+// (`reporter`) parses the report into a record and casts it to the exit hub, which keeps Silica's
+// full detail (identity, agent type, reason, reason tag, supervisor, first stack frame). Nothing is
+// narrowed to an Erlang exit reason (D32). Unsupervised (plain-spawned) actors report here, so no
+// supervisor and no child id is needed per process.
+//
+// The report layout parsed here is Silica's banner, "actor_id: N / agent_type_atom: N / reason: R /
+// reason_tag: N / supervisor_acb: P / call_stack: / #0 frame". A change to that banner breaks the
+// parser; a structured report from Silica would remove the dependency (gap ledger).
+//
+// Message to the hub: { kind, actor_id, agent, reason, tag, acb, frame0 }. kind 0 is a report;
+// kind 1 asks the hub to print its summary and end the program (test harness use).
+//
+//   bees_exit@start()   spawns the hub, spawns and registers the listener. Call it first in main.
+
+use bees_atoms;
+
+export start/0;
+export finish/0;
+export expect/1;
+
+fn region_dump_limit() -> int64 {
+    0
+}
+
+fn digit(c: string) -> int64 {
+    case c == "0" of { true -> 0; false ->
+    case c == "1" of { true -> 1; false ->
+    case c == "2" of { true -> 2; false ->
+    case c == "3" of { true -> 3; false ->
+    case c == "4" of { true -> 4; false ->
+    case c == "5" of { true -> 5; false ->
+    case c == "6" of { true -> 6; false ->
+    case c == "7" of { true -> 7; false ->
+    case c == "8" of { true -> 8; false ->
+    case c == "9" of { true -> 9; false -> -1 } } } } } } } } } }
+}
+
+// The number after position i of line: spaces and the label are skipped, digits are read until the
+// first non-digit once any digit has been seen. No string-to-integer conversion: a digit lookup.
+fn num_after(line: string, i: int64, n: int64, acc: int64, started: boolean) -> int64 {
+    case i >= n of {
+        true -> acc;
+        false -> case digit(substring(line, i, i + 1)) < 0 of {
+            true -> case started of { true -> acc; false -> num_after(line, i + 1, n, acc, false) };
+            false -> num_after(line, i + 1, n, acc * 10 + digit(substring(line, i, i + 1)), true)
+        }
+    }
+}
+
+fn after_label(line: string, label_len: int64) -> string {
+    sequence
+        rest: string <- substring(line, label_len, length_chars(line));
+        k: int64 <- skip_spaces(rest, 0)
+    produces pure substring(rest, k, length_chars(rest)) end
+}
+
+fn skip_spaces(s: string, i: int64) -> int64 {
+    case i >= length_chars(s) of {
+        true -> i;
+        false -> case substring(s, i, i + 1) == " " of { true -> skip_spaces(s, i + 1); false -> i }
+    }
+}
+
+// Position of the next newline at or after i, or the length when there is none.
+fn next_nl(s: string, i: int64, n: int64) -> int64 {
+    case i >= n of {
+        true -> n;
+        false -> case substring(s, i, i + 1) == "\n" of { true -> i; false -> next_nl(s, i + 1, n) }
+    }
+}
+
+// One parsed report: { kind, actor_id, agent, reason, tag, acb, frame0 }.
+fn apply_line(line: string, acc: { kind: int64, actor_id: int64, agent: int64, reason: string, tag: int64, acb: string, frame0: string }) -> { kind: int64, actor_id: int64, agent: int64, reason: string, tag: int64, acb: string, frame0: string } {
+    case starts_with(line, "actor_id:") of {
+        true -> { kind: acc.kind, actor_id: num_after(line, 9, length_chars(line), 0, false), agent: acc.agent, reason: acc.reason, tag: acc.tag, acb: acc.acb, frame0: acc.frame0 };
+        false -> case starts_with(line, "agent_type_atom:") of {
+            true -> { kind: acc.kind, actor_id: acc.actor_id, agent: num_after(line, 16, length_chars(line), 0, false), reason: acc.reason, tag: acc.tag, acb: acc.acb, frame0: acc.frame0 };
+            false -> case starts_with(line, "reason:") of {
+                true -> { kind: acc.kind, actor_id: acc.actor_id, agent: acc.agent, reason: after_label(line, 7), tag: acc.tag, acb: acc.acb, frame0: acc.frame0 };
+                false -> case starts_with(line, "reason_tag:") of {
+                    true -> { kind: acc.kind, actor_id: acc.actor_id, agent: acc.agent, reason: acc.reason, tag: num_after(line, 11, length_chars(line), 0, false), acb: acc.acb, frame0: acc.frame0 };
+                    false -> case starts_with(line, "supervisor_acb:") of {
+                        true -> { kind: acc.kind, actor_id: acc.actor_id, agent: acc.agent, reason: acc.reason, tag: acc.tag, acb: after_label(line, 15), frame0: acc.frame0 };
+                        false -> case starts_with(line, "  #0") of {
+                            true -> { kind: acc.kind, actor_id: acc.actor_id, agent: acc.agent, reason: acc.reason, tag: acc.tag, acb: acc.acb, frame0: after_label(line, 4) };
+                            false -> acc
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn parse_from(s: string, pos: int64, acc: { kind: int64, actor_id: int64, agent: int64, reason: string, tag: int64, acb: string, frame0: string }) -> { kind: int64, actor_id: int64, agent: int64, reason: string, tag: int64, acb: string, frame0: string } {
+    case pos >= length_chars(s) of {
+        true -> acc;
+        false -> parse_from(s, next_nl(s, pos, length_chars(s)) + 1, apply_line(substring(s, pos, next_nl(s, pos, length_chars(s))), acc))
+    }
+}
+
+fn parse_report(s: string) -> { kind: int64, actor_id: int64, agent: int64, reason: string, tag: int64, acb: string, frame0: string } {
+    parse_from(s, 0, { kind: 0, actor_id: -1, agent: -1, reason: "", tag: -1, acb: "", frame0: "" })
+}
+
+fn hub_name() -> atom { bees_atoms@a_bees_exit_hub() }
+
+// The listener: parse each report and forward it to the hub. It does NOT end the program when the
+// root supervisor reports, as bees_reporter does: a plain-spawned actor's report has the same text
+// signature (supervisor_acb 0x0, frame #0 <unknown behavior>), so the text cannot tell them apart.
+// The boot code decides what a root report means.
+fn reporter(report: string, state: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        m: { kind: int64, actor_id: int64, agent: int64, reason: string, tag: int64, acb: string, frame0: string } <- parse_report(report);
+        _: boolean <- cast_registered(hub_name(), m impl ActorMessage {})
+    produces pure (:no_reply, state) end
+}
+
+fn bigger(a: int64, b: int64) -> int64 {
+    case a > b of { true -> a; false -> b }
+}
+
+fn bump(tag: int64, want: int64, cur: int64) -> int64 {
+    case tag == want of { true -> cur + 1; false -> cur }
+}
+
+// The hub: Silica's full detail per report is in the message; the state counts by reason tag and
+// keeps the last report. A fuller store (names, tables, links) is A2's bookkeeping, later.
+fn tally(m: { kind: int64, actor_id: int64, agent: int64, reason: string, tag: int64, acb: string, frame0: string }, state: { c_total: int64, c_normal: int64, c_language: int64, c_memory: int64, c_explicit: int64, c_ffault: int64, c_expect: int64, last_id: int64, last_reason: string, last_frame0: string }) -> { c_total: int64, c_normal: int64, c_language: int64, c_memory: int64, c_explicit: int64, c_ffault: int64, c_expect: int64, last_id: int64, last_reason: string, last_frame0: string } {
+    sequence
+        r: { c_total: int64, c_normal: int64, c_language: int64, c_memory: int64, c_explicit: int64, c_ffault: int64, c_expect: int64, last_id: int64, last_reason: string, last_frame0: string } <- { c_total: state.c_total + 1, c_normal: bump(m.tag, 0, state.c_normal), c_language: bump(m.tag, 2, state.c_language), c_memory: bump(m.tag, 3, state.c_memory), c_explicit: bump(m.tag, 4, state.c_explicit), c_ffault: bump(m.tag, 5, state.c_ffault), c_expect: state.c_expect, last_id: bigger(m.actor_id, state.last_id), last_reason: m.reason, last_frame0: m.frame0 }
+    produces pure r end
+}
+
+fn with_expect(state: { c_total: int64, c_normal: int64, c_language: int64, c_memory: int64, c_explicit: int64, c_ffault: int64, c_expect: int64, last_id: int64, last_reason: string, last_frame0: string }, n: int64) -> { c_total: int64, c_normal: int64, c_language: int64, c_memory: int64, c_explicit: int64, c_ffault: int64, c_expect: int64, last_id: int64, last_reason: string, last_frame0: string } {
+    sequence
+        r: { c_total: int64, c_normal: int64, c_language: int64, c_memory: int64, c_explicit: int64, c_ffault: int64, c_expect: int64, last_id: int64, last_reason: string, last_frame0: string } <- { c_total: state.c_total, c_normal: state.c_normal, c_language: state.c_language, c_memory: state.c_memory, c_explicit: state.c_explicit, c_ffault: state.c_ffault, c_expect: n, last_id: state.last_id, last_reason: state.last_reason, last_frame0: state.last_frame0 }
+    produces pure r end
+}
+
+fn after_report(state: { c_total: int64, c_normal: int64, c_language: int64, c_memory: int64, c_explicit: int64, c_ffault: int64, c_expect: int64, last_id: int64, last_reason: string, last_frame0: string }) -> (:no_reply, { c_total: int64, c_normal: int64, c_language: int64, c_memory: int64, c_explicit: int64, c_ffault: int64, c_expect: int64, last_id: int64, last_reason: string, last_frame0: string }) {
+    case state.c_total == state.c_expect of {
+        true -> summary(state);
+        false -> (:no_reply, state)
+    }
+}
+
+fn hub(m: { kind: int64, actor_id: int64, agent: int64, reason: string, tag: int64, acb: string, frame0: string }, state: { c_total: int64, c_normal: int64, c_language: int64, c_memory: int64, c_explicit: int64, c_ffault: int64, c_expect: int64, last_id: int64, last_reason: string, last_frame0: string }) -> (:no_reply, { c_total: int64, c_normal: int64, c_language: int64, c_memory: int64, c_explicit: int64, c_ffault: int64, c_expect: int64, last_id: int64, last_reason: string, last_frame0: string }) {
+    case m.kind == 1 of {
+        true -> summary(state);
+        false -> case m.kind == 2 of {
+            true -> (:no_reply, with_expect(state, m.actor_id));
+            false -> after_report(tally(m, state))
+        }
+    }
+}
+
+fn summary(state: { c_total: int64, c_normal: int64, c_language: int64, c_memory: int64, c_explicit: int64, c_ffault: int64, c_expect: int64, last_id: int64, last_reason: string, last_frame0: string }) -> (:no_reply, { c_total: int64, c_normal: int64, c_language: int64, c_memory: int64, c_explicit: int64, c_ffault: int64, c_expect: int64, last_id: int64, last_reason: string, last_frame0: string }) {
+    sequence proc[concurrency, device_io]
+        print("hub total=");
+        _: atom <- print_int64(state.c_total);
+        print(" normal=");
+        _: atom <- print_int64(state.c_normal);
+        print(" language=");
+        _: atom <- print_int64(state.c_language);
+        print(" memory=");
+        _: atom <- print_int64(state.c_memory);
+        print(" explicit=");
+        _: atom <- print_int64(state.c_explicit);
+        print(" ffault=");
+        _: atom <- print_int64(state.c_ffault);
+        println("");
+        print("highest id=");
+        _: atom <- print_int64(state.last_id);
+        println("");
+        _: boolean <- cast_exit(0)
+    produces pure (:no_reply, state) end
+}
+
+fn start() -> atom {
+    sequence proc[concurrency]
+        listener: actor_ref <- spawn(0, reporter, stack_policy(0, :keep_last_message));
+        registered: atom <- register_failure_reporter(listener);
+        _: actor_ref <- spawn_registered({ c_total: 0, c_normal: 0, c_language: 0, c_memory: 0, c_explicit: 0, c_ffault: 0, c_expect: -1, last_id: -1, last_reason: "", last_frame0: "" }, hub, hub_name(), stack_policy(0, :keep_last_message))
+    produces pure registered end
+}
+
+// Tells the hub to print its summary and end the program once n reports have arrived.
+fn expect(n: int64) -> boolean {
+    sequence proc[concurrency]
+        m: { kind: int64, actor_id: int64, agent: int64, reason: string, tag: int64, acb: string, frame0: string } <- { kind: 2, actor_id: n, agent: -1, reason: "", tag: -1, acb: "", frame0: "" };
+        ok: boolean <- cast_registered(hub_name(), m impl ActorMessage {})
+    produces pure ok end
+}
+
+// Asks the hub to print its summary and end the program with status 0 (test harness use).
+fn finish() -> boolean {
+    sequence proc[concurrency]
+        m: { kind: int64, actor_id: int64, agent: int64, reason: string, tag: int64, acb: string, frame0: string } <- { kind: 1, actor_id: -1, agent: -1, reason: "", tag: -1, acb: "", frame0: "" };
+        ok: boolean <- cast_registered(hub_name(), m impl ActorMessage {})
+    produces pure ok end
+}

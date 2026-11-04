@@ -1,0 +1,25 @@
+// A2 step 2: how many failure reports per second one BEES listener turns into hub records.
+// 20,000 plain-spawned actors each fail once (division by zero); the hub is told to expect 20,000
+// reports and prints when the last arrives. Time it from outside:
+//   /usr/bin/time -l ./listener_throughput
+// Expected: hub total=20000 normal=0 language=20000 memory=0 explicit=0 ffault=0
+use bees_exit;
+
+fn worker(msg: int64, state: int64) -> (:no_reply, int64) { (:no_reply, state / msg) }
+
+fn fail_n(n: int64) -> int64 {
+    sequence proc[concurrency]
+        w: actor_ref <- spawn(0, worker, stack_policy(65536, :keep_last_message));
+        _: boolean <- cast(w, 0 impl ActorMessage {});
+        rest: int64 <- case n <= 1 of { true -> 0; false -> fail_n(n - 1) }
+    produces pure rest end
+}
+
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- bees_exit@start();
+        _: boolean <- bees_exit@expect(20000);
+        _: int64 <- fail_n(20000);
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}
