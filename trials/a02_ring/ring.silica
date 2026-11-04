@@ -1,10 +1,11 @@
 // A2 / Stage 1: a process ring, written the way a compiler would lower it. A root supervisor is
 // started first, every ring node is a plain actor ADDED TO IT with :add_child under its own id (ids
-// come from the generated atoms ring_0..ring_7, D18), and the BEES listener is the FailureReporter.
+// come from the generated pool `ring` of 8, bees_ids@id_of, D18), and the BEES listener is the FailureReporter.
 // A token of 1000 hops goes round 8 nodes; the node that sees 0 hops left prints and ends the program.
 // Expected: ring 8 nodes, 1000 hops, done
 use Supervisor;
 use bees_atoms;
+use bees_ids;
 use bees_exit;
 
 impl RingSup for Supervisor;
@@ -17,18 +18,6 @@ fn init(initial_state: int64) -> (
         flags: { strategy: :one_for_one | :one_for_all | :rest_for_one, allowed_restart_count: int64, restarts_time_frame: int64 } <- { strategy: :one_for_one, allowed_restart_count: 5, restarts_time_frame: 10 };
         children: List[{ id: atom, agent_type: :worker | :supervisor, initial_state: { next: actor_ref, seen: int64 }, behavior: fn(msg: { kind: int64, hops: int64, peer: actor_ref }, state: { next: actor_ref, seen: int64 }) -> (:no_reply, { next: actor_ref, seen: int64 }), restart: :permanent | :temporary | :transient, shutdown: int64, flavor: :plain | :dangerous }, mem(normal)] <- []
     produces pure (flags, children) end
-}
-
-fn id_of(i: int64) -> atom {
-    case i == 0 of { true -> bees_atoms@a_ring_0(); false ->
-    case i == 1 of { true -> bees_atoms@a_ring_1(); false ->
-    case i == 2 of { true -> bees_atoms@a_ring_2(); false ->
-    case i == 3 of { true -> bees_atoms@a_ring_3(); false ->
-    case i == 4 of { true -> bees_atoms@a_ring_4(); false ->
-    case i == 5 of { true -> bees_atoms@a_ring_5(); false ->
-    case i == 6 of { true -> bees_atoms@a_ring_6(); false ->
-    case i == 7 of { true -> bees_atoms@a_ring_7(); false ->
-    bees_atoms@a_ring_0() } } } } } } } }
 }
 
 fn node(m: { kind: int64, hops: int64, peer: actor_ref }, state: { next: actor_ref, seen: int64 }) -> (:no_reply, { next: actor_ref, seen: int64 }) {
@@ -61,7 +50,7 @@ fn finish(state: { next: actor_ref, seen: int64 }) -> (:no_reply, { next: actor_
 
 fn add_node(sup: supervisor_ref, i: int64, first: actor_ref) -> actor_ref {
     sequence
-        got: { tag: :child_started | :ok | :children | :count | :child_info | :error, child: actor_ref, status: atom, children: List[ { id: atom, agent_type: :worker | :supervisor, child: actor_ref, restart: :permanent | :temporary | :transient }, mem(normal) ], count: int64, child_info: { id: atom, agent_type: :worker | :supervisor, child: actor_ref, restart: :permanent | :temporary | :transient }, error: atom } <- call_supervisor(sup, { op: :add_child, child: { id: id_of(i), agent_type: :worker, initial_state: { next: first, seen: 0 }, behavior: node, restart: :temporary, shutdown: 0, flavor: :plain } } impl SupervisorMessage {})
+        got: { tag: :child_started | :ok | :children | :count | :child_info | :error, child: actor_ref, status: atom, children: List[ { id: atom, agent_type: :worker | :supervisor, child: actor_ref, restart: :permanent | :temporary | :transient }, mem(normal) ], count: int64, child_info: { id: atom, agent_type: :worker | :supervisor, child: actor_ref, restart: :permanent | :temporary | :transient }, error: atom } <- call_supervisor(sup, { op: :add_child, child: { id: bees_ids@id_of(bees_ids@pool_ring(), i), agent_type: :worker, initial_state: { next: first, seen: 0 }, behavior: node, restart: :temporary, shutdown: 0, flavor: :plain } } impl SupervisorMessage {})
     produces pure got.child end
 }
 

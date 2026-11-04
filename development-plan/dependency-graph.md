@@ -307,7 +307,7 @@ land in time; if one slips, everything that closes after it slips with it.
 | **S-2** | Runtime link | Silica | `silica` | — | — | — | — |
 | **S-9** | Stopping and shutdown for ordinary actors | Silica | `silica` | S10 | — | — | — |
 | **S-29** | Atom-keyed registry | Silica | `silica` | — | — | — | — |
-| **S-3** | Monotonic clock and timers | Silica | `silica` | — | — | — | — |
+| **S-3** | Monotonic clock and timers (delivered 2026-10; no BEES timer module) | Silica | `silica` | — | — | — | — |
 | **S-15** | Region release inside a living actor | Silica | `silica` | S6 | — | — | — |
 | **S-11** | Big integers | Silica | `silica` | — | — | — | — |
 | **S-17** | State-machine behaviour trait | Silica | `silica` | S1 | — | — | — |
@@ -316,16 +316,16 @@ land in time; if one slips, everything that closes after it slips with it.
 | **S-24** | Fifi on the ESP32-S3 | Silica | `silica` | S4 | — | — | R1 |
 | **S-8** | Mailbox introspection and a dispatch tracing hook | Silica | `silica` | — | — | — | — |
 | **S-21** | buf(uint8) across the FFI boundary | Silica | `silica` | S5 | — | — | — |
-| **S-22** | Socket and DNS wrappers through Fifi | BEES | `silica` | — | — | — | — |
+| **S-22** | Silica's own TCP/IP | Silica | `silica` | — | — | — | — |
 | **S-31** | Run-time calling-convention check | Silica | `silica` | — | — | — | — |
-| **S-32** | Silica Linux x86_64 emitter | Silica | `silica` | — | — | — | R1 |
-| **M1.A** | PoC shim v0: bees_term subset, evacuation, receive helpers, bees_timer, PoC BIFs, one Supervisor mapping | BEES | `shim` | M0 | — | — | M1.T, M1.B, M1 |
+| **S-32** | Silica Linux x86_64 path (exists per Silica ROADMAP; unverified by BEES) | Silica | `silica` | — | — | — | R1 |
+| **M1.A** | PoC shim v0: bees_term subset, evacuation, receive helpers, PoC BIFs, one Supervisor mapping | BEES | `shim` | M0 | — | — | M1.T, M1.B, M1 |
 | **M1.T** | PoC contract slice: reference lowerings end to end; bees_config generating module table and atom lookup | BEES | `contract` | M1.A | — | — | M1 |
 | **M1.B** | PoC protocol layers over an in-process loopback transport (TRUST call path; EPMD, handshake, delivery) | BEES | `inter_nodal` | M1.A | — | — | M1.N, M1 |
 | **M1.N** | PoC on real sockets: TRUST over mTLS between two BEES nodes; cleartext to an erl -sname node | BEES | `inter_nodal` | M1.B, S-5, S12, S4 | — | — | — |
 | **M1** | Stage 1 exit: three programs match the BEAM; latency and memory measured; ledger updated | BEES | `plan` | M1.A, M1.T, M1.B | — | M1.N (deferred to B1 and B3) | A1, A2, B1, B3 |
 | **A1** | Terms and memory | BEES | `shim` | M1 | S-11, S-15 | — | A3 |
-| **A2** | Processes and signals (save queue, pdict, exit/2 via position map, exit hub, spawn supervisors, names, timers) | BEES | `shim` | M1 | A1, S-2, S-26, S-28 | S-9 (shutdown: 0, no terminate/2); S-29 (BEES name table, hub removes names); S-3 (native clock through the edge) | A3, A4, A6, I1 |
+| **A2** | Processes and signals (save queue, pdict, exit/2 via position map, exit hub, child-id pools, names) | BEES | `shim` | M1 | A1, S-2, S-26, S-28 | S-9 (shutdown: 0, no terminate/2); S-29 (BEES name table, hub removes names) | A3, A4, A6, I1 |
 | **A3** | ERTS modules and BIFs (tiers, result-returning variants, ets, persistent_term, code, bees_log, crypto) | BEES | `shim` | A1, A2 | S-5, S-8 | — | A5 |
 | **A4** | OTP behaviours on Silica constructs (Supervisor, split gen_server, state machine; proc_lib/sys support) | BEES | `shim` | A2 | S-17, S-2 | — | X2 |
 | **A5** | Host I/O and observability (bees_io, bees_inet, bees_file, I/O server, telemetry) | BEES | `shim` | A3 | S-5, S-8 | S-22 (native-edge sockets) | I2, SEC |

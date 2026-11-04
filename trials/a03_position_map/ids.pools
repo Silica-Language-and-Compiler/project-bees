@@ -1,0 +1,7 @@
+# solo: one supervisor with 4 live children at most.
+pool solo 4
+# big: 600 ids, to cross the 256-arm tier of the generated accessor.
+pool big 600
+# t: a two-level tree. t_top holds the ids of 2 leaf supervisors; each leaf has its own 3 ids
+# (t_n0_0..2, t_n1_0..2), so the tree holds 6 live workers while no pool has more than 3 ids.
+tree t 2 3

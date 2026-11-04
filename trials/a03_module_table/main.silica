@@ -1,0 +1,125 @@
+// A3: the generated module table (bees_modules). Modules mod_a and mod_wide ship `.module` manifests;
+// bees_config generates bees_modules, which dispatches by module+function+arity, by fun term and
+// by a {Module, Function} tuple. main is the only unit that names bees_modules; the modules reach the
+// table through the dispatcher value `ap`. mod_wide has 300 entries, so the dispatch tiers (256 arms
+// per case). A bad target fails the actor: (:explicit, :undef) and (:explicit, :badfun) reach the hub.
+// Expected: add=7 twice=16 tuple=9 wide=1/256/300 fun=107 exported=true/false/false modules=2/0/1, then hub total=2 explicit=2
+use bees_atoms;
+use bees_term;
+use bees_modules;
+use bees_exit;
+use mod_a;
+use mod_wide;
+
+fn pair(h: { r: region(L, normal) }, x: int64, y: int64) -> ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) {
+    bees_term@mk_cons(h, bees_term@mk_int(h, x), bees_term@mk_cons(h, bees_term@mk_int(h, y), bees_term@mk_nil(h)))
+}
+
+fn one(h: { r: region(L, normal) }, x: int64) -> ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) {
+    bees_term@mk_cons(h, bees_term@mk_int(h, x), bees_term@mk_nil(h))
+}
+
+fn show(label: string, v: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec)))) -> int64 {
+    sequence proc[device_io]
+        print_string(label);
+        _: atom <- print_int64(bees_term@int_of(v))
+    produces pure 0 end
+}
+
+fn show_bool(b: boolean) -> int64 {
+    sequence proc[device_io]
+        _: atom <- print_boolean(b)
+    produces pure 0 end
+}
+
+// A bad target gives the empty reference; the caller fails itself (fail_self is admitted only in a
+// behaviour, so this helper returns -1 and the behaviour does the failing).
+fn try_bad(msg: int64) -> int64 {
+    sequence proc[mem(normal)]
+        L: lifetime <- fresh_lifetime();
+        r: region(L, normal) <- alloc_region(normal);
+        h: { r: region(L, normal) } <- { r: r };
+        out: int64 <- case msg == 0 of {
+            true -> result_of(bees_modules@apply(h, bees_atoms@a_mod_a(), bees_atoms@a_nosuch(), one(h, 1)));
+            false -> result_of(bees_modules@dispatch(h, bees_term@mk_int(h, 5), one(h, 1)))
+        }
+    produces pure out end
+}
+
+fn result_of(v: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec)))) -> int64 {
+    case bees_term@is_none(v) of { true -> 0 - 1; false -> bees_term@int_of(v) }
+}
+
+// 0 -> an unknown function (undef), 1 -> a target that is neither a fun nor a tuple (badfun).
+fn bad(msg: int64, state: int64) -> (:no_reply, int64) {
+    case try_bad(msg) < 0 of {
+        false -> (:no_reply, state);
+        true -> case msg == 0 of {
+            true -> {
+                sequence proc[concurrency]
+                    _: atom <- fail_self(bees_atoms@a_undef())
+                produces pure (:no_reply, state) end
+            };
+            false -> {
+                sequence proc[concurrency]
+                    _: atom <- fail_self(bees_atoms@a_badfun())
+                produces pure (:no_reply, state) end
+            }
+        }
+    }
+}
+
+fn spin(n: int64) -> int64 { case n == 0 of { true -> 0; false -> spin(n - 1) } }
+
+fn spawn_bad() -> actor_ref {
+    sequence proc[concurrency]
+        w: actor_ref <- spawn(0, bad, stack_policy(0, :keep_last_message))
+    produces pure w end
+}
+
+fn main() -> int64 {
+    sequence proc[concurrency, device_io, mem(normal)]
+        _: atom <- bees_exit@start();
+        L: lifetime <- fresh_lifetime();
+        r: region(L, normal) <- alloc_region(normal);
+        h: { r: region(L, normal) } <- { r: r };
+        _: int64 <- show("add=", bees_modules@apply(h, bees_atoms@a_mod_a(), bees_atoms@a_add(), pair(h, 3, 4)));
+        // twice(fun(N) -> N + 3 end, 10): the fun carries its environment [3]
+        f: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) <- bees_modules@fun_of(h, bees_atoms@a_mod_a(), 0, one(h, 3));
+        print_string(" ");
+        _: int64 <- show("twice=", bees_modules@apply(h, bees_atoms@a_mod_a(), bees_atoms@a_twice(), bees_term@mk_cons(h, f, one(h, 10))));
+        // {mod_a, add} as a target, the way apply({M, F}, Args) names a function
+        tup: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) <- bees_term@mk_tuple(h, 2, bees_term@mk_cons(h, bees_term@mk_atom(h, bees_atoms@a_mod_a()), bees_term@mk_cons(h, bees_term@mk_atom(h, bees_atoms@a_add()), bees_term@mk_nil(h))));
+        print_string(" ");
+        _: int64 <- show("tuple=", bees_modules@dispatch(h, tup, pair(h, 4, 5)));
+        print_string(" ");
+        _: int64 <- show("wide=", bees_modules@apply(h, bees_atoms@a_mod_wide(), bees_atoms@a_w0(), one(h, 1)));
+        print_string("/");
+        _: int64 <- show("", bees_modules@apply(h, bees_atoms@a_mod_wide(), bees_atoms@a_w255(), one(h, 1)));
+        print_string("/");
+        _: int64 <- show("", bees_modules@apply(h, bees_atoms@a_mod_wide(), bees_atoms@a_w299(), one(h, 1)));
+        wf: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) <- bees_modules@fun_of(h, bees_atoms@a_mod_wide(), 7, one(h, 100));
+        print_string(" ");
+        _: int64 <- show("fun=", bees_modules@apply_fun(h, wf, one(h, 7)));
+        print_string(" exported=");
+        _: int64 <- show_bool(bees_modules@is_exported(bees_atoms@a_mod_a(), bees_atoms@a_add(), 2));
+        print_string("/");
+        _: int64 <- show_bool(bees_modules@is_exported(bees_atoms@a_mod_a(), bees_atoms@a_add(), 3));
+        print_string("/");
+        _: int64 <- show_bool(bees_modules@is_exported(bees_atoms@a_mod_a(), bees_atoms@a_nosuch(), 2));
+        print_string(" modules=");
+        _: atom <- print_int64(bees_modules@module_count());
+        print_string("/");
+        _: atom <- print_int64(bees_modules@module_index(bees_atoms@a_mod_a()));
+        print_string("/");
+        _: atom <- print_int64(bees_modules@module_index(bees_atoms@a_mod_wide()));
+        println("");
+        a: actor_ref <- spawn_bad();
+        b: actor_ref <- spawn_bad();
+        _: boolean <- cast(a, 0 impl ActorMessage {});
+        _: boolean <- cast(b, 1 impl ActorMessage {});
+        _: int64 <- spin(5000000);
+        _: boolean <- bees_exit@finish();
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

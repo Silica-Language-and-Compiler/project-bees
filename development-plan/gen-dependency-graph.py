@@ -48,7 +48,7 @@ TS = [
     ("S-2",  "Runtime link", [], ""),
     ("S-9",  "Stopping and shutdown for ordinary actors", ["S10"], ""),
     ("S-29", "Atom-keyed registry", [], ""),
-    ("S-3",  "Monotonic clock and timers", [], ""),
+    ("S-3",  "Monotonic clock and timers (delivered 2026-10; no BEES timer module)", [], ""),
     ("S-15", "Region release inside a living actor", ["S6"], ""),
     ("S-11", "Big integers", [], ""),
     ("S-17", "State-machine behaviour trait", ["S1"], ""),
@@ -59,13 +59,13 @@ TS = [
     ("S-21", "buf(uint8) across the FFI boundary", ["S5"], ""),
     ("S-22", "Silica's own TCP/IP", [], ""),
     ("S-31", "Run-time calling-convention check", [], ""),
-    ("S-32", "Silica Linux x86_64 emitter", [], ""),
+    ("S-32", "Silica Linux x86_64 path (exists per Silica ROADMAP; unverified by BEES)", [], ""),
 ]
 for sid, title, deps, note in TS:
     node(sid, title, "Silica", "silica", start=deps, note=note)
 
 # ---------------- Stage 1 ----------------
-node("M1.A", "PoC shim v0: bees_term subset, evacuation, receive helpers, bees_timer, PoC BIFs, one Supervisor mapping",
+node("M1.A", "PoC shim v0: bees_term subset, evacuation, receive helpers, PoC BIFs, one Supervisor mapping",
      "BEES", "shim", start=["M0"])
 node("M1.T", "PoC contract slice: reference lowerings end to end; bees_config generating module table and atom lookup",
      "BEES", "contract", start=["M1.A"])
@@ -79,9 +79,9 @@ node("M1", "Stage 1 exit: three programs match the BEAM; latency and memory meas
 
 # ---------------- Track A ----------------
 node("A1", "Terms and memory", "BEES", "shim", start=["M1"], close=["S-11", "S-15"])
-node("A2", "Processes and signals (save queue, pdict, exit/2 via position map, exit hub, spawn supervisors, names, timers)",
+node("A2", "Processes and signals (save queue, pdict, exit/2 via position map, exit hub, child-id pools, names)",
      "BEES", "shim", start=["M1"], close=["A1", "S-2", "S-26", "S-28"],
-     soft=[["S-9", "shutdown: 0, no terminate/2"], ["S-29", "BEES name table, hub removes names"], ["S-3", "native clock through the edge"]])
+     soft=[["S-9", "shutdown: 0, no terminate/2"], ["S-29", "BEES name table, hub removes names"]])
 node("A3", "ERTS modules and BIFs (tiers, result-returning variants, ets, persistent_term, code, bees_log, crypto)",
      "BEES", "shim", start=["A1", "A2"], close=["S-5", "S-8"])
 node("A4", "OTP behaviours on Silica constructs (Supervisor, split gen_server, state machine; proc_lib/sys support)",

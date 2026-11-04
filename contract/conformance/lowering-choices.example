@@ -1,0 +1,17 @@
+# Example lowering-choices file: the choices made by this repository's hand-written reference lowerings
+# (trials/s09_reference_lowerings and trials/a02_ring). Validate with tools/check_lowering_choices.py.
+lowering-choices 1
+target-contract draft-2026-11-04
+compiler bees-reference-lowerings 0
+
+A3.2 lowered reserve=1048576 release=keep_last_message  -- trials spawn with stack_policy(0, :keep_last_message); the larger-scale trials lower the reserve
+A3.3 phase-field     -- a phase number in the actor state; the code after each receive is its own function
+A3.4 none            -- the reference programs are short; no loop runs longer than one dispatch
+A4.2 pool-tree fanout=2 leaf-size=3   -- one top supervisor, two leaf supervisors, three ids each (trials/a03_id_pools)
+A4.3 one-per-shape
+A4.4 chosen restart=temporary strategy=one_for_one
+A5.1 mixed           -- result-returning variants (from_spelling) and result values; no catch
+A5.4 not-applicable  -- the reference programs never send to a recipient that may be dead
+A5.5 supervisor-request
+A6.8 lookup-tables   -- a byte is read through consecutive reads and same-type arithmetic (binary_matching)
+A7.1 module-table

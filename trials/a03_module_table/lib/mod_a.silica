@@ -1,0 +1,28 @@
+module mod_a;
+// A module as a compiler would emit it. Table entries take the dispatcher `ap` first: this unit
+// cannot use bees_modules (no cyclic use), so a dynamic call is ap(h, target, args).
+use bees_term;
+export e_add/3;
+export e_twice/3;
+export f_add_env/4;
+export f_double/4;
+
+// add(X, Y) -> X + Y.
+fn e_add(ap: fn({ r: region(L, normal) }, ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec)))) -> ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), h: { r: region(L, normal) }, args: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec)))) -> ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) {
+    bees_term@mk_int(h, bees_term@int_of(bees_term@nth(args, 0)) + bees_term@int_of(bees_term@nth(args, 1)))
+}
+
+// twice(F, X) -> F(F(X)).
+fn e_twice(ap: fn({ r: region(L, normal) }, ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec)))) -> ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), h: { r: region(L, normal) }, args: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec)))) -> ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) {
+    ap(h, bees_term@nth(args, 0), bees_term@mk_cons(h, ap(h, bees_term@nth(args, 0), bees_term@mk_cons(h, bees_term@nth(args, 1), bees_term@mk_nil(h))), bees_term@mk_nil(h)))
+}
+
+// fun(N) -> N + K end, where K is the first captured value.
+fn f_add_env(ap: fn({ r: region(L, normal) }, ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec)))) -> ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), h: { r: region(L, normal) }, env: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), args: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec)))) -> ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) {
+    bees_term@mk_int(h, bees_term@int_of(bees_term@nth(env, 0)) + bees_term@int_of(bees_term@nth(args, 0)))
+}
+
+// fun(N) -> N * 2 end.
+fn f_double(ap: fn({ r: region(L, normal) }, ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec)))) -> ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), h: { r: region(L, normal) }, env: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))), args: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec)))) -> ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) {
+    bees_term@mk_int(h, bees_term@int_of(bees_term@nth(args, 0)) * 2)
+}

@@ -346,7 +346,7 @@ The multiplexing design document maps onto BEES components as follows:
 | `trust_conn_worker_sup`, temporary `trust_rpc_worker` | A per-connection Silica `Supervisor` with `restart: :temporary` children, one per request |
 | Worker `'DOWN'` → `inflight--` | No monitors (D20). A worker casts its completion to the connection FSM, and a worker that crashed shows up in the per-connection supervisor's `count_children`. |
 | Pause reads when `inflight == max_inflight` | Leave the `bees_io` port un-armed (`{active, once}` not re-armed): Option A, no user-space queue |
-| `state_timeout` for idle; `send_after` for maximum age | State-machine timeouts; `bees_timer` |
+| `state_timeout` for idle; `send_after` for maximum age | State-machine timeouts; Silica `send_after` |
 | Cancel by close (`kill_workers`) | Client close → terminate the per-connection supervisor with reason `client_cancel`; no suspicion increment |
 | `logger` and `telemetry` events | `bees_log` and `bees_telemetry`, BEES's own (D24); event names unchanged |
 
@@ -551,7 +551,7 @@ the whitelist lookup, while TRUST's other rules stay in force.
 When work begins, BEES maps TEMPUS as follows:
 
 - **Three isolated Cyclon stores** (`tempus_edge`, `tempus_bridge`, `tempus_sentinel`). Each is a process on Silica's
-  gen_server trait, holding its view in a term map keyed by peer ID, with a shuffle tick from `bees_timer`. Stores
+  gen_server trait, holding its view in a term map keyed by peer ID, with a shuffle tick from Silica `send_after`. Stores
   never exchange entries.
 - **Ed25519 per-install identity, verification of producer-signed tokens, proof of possession.** Ed25519 runs in the
   native edge, and tokens are parsed through `bees_ingress`. Key rotation is strict and non-overlapping, pinned by

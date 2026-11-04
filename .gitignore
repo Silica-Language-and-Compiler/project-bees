@@ -19,7 +19,10 @@ silica.link
 .fail/
 lib/bees_atoms.silica
 lib/bees_atoms.index
+trials/*/lib/bees_modules.silica
+trials/*/lib/bees_ids.silica
 native/build/
 native/dangerous_exposure_source/lib/
 silica.atoms
 silica.shapes
+__pycache__/

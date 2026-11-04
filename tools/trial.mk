@@ -28,7 +28,9 @@ include $(BEES_ROOT)/tools/silica.mk
 TOPO := $(BEES_ROOT)/tools/topo_silica_config.sh
 
 BEES_CONFIG := $(BEES_ROOT)/tools/bees_config.py
-MANIFESTS   := $(strip $(filter-out %/silica.atoms,$(wildcard $(LEAF)/lib/*.atoms) $(wildcard $(LEAF)/*.atoms)))
+MANIFESTS   := $(strip $(filter-out %/silica.atoms,$(wildcard $(LEAF)/lib/*.atoms) $(wildcard $(LEAF)/*.atoms)) \
+                $(wildcard $(LEAF)/lib/*.module) $(wildcard $(LEAF)/*.module) \
+                $(wildcard $(LEAF)/lib/*.pools) $(wildcard $(LEAF)/*.pools))
 
 ALL_UNITS   := $(sort $(notdir $(wildcard $(LEAF)/*.silica)))
 FAIL_UNITS  := $(filter fail_%,$(ALL_UNITS))
@@ -42,12 +44,13 @@ LIB_UNITS   := $(sort $(notdir $(wildcard $(LEAF)/lib/*.silica)))
 units:
 	@echo "lib: $(LIB_UNITS)"; echo "entries: $(ENTRIES)"; echo "fail: $(FAIL_UNITS)"
 
-# bees_atoms (D30): when the leaf or its lib has atom manifests, bees_config generates
-# lib/bees_atoms.silica from them before anything is compiled, and checks that no other unit
+# bees_atoms (D30): when the leaf or its lib has manifests (.atoms, .module, .pools), bees_config
+# generates lib/bees_atoms.silica, and lib/bees_modules.silica and lib/bees_ids.silica where there
+# are .module and .pools manifests, before anything is compiled, and checks that no other unit
 # writes a BEAM atom literal.
 bees_atoms:
 	@cd "$(LEAF)" && if [ -n "$(MANIFESTS)" ]; then \
-		mkdir -p lib && "$(BEES_CONFIG)" atoms -o lib $(MANIFESTS) && \
+		mkdir -p lib && "$(BEES_CONFIG)" generate -o lib $(MANIFESTS) && \
 		"$(BEES_CONFIG)" check lib/*.silica *.silica; \
 	fi
 
@@ -115,7 +118,7 @@ record-golden: run
 
 clean:
 	@cd "$(LEAF)" && rm -rf *.sams *.iface *.o *.sout *.cur_fail lib/*.sams lib/*.iface lib/*.o .fail \
-		lib/bees_atoms.silica lib/bees_atoms.index \
+		lib/bees_atoms.silica lib/bees_atoms.index lib/bees_modules.silica lib/bees_ids.silica \
 		silica.config silica.compile.order silica.needs_runtime silica.link .integrate_counts $(ENTRIES)
 
 help:

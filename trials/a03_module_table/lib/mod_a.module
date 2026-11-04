@@ -1,0 +1,6 @@
+# module mod_a: add/2, twice/2 (applies its first argument, a fun, twice), and two fun bodies.
+module mod_a
+entry add 2 e_add
+entry twice 2 e_twice
+fun 0 f_add_env
+fun 1 f_double

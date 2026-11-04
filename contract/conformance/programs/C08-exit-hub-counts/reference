@@ -1,0 +1,2 @@
+# leaf (relative to the repository root), entry, role. `compare` rows are checked against expected.out.
+compare trials/a02_exit_listener listener_collects

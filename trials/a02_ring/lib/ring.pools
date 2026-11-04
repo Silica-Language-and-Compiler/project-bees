@@ -1,0 +1,2 @@
+# the ring: one supervisor, 8 live children
+pool ring 8

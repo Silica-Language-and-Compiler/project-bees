@@ -1,0 +1,105 @@
+// S9 reference lowering 6 (conformance C02): receive with a timeout, over Silica's own timers.
+//
+//   wait(Ping) -> receive ping -> io:format("got ping~n") after T -> io:format("timed out~n") end.
+//   Three consecutive waits: the ping arrives in time (wait 1, timeout 40 ms, ping at 5 ms), arrives in
+//   time again (wait 2, timeout 300 ms, ping at 100 ms), and never arrives (wait 3, timeout 60 ms).
+//
+// The compiler reshapes the process at each receive (D1) and keeps what a timeout needs in the actor's
+// state: the wait number, which is the REFERENCE carried by that wait's timeout message, and the
+// timer_ref of the pending timer. BEES provides no timer module; the lowering uses Silica's send_after
+// and cancel_timer directly. Two rules make it correct:
+//   1. a timeout message carries its wait's reference, and a timeout whose reference is not the current
+//      wait's is ignored. Wait 1 does not cancel its timer, so its timeout (ref 1) arrives at 40 ms,
+//      while wait 2 is pending, and must not end wait 2 (if it did, the second line would be "timed
+//      out" and not "got ping");
+//   2. a wait that ends by message may cancel its timer (wait 2 does, and cancel_timer answers
+//      :cancelled), but correctness never depends on the cancel.
+// Messages are { kind, ref }: kind 0 starts the program, 1 is the awaited ping, 2 is a timeout.
+// Expected: got ping / got ping / timed out
+use bees_reporter;
+
+fn arm(round: int64, ms: uint64) -> timer_ref {
+    sequence proc[concurrency]
+        t: timer_ref <- send_after(ms, self(), { kind: 2, ref: round } impl ActorMessage {})
+    produces pure t end
+}
+
+fn ping_later(ms: uint64) -> timer_ref {
+    sequence proc[concurrency]
+        t: timer_ref <- send_after(ms, self(), { kind: 1, ref: 0 } impl ActorMessage {})
+    produces pure t end
+}
+
+fn waiter(msg: { kind: int64, ref: int64 }, state: { round: int64, timer: timer_ref }) -> (:no_reply, { round: int64, timer: timer_ref }) {
+    case msg.kind of {
+        0 -> start(state);
+        1 -> got_ping(state);
+        _: int64 -> timeout(msg, state)
+    }
+}
+
+// The code before wait 1: arm its timeout (40 ms) and schedule the ping (5 ms).
+fn start(state: { round: int64, timer: timer_ref }) -> (:no_reply, { round: int64, timer: timer_ref }) {
+    sequence
+        t: timer_ref <- arm(1, 40);
+        _: timer_ref <- ping_later(5)
+    produces pure (:no_reply, { round: 1, timer: t }) end
+}
+
+// The awaited message arrived during wait `round`.
+fn got_ping(state: { round: int64, timer: timer_ref }) -> (:no_reply, { round: int64, timer: timer_ref }) {
+    case state.round of {
+        1 -> next_after_1(state);
+        2 -> next_after_2(state);
+        _: int64 -> (:no_reply, state)
+    }
+}
+
+// wait 1 -> wait 2: no cancel (rule 1 covers the stale timeout); wait 2 allows 300 ms, its ping comes at 100 ms.
+fn next_after_1(state: { round: int64, timer: timer_ref }) -> (:no_reply, { round: int64, timer: timer_ref }) {
+    sequence proc[device_io]
+        println("got ping");
+        t: timer_ref <- arm(2, 300);
+        _: timer_ref <- ping_later(100)
+    produces pure (:no_reply, { round: 2, timer: t }) end
+}
+
+// wait 2 -> wait 3: cancel wait 2's timer; wait 3 allows 60 ms and no ping is coming.
+fn next_after_2(state: { round: int64, timer: timer_ref }) -> (:no_reply, { round: int64, timer: timer_ref }) {
+    sequence proc[concurrency, device_io]
+        println("got ping");
+        _: atom <- cancel_timer(state.timer);
+        t: timer_ref <- arm(3, 60)
+    produces pure (:no_reply, { round: 3, timer: t }) end
+}
+
+fn timeout(msg: { kind: int64, ref: int64 }, state: { round: int64, timer: timer_ref }) -> (:no_reply, { round: int64, timer: timer_ref }) {
+    case msg.ref == state.round of {
+        false -> (:no_reply, state);
+        true -> case state.round == 3 of {
+            true -> finish(state);
+            false -> (:no_reply, state)
+        }
+    }
+}
+
+fn finish(state: { round: int64, timer: timer_ref }) -> (:no_reply, { round: int64, timer: timer_ref }) {
+    sequence proc[concurrency, device_io]
+        println("timed out");
+        _: boolean <- cast_exit(0)
+    produces pure (:no_reply, state) end
+}
+
+fn idle(msg: int64, state: int64) -> (:no_reply, int64) { (:no_reply, state) }
+
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- bees_reporter@start();
+        d: actor_ref <- spawn(0, idle, stack_policy(0, :keep_last_message));
+        t0: timer_ref <- send_after(0, d, 0 impl ActorMessage {});
+        w: actor_ref <- spawn({ round: 0, timer: t0 }, waiter, stack_policy(0, :keep_last_message));
+        start_msg: { kind: int64, ref: int64 } <- { kind: 0, ref: 0 };
+        _: boolean <- cast(w, start_msg impl ActorMessage {});
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

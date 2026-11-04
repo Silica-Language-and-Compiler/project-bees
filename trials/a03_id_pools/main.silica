@@ -1,0 +1,132 @@
+// A3: child-id pools and a supervisor tree. bees_config reads ids.pools and generates bees_ids:
+// pool_<name>(), leaf_<tree>(j), pool_size and id_of(pool, i). Part 1 checks the accessors (including a
+// 600-id pool, which tiers at 256 arms, and the answer for an index outside the pool). Part 2 builds the
+// scheme the compiler guide asks for: a root supervisor with 2 leaf supervisors (ids from the top pool),
+// each leaf with its own pool of 3, so 6 workers are live although no pool has more than 3 ids; a stopped
+// :temporary child frees its id for reuse, and the leaves never share an id (Silica registers child ids
+// in one program-wide namespace; a shared id would end the adder with duplicate_child_id).
+// Expected: pools=5 solo=4 big=600 top=2 leaf0=3 leaf1=3 / the id names / tree live 3+3 / reuse after a stop: 2 then 3 / hub total=1 normal=1
+use Supervisor;
+use bees_atoms;
+use bees_ids;
+use bees_exit;
+
+impl TreeRootSup for Supervisor;
+
+fn worker(msg: int64, state: int64) -> (:no_reply, int64) {
+    case msg of {
+        0 -> {
+            sequence proc[concurrency]
+                _: atom <- stop_self(:normal)
+            produces pure (:no_reply, state) end
+        };
+        _: int64 -> (:no_reply, state + msg)
+    }
+}
+
+fn leaf_init(initial_state: int64) -> ({ strategy: :one_for_one | :one_for_all | :rest_for_one, allowed_restart_count: int64, restarts_time_frame: int64 }, List[{ id: atom, agent_type: :worker | :supervisor, initial_state: int64, behavior: fn(msg: int64, state: int64) -> (:no_reply, int64), restart: :permanent | :temporary | :transient, shutdown: int64, flavor: :plain | :dangerous }, mem(normal)]) {
+    sequence proc[mem(normal)]
+        flags: { strategy: :one_for_one | :one_for_all | :rest_for_one, allowed_restart_count: int64, restarts_time_frame: int64 } <- { strategy: :one_for_one, allowed_restart_count: 5, restarts_time_frame: 10 };
+        children: List[{ id: atom, agent_type: :worker | :supervisor, initial_state: int64, behavior: fn(msg: int64, state: int64) -> (:no_reply, int64), restart: :permanent | :temporary | :transient, shutdown: int64, flavor: :plain | :dangerous }, mem(normal)] <- []
+    produces pure (flags, children) end
+}
+
+fn init(initial_state: int64) -> ({ strategy: :one_for_one | :one_for_all | :rest_for_one, allowed_restart_count: int64, restarts_time_frame: int64 }, List[{ id: atom, agent_type: :worker | :supervisor, initial_state: int64, behavior: fn(initial_state: int64) -> ({ strategy: :one_for_one | :one_for_all | :rest_for_one, allowed_restart_count: int64, restarts_time_frame: int64 }, List[{ id: atom, agent_type: :worker | :supervisor, initial_state: int64, behavior: fn(msg: int64, state: int64) -> (:no_reply, int64), restart: :permanent | :temporary | :transient, shutdown: int64, flavor: :plain | :dangerous }, mem(normal)]), restart: :permanent | :temporary | :transient, shutdown: int64, flavor: :plain | :dangerous }, mem(normal)]) {
+    sequence proc[mem(normal)]
+        flags: { strategy: :one_for_one | :one_for_all | :rest_for_one, allowed_restart_count: int64, restarts_time_frame: int64 } <- { strategy: :one_for_one, allowed_restart_count: 5, restarts_time_frame: 10 };
+        children: List[{ id: atom, agent_type: :worker | :supervisor, initial_state: int64, behavior: fn(initial_state: int64) -> ({ strategy: :one_for_one | :one_for_all | :rest_for_one, allowed_restart_count: int64, restarts_time_frame: int64 }, List[{ id: atom, agent_type: :worker | :supervisor, initial_state: int64, behavior: fn(msg: int64, state: int64) -> (:no_reply, int64), restart: :permanent | :temporary | :transient, shutdown: int64, flavor: :plain | :dangerous }, mem(normal)]), restart: :permanent | :temporary | :transient, shutdown: int64, flavor: :plain | :dangerous }, mem(normal)] <- [
+            { id: bees_ids@id_of(bees_ids@pool_t_top(), 0), agent_type: :supervisor, initial_state: 0, behavior: leaf_init, restart: :permanent, shutdown: 0, flavor: :plain },
+            { id: bees_ids@id_of(bees_ids@pool_t_top(), 1), agent_type: :supervisor, initial_state: 0, behavior: leaf_init, restart: :permanent, shutdown: 0, flavor: :plain }
+        ]
+    produces pure (flags, children) end
+}
+
+fn add_worker(sup: actor_ref, id: atom) -> actor_ref {
+    sequence
+        got: { tag: :child_started | :ok | :children | :count | :child_info | :error, child: actor_ref, status: atom, children: List[ { id: atom, agent_type: :worker | :supervisor, child: actor_ref, restart: :permanent | :temporary | :transient }, mem(normal) ], count: int64, child_info: { id: atom, agent_type: :worker | :supervisor, child: actor_ref, restart: :permanent | :temporary | :transient }, error: atom } <- call_supervisor(sup, { op: :add_child, child: { id: id, agent_type: :worker, initial_state: 0, behavior: worker, restart: :temporary, shutdown: 0, flavor: :plain } } impl SupervisorMessage {})
+    produces pure got.child end
+}
+
+fn leaf_of(root: supervisor_ref, j: int64) -> actor_ref {
+    sequence
+        got: { tag: :child_started | :ok | :children | :count | :child_info | :error, child: actor_ref, status: atom, children: List[ { id: atom, agent_type: :worker | :supervisor, child: actor_ref, restart: :permanent | :temporary | :transient }, mem(normal) ], count: int64, child_info: { id: atom, agent_type: :worker | :supervisor, child: actor_ref, restart: :permanent | :temporary | :transient }, error: atom } <- call_supervisor(root, { op: :get_child, id: bees_ids@id_of(bees_ids@pool_t_top(), j) } impl SupervisorMessage {})
+    produces pure got.child end
+}
+
+fn child_of(sup: actor_ref, id: atom) -> actor_ref {
+    sequence
+        got: { tag: :child_started | :ok | :children | :count | :child_info | :error, child: actor_ref, status: atom, children: List[ { id: atom, agent_type: :worker | :supervisor, child: actor_ref, restart: :permanent | :temporary | :transient }, mem(normal) ], count: int64, child_info: { id: atom, agent_type: :worker | :supervisor, child: actor_ref, restart: :permanent | :temporary | :transient }, error: atom } <- call_supervisor(sup, { op: :get_child, id: id } impl SupervisorMessage {})
+    produces pure got.child end
+}
+
+fn live(sup: actor_ref) -> int64 {
+    sequence
+        got: { tag: :child_started | :ok | :children | :count | :child_info | :error, child: actor_ref, status: atom, children: List[ { id: atom, agent_type: :worker | :supervisor, child: actor_ref, restart: :permanent | :temporary | :transient }, mem(normal) ], count: int64, child_info: { id: atom, agent_type: :worker | :supervisor, child: actor_ref, restart: :permanent | :temporary | :transient }, error: atom } <- call_supervisor(sup, { op: :count_children } impl SupervisorMessage {})
+    produces pure got.count end
+}
+
+// Adds workers with ids i..n-1 of leaf j's pool.
+fn fill(sup: actor_ref, pool: int64, i: int64, n: int64) -> int64 {
+    sequence
+        _: actor_ref <- add_worker(sup, bees_ids@id_of(pool, i));
+        rest: int64 <- case i + 1 < n of { true -> fill(sup, pool, i + 1, n); false -> n }
+    produces pure rest end
+}
+
+fn spin(n: int64) -> int64 { case n == 0 of { true -> 0; false -> spin(n - 1) } }
+
+fn show(label: string, v: int64) -> int64 {
+    sequence proc[device_io]
+        print_string(label);
+        _: atom <- print_int64(v)
+    produces pure 0 end
+}
+
+fn name(label: string, a: atom) -> int64 {
+    sequence proc[device_io]
+        print_string(label);
+        print_string(bees_atoms@spelling(a))
+    produces pure 0 end
+}
+
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- bees_exit@start();
+        _: int64 <- show("pools=", bees_ids@pool_count());
+        _: int64 <- show(" solo=", bees_ids@pool_size(bees_ids@pool_solo()));
+        _: int64 <- show(" big=", bees_ids@pool_size(bees_ids@pool_big()));
+        _: int64 <- show(" top=", bees_ids@pool_size(bees_ids@pool_t_top()));
+        _: int64 <- show(" leaf0=", bees_ids@pool_size(bees_ids@leaf_t(0)));
+        _: int64 <- show(" leaf1=", bees_ids@pool_size(bees_ids@leaf_t(1)));
+        println("");
+        _: int64 <- name("ids ", bees_ids@id_of(bees_ids@pool_solo(), 3));
+        _: int64 <- name(" ", bees_ids@id_of(bees_ids@pool_big(), 255));
+        _: int64 <- name(" ", bees_ids@id_of(bees_ids@pool_big(), 256));
+        _: int64 <- name(" ", bees_ids@id_of(bees_ids@pool_big(), 599));
+        _: int64 <- name(" ", bees_ids@id_of(bees_ids@leaf_t(1), 2));
+        _: int64 <- name(" past-end=", bees_ids@id_of(bees_ids@pool_solo(), 4));
+        _: int64 <- name(" negative=", bees_ids@id_of(bees_ids@pool_solo(), 0 - 1));
+        print_string(" distinct=");
+        _: atom <- print_boolean(bees_ids@id_of(bees_ids@leaf_t(0), 0) != bees_ids@id_of(bees_ids@leaf_t(1), 0));
+        println("");
+        root: supervisor_ref <- spawn_registered_supervisor(TreeRootSup, 0, bees_atoms@a_tree_root(), stack_policy(0, :keep_last_message));
+        l0: actor_ref <- leaf_of(root, 0);
+        l1: actor_ref <- leaf_of(root, 1);
+        _: int64 <- fill(l0, bees_ids@leaf_t(0), 0, 3);
+        _: int64 <- fill(l1, bees_ids@leaf_t(1), 0, 3);
+        _: int64 <- show("tree live: leaf0=", live(l0));
+        _: int64 <- show(" leaf1=", live(l1));
+        // stop leaf 0's worker 1, wait for its supervisor to drop the :temporary row, then reuse the id
+        victim: actor_ref <- child_of(l0, bees_ids@id_of(bees_ids@leaf_t(0), 1));
+        _: boolean <- cast(victim, 0 impl ActorMessage {});
+        _: int64 <- spin(3000000);
+        println("");
+        _: int64 <- show("after stop: leaf0=", live(l0));
+        _: actor_ref <- add_worker(l0, bees_ids@id_of(bees_ids@leaf_t(0), 1));
+        _: int64 <- show(" after reuse: leaf0=", live(l0));
+        _: int64 <- show(" leaf1=", live(l1));
+        println("");
+        _: boolean <- bees_exit@finish();
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

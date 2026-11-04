@@ -29,12 +29,13 @@ This document is written so that a generator can follow it without a human filli
   (for example E2236, E2237, E2008, E3010) are the ones met so far. When Silica rejects generated code, fix the
   generator, not the test.
 - **Verify in a loop.** After each generation: run `bees_config check` on the output, build with the Silica compiler,
-  run the conformance programs, and diff the output against the expected output. A change is accepted only if all
-  three pass.
+  run the conformance programs (`contract/conformance`), diff the output against the expected output, and check the
+  lowering-choices file. A change is accepted only if all four pass.
 - **Be deterministic.** The same source program must produce the same Silica source, the same unit basenames and the
   same manifests on every run, so the build and the goldens stay stable across regeneration.
 - **Record every choice.** The compiler must produce a **lowering-choices file** (A9) listing, for each construct the
-  contract leaves to you, which lowering it used. This is how a human reviews what the generator decided.
+  contract leaves to you, which lowering it used. This is how a human reviews what the generator decided. Its format is
+  defined in `contract/conformance/lowering-choices.md` and checked by `tools/check_lowering_choices.py`.
 - **Keep a person in the loop for security.** Foreign-function code and anything that reads untrusted input (A8) must be
   reviewed by a person before it ships; a generator cannot certify its own security boundary.
 - **Changes to Silica or to BEES themselves are outside this document.** If the generator concludes that Silica or BEES
@@ -73,12 +74,33 @@ no bytecode is loaded.
   whole program, and must start with a prefix reserved for your language. BEES's own units use `bees_` and
   `dangerous_bees_`.
 - **A1.2** Emit, beside each unit, a **manifest** listing every symbol (Silica atom spelling) the unit uses, one per
-  line (`<unit>.atoms`). `bees_config` merges all manifests into one generated unit, `bees_atoms`.
-- **A1.3** Emit a **module-table entry** for each module that can be called by name or through a function value
-  (section A7). **Open:** the entry format.
+  line (`<unit>.atoms`; `#` starts a comment). `bees_config generate` merges all manifests into one generated unit,
+  `bees_atoms`, and also puts into it every symbol the module and pool manifests below name. Symbols must be
+  identifiers (letters, digits and underscore, not starting with a digit); other spellings are not supported yet.
+- **A1.3** Emit a **module manifest** for each module that can be called by name or through a function value
+  (section A7): a line-oriented file `<unit>.module`, one module per file. Lines, in any order after the first:
+
+  ```
+  module <name>                 required, first: the module's name, a symbol spelling
+  unit <silica_unit>            optional: the Silica unit holding the functions (default: the file's base name)
+  entry <name> <arity> <fn>     an exported function <name>/<arity> (0 <= arity <= 255), implemented by Silica function <fn>
+  fun <id> <fn>                 a function-value body with module-local id <id> (0 <= id < 2^31), implemented by <fn>
+  ```
+
+  `bees_config generate` reads every `.module` file and writes the unit `bees_modules` (A7). Within a module, an
+  entry (name and arity) or a fun id may be listed only once; every module name must be unique in the program; the
+  program may hold at most about one million symbols. `bees_config` rejects a manifest that breaks these rules with
+  `file:line: message` and a non-zero exit.
+- **A1.3a** Emit a **pool manifest** (`<name>.pools`) for every supervisor you start (A4.2): `pool <name> <count>` asks for
+  `<count>` child ids (1 to 65536) named `<name>_0` to `<name>_<count-1>`; `tree <name> <fanout> <size>` asks for the
+  two-level scheme of A4.2. Pool names are identifiers, unique in the program, and should carry your language's prefix
+  (A1.1). `bees_config generate` writes the unit `bees_ids` and adds every id to `bees_atoms`.
 - **A1.4** Declare which version of this contract you target. **Open:** the versioning scheme.
 - **A1.5** List units in use-dependency order in the build configuration, or let `bees_config` generate it. The Silica
-  compiler takes no arguments and reads its configuration from the working directory.
+  compiler takes no arguments and reads its configuration from the working directory. Silica rejects a cycle of `use`
+  declarations, so the generated `bees_modules` (which uses every module in the table) can be used only by a unit above
+  all of them (A7.2). The trial harness (`tools/trial.mk`) runs `bees_config generate` for a leaf directory, which gives
+  you the order and the generated units.
 
 ## A2. Startup and shutdown
 
@@ -108,21 +130,65 @@ no bytecode is loaded.
 - **A3.6** Placement is optional. A spawn may name a core, and `migrate_actor` moves an actor at its next dispatch
   boundary with message order kept. BEES balances actors across cores; never move an actor the program placed
   explicitly.
+- **A3.7** Timers are Silica's own: `send_after(delay_ms, target, message) -> timer_ref` casts a message to an actor
+  after a delay (never earlier, possibly later), `cancel_timer(timer_ref)` answers `:cancelled` or `:not_found`,
+  `monotonic_time()` and `current_time()` read the clocks, and there is no `sleep`. BEES provides no timer unit. A wait
+  with a timeout (a receive with `after`) is a suspension point (A3.3): arm a timer whose message carries a reference
+  that identifies the wait, and **ignore any timeout whose reference is not the current wait's**, because a timeout can
+  arrive after its wait has ended; cancelling the timer is an optimisation, never what makes the program correct. A
+  remaining-time query is your own bookkeeping: record the deadline from `monotonic_time()` in the actor's state when
+  you arm the timer. Conformance program C02 shows the pattern.
 
 ## A4. Supervision
 
 - **A4.1** Every actor your program spawns must be a child of a supervisor. An actor you do not place under another
   supervisor must be added to the root supervisor. BEES runs no supervisors for your actors.
-- **A4.2** Give every live child a **distinct child id**. The supervisor rejects an id already in use, and frees an id
-  as soon as its `:temporary` child stops. Ids are symbols from a fixed table, so a supervisor holds only as many live
-  children as it has ids: generate a pool of ids per supervisor, reuse one when its child stops, and use a tree of
-  supervisors for more live actors. **Open:** the pool and tree scheme.
+- **A4.2** Give every live child a **distinct child id**. Ids are symbols from a table fixed at build time, so the
+  number of live children is bounded by the number of ids. The scheme is:
+  1. **One pool per supervisor.** Request it with a pool manifest (A1.3a); the generated unit `bees_ids` gives
+     `pool_<name>()` (the pool's number), `pool_size(pool)` and `id_of(pool, i)`, the i-th id (0 <= i < size). The same
+     id is returned for the same `i` every time. An `i` outside the pool (or an unknown pool) returns the symbol
+     `id_pool_exhausted`, which no pool uses: test for it and fail (A5.2).
+  2. **Pools are disjoint.** Silica registers a child under its id in one program-wide namespace, so a child whose id is
+     held by any live actor, in any supervisor, is refused, and the supervisor or the adder fails. Two supervisors must
+     never share an id. `bees_config` guarantees it as long as every supervisor has its own pool name.
+  3. **Reuse.** An id is free again once its `:temporary` child has stopped *and its supervisor has dropped the row*.
+     Release an index to your allocator only after you have seen the child's end (an exit report, or a reply that shows
+     it ended), never on sending the stop request. Adding a child under an id still in use fails the adder, so there is
+     no probing: **each pool must have exactly one owner** (one actor, or one dispatch order) that hands out free
+     indexes, for example the lowest free index first.
+  4. **More live children than one pool: a tree.** `tree <name> <fanout> <size>` requests the pool `<name>_top` of
+     `<fanout>` ids and `<fanout>` leaf pools `<name>_n0` to `<name>_n<fanout-1>` of `<size>` ids. Start a top supervisor
+     whose children are the `<fanout>` leaf supervisors (ids from the top pool, `id_of(pool_<name>_top(), j)`); add
+     workers to leaf supervisor j with ids from `leaf_<name>(j)`, the number of leaf pool j. Capacity is `fanout * size`
+     live children. A deeper tree is more pools of your own naming. Spread children over leaves however you like
+     (a fixed leaf per spawner, round robin); the choice is recorded in the lowering-choices file (A9).
+  A supervisor whose children are supervisors has a different child shape from one whose children are workers, so a tree
+  has at least two supervisor types (A4.3). Trial `trials/a03_id_pools` builds a tree of two leaves with three ids each,
+  holds six live workers, and reuses an id after a stop.
 - **A4.3** A supervisor is typed by one child shape (state type and behaviour type). Use one supervisor per shape, or
   one uniform actor shape for everything you compile.
 - **A4.4** Choose the restart policy (`:permanent`, `:transient`, `:temporary`) and the strategy for each supervisor.
   A restarted child starts from the initial state in its child spec and gets a new identity.
 - **A4.5** You may point a supervisor's report sink at the hub to receive `restarted` and `new_child`. **Open:** the hub
   reference this needs is not exported yet. The listener records every exit without it.
+
+- **A4.6** **Finding a pid's supervisor** (needed for an exit request, A5.5). A pid carries a 64-bit identity, readable with
+  `actor_id(pid)`: the high 32 bits are the **position** of the supervisor that spawned it and the low 32 bits its child
+  number in that supervisor. Verified (trial `trials/a03_position_map`, Apple Silicon): all children of one supervisor
+  share one position and two supervisors differ; **a supervisor's position is not the position of its own identity** (the
+  position in a supervisor's own identity is its parent's), so read a supervisor's position from any child it has; a
+  restarted child keeps the position and gets the next child number, and a reference to the old child does not equal
+  the new one. **Silica numbers positions at run time, in the order spawners first spawn** (root supervisors started
+  from `main` take 1, 2, ... in start order), so no table of positions exists at build time, `bees_config` generates
+  none, and your compiler must not assume a number. What a program keeps at run time is a table from position to
+  supervisor reference, filled when a supervisor is started (start it, add or find one child, read the position from the
+  child's identity) and read with `actor_id(pid) shr 32`. BEES does not provide this table yet; keep it yourself. To end
+  a child by pid, look up its supervisor and ask for the child by id (`:terminate_child`, which works); the supervisor's
+  `:which_children` reply lists each live child's id and reference, so the id for a pid is the row whose reference
+  equals the pid (that lookup is specified but not exercised by a BEES trial). `:terminate_actor`, which names the
+  child by reference, is specified and not implemented. **Not verified:** whether a restarted supervisor keeps its
+  position, so refresh the table entry when you see a supervisor restart.
 
 ## A5. Failure
 
@@ -132,7 +198,12 @@ no bytecode is loaded.
   operations. Reject at compile time any construct you cannot lower this way.
 - **A5.2** End an actor on purpose with `fail_self(reason)` (a reason symbol) or `stop_self(:normal)`. Silica's own
   faults carry Silica's reasons (for example `:language_error` for a division by zero). If your language reports a
-  different reason, check for the condition yourself and call `fail_self`.
+  different reason, check for the condition yourself and call `fail_self`. **`fail_self` and `stop_self` are admitted
+  only directly in a behaviour function** (the function an actor is spawned with); Silica rejects them anywhere else
+  (E2091). A function that the behaviour calls therefore cannot end the actor: it must return its failure to the
+  behaviour (BEES's generated dispatch and id accessors return the empty reference, `:none`, or the symbol
+  `id_pool_exhausted`, for exactly this reason), and the behaviour calls `fail_self`. A compiler needs one convention
+  for carrying a failure up through every compiled function, and each function's caller must test it.
 - **A5.3** Every branch construct you emit must be exhaustive. Silica rejects a `case` without a catch-all arm; emit an
   explicit failing arm where your language requires a failure.
 - **A5.4** A `call` to a dead callee fails the caller, and a `cast` to a dead actor fails the sender, with
@@ -180,8 +251,37 @@ no bytecode is loaded.
 
 ## A7. Dynamic dispatch
 
-- **A7.1** Calls by name and calls through function values go through the program-wide **module table** that
-  `bees_config` builds from your entries. Each module you emit provides dispatch entries for both. **Open:** the format.
+- **A7.1** Calls whose target is computed at run time (`apply`, calls through function values) go through the
+  program-wide **module table**, the generated unit `bees_modules`, which `bees_config` builds from the `.module`
+  manifests (A1.3). Statically known calls stay ordinary Silica calls. You may write your own dispatch instead; say so
+  in the lowering-choices file.
+- **A7.2** The **calling convention** is fixed, so the table is a plain `case` and needs no function pointers by name:
+  - an entry `<fn>` is `fn <fn>(ap: APPLY, h: HEAP, args: TERM) -> TERM`, where `args` is a list value of exactly
+    `<arity>` values and the result is one value;
+  - a function-value body `<fn>` is `fn <fn>(ap: APPLY, h: HEAP, env: TERM, args: TERM) -> TERM`, where `env` is the list
+    of values the function value captured;
+  - HEAP is the heap record `{ r: region(L, normal) }`, TERM the value cell reference of `bees_term`, and
+    `APPLY = fn(HEAP, TERM, TERM) -> TERM`, the type of the generated `bees_modules@dispatch`. More than 8 source
+    parameters are packed into the list (A6.11), so every entry has the same shape.
+  - **Silica forbids cyclic `use`, so no module in the table can use `bees_modules`.** The table passes itself, as the
+    function value `dispatch`, to every entry and every function-value body as `ap`. A function that must apply
+    dynamically takes `ap` as a parameter, passes it down to the functions that may apply dynamically, and calls
+    `ap(h, target, args)`. Only the program's top unit (the one with `main`) names `bees_modules`, and passes
+    `bees_modules@dispatch` into the first function that needs it (a function can be passed as a value, trial
+    `trials/a03_module_table`). Silica passes lifetime-polymorphic function values without difficulty.
+- **A7.3** What `bees_modules` provides (all with the heap `h` first where a value is built):
+  - `dispatch(h, target, args)`: `target` is a function value (call it) or a 2-tuple value `{Module, Function}` (apply it);
+  - `apply(h, m, f, args)`: apply module symbol `m`, function symbol `f` (arity is the length of `args`);
+  - `apply_fun(h, fv, args)`, and `fun_of(h, m, id, env)`, which builds the function value for fun `id` of module `m`
+    capturing `env`. A function value is the cell kind 8 of `bees_term`; its first number is the module's index, which
+    `fun_of` takes from `module_index(m)`, so a compiler never writes a module index;
+  - `is_exported(m, f, arity)`, `has_module(m)`, `module_index(m)` (-1 when absent) and `module_count()`.
+  An unknown module, function or arity, a value that is not a function value or tuple, or an unknown fun id gives the
+  empty reference (`:none`; test it with `bees_term@is_none`). The table cannot end the actor (A5.2), so the caller fails
+  with `fail_self(bees_atoms@a_undef())` for a missing function and `fail_self(bees_atoms@a_badfun())` for a bad function
+  value; `bees_config` puts both symbols into `bees_atoms` whenever a module manifest exists.
+- **A7.4** The dispatch tiers itself: no `case` in the generated unit has more than 256 arms, so a module table of any
+  size compiles (A6.5). Trial `trials/a03_module_table` has a module with 300 entries.
 
 ## A8. Foreign code and untrusted input
 
@@ -195,16 +295,27 @@ no bytecode is loaded.
 
 ## A9. What you must document for your own users
 
-Your compiler must write a **lowering-choices file** (section 0), and its documentation must state how it lowered: sends to dead recipients (A5.4), links and exit requests
-(A5.5), recoverable-error constructs (A5.1), suspension points (A3.3), byte and bit operations (A6.8), and which
-supervisor shape and id scheme it uses (A4).
+- **A9.1** Your compiler must write a **lowering-choices file** for every program it compiles (section 0). The format is
+  `contract/conformance/lowering-choices.md`: one line for each construct the contract leaves to you, each naming the
+  requirement it answers, with one of the listed choices. The entries are: stack reserve (A3.2), suspension points
+  (A3.3), yield points (A3.4), child-id scheme and supervisor tree (A4.2), supervisor shape (A4.3), restart policy and
+  strategy (A4.4), recoverable-error constructs (A5.1), sends to dead recipients (A5.4), links and exit requests (A5.5),
+  byte and bit operations (A6.8) and dynamic dispatch (A7.1). `tools/check_lowering_choices.py FILE` must accept the file.
+- **A9.2** Your compiler's own documentation must state, in the language your users read, how it lowered the same
+  constructs, including what a send to a dead recipient costs them (A5.4).
 
 ## A10. Conformance
 
-Your compiler conforms when these reference programs, lowered from your language, run on BEES with the expected
-output: a message exchange that suspends in the middle of a function and resumes, a ring of actors passing a token,
-and a supervised actor that fails and is restarted from its initial state, with the exit visible in the hub. A
-conformance kit will package them. **Not yet published.**
+- **A10.1** Your compiler conforms when the reference programs of the conformance kit, `contract/conformance/programs`
+  (C01 to C08), written in your language and compiled by it, build and run on BEES with the expected output, and your
+  lowering-choices file passes its checker (A9.1). The programs are: a message exchange that suspends in the middle of a
+  function and resumes (C01), a receive with a timeout (C02), a fallible call rewritten to its result-returning form
+  (C03), function values and dynamic application (C04), binary matching (C05), a ring of actors passing a token (C06),
+  a supervised actor that fails and is restarted from its initial state (C07), and every kind of actor end counted by
+  the exit hub (C08).
+- **A10.2** Run one program with `tools/conformance.py run LEAF ENTRY C02`. `contract/conformance/README.md` says what a
+  pass means, how the output is filtered and how to build a leaf. Each program has a hand-written reference lowering
+  in Silica that passes today; read it as an example, not as the only answer.
 
 ---
 
@@ -219,18 +330,19 @@ conformance kit will package them. **Not yet published.**
 | `bees_atoms` | The generated symbol lookups: one accessor per symbol, `spelling`, `from_spelling`, `index`, `count`, tiered above 256 symbols. |
 | `bees_exit` | The listener (registered as the FailureReporter) and the exit hub. The listener parses every failure report for every ended actor, supervised or not, into a record (identity, agent type, reason, reason tag, supervisor, first frame). The hub counts by reason. |
 | `bees_reporter` | A plain reporter that prints every failure, for tests. |
-| `bees_config` | Generates `bees_atoms`; checks that no unit writes a symbol literal. |
+| `bees_config` | `generate`: from your manifests, `bees_atoms` (symbols), `bees_modules` (the module table, A7) and `bees_ids` (child-id pools, A4.2), all sorted, byte-identical on every run and tiered at 256 arms; `check`: no unit writes a symbol literal. |
+| `bees_modules`, `bees_ids` | Generated, never edited, never checked in: dispatch by module, function and arity, by function value and by `{Module, Function}`; child-id pools and trees. |
 | Trial harness | `tools/trial.mk`: builds, runs and compares leaf directories against `.scout` goldens. |
-| Reference lowerings | `trials/s09_reference_lowerings` (suspending receive with a timeout, a fallible call rewritten to its result-returning form, function values and dynamic apply, byte matching) and `trials/a02_ring` (a ring and a supervised restart). |
+| Reference lowerings | `trials/s09_reference_lowerings` (selective receive, receive with a timeout, a fallible call rewritten to its result-returning form, function values and dynamic apply, byte matching) and `trials/a02_ring` (a ring and a supervised restart). Generator trials: `trials/a03_module_table`, `trials/a03_id_pools` and `trials/a03_position_map`. |
+| Conformance kit | `contract/conformance`: eight reference programs with expected output and passing lowerings, the lowering-choices format, `tools/conformance.py` and `tools/check_lowering_choices.py`. |
 
 ## B2. Planned
 
 | Item | Status |
 | --- | --- |
-| Published contract, versioning and conformance kit | planned |
-| Generators for the module table, the supervisor position map and child-id pools | planned |
-| Actor identity helpers and the position map | planned |
-| Timers beyond Silica's (remaining-time queries), registered names, process-information queries | planned |
+| Contract versioning scheme (A1.4) | planned |
+| A run-time table from position to supervisor (A4.6), and actor identity helpers | planned (no build-time part exists) |
+| Registered names, process-information queries | planned |
 | Result-returning variants of common fallible library calls | planned |
 | In-memory tables, counters, persistent storage of values | planned |
 | Host input and output, files, sockets and DNS (wrappers over Silica's foreign-function interface) | planned |
@@ -245,6 +357,7 @@ conformance kit will package them. **Not yet published.**
 | A language's syntax, types, semantics and standard library | Your compiler |
 | Lowering of sends to dead recipients, links, exit requests, recoverable errors | Your compiler |
 | Bit-level and byte-level operations, large integers | Your compiler (large integers also wait on Silica) |
+| Timers, the clocks, and remaining-time queries | Timers and clocks are Silica's own (A3.7); remaining time is your compiler's, from a deadline it records |
 | Monitors | Not part of BEES |
 | State-machine actors, a registry that can name an actor after it starts, links and monitors in the runtime | Silica, not delivered yet |
 
@@ -252,8 +365,11 @@ conformance kit will package them. **Not yet published.**
 
 # Part C. Open points
 
-1. The format of the manifest and module-table entries (A1.3, A7.1) and the versioning scheme (A1.4).
-2. The child-id pool and supervisor-tree scheme (A4.2), and a recommended stack reserve (A3.2).
+1. The contract's versioning scheme (A1.4). The manifest and module-table formats (A1.3, A7) and the child-id scheme
+   (A4.2) are decided.
+2. A recommended stack reserve for compiled actors (A3.2); a way to give a supervisor child an id without a fixed pool
+   (Silica would have to allow it); whether a restarted supervisor keeps its position (A4.6); and BEES's own run-time
+   position table (A4.6).
 3. Delivering exit reasons other than `(:explicit, :killed)` (A5.5), and a non-failing send (A5.4).
 4. A structured failure report from Silica. The listener reads the text of Silica's report today, so a change to that
    text breaks it.

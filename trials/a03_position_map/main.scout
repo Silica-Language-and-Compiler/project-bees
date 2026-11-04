@@ -1,0 +1,8 @@
+workers of leaf0 share a position: true / leaf1: true / leaves differ: true
+a leaf's own position is its children's: false / the root's children (the leaves) share the root's: true
+positions root-children=1 leaf0-workers=2 leaf1-workers=3 child numbers leaf0=0,1
+restarted worker: same position: true / new child number: true / old ref equals new: false
+restarted child number=2
+hub total=1 normal=0 language=1 memory=0 explicit=0 ffault=0
+highest id=8589934592
+exit=0

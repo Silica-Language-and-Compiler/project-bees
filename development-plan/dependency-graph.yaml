@@ -161,7 +161,7 @@ nodes:
     close: []
     soft: []
   - id: "S-3"
-    title: "Monotonic clock and timers"
+    title: "Monotonic clock and timers (delivered 2026-10; no BEES timer module)"
     owner: "Silica"
     area: "silica"
     start: []
@@ -238,14 +238,14 @@ nodes:
     close: []
     soft: []
   - id: "S-32"
-    title: "Silica Linux x86_64 emitter"
+    title: "Silica Linux x86_64 path (exists per Silica ROADMAP; unverified by BEES)"
     owner: "Silica"
     area: "silica"
     start: []
     close: []
     soft: []
   - id: "M1.A"
-    title: "PoC shim v0: bees_term subset, evacuation, receive helpers, bees_timer, PoC BIFs, one Supervisor mapping"
+    title: "PoC shim v0: bees_term subset, evacuation, receive helpers, PoC BIFs, one Supervisor mapping"
     owner: "BEES"
     area: "shim"
     start: ["M0"]
@@ -288,12 +288,12 @@ nodes:
     close: ["S-11", "S-15"]
     soft: []
   - id: "A2"
-    title: "Processes and signals (save queue, pdict, exit/2 via position map, exit hub, spawn supervisors, names, timers)"
+    title: "Processes and signals (save queue, pdict, exit/2 via position map, exit hub, child-id pools, names)"
     owner: "BEES"
     area: "shim"
     start: ["M1"]
     close: ["A1", "S-2", "S-26", "S-28"]
-    soft: [["S-9", "shutdown: 0, no terminate/2"], ["S-29", "BEES name table, hub removes names"], ["S-3", "native clock through the edge"]]
+    soft: [["S-9", "shutdown: 0, no terminate/2"], ["S-29", "BEES name table, hub removes names"]]
   - id: "A3"
     title: "ERTS modules and BIFs (tiers, result-returning variants, ets, persistent_term, code, bees_log, crypto)"
     owner: "BEES"
