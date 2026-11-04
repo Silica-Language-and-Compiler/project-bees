@@ -34,3 +34,20 @@ actors frame #0 was `<unknown behavior>` here, though a named frame appeared in 
 - Cheaper parsing, or fanning the raw text out to parse workers (only one FailureReporter is allowed).
 - A structured failure report from Silica would remove the dependence on the banner text (noted, not asked for).
 - How `exit(Pid, Reason)` reaches an actor for any reason other than `(:explicit, :killed)`.
+
+## Stage 1 programs on the listener (2026-11-04)
+
+Both are written the way a compiler would lower them: a root supervisor is started first, the BEES listener is the
+FailureReporter, and every actor is added to the supervisor under its own id.
+
+- `trials/a02_ring/ring.silica`: 8 ring nodes added with `:add_child`, ids from generated atoms `ring_0`..`ring_7`;
+  a 1,000-hop token goes round; passes.
+- `trials/a02_ring/restart.silica`: a `:permanent` worker crashes on a division by zero, the supervisor restarts it with
+  its initial state (the next call answers 111 = 100 + 11), and the hub counts the worker's `language_error` and the
+  relay's `(:explicit, :actor_not_found)`; passes.
+
+With ping-pong and selective receive (S9), the three Stage 1 exit programs now exist. Details found building them:
+`cast_registered` to a call-only actor is stopped at run time by the calling-convention check (it ends the sender),
+so a crash that needs a reply goes through a relay actor; a record literal in a sequence needs `mem(normal)` in the
+enclosing function; the `bees_atoms` unit is generated from every `lib/*.atoms` manifest, so a unit that uses an atom
+carries its own manifest (`src/shim/bees_exit.atoms`).

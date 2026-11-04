@@ -1,0 +1,58 @@
+// A2 / Stage 1: a supervised worker restarted after a crash. The root supervisor holds one
+// :permanent worker, registered under its child id. The worker is called, crashes on a division by
+// zero, is restarted by the supervisor with its initial state, and is called again by name. The BEES
+// listener sees the crash and the hub counts it, with Silica's full report.
+// Expected: 101 / 111 / hub total=2 normal=0 language=1 memory=0 explicit=1 ffault=0 (the worker's
+// language_error and the relay's explicit actor_not_found) / highest id=...
+use Supervisor;
+use bees_atoms;
+use bees_exit;
+
+impl RestartSup for Supervisor;
+
+fn worker(msg: int64, state: int64) -> (:reply, int64, int64) {
+    case msg of {
+        0 -> (:reply, state / msg, state);
+        _: int64 -> (:reply, state + msg, state + msg)
+    }
+}
+
+fn init(initial_state: int64) -> (
+    { strategy: :one_for_one | :one_for_all | :rest_for_one, allowed_restart_count: int64, restarts_time_frame: int64 },
+    List[{ id: atom, agent_type: :worker | :supervisor, initial_state: int64, behavior: fn(msg: int64, state: int64) -> (:reply, int64, int64), restart: :permanent | :temporary | :transient, shutdown: int64, flavor: :plain | :dangerous }, mem(normal)]
+) {
+    sequence proc[mem(normal)]
+        flags: { strategy: :one_for_one | :one_for_all | :rest_for_one, allowed_restart_count: int64, restarts_time_frame: int64 } <- { strategy: :one_for_one, allowed_restart_count: 5, restarts_time_frame: 10 };
+        children: List[{ id: atom, agent_type: :worker | :supervisor, initial_state: int64, behavior: fn(msg: int64, state: int64) -> (:reply, int64, int64), restart: :permanent | :temporary | :transient, shutdown: int64, flavor: :plain | :dangerous }, mem(normal)] <- [
+            { id: bees_atoms@a_worker_a(), agent_type: :worker, initial_state: 100, behavior: worker, restart: :permanent, shutdown: 0, flavor: :plain }
+        ]
+    produces pure (flags, children) end
+}
+
+// The relay makes the crashing call on main's behalf: the call to a worker that dies fails the
+// relay (actor_not_found), so main survives. Both ends reach the hub.
+fn relay(msg: int64, state: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        v: int64 <- call_registered(bees_atoms@a_worker_a(), msg impl ActorMessage {})
+    produces pure (:no_reply, v) end
+}
+
+fn spin(n: int64) -> int64 { case n == 0 of { true -> 0; false -> spin(n - 1) } }
+
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- bees_exit@start();
+        sup: supervisor_ref <- spawn_registered_supervisor(RestartSup, 0, bees_atoms@a_ring_root(), stack_policy(0, :keep_last_message));
+        v1: int64 <- call_registered(bees_atoms@a_worker_a(), 1 impl ActorMessage {});
+        _: atom <- print_int64(v1);
+        println("");
+        r: actor_ref <- spawn(0, relay, stack_policy(0, :keep_last_message));
+        _: boolean <- cast(r, 0 impl ActorMessage {});
+        _: int64 <- spin(5000000);
+        v2: int64 <- call_registered(bees_atoms@a_worker_a(), 11 impl ActorMessage {});
+        _: atom <- print_int64(v2);
+        println("");
+        _: boolean <- bees_exit@finish();
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}
