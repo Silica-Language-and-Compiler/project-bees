@@ -1,249 +1,243 @@
 # So you want to write a compiler for BEES
 
-**Status: draft, 2026-11-04.** This is the compiler author's guide that the target contract (roadmap R0.3) will
-grow out of. It says what a language-to-Silica compiler must do, what it may do, and what is still open. Every
-rule cites the decision (D-number) or gap-ledger item (S-number) behind it, and the trial that shows it. Where this
-guide and `development-plan/roadmap.md` disagree, the roadmap's decision table wins; where a measurement under
-`trials/` disagrees with prose, the measurement wins and this guide should be fixed.
+**Status: draft, 2026-11-04.** This is the first form of the target contract (roadmap R0.3). It is for the author of
+**any** language-to-Silica compiler, BEAM language or not: it states what your compiler must do for its output to run
+on BEES, and what BEES provides in return. Where this guide and `development-plan/roadmap.md` disagree, the
+roadmap's decision table wins.
 
-Labels used below: **MUST** (a program that breaks it is not a conforming BEES program), **MAY** (your choice),
-**OPEN** (not decided; do not rely on either answer), **PROVISIONAL** (works today, expected to change).
+Words used: **must** is a requirement. **may** is your choice. **open** means not decided yet: rely on neither
+answer. **provisional** means it works today and is expected to change.
 
-Verified on `silica-999939-macos-applesilicon` (Silica chunk 4 and chunk 15 phase 2). Only macOS is verified so far.
+Verified so far on Apple Silicon macOS with Silica fixed point `silica-999939`. Other targets (Linux AArch64, Linux
+x86-64, ESP32-S3) are planned and not yet verified.
 
 ---
 
-## 1. What you are, and what BEES is
+## 1. What BEES is, and what you are
 
-- **You are the compiler.** BEES is a shim, not a runtime that loads BEAM code. No `.beam` file is read and no
-  bytecode is interpreted. Your compiler turns each BEAM-language module into Silica source, and the Silica compiler
-  builds it together with BEES's units. Compilers are outside BEES (D4).
-- **BEES adds only what Silica lacks** (D19, roadmap §2): the term model, BIFs, ETS, timers, ports, distribution,
-  the exit hub, balancing. Anything Silica can already express, however awkwardly, is yours to lower. "Possible, not
-  easy" is the goal; BEES does not promise BEAM fidelity, and neither does the contract.
-- **Do not narrow Silica to the BEAM** (D32). If Silica can do more than the BEAM (richer crash reports, more
-  flexible spawning), your compiler may expose it. BEAM behaviour is the floor, not a ceiling.
-- **Gaps are owned.** Roadmap §2 gives every gap one owner: Silica (class U), BEES (B), the native edge (E), or the
-  compilers (C). If your language needs something nobody owns, it becomes a ledger row; tell us.
+BEES is a shim that sits between compiled programs and Silica. Your compiler turns source programs into Silica
+source; the Silica compiler builds that together with BEES's units into a native program. Nothing is interpreted and
+no bytecode is loaded.
 
-## 2. What you emit
+- **Your compiler owns the language.** Everything Silica can already express, however awkwardly, you lower yourself.
+  BEES adds only what Silica lacks (the value model, library services, exit tracking, distribution, balancing).
+- **BEES does not narrow Silica.** Where Silica can do more than your language, your compiler may expose it.
+- **BEES makes compilation possible, not easy.** It promises no fidelity to any particular language's semantics;
+  fidelity is your compiler's business.
 
-1. **Silica source units**, one per module or per generated helper. Basenames must be unique across the whole
-   program (the build identifies a module by its basename).
-2. **A manifest per unit** listing every BEAM atom the unit uses, one spelling per line (`<unit>.atoms`). `bees_config`
-   unions the manifests into one generated unit, `bees_atoms` (D30).
-3. **A module-table entry per module**, giving dispatch for `apply/3` and for funs. `bees_config` combines the
-   entries into one program-wide table (roadmap §1, contract item 4). **OPEN:** the exact manifest format; the
-   mechanism exists only as a sketch.
-4. **A reserved module-name prefix** for your language, plus BEES's own `bees_` / `dangerous_bees_` prefixes
-   (roadmap §4.8). Each language reserves one prefix so Elixir code can call Erlang code compiled by a different
-   compiler.
+## 2. Terms
 
-`bees_config` generates `silica.config`, `bees_atoms`, the module table and the supervisor position map, and checks
-the rules in §3. The Silica compiler itself takes no arguments: it reads `silica.config` from the working
-directory, and units must be listed in use-dependency order. Build with the exit-75 reclaim loop (`tools/silica.mk`).
+| Term | Meaning |
+| --- | --- |
+| Actor | A Silica actor: an isolated unit of work with a mailbox and private state, run one message at a time. |
+| Dispatch | One message handled by an actor. Silica never interrupts a dispatch. |
+| Value | A `bees_term`: the representation of any value that crosses a module, actor or network boundary. |
+| Symbol | An interned name. In BEES it is a Silica atom. |
+| Supervisor | A Silica supervisor actor that starts, restarts and ends child actors. |
+| Listener, hub | The BEES FailureReporter and the BEES actor that records every actor's end. |
 
-## 3. Atoms (D30, D16)
+---
 
-- **MUST:** a BEAM atom is a Silica atom, and BEES has no atom table of its own.
-- **MUST:** outside the generated `bees_atoms` unit, **no unit writes a BEAM atom literal.** Obtain atom values from
-  the accessors (`bees_atoms@a_mango()`), compare with `==`, or switch on `bees_atoms@index(a)`. `bees_config check`
-  enforces this.
-- **MAY** write an atom pattern in a `case` only for Silica's fixed atoms and the atoms its compiler interprets
-  (`:ok`, `:normal`, `:permanent`, `:one_for_one`, `:no_reply`, the `stack_policy` names, and so on; the list is
-  `FIXED_ATOMS` in `tools/bees_config.py`).
-- **MUST NOT** create an atom at run time. `list_to_atom` and `binary_to_atom` behave as the `existing` variants:
-  a lookup that fails with `badarg` when the spelling is not in the program's atoms (D16).
-- Silica has no type conversion, so `atom_to_list`, printing and ETF encoding are lookups in `bees_atoms`
-  (`spelling`, `from_spelling`, `index`). With more than 256 atoms `bees_config` splits the lookups into helpers,
-  because Silica rejects a `case` of 512 or more literal arms (trial `r02_many_atoms`). Do the same in anything you
-  generate (the module table, `apply` dispatch, byte lookups).
+# Part A. What your compiler must do
 
-## 4. Processes
+## A1. Build and packaging
 
-- **MUST:** a BEAM process is a **plain Silica actor** (D1), a **cast-only** behaviour returning `(:no_reply, state)`.
-  A call-only behaviour is for a `gen_server` call half (§8). Casting to a call-only actor is a compile error when
-  Silica can see it (E2237) and stops the sender at run time when it cannot (`cast_registered`), so keep the two
-  kinds apart.
-- **MUST:** pass `stack_policy(reserve, release)` to every `spawn`, `spawn_registered` and `spawn_dangerous`.
-  `reserve` is bytes of address space; `0` means the default, which is the machine's memory plus swap.
-  - With the default reserve, spawn aborts at about 3,750 to 4,000 live actors (address space).
-  - With a lowered reserve, 100,000 actors take about 0.6 s and a million about 4 s (5 GB; trial `s03_actor_ceiling`).
-  - **MAY** pick the reserve per process kind. `spawn_opt` options map onto it. **OPEN:** the default reserve for a
-    BEAM process.
-- **Reshape `receive` (D1).** A process holds no stack between messages. Code that needs a `receive` in the middle of a
-  function is split by you at the receive: the paused computation lives in the actor state, and the next message
-  resumes it. The helpers are `bees_recv` (the save queue for selective receive) and, for `after`, a timer. Trial
-  `s09_reference_lowerings/ping_pong_selective_receive` is the reference lowering.
-- **Never block, and never loop forever in one dispatch.** Silica never interrupts a running dispatch (see below). A
-  long computation must end its dispatch at **yield points** you place, continuing through a cast to `self()`. This
-  works only for an actor that accepts casts; a call-only actor must fit its work in one dispatch.
-- **A running dispatch cannot be killed** (S-33). `kill_abnormal` and a brutal `shutdown` take effect only after the
-  current dispatch returns. A compiled loop with no yield point is unkillable. Place yield points at receive boundaries
-  and tail calls.
-- **Recursion.** Tail calls are compiled to jumps now (the old SD-12 is closed), but you should not rely on unbounded
-  recursion inside one dispatch: an actor's stack is bounded by its reserve, and exceeding it ends the actor with
-  `(:explicit, :stack_exhausted)` or `:reservation_exceeded`.
-- **Placement.** `spawn(..., stack_policy(...), core)` takes an optional core id; `migrate_actor(ref, core)` moves an
-  actor at its next dispatch boundary and keeps message order (expressions are accepted for the core). BEES does the
-  balancing; never move a process the program placed explicitly.
+- **A1.1** Emit Silica source, one unit per module or generated helper. Every unit's basename must be unique across the
+  whole program, and must start with a prefix reserved for your language. BEES's own units use `bees_` and
+  `dangerous_bees_`.
+- **A1.2** Emit, beside each unit, a **manifest** listing every symbol (Silica atom spelling) the unit uses, one per
+  line (`<unit>.atoms`). `bees_config` merges all manifests into one generated unit, `bees_atoms`.
+- **A1.3** Emit a **module-table entry** for each module that can be called by name or through a function value
+  (section A7). **Open:** the entry format.
+- **A1.4** Declare which version of this contract you target. **Open:** the versioning scheme.
+- **A1.5** List units in use-dependency order in the build configuration, or let `bees_config` generate it. The Silica
+  compiler takes no arguments and reads its configuration from the working directory.
 
-## 5. Startup and supervision (D18, D23)
+## A2. Startup and shutdown
 
-This is the part every compiler must get right, because Silica refuses to run without it.
+- **A2.1** The program's `main` must **register a failure reporter before it spawns anything.** Call `bees_exit@start()`
+  first: it registers the BEES listener as the reporter and starts the exit hub. Silica rejects any earlier spawn.
+- **A2.2** `main` must then **start a root supervisor** and, from then on, only add actors to supervisors (A4).
+- **A2.3** `main` is not an actor and has no supervisor. A program ends through Silica's `wait_for_exit` and
+  `cast_exit`; your compiler decides what an exit of the root supervisor means.
 
-1. **MUST: register a FailureReporter before anything else is spawned** (E2236). Call `bees_exit@start()` first in
-   `main`. It registers the BEES **listener** as the reporter and starts the **exit hub**.
-2. **MUST: start a root supervisor** (a Silica `Supervisor` implementation) at program start, before your own
-   actors. **`main` is not an actor** and has no supervisor; the program ends through `wait_for_exit` / `cast_exit`.
-3. **MUST: every actor your compiled program spawns is added to a supervisor.** An actor you do not place under
-   another supervisor is added to the root supervisor (D18, decided 2026-11-04). Use `:add_child` with
-   `restart: :temporary` for an ordinary process.
-4. **MUST: give each live child a distinct id.** `:add_child` rejects an id already in use (`duplicate_child_id`),
-   ends `main` if the call came from `main`, and frees an id as soon as its `:temporary` child stops. Ids are atoms
-   from a fixed table, so one supervisor holds only as many live children as it has ids (trial
-   `a02_spawn_supervisor`). Generate a pool of id atoms per supervisor, reuse an id when its child stops, and use a
-   tree of supervisors for more live processes. **OPEN:** the pool-and-tree scheme; Silica may add anonymous child
-   ids.
-5. **MUST: a supervisor is typed by one child shape.** The child spec fixes the state type and the behaviour type, so
-   one supervisor supervises one process shape. Use one supervisor per shape, or one uniform process shape for all
-   compiled processes (the D1 shape: state record plus a continuation).
-6. **MAY: set the root supervisor's report sink to the hub** (`call_supervisor` op `:set_report_sink`) to receive
-   `restarted` and `new_child` for supervised children. **OPEN:** the hub reference needed for this is not exported
-   yet. The listener already reports every exit, so the hub learns of every death without a sink.
-7. **A supervised child's initial state** is the one in its child spec at each (re)start; a restart gives a fresh
-   state (trials `s01_trait_mapping`, `a02_ring/restart`). A state that holds a region and a term in it works. **OPEN (SD-23):** a supervised cast-only child that holds a region and an
-   `actor_ref` and casts from inside its dispatch dies on its second message; call it out of your lowering until
-   Silica fixes it.
-8. **Identity.** A pid is an `actor_ref`; its identity is 64 bits: the spawner's position (32) and a child number (32),
-   printed as `<position.child>`. A restarted child has a new identity (D22). Equality and order are on identity. A
-   pid you held for a restarted process is a dead pid.
+## A3. Actors and scheduling
 
-## 6. Failures (D2, D20, D31)
+- **A3.1** Every concurrent unit of work in your language must become a Silica actor. Use a **cast-only** behaviour
+  (it returns no reply) unless the actor is deliberately call-only. Do not mix the two: a cast to a call-only actor,
+  or a call to a cast-only actor, is a compile error or a run-time failure of the sender.
+- **A3.2** Pass a **stack policy** to every spawn: a reserve in bytes (0 means the default, the machine's memory plus
+  swap) and a release algorithm. With the default reserve a program can hold only a few thousand live actors; a
+  lowered reserve allows hundreds of thousands. **Open:** a recommended reserve for compiled actors.
+- **A3.3** An actor holds **no stack between messages.** Code that would suspend in the middle of a function (waiting
+  for a message, sleeping, waiting for a timer) must be **split at the suspension point**: the paused computation lives
+  in the actor's state, and the next message resumes it.
+- **A3.4** Never block a dispatch, and never run unbounded work in one. Silica never interrupts a dispatch, and a
+  running dispatch **cannot be killed** (a kill or shutdown takes effect only after it returns). Place **yield points**
+  in long computations: end the dispatch and continue through a message to the actor itself. A call-only actor cannot
+  yield; its work must fit one dispatch.
+- **A3.5** Do not rely on unbounded recursion within one dispatch. An actor's stack is bounded by its reserve;
+  exceeding it ends the actor.
+- **A3.6** Placement is optional. A spawn may name a core, and `migrate_actor` moves an actor at its next dispatch
+  boundary with message order kept. BEES balances actors across cores; never move an actor the program placed
+  explicitly.
 
-- **MUST NOT** emit anything that catches a failure. Runtime failures (a failing BIF, a bad match, a division by zero)
-  end the actor; the supervisor reports it; nothing inside the actor handles it (D2). Reject `catch`, `try ... catch`
-  and `after` clauses at compile time. A `try` that catches exactly one failure may be rewritten onto a BEES
-  **result-returning variant** of the BIF (for example the existing-atom conversions). `throw` is a failure.
-- **Fail with a reason.** `fail_self(reason_atom)` ends the actor with `(:explicit, reason)`; `stop_self(:normal)`
-  ends it normally (trial `s10_failure_paths`). Silica's own faults carry Silica's reasons (`:language_error` for a
-  division by zero, `(:explicit, :buf_bounds)`, `(:explicit, :list_index)`, `(:explicit, :region_alloc_failed)`). If
-  you want `badarith`, guard the division yourself and call `fail_self`.
-- **A `case` without a catch-all arm is a compile error** (E2008). Emit an explicit failing arm for the Erlang
-  `case_clause` (`fail_self` with an atom you list in your manifest).
-- **A `call` to a dead callee fails the caller** with `(:explicit, :actor_not_found)` (the old zero-value result is
-  gone). A `cast` to a dead actor fails the sender the same way.
-- **The lowering of `!` is yours (D31).** On the BEAM, `Pid ! Msg` to a dead pid does nothing. Silica's `cast` ends
-  the sender instead, and a listener that consumes the report does not help: the sender has already died, the rest of
-  its dispatch is skipped, a restart loses its state and changes its pid, its queued messages are dropped, restarts
-  count against the supervisor's limit, and a `:temporary` sender is simply gone. BEES gives no send primitive and
-  does not forbid `cast`. Routes you might take (none tested): a proxy actor that takes the failure; a liveness check
-  before the cast (racy); Silica's planned value-returning send. State your choice in your own documentation.
-- **No monitors, no `trap_exit`** (D20, D18). `exit(Pid, Reason)` is yours to lower into a request to Pid's supervisor,
-  found through the position map. **OPEN:** only `kill_abnormal` exists in Silica, which yields `(:explicit, :killed)`;
-  other exit reasons have no route yet. How `link` is lowered is your choice.
-- **Every exit reaches the hub.** The BEES listener parses Silica's failure report for every ended actor, supervised
-  or not. It does not end the program on a root-supervisor report: your startup decides what that means.
+## A4. Supervision
 
-## 7. Terms and memory
+- **A4.1** Every actor your program spawns must be a child of a supervisor. An actor you do not place under another
+  supervisor must be added to the root supervisor. BEES runs no supervisors for your actors.
+- **A4.2** Give every live child a **distinct child id**. The supervisor rejects an id already in use, and frees an id
+  as soon as its `:temporary` child stops. Ids are symbols from a fixed table, so a supervisor holds only as many live
+  children as it has ids: generate a pool of ids per supervisor, reuse one when its child stops, and use a tree of
+  supervisors for more live actors. **Open:** the pool and tree scheme.
+- **A4.3** A supervisor is typed by one child shape (state type and behaviour type). Use one supervisor per shape, or
+  one uniform actor shape for everything you compile.
+- **A4.4** Choose the restart policy (`:permanent`, `:transient`, `:temporary`) and the strategy for each supervisor.
+  A restarted child starts from the initial state in its child spec and gets a new identity.
+- **A4.5** You may point a supervisor's report sink at the hub to receive `restarted` and `new_child`. **Open:** the hub
+  reference this needs is not exported yet. The listener records every exit without it.
 
-- **Every value is a `bees_term`** (roadmap §4.1): a cell in a region. **PROVISIONAL (v0):** a cell is the tuple
-  `(tag, n, f, a, p, h, t)`, spelled in full in every signature. Tags: 0 nil, 1 int, 2 float, 3 atom, 4 pid,
-  5 cons, 6 tuple, 7 binary, 8 fun. `src/shim/bees_term.silica` is generated by `tools/gen_bees_term.py`; do not edit it.
-- **Spell the outer type.** Silica now requires the recursive type in full: `ref?(L, normal, (…, ref?(L, normal, rec)))`.
-  A bare `ref?(L, normal, rec)` outside a tuple is E2010.
-- **Rules from the defects found** (all verified on the current compiler, trials under `trials/silica_defects`):
-  - Name every term lifetime `L`, and type every region that carries terms `region(L, normal)`.
-  - Constructors and accessors return **one reference**, not a record or tuple. (The old stack leak is fixed, but
-    this keeps the shapes simple.)
-  - The heap is a record `{ r: region(L, normal) }`, passed in to every constructor and kept in the actor state.
-  - A message is a record carrying its region: `{ r: region(L, normal), c: <term> }`. Build it in a function that returns
-    it, once per send (`msg_of(new_heap(), …)`); do not bind the fresh region to a local name first.
-  - Do not pass a computed record or a call as the inline message of a `cast`: bind it to a name first. (Observed in the
-    exit listener; the same class as SD-11 and SD-19, closed for those but still hit here.)
-  - A record literal in a sequence needs `mem(normal)` declared on the enclosing function.
-- **Reclamation.** Silica now releases a replaced state region at the end of a dispatch and frees message regions when
-  the receiving dispatch returns; 100,000 evacuations peak at 5 MB (trial `s06_terms_and_regions`). **OPEN:** the
-  contract's "evacuation points" (roadmap §4.2) were designed before this and need rewriting; treat explicit
-  evacuation as unnecessary until the contract says otherwise.
-- **Integers** are `int64`; overflow fails the actor with `system_limit`. Bignums wait on Silica (S-11).
-- **Binaries (decided 2026-11-04):** a binary is a `buf(uint8)` plus a bit length, never a `string`. A `buf` may be a
-  message only when its region is sent with it (by Silica's design, for memory safety). **PROVISIONAL:** v0
-  `bees_term` stores a binary as a list of byte cells.
-- **Bit syntax and integer bitwise operators are yours** (class C). Silica has no type conversion and its bitwise
-  operators take `uint64`, so build and read bytes with lookups you generate (a 256-way `case` from a byte to the
-  matching literal) and same-type arithmetic. Floats too: an exact float64 codec without conversion exists as a
-  worked example (trial `s05_bytes_without_conversion`). Literal binaries, strings and floats become bytes at compile
-  time.
-- **Calling convention.** Silica allows 8 parameters; you pack more. Results come back as one value. A runtime
-  failure is never returned as a value (D2).
-- **Funs and `apply/3`** go through the module table: each compiled module provides dispatch entries
-  (trial `s09_reference_lowerings/funs_and_apply`).
+## A5. Failure
 
-## 8. OTP behaviours (D5, D13)
+- **A5.1** Silica has no exceptions. A failure inside an actor ends that actor, the supervisor handles it, and nothing
+  inside the actor can catch it. Lower your language's recoverable-error constructs without relying on catching a
+  Silica failure: use result values, or the **result-returning variants** BEES provides for common fallible
+  operations. Reject at compile time any construct you cannot lower this way.
+- **A5.2** End an actor on purpose with `fail_self(reason)` (a reason symbol) or `stop_self(:normal)`. Silica's own
+  faults carry Silica's reasons (for example `:language_error` for a division by zero). If your language reports a
+  different reason, check for the condition yourself and call `fail_self`.
+- **A5.3** Every branch construct you emit must be exhaustive. Silica rejects a `case` without a catch-all arm; emit an
+  explicit failing arm where your language requires a failure.
+- **A5.4** A `call` to a dead callee fails the caller, and a `cast` to a dead actor fails the sender, with
+  `(:explicit, :actor_not_found)`. If your language treats a send to a dead recipient as harmless, **your compiler
+  must lower the send so the sender survives.** BEES provides no send primitive for this and does not forbid `cast`.
+  Note what a dying sender costs: the rest of its dispatch is skipped, a restart loses its state and gives it a new
+  identity, its queued messages are dropped, and restarts count against the supervisor's limit.
+- **A5.5** BEES provides no monitors. How links, exit signals and exit requests between actors are lowered is your
+  choice. Silica can end an actor with `kill_abnormal`, which gives the reason `(:explicit, :killed)`; **open:** how to
+  deliver any other reason.
 
-- **`supervisor`:** map onto Silica's `Supervisor` trait. The child spec's fixed shape is the constraint in §5.
-- **`gen_server` (D5):** Silica behaviours are call-only or cast-only, not both. A module that handles calls **and**
-  casts becomes **two Silica actors**, one call-only and one cast-only. The contract fixes only what outside code can
-  see: which actor a `gen_server` pid denotes (it must accept casts), and how a call and a cast reach the right half.
-  Where the state lives, where `handle_info` goes, and how a cast followed by a call stays in order are your choice.
-- **`gen_statem`:** Silica's state-machine trait is **not delivered** (S-17). Until it is, use a plain behaviour with a
-  phase field.
-- **NIFs (D13):** wrap each NIF as a Silica actor around the external call (a `dangerous_` module and a
-  `spawn_dangerous` worker), re-create any result that leaves the handler, and link the worker to its caller so a
-  fault fails both. BEES provides no `load_nif`. A worker answers more than one message now (SD-18 closed), but each
-  dangerous actor is an OS thread, so pool workers.
-- **ETS, timers, ports, distribution:** BEES provides them as it lands (roadmap A3, A5, B1-B4). Silica has timers
-  (`send_after`, `cancel_timer`); `cancel_timer` returns no remaining time, so `read_timer` needs BEES bookkeeping.
+## A6. Values
 
-## 9. Silica details that will cost you an afternoon
+- **A6.1** Every value that crosses a module, actor or network boundary must be a `bees_term`. **Provisional (v0):**
+  a value is a cell `(tag, n, f, a, p, h, t)` in a region; tags are nil, integer, float, symbol, actor reference,
+  list cell, tuple, byte sequence and function value. The cell type is spelled in full in every signature; use the
+  generated `src/shim/bees_term.silica` and do not edit it.
+- **A6.2** Silica requires the recursive value type to be spelled with its tuple in full. A bare `ref?(L, normal, rec)`
+  outside the tuple is rejected.
+- **A6.3** **Symbols are Silica atoms and BEES has no table of its own.** Outside the generated `bees_atoms` unit, **no
+  unit may write a symbol literal.** Obtain symbols from `bees_atoms` accessors, compare them with `==`, or switch on
+  `bees_atoms@index(a)`. You may write a symbol pattern only for the symbols Silica itself interprets
+  (`:ok`, `:normal`, `:no_reply`, restart policies, stack-policy names; the list is `FIXED_ATOMS` in
+  `tools/bees_config.py`). `bees_config check` enforces this.
+- **A6.4** Never create a symbol at run time. Converting text to a symbol is a lookup that fails when the program does
+  not already hold the spelling. Silica has no type conversion, so converting a symbol to text, printing and encoding
+  are lookups in `bees_atoms`.
+- **A6.5** Any generated `case` with 512 or more literal arms fails to parse. Split large lookups (symbol tables, byte
+  tables, module-table dispatch) into helper functions of at most 256 arms, as `bees_config` does.
+- **A6.6** Integers are `int64`; overflow must fail the actor. Larger integers wait on Silica.
+- **A6.7** A byte sequence is a `buf(uint8)` plus a bit length, never a Silica string. A `buf` may be a message only
+  when the region it lives in is sent with it. **Provisional:** v0 stores a byte sequence as a list of byte cells.
+- **A6.8** Bit-level and byte-level operations are yours. Silica has no type conversion, and its bitwise operators take
+  `uint64`. Generate lookups (for example a 256-way `case` from a byte to the matching literal) and combine them with
+  same-type arithmetic. Literal bytes, strings and numbers become bytes at compile time.
+- **A6.9** A message is a record that carries its region: `{ r: region(L, normal), c: <value> }`. Name every value
+  lifetime `L` and type every region that carries values `region(L, normal)`. Build the message in a function that
+  returns it, once per send, and bind a computed message to a name before casting it; do not pass a computed record or
+  call inline as the message.
+- **A6.10** Constructors and accessors return a single reference, not a record or tuple, and the heap is a record
+  `{ r: region(L, normal) }` passed in and kept in the actor state.
+- **A6.11** More than 8 parameters must be packed, because Silica allows 8.
+- **A6.12** A function that builds a record literal must declare `mem(normal)`; every effect a sequence declares must be
+  used, and every effect it uses must be declared.
 
-- `foreign`, `normal`, `explicit` and `update` are keywords: do not use them as field or function names.
-- A function body that is a bare record literal does not parse; use `sequence … produces pure r end`.
-- A `case` over an integer needs a catch-all arm (`_: int64 -> …`); `print_bool` is now `print_boolean`.
-- A call to a function that can spawn an actor, made before the reporter is registered, is E2236, even through a
-  library call. Register the reporter first.
-- Unused effect declarations are errors (E3010), and missing ones are errors (E3002): declare exactly what a sequence
-  uses. A computed record needs `mem(normal)`.
-- `spawn` takes a mandatory third argument (`stack_policy`). `migrate_actor`'s core may be an expression.
-- A `foreign c_wrapper` function may be called only inside a worker's `external_danger` sequence; the declarations,
-  the worker and its spawn site had to be in one unit on the previous compiler (SD-17); not re-tested on this one.
-- Silica has no string-to-integer conversion, no atom-to-string, no generics. The BEES parser for failure reports reads
-  digits through a lookup; copy that technique.
-- The Silica compiler writes `silica.atoms` and `silica.shapes` beside the build; they are generated, not source.
+## A7. Dynamic dispatch
 
-## 10. What BEES gives you today, and what it does not
+- **A7.1** Calls by name and calls through function values go through the program-wide **module table** that
+  `bees_config` builds from your entries. Each module you emit provides dispatch entries for both. **Open:** the format.
 
-**Available (v0, may change):** `bees_term` (the cell constructors and accessors), `bees_recv` (save queue), `bees_atoms`
-(generated lookups), `bees_exit` (listener and hub), `bees_reporter` (a plain reporter for tests), `bees_config`
-(atoms, checks), the trial harness (`tools/trial.mk`), and reference lowerings in `trials/s09_reference_lowerings`
-(selective receive with `after`, a try rewritten onto a result-returning BIF, funs and `apply/3`, binary matching) and
-`trials/a02_ring` (a ring and a supervised restart, written as a compiler would lower them).
+## A8. Foreign code and untrusted input
 
-**Not available yet:** a published contract and conformance kit (R0.3, T1, T2); the module table and position map
-generators; `bees_timer`, `bees_proc`/spawn helpers, ETS, `process_info`, registered-name helpers (Silica's registry is
-not implemented, S-29); re-creation of foreign data (S-5/S8, Silica has no `Recreatable` yet); sockets and TLS
-(S-22, B1, B3); a non-failing send (yours, D31).
+- **A8.1** Foreign-function calls live in a `dangerous_`-prefixed module and run in a worker actor created with
+  `spawn_dangerous`. The declarations, the worker and its spawn site were required to be in one unit on the previous
+  compiler; not re-verified on this one.
+- **A8.2** Data returned by foreign code is tainted. It reaches a BEES program only through **re-creation**: a
+  validated copy built in a fresh region. Until Silica delivers the re-creation trait (`Recreatable`), nothing a
+  foreign call returns can leave the handler that received it.
+- **A8.3** Each dangerous actor is an operating-system thread. Pool them.
 
-**Platforms:** only Apple Silicon macOS is verified. Linux AArch64, Linux x86-64 and ESP32-S3 are 1.0 targets (D29) and
-have not been run.
+## A9. What you must document for your own users
 
-## 11. A checklist for a first conforming program
+Your compiler's documentation must state how it lowered: sends to dead recipients (A5.4), links and exit requests
+(A5.5), recoverable-error constructs (A5.1), suspension points (A3.3), byte and bit operations (A6.8), and which
+supervisor shape and id scheme it uses (A4).
 
-1. `main` calls `bees_exit@start()` first, then starts a root supervisor.
-2. Every unit's atoms are in its manifest; no unit writes a BEAM atom literal; `bees_config check` is clean.
-3. Every actor is cast-only unless it is the call half of a `gen_server`; every spawn passes `stack_policy`.
-4. Every spawned actor is added to a supervisor with a distinct child id; ids are reused when children stop.
-5. No `catch`, `try ... catch` or `after` is emitted; every `case` has a failing catch-all; failures use `fail_self`.
-6. Long computations end their dispatch at yield points.
-7. Messages carry their region; computed messages are bound before the cast; the outer recursive type is spelled out.
-8. Your documentation says how you lowered `!`, `exit/2`, `link`, and binary and bit-syntax operations.
-9. The program builds with Silica's compiler through `bees_config`, and your reference programs run: a ping-pong with
-   selective receive, a process ring, and a supervised worker restarted after a crash.
+## A10. Conformance
 
-## 12. Where to look
+Your compiler conforms when these reference programs, lowered from your language, run on BEES with the expected
+output: a message exchange that suspends in the middle of a function and resumes, a ring of actors passing a token,
+and a supervised actor that fails and is restarted from its initial state, with the exit visible in the hub. The
+conformance kit (T2) will package them. **Not yet published.**
 
-- Decisions: `development-plan/roadmap.md` §6 (D1-D32). Gaps and owners: `development-plan/gap-ledger.md`.
-- Silica defects and their status: `development-plan/silica-defects.md`.
-- Spike notes with the measurements behind these rules: `development-plan/spikes/`.
-- Working examples: `trials/` (each leaf has `.scout` goldens you can read as expected output).
+---
+
+# Part B. What BEES provides
+
+## B1. Available now (version 0, may change)
+
+| Unit or tool | Provides |
+| --- | --- |
+| `bees_term` | Value cells: constructors, accessors, list and tuple helpers, equality, copy into another region. Generated by `tools/gen_bees_term.py`. |
+| `bees_recv` | A save queue, for code that must skip messages and come back to them. |
+| `bees_atoms` | The generated symbol lookups: one accessor per symbol, `spelling`, `from_spelling`, `index`, `count`, tiered above 256 symbols. |
+| `bees_exit` | The listener (registered as the FailureReporter) and the exit hub. The listener parses every failure report for every ended actor, supervised or not, into a record (identity, agent type, reason, reason tag, supervisor, first frame). The hub counts by reason. |
+| `bees_reporter` | A plain reporter that prints every failure, for tests. |
+| `bees_config` | Generates `bees_atoms`; checks that no unit writes a symbol literal. |
+| Trial harness | `tools/trial.mk`: builds, runs and compares leaf directories against `.scout` goldens. |
+| Reference lowerings | `trials/s09_reference_lowerings` (suspending receive with a timeout, a fallible call rewritten to its result-returning form, function values and dynamic apply, byte matching) and `trials/a02_ring` (a ring and a supervised restart). |
+
+## B2. Planned
+
+| Item | Roadmap |
+| --- | --- |
+| Published contract, versioning and conformance kit | R0.3, T1, T2 |
+| Generators for the module table, the supervisor position map and child-id pools | A2, `bees_config` |
+| Actor identity helpers and the position map | A2 |
+| Timers beyond Silica's (remaining-time queries), registered names, process-information queries | A2, A3 |
+| Result-returning variants of common fallible library calls | A3 |
+| In-memory tables, counters, persistent storage of values | A3 |
+| Host input and output, files, sockets and DNS (wrappers over Silica's foreign-function interface) | A5, S-22 |
+| Re-creation of foreign data | S-5, blocked on Silica |
+| Balancing and placement of actors across cores | A6 |
+| Secure inter-node communication (TRUST) and BEAM-compatible distribution | B1-B4 |
+
+## B3. Not provided (yours or Silica's)
+
+| Item | Owner |
+| --- | --- |
+| A language's syntax, types, semantics and standard library | Your compiler |
+| Lowering of sends to dead recipients, links, exit requests, recoverable errors | Your compiler |
+| Bit-level and byte-level operations, large integers | Your compiler (large integers also wait on Silica) |
+| Monitors | Not part of BEES |
+| State-machine actors, a registry that can name an actor after it starts, links and monitors in the runtime | Silica, not delivered yet |
+
+---
+
+# Part C. Open points
+
+1. The format of the manifest and module-table entries (A1.3, A7.1) and the versioning scheme (A1.4).
+2. The child-id pool and supervisor-tree scheme (A4.2), and a recommended stack reserve (A3.2).
+3. Delivering exit reasons other than `(:explicit, :killed)` (A5.5), and a non-failing send (A5.4).
+4. A structured failure report from Silica. The listener reads the text of Silica's report today, so a change to that
+   text breaks it.
+5. One failure listener handles about 20,000 reports per second; beyond that its queue grows. Faster parsing or parallel
+   workers are planned.
+6. A supervised cast-only actor that holds a region and an actor reference and casts from inside its dispatch fails on its
+   second message (Silica defect SD-23); avoid that shape until it is fixed.
+7. Targets other than Apple Silicon macOS are unverified.
+
+# Part D. If your language is a BEAM language
+
+The same requirements apply. The extra constructs (selective receive, `gen_server`, `supervisor` and `gen_statem`
+modules, NIFs, binaries and bit syntax, remote procedure calls) and the decisions behind them are in
+`development-plan/roadmap.md` (§1 contract items, §6 decisions D1-D32) and `development-plan/gap-ledger.md`.
