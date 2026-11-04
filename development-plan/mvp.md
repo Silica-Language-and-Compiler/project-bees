@@ -121,16 +121,18 @@ banner that the transport is for testing only. TRUST (mutual TLS) replaces this 
 
 Bytes returned by a foreign call are **tainted**, and Silica's rules stop a tainted value leaving the handler that
 receives it. The compiler-derived re-creation trait (`Recreatable`) that would clean such values is **not delivered in
-Silica yet**. The MVP therefore proves a hand-written route first:
+Silica yet**.
 
-> Inside the handler, rebuild each value from literals chosen by branching on the tainted bytes (a 256-way `case` from a
-> byte to the matching literal, as the compiler guide already requires for byte handling). The result depends on the
-> input only through control flow, so no tainted data reaches it.
+**Milestone M0 was run on 2026-11-04** ([spikes/S8-hand-recreation.md](spikes/S8-hand-recreation.md)) to see whether BEES
+could re-create received bytes by hand, rebuilding each value from literals by branching on the tainted bytes. **It
+cannot.** Silica's checker treats every value derived from a tainted one as tainted, a `case` over literals included, and
+rejects it in the worker's `produces pure` (E2100). The only thing that compiles is forwarding the raw value from the
+receiving handler, which the specification forbids and Silica does not check; the MVP does not build on it.
 
-This is spike **S8**, never run. **Milestone M0 runs it.** If Silica's taint checker accepts the rebuilt values being cast
-onward, the MVP proceeds on the hand-written route. If it rejects them, the receive path is blocked until Silica delivers
-`Recreatable` (Silica ROADMAP chunk 13), and the MVP stops at the sending half. M0 is built first so that we learn this
-before writing anything else.
+**Consequence:** the **receive path waits on Silica's `Recreatable`** (Silica ROADMAP chunk 13). Everything else in the
+MVP does not: the schema and generators, the wire codec, the sockets, the sending half, the handshake and the proxies
+can be built and tested now, with the receive step stubbed behind one function (`bees_ingress@recreate`) that will call
+`recreate` when it exists.
 
 ## 5. Milestones
 
@@ -139,7 +141,7 @@ a small driver script that starts two executables and compares their outputs.
 
 | # | Milestone | Exit criteria |
 | --- | --- | --- |
-| **M0** | Re-creation by hand (spike S8). A `dangerous_` worker reads bytes from a pipe or socket pair; the handler rebuilds an integer, an atom and a string from lookups; the rebuilt values are cast to another actor. Include the compile-fail trial that today's checker rejects the direct path. | The rebuilt values pass the checker and arrive intact, and the direct path is rejected. **Or** a written finding that it is blocked and why. |
+| **M0** | **Done 2026-11-04: blocked.** Re-creation by hand does not pass Silica's checker (trial `m0_recreation`, note S8). | The written finding: the receive path needs `Recreatable`. |
 | **M1** | The schema manifest, the `bees_config` generator for encoders and decoders, and the `bees_wire` core. In memory only. | Round-trip trials for every supported type and for nested values; rejection trials for truncated, oversized, too-deep, over-long, unknown-atom, unknown-kind and bad-UTF-8 input; a message type with an unsupported field is a build error; no allocation grows without bound on rejection. |
 | **M2** | The native edge sockets, `127.0.0.1` only, with a poll timeout. | Two OS processes exchange one frame of words over a TCP connection; the listener refuses non-local addresses. |
 | **M3** | `bees_net` and `bees_ingress`: the generated peer table, proxies and deliverers, the handshake, delivery by registered name. | Two plain Silica programs complete the handshake and a cast to a remote name arrives; a connection from an unlisted node, or with a different schema digest, is closed; a frame before the handshake is dropped; a closed connection ends its proxies. |
@@ -152,7 +154,7 @@ a small driver script that starts two executables and compares their outputs.
 | --- | --- |
 | Silica FFI (`dangerous_` workers, several messages per worker) | Works (spike S4 and the re-run). |
 | `buf(uint8)` across the foreign-function boundary | Not delivered. The edge moves 8 bytes per call as an `int64`. |
-| Silica re-creation (`Recreatable`) | Not delivered. M0 decides whether the hand-written route is enough. |
+| Silica re-creation (`Recreatable`) | Not delivered, and no hand-written substitute passes the checker (M0). **Blocks the receive path.** |
 | Registered names (`spawn_registered`, `cast_registered`) | Work. Silica's later `register` / `whereis` are not needed. |
 | The exit listener and hub | Exist (A2). |
 | A pair-of-processes trial driver | New, small. |
@@ -176,8 +178,8 @@ a small driver script that starts two executables and compares their outputs.
 
 ## 8. Risks
 
-- **M0 fails.** The receive path then waits on Silica. Mitigation: M0 first; the sending half and the codec are still
-  worth having.
+- **The receive path waits on Silica's `Recreatable`** (M0 result). Mitigation: build and test everything else; stub the
+  receive step behind one function; ask Silica to prioritise chunk 13.
 - **A generator must understand Silica type syntax.** It reads a restricted subset of the type grammar. Mitigation: start
   with records, tuples, `List[T]` and the primitives; reject the rest at build time.
 - **Word-sized foreign calls are slow.** 4 KiB is 512 calls per frame. Acceptable for the MVP; measured in M4.

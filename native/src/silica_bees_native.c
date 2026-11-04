@@ -21,3 +21,15 @@ int64_t bees_poll_wait_ms(int64_t ms) {
     (void)poll((struct pollfd *)0, 0, (int)ms);
     return bees_clock_monotonic_ns() - start;
 }
+
+int64_t bees_fixture_word(int64_t idx) {
+    static const unsigned char frame[24] = {
+        0, 0, 0, 0, 0, 0, 0, 42,
+        'h', 'e', 'l', 'l', 'o', '!', '!', '\n',
+        0x00, 0xFF, 0, 0, 0, 0, 0, 1
+    };
+    if (idx < 0 || idx > 2) return -1;
+    int64_t w = 0;
+    for (int i = 0; i < 8; i++) w = (w << 8) | frame[idx * 8 + i];
+    return w;
+}

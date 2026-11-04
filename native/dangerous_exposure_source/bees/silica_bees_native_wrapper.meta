@@ -17,3 +17,9 @@ wrapper bees_poll_wait_ms {
     result: "scalar"
     error_domain: "dangerous_bees_native"
 }
+
+wrapper bees_fixture_word {
+    symbol: "bees_fixture_word"
+    result: "scalar"
+    error_domain: "dangerous_bees_native"
+}

@@ -1,0 +1,16 @@
+// M0: the adapter module through which a foreign word enters. The checker seeds taint ONLY on calls
+// qualified with a dangerous_ module (dangerous_m0_fixture@fixture_word); a raw binding called in the
+// worker's own unit is not tracked. The + 0 keeps the foreign call out of tail position (the known
+// adapter tail-call defect); a sequence here would make the adapter a worker (E4041).
+module dangerous_m0_fixture;
+
+export fixture_word/1;
+
+wrapper_meta "dangerous_exposure_source/bees/silica_bees_native_wrapper.meta";
+
+foreign c_wrapper "bees_fixture_word"
+fn fixture_word_raw(idx: int64) -> int64;
+
+fn fixture_word(idx: int64) -> int64 {
+    fixture_word_raw(idx) + 0
+}

@@ -1,0 +1,51 @@
+// M0: the handler that receives the FFI result cast forwards the raw word to another actor by an ordinary
+// cast. The spec (7.6) forbids this; Silica does not check the receiving handler, so it compiles and runs.
+// BEES must NOT build on this. Expected: true
+module dangerous_m0_handler_forward;
+
+use bees_reporter;
+
+use dangerous_m0_fixture;
+
+fn lookup(v: int64) -> int64 { case v of { 42 -> 42; 0 -> 0; 1 -> 1; _: int64 -> -1 } }
+
+fn sink(msg: int64, state: int64) -> (:no_reply, int64) {
+    sequence proc[device_io]
+        ok: boolean <- msg == 42;
+        _: atom <- print_boolean(ok);
+        _: atom <- println("")
+    produces pure (:no_reply, state) end
+}
+
+fn next(msg: int64, state: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency, device_io]
+        ok: boolean <- msg == 42;
+        _: atom <- print_boolean(ok);
+        _: atom <- println("");
+        _: boolean <- cast_exit(0)
+    produces pure (:no_reply, state) end
+}
+
+fn fwd(msg: int64, state: actor_ref) -> (:no_reply, actor_ref) {
+    sequence proc[concurrency]
+        _: boolean <- cast(state, msg impl ActorMessage {})
+    produces pure (:no_reply, state) end
+}
+
+fn worker(msg: int64, reply_to: actor_ref) -> (:no_reply, actor_ref) {
+    sequence proc[external_danger, concurrency]
+        w: int64 <- dangerous_m0_fixture@fixture_word(msg);
+        _: boolean <- cast(reply_to, w impl ActorMessage {})
+    produces pure (:no_reply, reply_to) end
+}
+
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- bees_reporter@start();
+        n: actor_ref <- spawn(0, next, stack_policy(0, :keep_last_message));
+        f: actor_ref <- spawn(n, fwd, stack_policy(0, :keep_last_message));
+        w: dangerous_actor_ref <- spawn_dangerous(f, worker, stack_policy(0, :keep_last_message));
+        _: boolean <- cast(w, 0 impl ActorMessage {});
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}
