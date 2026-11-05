@@ -1,0 +1,14 @@
+0	close
+1	closed
+2	credit
+3	fault
+4	link_down
+5	link_up
+6	no_credit
+7	open
+8	reset
+9	rx
+10	timeout
+11	tx
+12	tx_credit
+13	tx_failed

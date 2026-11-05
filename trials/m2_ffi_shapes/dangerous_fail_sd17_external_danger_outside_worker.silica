@@ -1,0 +1,22 @@
+use bees_reporter;
+// SD-17 re-test (M2): an external_danger sequence is valid only directly inside the behaviour a
+// spawn_dangerous site installs; here it is in an ordinary function. Recorded: E4041.
+module dangerous_fail_sd17_external_danger_outside_worker;
+
+wrapper_meta "dangerous_exposure_source/bees/silica_bees_native_wrapper.meta";
+
+foreign c_wrapper "bees_clock_monotonic_ns"
+fn clock_monotonic_ns_raw() -> int64;
+
+fn helper() -> int64 {
+    sequence proc[external_danger]
+        t: int64 <- clock_monotonic_ns_raw()
+    produces pure t end
+}
+
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- bees_reporter@start();
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

@@ -1,0 +1,15 @@
+# The atoms of Silica's planned carrier actor contract (transport design 6.2), M2.
+open
+tx
+credit
+close
+link_up
+rx
+tx_credit
+tx_failed
+link_down
+closed
+reset
+timeout
+fault
+no_credit

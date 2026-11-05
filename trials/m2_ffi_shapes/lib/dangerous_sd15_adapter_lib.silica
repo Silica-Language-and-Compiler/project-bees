@@ -1,0 +1,15 @@
+// SD-15 re-test: the adapter in its own dangerous_ unit, with the foreign declaration. The raw call is bound first
+// (the tail-position form faults: the same defect Silica lists as dangerous_ffi_adapter_tail_call).
+module dangerous_sd15_adapter_lib;
+
+wrapper_meta "dangerous_exposure_source/bees/silica_bees_native_wrapper.meta";
+
+export clock_ns/0;
+
+foreign c_wrapper "bees_clock_monotonic_ns"
+fn clock_monotonic_ns_raw() -> int64;
+
+fn clock_ns() -> int64 {
+    t: int64 <- clock_monotonic_ns_raw();
+    t + 0
+}

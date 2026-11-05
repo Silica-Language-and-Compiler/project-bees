@@ -1,0 +1,65 @@
+// ---- the refusal trial: one program, eight carriers opened one after another. Each is given an
+// address and reports :link_down with a reason; the program prints it. Cases 0 to 5 are addresses
+// the edge must refuse before it makes an endpoint; 6 is a local connect to a port nobody listens on
+// and 7 a local listen nobody connects to, which must be accepted as addresses and fail only by time.
+fn case_address(i: int64) -> string {
+    case i == 0 of { true -> "listen:0.0.0.0:47321"; false ->
+    case i == 1 of { true -> "listen:192.0.2.1:47321"; false ->
+    case i == 2 of { true -> "connect:10.0.0.1:47321"; false ->
+    case i == 3 of { true -> "listen:localhost:47321"; false ->
+    case i == 4 of { true -> "listen:127.0.0.2:47321"; false ->
+    case i == 5 of { true -> "listen:127.0.0.1"; false ->
+    case i == 6 of { true -> "connect:127.0.0.1:47321"; false -> "listen:127.0.0.1:47322" } } } } } } }
+}
+
+fn ncases() -> int64 { 8 }
+
+fn show_case(i: int64, reason: atom, addr: string) -> atom {
+    sequence proc[device_io]
+        print_string("case ");
+        print_int64(i);
+        print_string(" ");
+        print_string(addr);
+        print_string(" -> ");
+        println(bees_atoms@spelling(reason))
+    produces pure :ok end
+}
+
+fn finish_line() -> atom {
+    sequence proc[device_io]
+        println("done")
+    produces pure :ok end
+}
+
+fn start_case(driver: actor_ref, i: int64) -> boolean {
+    sequence proc[concurrency]
+        c: actor_ref <- carrier_new(i, 300, 300);
+        m: { tag: atom, peer: actor_ref, text: string, n: int64 } <- cmd(bees_atoms@a_open(), driver, case_address(i), 0);
+        ok: boolean <- cast(c, m impl ActorMessage {})
+    produces pure ok end
+}
+
+// The driver is the owner of every carrier. A kick (any message that is not a link_down) starts
+// case 0; each link_down prints its case and starts the next.
+fn driver(
+    msg: { tag: atom, n: int64, reason: atom, info: string },
+    st: { i: int64 }
+) -> (:no_reply, { i: int64 }) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        is_down: boolean <- msg.tag == bees_atoms@a_link_down();
+        _: atom <- case is_down of { true -> show_case(st.i, msg.reason, case_address(st.i)); false -> :ok };
+        next: int64 <- case is_down of { true -> st.i + 1; false -> st.i };
+        _: boolean <- case next < ncases() of { true -> start_case(me, next); false -> true };
+        _: atom <- case is_down and next >= ncases() of { true -> finish_line(); false -> :ok }
+    produces pure (:no_reply, { i: next }) end
+}
+
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- bees_reporter@start();
+        d: actor_ref <- spawn({ i: 0 }, driver, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: boolean <- cast(d, { tag: :ok, n: 0, reason: :ok, info: "" } impl ActorMessage {});
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

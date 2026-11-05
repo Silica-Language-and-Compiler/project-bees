@@ -1,0 +1,10 @@
+case 0 listen:0.0.0.0:47321 -> fault
+case 1 listen:192.0.2.1:47321 -> fault
+case 2 connect:10.0.0.1:47321 -> fault
+case 3 listen:localhost:47321 -> fault
+case 4 listen:127.0.0.2:47321 -> fault
+case 5 listen:127.0.0.1 -> fault
+case 6 connect:127.0.0.1:47321 -> timeout
+case 7 listen:127.0.0.1:47322 -> timeout
+done
+exit=0

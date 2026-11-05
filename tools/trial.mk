@@ -8,7 +8,8 @@
 #
 #   lib/*.silica        library units, normally symlinks into src/; compiled, never run
 #   *.silica            entry programs: each has fn main() and becomes one executable
-#   fail_*.silica       compile-fail trials, compiled in isolation; the compiler's output is
+#   NAME.pair           (optional) two entry names that run together, e.g. a listener and a connector
+#   fail_*.silica (dangerous_fail_*.silica when the unit declares foreign functions: E4020 wants the dangerous_ prefix)       compile-fail trials, compiled in isolation; the compiler's output is
 #                       the golden (.golden_fail)
 #   NAME.scout          golden stdout+stderr+exit code of entry NAME (recorded, then diffed)
 #
@@ -33,9 +34,14 @@ MANIFESTS   := $(strip $(filter-out %/silica.atoms,$(wildcard $(LEAF)/lib/*.atom
                 $(wildcard $(LEAF)/lib/*.pools) $(wildcard $(LEAF)/*.pools) \
                 $(wildcard $(LEAF)/lib/*.wire) $(wildcard $(LEAF)/*.wire))
 
+# NAME.pair names two entries that must run at the same time (a listener and a connector): the file
+# holds their two entry names, and tools/run_pair.py runs both, writing each one's .sout.
+PAIR_FILES  := $(sort $(notdir $(wildcard $(LEAF)/*.pair)))
+# (cat with no file names would read the standard input, so it is only run when there are .pair files)
+PAIRED      := $(sort $(if $(PAIR_FILES),$(shell cat $(addprefix $(LEAF)/,$(PAIR_FILES)) 2>/dev/null)))
 ALL_UNITS   := $(sort $(notdir $(wildcard $(LEAF)/*.silica)))
-FAIL_UNITS  := $(filter fail_%,$(ALL_UNITS))
-ENTRY_UNITS := $(filter-out fail_%,$(ALL_UNITS))
+FAIL_UNITS  := $(filter fail_% dangerous_fail_%,$(ALL_UNITS))
+ENTRY_UNITS := $(filter-out fail_% dangerous_fail_%,$(ALL_UNITS))
 ENTRIES     := $(ENTRY_UNITS:.silica=)
 LIB_UNITS   := $(sort $(notdir $(wildcard $(LEAF)/lib/*.silica)))
 
@@ -58,7 +64,7 @@ bees_atoms:
 
 # silica.config lists lib units and entry units in use-dependency order; fail_* stay out.
 silica.config: bees_atoms
-	@cd "$(LEAF)" && "$(TOPO)" "$(LEAF)" | grep -v '^fail_' > silica.config
+	@cd "$(LEAF)" && "$(TOPO)" "$(LEAF)" | grep -Ev '^(dangerous_)?fail_' > silica.config
 
 build: silica.config
 	@cd "$(LEAF)" && rm -f *.sams *.iface *.o lib/*.sams lib/*.iface lib/*.o \
@@ -78,7 +84,12 @@ build: silica.config
 	echo "[$(LEAF_NAME)] built: $(ENTRIES)"
 
 run: build
-	@cd "$(LEAF)" && for e in $(ENTRIES); do $(call RUN_TRIAL,./$$e,$$e.sout); done
+	@cd "$(LEAF)" && for e in $(filter-out $(PAIRED),$(ENTRIES)); do $(call RUN_TRIAL,./$$e,$$e.sout); done
+	@cd "$(LEAF)" && for p in $(PAIR_FILES); do \
+		set -- $$(cat "$$p"); \
+		"$(BEES_ROOT)/tools/run_pair.py" "./$$1" "$$1.sout" "$$(cat "$$1.wait_for_exit")" "./$$2" "$$2.sout" "$$(cat "$$2.wait_for_exit")"; \
+		sed -i '' -E 's/0x[0-9a-f]{6,}/0xADDR/g' "$$1.sout" "$$2.sout"; \
+	done
 
 # Compile-fail trials: each is compiled alone in .fail/NAME/ with the leaf's lib/ beside it, so
 # the paths in the compiler's diagnostics are stable. Output goes to NAME.cur_fail.
@@ -87,6 +98,7 @@ define COMPILE_FAIL_FN
 compile_fail() { \
 	n="$${1%.silica}"; d=".fail/$$n"; rm -rf "$$d"; mkdir -p "$$d"; \
 	ln -s "../../$$1" "$$d/$$1"; [ -d lib ] && ln -s ../../lib "$$d/lib"; \
+	[ -e dangerous_exposure_source ] && ln -s ../../dangerous_exposure_source "$$d/dangerous_exposure_source"; \
 	( cd "$$d" && "$(TOPO)" . > silica.config && \
 	  { "$(SILICA_COMPILER)" > "../../$$n.cur_fail" 2>&1; echo "exit=$$?" >> "../../$$n.cur_fail"; } ); \
 	sed -i '' -E 's/0x[0-9a-f]{6,}/0xADDR/g' "$$n.cur_fail"; \

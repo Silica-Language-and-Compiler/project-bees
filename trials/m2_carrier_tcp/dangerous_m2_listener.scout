@@ -1,0 +1,9 @@
+a rx 3
+a rx 4242
+a rx 8606223222790234401
+a rx 9223372036854775807
+a link_down closed
+a link_up seen true
+a words received 4, tx credits 5
+done
+exit=0

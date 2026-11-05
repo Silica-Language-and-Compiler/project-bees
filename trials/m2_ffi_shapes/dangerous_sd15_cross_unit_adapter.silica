@@ -1,0 +1,30 @@
+use bees_reporter;
+use dangerous_sd15_adapter_lib;
+// SD-15 re-test (M2, silica-999936): the adapter is a separate dangerous_ unit; the worker, in the
+// app unit, calls it qualified. Expected: true / done
+module dangerous_sd15_cross_unit_adapter;
+
+fn sink(msg: int64, state: int64) -> (:no_reply, int64) {
+    sequence proc[device_io]
+        _: atom <- print_boolean(msg > 0);
+        println("");
+        println("done")
+    produces pure (:no_reply, state + 1) end
+}
+
+fn worker(msg: int64, reply_to: actor_ref) -> (:no_reply, actor_ref) {
+    sequence proc[external_danger, concurrency]
+        t: int64 <- dangerous_sd15_adapter_lib@clock_ns();
+        _: boolean <- cast(reply_to, t impl ActorMessage {})
+    produces pure (:no_reply, reply_to) end
+}
+
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- bees_reporter@start();
+        s: actor_ref <- spawn(0, sink, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        w: dangerous_actor_ref <- spawn_dangerous(s, worker, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: boolean <- cast(w, 1 impl ActorMessage {});
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}
