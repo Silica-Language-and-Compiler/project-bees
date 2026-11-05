@@ -15,8 +15,10 @@ build:
 integrate:
 	@failed=0; ok=0; ko=0; \
 	for l in $(LEAVES); do \
+		rm -f "$$l/.integrate_counts"; \
 		$(MAKE) -C "$$l" integrate || failed=1; \
-		if [ -f "$$l/.integrate_counts" ]; then read a b < "$$l/.integrate_counts"; ok=$$((ok+a)); ko=$$((ko+b)); fi; \
+		if [ -f "$$l/.integrate_counts" ]; then read a b < "$$l/.integrate_counts"; ok=$$((ok+a)); ko=$$((ko+b)); \
+		else echo "FAIL: [$$(basename $$l)] did not finish (build failed or no result): counted as one failure"; ko=$$((ko+1)); failed=1; fi; \
 	done; \
 	echo "== trials: $$ok passed, $$ko failed"; exit $$failed
 

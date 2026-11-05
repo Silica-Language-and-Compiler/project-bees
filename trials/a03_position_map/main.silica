@@ -16,32 +16,32 @@ fn worker(msg: int64, state: int64) -> (:no_reply, int64) {
     (:no_reply, state + 100 / msg)
 }
 
-fn leaf0_init(initial_state: int64) -> ({ strategy: :one_for_one | :one_for_all | :rest_for_one, allowed_restart_count: int64, restarts_time_frame: int64 }, List[{ id: atom, agent_type: :worker | :supervisor, initial_state: int64, behavior: fn(msg: int64, state: int64) -> (:no_reply, int64), restart: :permanent | :temporary | :transient, shutdown: int64, flavor: :plain | :dangerous }, mem(normal)]) {
+fn leaf0_init(initial_state: int64) -> ({ strategy: :one_for_one | :one_for_all | :rest_for_one, allowed_restart_count: int64, restarts_time_frame: int64 }, List[{ id: atom, agent_type: :worker | :supervisor, initial_state: int64, behavior: fn(msg: int64, state: int64) -> (:no_reply, int64), restart: :permanent | :temporary | :transient, shutdown: int64, flavor: :plain | :dangerous, state_policy: state_policy }, mem(normal)]) {
     sequence proc[mem(normal)]
         flags: { strategy: :one_for_one | :one_for_all | :rest_for_one, allowed_restart_count: int64, restarts_time_frame: int64 } <- { strategy: :one_for_one, allowed_restart_count: 5, restarts_time_frame: 10 };
-        children: List[{ id: atom, agent_type: :worker | :supervisor, initial_state: int64, behavior: fn(msg: int64, state: int64) -> (:no_reply, int64), restart: :permanent | :temporary | :transient, shutdown: int64, flavor: :plain | :dangerous }, mem(normal)] <- [
-            { id: bees_ids@id_of(bees_ids@leaf_t(0), 0), agent_type: :worker, initial_state: 0, behavior: worker, restart: :permanent, shutdown: 0, flavor: :plain },
-            { id: bees_ids@id_of(bees_ids@leaf_t(0), 1), agent_type: :worker, initial_state: 0, behavior: worker, restart: :permanent, shutdown: 0, flavor: :plain }
+        children: List[{ id: atom, agent_type: :worker | :supervisor, initial_state: int64, behavior: fn(msg: int64, state: int64) -> (:no_reply, int64), restart: :permanent | :temporary | :transient, shutdown: int64, flavor: :plain | :dangerous, state_policy: state_policy }, mem(normal)] <- [
+            { id: bees_ids@id_of(bees_ids@leaf_t(0), 0), agent_type: :worker, initial_state: 0, behavior: worker, restart: :permanent, shutdown: 0, flavor: :plain, state_policy: state_policy(:keep_state_area) },
+            { id: bees_ids@id_of(bees_ids@leaf_t(0), 1), agent_type: :worker, initial_state: 0, behavior: worker, restart: :permanent, shutdown: 0, flavor: :plain, state_policy: state_policy(:keep_state_area) }
         ]
     produces pure (flags, children) end
 }
 
-fn leaf1_init(initial_state: int64) -> ({ strategy: :one_for_one | :one_for_all | :rest_for_one, allowed_restart_count: int64, restarts_time_frame: int64 }, List[{ id: atom, agent_type: :worker | :supervisor, initial_state: int64, behavior: fn(msg: int64, state: int64) -> (:no_reply, int64), restart: :permanent | :temporary | :transient, shutdown: int64, flavor: :plain | :dangerous }, mem(normal)]) {
+fn leaf1_init(initial_state: int64) -> ({ strategy: :one_for_one | :one_for_all | :rest_for_one, allowed_restart_count: int64, restarts_time_frame: int64 }, List[{ id: atom, agent_type: :worker | :supervisor, initial_state: int64, behavior: fn(msg: int64, state: int64) -> (:no_reply, int64), restart: :permanent | :temporary | :transient, shutdown: int64, flavor: :plain | :dangerous, state_policy: state_policy }, mem(normal)]) {
     sequence proc[mem(normal)]
         flags: { strategy: :one_for_one | :one_for_all | :rest_for_one, allowed_restart_count: int64, restarts_time_frame: int64 } <- { strategy: :one_for_one, allowed_restart_count: 5, restarts_time_frame: 10 };
-        children: List[{ id: atom, agent_type: :worker | :supervisor, initial_state: int64, behavior: fn(msg: int64, state: int64) -> (:no_reply, int64), restart: :permanent | :temporary | :transient, shutdown: int64, flavor: :plain | :dangerous }, mem(normal)] <- [
-            { id: bees_ids@id_of(bees_ids@leaf_t(1), 0), agent_type: :worker, initial_state: 0, behavior: worker, restart: :permanent, shutdown: 0, flavor: :plain },
-            { id: bees_ids@id_of(bees_ids@leaf_t(1), 1), agent_type: :worker, initial_state: 0, behavior: worker, restart: :permanent, shutdown: 0, flavor: :plain }
+        children: List[{ id: atom, agent_type: :worker | :supervisor, initial_state: int64, behavior: fn(msg: int64, state: int64) -> (:no_reply, int64), restart: :permanent | :temporary | :transient, shutdown: int64, flavor: :plain | :dangerous, state_policy: state_policy }, mem(normal)] <- [
+            { id: bees_ids@id_of(bees_ids@leaf_t(1), 0), agent_type: :worker, initial_state: 0, behavior: worker, restart: :permanent, shutdown: 0, flavor: :plain, state_policy: state_policy(:keep_state_area) },
+            { id: bees_ids@id_of(bees_ids@leaf_t(1), 1), agent_type: :worker, initial_state: 0, behavior: worker, restart: :permanent, shutdown: 0, flavor: :plain, state_policy: state_policy(:keep_state_area) }
         ]
     produces pure (flags, children) end
 }
 
-fn init(initial_state: int64) -> ({ strategy: :one_for_one | :one_for_all | :rest_for_one, allowed_restart_count: int64, restarts_time_frame: int64 }, List[{ id: atom, agent_type: :worker | :supervisor, initial_state: int64, behavior: fn(initial_state: int64) -> ({ strategy: :one_for_one | :one_for_all | :rest_for_one, allowed_restart_count: int64, restarts_time_frame: int64 }, List[{ id: atom, agent_type: :worker | :supervisor, initial_state: int64, behavior: fn(msg: int64, state: int64) -> (:no_reply, int64), restart: :permanent | :temporary | :transient, shutdown: int64, flavor: :plain | :dangerous }, mem(normal)]), restart: :permanent | :temporary | :transient, shutdown: int64, flavor: :plain | :dangerous }, mem(normal)]) {
+fn init(initial_state: int64) -> ({ strategy: :one_for_one | :one_for_all | :rest_for_one, allowed_restart_count: int64, restarts_time_frame: int64 }, List[{ id: atom, agent_type: :worker | :supervisor, initial_state: int64, behavior: fn(initial_state: int64) -> ({ strategy: :one_for_one | :one_for_all | :rest_for_one, allowed_restart_count: int64, restarts_time_frame: int64 }, List[{ id: atom, agent_type: :worker | :supervisor, initial_state: int64, behavior: fn(msg: int64, state: int64) -> (:no_reply, int64), restart: :permanent | :temporary | :transient, shutdown: int64, flavor: :plain | :dangerous, state_policy: state_policy }, mem(normal)]), restart: :permanent | :temporary | :transient, shutdown: int64, flavor: :plain | :dangerous, state_policy: state_policy }, mem(normal)]) {
     sequence proc[mem(normal)]
         flags: { strategy: :one_for_one | :one_for_all | :rest_for_one, allowed_restart_count: int64, restarts_time_frame: int64 } <- { strategy: :one_for_one, allowed_restart_count: 5, restarts_time_frame: 10 };
-        children: List[{ id: atom, agent_type: :worker | :supervisor, initial_state: int64, behavior: fn(initial_state: int64) -> ({ strategy: :one_for_one | :one_for_all | :rest_for_one, allowed_restart_count: int64, restarts_time_frame: int64 }, List[{ id: atom, agent_type: :worker | :supervisor, initial_state: int64, behavior: fn(msg: int64, state: int64) -> (:no_reply, int64), restart: :permanent | :temporary | :transient, shutdown: int64, flavor: :plain | :dangerous }, mem(normal)]), restart: :permanent | :temporary | :transient, shutdown: int64, flavor: :plain | :dangerous }, mem(normal)] <- [
-            { id: bees_ids@id_of(bees_ids@pool_t_top(), 0), agent_type: :supervisor, initial_state: 0, behavior: leaf0_init, restart: :permanent, shutdown: 0, flavor: :plain },
-            { id: bees_ids@id_of(bees_ids@pool_t_top(), 1), agent_type: :supervisor, initial_state: 0, behavior: leaf1_init, restart: :permanent, shutdown: 0, flavor: :plain }
+        children: List[{ id: atom, agent_type: :worker | :supervisor, initial_state: int64, behavior: fn(initial_state: int64) -> ({ strategy: :one_for_one | :one_for_all | :rest_for_one, allowed_restart_count: int64, restarts_time_frame: int64 }, List[{ id: atom, agent_type: :worker | :supervisor, initial_state: int64, behavior: fn(msg: int64, state: int64) -> (:no_reply, int64), restart: :permanent | :temporary | :transient, shutdown: int64, flavor: :plain | :dangerous, state_policy: state_policy }, mem(normal)]), restart: :permanent | :temporary | :transient, shutdown: int64, flavor: :plain | :dangerous, state_policy: state_policy }, mem(normal)] <- [
+            { id: bees_ids@id_of(bees_ids@pool_t_top(), 0), agent_type: :supervisor, initial_state: 0, behavior: leaf0_init, restart: :permanent, shutdown: 0, flavor: :plain, state_policy: state_policy(:keep_state_area) },
+            { id: bees_ids@id_of(bees_ids@pool_t_top(), 1), agent_type: :supervisor, initial_state: 0, behavior: leaf1_init, restart: :permanent, shutdown: 0, flavor: :plain, state_policy: state_policy(:keep_state_area) }
         ]
     produces pure (flags, children) end
 }
@@ -83,7 +83,7 @@ fn say(label: string, b: boolean) -> int64 {
 fn main() -> int64 {
     sequence proc[concurrency, device_io]
         _: atom <- bees_exit@start();
-        root: supervisor_ref <- spawn_registered_supervisor(PosRootSup, 0, bees_atoms@a_pos_root(), stack_policy(0, :keep_last_message));
+        root: supervisor_ref <- spawn_registered_supervisor(PosRootSup, 0, bees_atoms@a_pos_root(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
         l0: actor_ref <- top_of(root, 0);
         l1: actor_ref <- top_of(root, 1);
         a0: actor_ref <- child_of(l0, bees_ids@id_of(bees_ids@leaf_t(0), 0));

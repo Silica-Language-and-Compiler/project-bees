@@ -1,6 +1,8 @@
 use bees_reporter;
+// Size note (silica-999936): this run takes time QUADRATIC in the message count (SD-27), so it is sized at 1,000 to finish in
+// seconds; it was 100,000 on silica-999939. See silica-defects.md.
 // S6: evacuation. Each message, the actor copies its one live term into a fresh region and
-// keeps that region as its state. Prints 100000. On silica-999977 the replaced regions were never
+// keeps that region as its state. Prints 1000. On silica-999977 the replaced regions were never
 // freed (551 MB peak RSS, the S-15 gap); on silica-999939 (chunk 15) the peak is under 5 MB:
 // /usr/bin/time -l ./evacuation_released_100k
 fn some_term(c: ref(L, normal, (atom, int64, ref?(L, normal, rec)))) -> ref?(L, normal, (atom, int64, ref?(L, normal, rec))) { c }
@@ -33,8 +35,8 @@ fn main() -> int64 {
         _: atom <- bees_reporter@start();
         L: lifetime <- fresh_lifetime();
         r: region(L, normal) <- alloc_region(normal);
-        a: actor_ref <- spawn({ r: r, root: :none }, beh, stack_policy(0, :keep_last_message));
-        last: int64 <- send_n(a, 100000);
+        a: actor_ref <- spawn({ r: r, root: :none }, beh, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        last: int64 <- send_n(a, 1000);
         _: atom <- print_int64(last);
         println("")
     produces pure 0 end

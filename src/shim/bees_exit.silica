@@ -128,38 +128,14 @@ fn bump(tag: int64, want: int64, cur: int64) -> int64 {
     case tag == want of { true -> cur + 1; false -> cur }
 }
 
-// The hub: Silica's full detail per report is in the message; the state counts by reason tag and
-// keeps the last report. A fuller store (names, tables, links) is A2's bookkeeping, later.
-fn tally(m: { kind: int64, actor_id: int64, agent: int64, reason: string, tag: int64, acb: string, frame0: string }, state: { c_total: int64, c_normal: int64, c_language: int64, c_memory: int64, c_explicit: int64, c_ffault: int64, c_expect: int64, last_id: int64, last_reason: string, last_frame0: string }) -> { c_total: int64, c_normal: int64, c_language: int64, c_memory: int64, c_explicit: int64, c_ffault: int64, c_expect: int64, last_id: int64, last_reason: string, last_frame0: string } {
-    sequence
-        r: { c_total: int64, c_normal: int64, c_language: int64, c_memory: int64, c_explicit: int64, c_ffault: int64, c_expect: int64, last_id: int64, last_reason: string, last_frame0: string } <- { c_total: state.c_total + 1, c_normal: bump(m.tag, 0, state.c_normal), c_language: bump(m.tag, 2, state.c_language), c_memory: bump(m.tag, 3, state.c_memory), c_explicit: bump(m.tag, 4, state.c_explicit), c_ffault: bump(m.tag, 5, state.c_ffault), c_expect: state.c_expect, last_id: bigger(m.actor_id, state.last_id), last_reason: m.reason, last_frame0: m.frame0 }
-    produces pure r end
-}
-
-fn with_expect(state: { c_total: int64, c_normal: int64, c_language: int64, c_memory: int64, c_explicit: int64, c_ffault: int64, c_expect: int64, last_id: int64, last_reason: string, last_frame0: string }, n: int64) -> { c_total: int64, c_normal: int64, c_language: int64, c_memory: int64, c_explicit: int64, c_ffault: int64, c_expect: int64, last_id: int64, last_reason: string, last_frame0: string } {
-    sequence
-        r: { c_total: int64, c_normal: int64, c_language: int64, c_memory: int64, c_explicit: int64, c_ffault: int64, c_expect: int64, last_id: int64, last_reason: string, last_frame0: string } <- { c_total: state.c_total, c_normal: state.c_normal, c_language: state.c_language, c_memory: state.c_memory, c_explicit: state.c_explicit, c_ffault: state.c_ffault, c_expect: n, last_id: state.last_id, last_reason: state.last_reason, last_frame0: state.last_frame0 }
-    produces pure r end
-}
-
-fn after_report(state: { c_total: int64, c_normal: int64, c_language: int64, c_memory: int64, c_explicit: int64, c_ffault: int64, c_expect: int64, last_id: int64, last_reason: string, last_frame0: string }) -> (:no_reply, { c_total: int64, c_normal: int64, c_language: int64, c_memory: int64, c_explicit: int64, c_ffault: int64, c_expect: int64, last_id: int64, last_reason: string, last_frame0: string }) {
-    case state.c_total == state.c_expect of {
-        true -> summary(state);
-        false -> (:no_reply, state)
-    }
-}
-
-fn hub(m: { kind: int64, actor_id: int64, agent: int64, reason: string, tag: int64, acb: string, frame0: string }, state: { c_total: int64, c_normal: int64, c_language: int64, c_memory: int64, c_explicit: int64, c_ffault: int64, c_expect: int64, last_id: int64, last_reason: string, last_frame0: string }) -> (:no_reply, { c_total: int64, c_normal: int64, c_language: int64, c_memory: int64, c_explicit: int64, c_ffault: int64, c_expect: int64, last_id: int64, last_reason: string, last_frame0: string }) {
-    case m.kind == 1 of {
-        true -> summary(state);
-        false -> case m.kind == 2 of {
-            true -> (:no_reply, with_expect(state, m.actor_id));
-            false -> after_report(tally(m, state))
-        }
-    }
-}
-
-fn summary(state: { c_total: int64, c_normal: int64, c_language: int64, c_memory: int64, c_explicit: int64, c_ffault: int64, c_expect: int64, last_id: int64, last_reason: string, last_frame0: string }) -> (:no_reply, { c_total: int64, c_normal: int64, c_language: int64, c_memory: int64, c_explicit: int64, c_ffault: int64, c_expect: int64, last_id: int64, last_reason: string, last_frame0: string }) {
+// The hub: Silica's full detail per report is in the message; the state counts by reason tag and keeps the highest
+// actor id. A fuller store (names, tables, links) is A2's bookkeeping, later.
+//
+// The new state is written out in the behaviour itself, as a record of integers, never through a helper or a case
+// expression: silica-999936 proves a behaviour's state release only for state it can see being built, and a behaviour it
+// cannot prove copies its whole state at every dispatch end, which took time quadratic in the queue depth (SD-28):
+// 2,000 queued reports took 22 s, and with the state built here they take well under a second.
+fn print_summary(state: { c_total: int64, c_normal: int64, c_language: int64, c_memory: int64, c_explicit: int64, c_ffault: int64, c_expect: int64, last_id: int64 }) -> atom {
     sequence proc[concurrency, device_io]
         print("hub total=");
         _: atom <- print_int64(state.c_total);
@@ -178,14 +154,41 @@ fn summary(state: { c_total: int64, c_normal: int64, c_language: int64, c_memory
         _: atom <- print_int64(state.last_id);
         println("");
         _: boolean <- cast_exit(0)
-    produces pure (:no_reply, state) end
+    produces pure :ok end
+}
+
+// prints the summary and ends the program when the expected number of reports has arrived
+fn announce_if_done(state: { c_total: int64, c_normal: int64, c_language: int64, c_memory: int64, c_explicit: int64, c_ffault: int64, c_expect: int64, last_id: int64 }) -> atom {
+    case state.c_total == state.c_expect of {
+        true -> print_summary(state);
+        false -> :ok
+    }
+}
+
+fn hub(m: { kind: int64, actor_id: int64, agent: int64, reason: string, tag: int64, acb: string, frame0: string }, state: { c_total: int64, c_normal: int64, c_language: int64, c_memory: int64, c_explicit: int64, c_ffault: int64, c_expect: int64, last_id: int64 }) -> (:no_reply, { c_total: int64, c_normal: int64, c_language: int64, c_memory: int64, c_explicit: int64, c_ffault: int64, c_expect: int64, last_id: int64 }) {
+    case m.kind == 1 of {
+        true -> {
+            sequence
+                _: atom <- print_summary(state)
+            produces pure (:no_reply, state) end
+        };
+        false -> case m.kind == 2 of {
+            true -> (:no_reply, { c_total: state.c_total, c_normal: state.c_normal, c_language: state.c_language, c_memory: state.c_memory, c_explicit: state.c_explicit, c_ffault: state.c_ffault, c_expect: m.actor_id, last_id: state.last_id });
+            false -> {
+                sequence
+                    next: { c_total: int64, c_normal: int64, c_language: int64, c_memory: int64, c_explicit: int64, c_ffault: int64, c_expect: int64, last_id: int64 } <- { c_total: state.c_total + 1, c_normal: bump(m.tag, 0, state.c_normal), c_language: bump(m.tag, 2, state.c_language), c_memory: bump(m.tag, 3, state.c_memory), c_explicit: bump(m.tag, 4, state.c_explicit), c_ffault: bump(m.tag, 5, state.c_ffault), c_expect: state.c_expect, last_id: bigger(m.actor_id, state.last_id) };
+                    _: atom <- announce_if_done(next)
+                produces pure (:no_reply, next) end
+            }
+        }
+    }
 }
 
 fn start() -> atom {
     sequence proc[concurrency]
-        listener: actor_ref <- spawn(0, reporter, stack_policy(0, :keep_last_message));
+        listener: actor_ref <- spawn(0, reporter, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
         registered: atom <- register_failure_reporter(listener);
-        _: actor_ref <- spawn_registered({ c_total: 0, c_normal: 0, c_language: 0, c_memory: 0, c_explicit: 0, c_ffault: 0, c_expect: -1, last_id: -1, last_reason: "", last_frame0: "" }, hub, hub_name(), stack_policy(0, :keep_last_message))
+        _: actor_ref <- spawn_registered({ c_total: 0, c_normal: 0, c_language: 0, c_memory: 0, c_explicit: 0, c_ffault: 0, c_expect: -1, last_id: -1 }, hub, hub_name(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area))
     produces pure registered end
 }
 

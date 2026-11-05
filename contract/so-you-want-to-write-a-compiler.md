@@ -118,6 +118,16 @@ no bytecode is loaded.
 - **A3.2** Pass a **stack policy** to every spawn: a reserve in bytes (0 means the default, the machine's memory plus
   swap) and a release algorithm. With the default reserve a program can hold only a few thousand live actors; a
   lowered reserve allows hundreds of thousands. **Open:** a recommended reserve for compiled actors.
+  Also pass a **state policy** after it, `state_policy(:keep_state_area)` unless you have a reason (Silica rejects a spawn
+  without one, and a supervisor child specification carries the same field). `:keep_state_area` keeps the pages an actor's
+  state has grown into; the other two (`:shrink_after_compaction`, `:compact_on_request`) return them, and an actor that keeps a
+  foreign buffer must use `:keep_state_area`.
+- **A3.8** Write each behaviour so that Silica can **prove the old state is released.** Build the new state as a record or
+  tuple literal inside the behaviour (in the returned tuple, or bound by a plain `let` and then returned), from fields of the old
+  state and of the message; do not build it in a helper function, and do not take it out of a `case`. Silica then frees what
+  the old state held. Otherwise it warns (W2300, "state release not proven") and copies the whole state at the end of every
+  dispatch, and measured on silica-999936 that copy takes time quadratic in the number of queued messages. State that is a
+  region replaced on every message cannot be proven at all; keep such an actor's message count low until Silica improves.
 - **A3.3** An actor holds **no stack between messages.** Code that would suspend in the middle of a function (waiting
   for a message, sleeping, waiting for a timer) must be **split at the suspension point**: the paused computation lives
   in the actor's state, and the next message resumes it.
@@ -236,6 +246,9 @@ no bytecode is loaded.
 - **A6.6** Integers are `int64`; overflow must fail the actor. Larger integers wait on Silica.
 - **A6.7** A byte sequence is a `buf(uint8)` plus a bit length, never a Silica string. A `buf` may be a message only
   when the region it lives in is sent with it. **Provisional:** v0 stores a byte sequence as a list of byte cells.
+  Outside a foreign function, **every function that takes or returns a `buf(L, ...)` must also take or return the
+  `region(L, ...)` it lives in** in the same signature (a parameter, a record field or a tuple element); Silica rejects it
+  otherwise (E2323). Pass the region down with the buffer.
 - **A6.8** Bit-level and byte-level operations are yours. Silica has no type conversion, and its bitwise operators take
   `uint64`. Generate lookups (for example a 256-way `case` from a byte to the matching literal) and combine them with
   same-type arithmetic. Literal bytes, strings and numbers become bytes at compile time.
@@ -350,6 +363,7 @@ no bytecode is loaded.
 | Re-creation of foreign data | blocked on Silica |
 | Balancing and placement of actors across cores | planned |
 | Secure inter-node communication (TRUST) and BEAM-compatible distribution | planned |
+| Encoding and decoding of values for a wire (ETF), framing and sockets | Silica is designing these as language features (`Transportable`, `encode`/`decode`, a carrier actor contract); BEES leaves typed values to them when they exist and supplies the distribution layer, terms of any shape and foreign pids above them. Until then BEES ships its own interim codec |
 
 ## B3. Not provided (yours or Silica's)
 

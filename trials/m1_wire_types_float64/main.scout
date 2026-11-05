@@ -1,0 +1,16 @@
+float64 0.0 n=16 bytes= 0 0 0 12 1 1 0 8 0 0 0 0 0 0 0 0 sum=22 :ok rt
+float64 NEG0 n=16 bytes= 0 0 0 12 1 1 0 8 128 0 0 0 0 0 0 0 sum=150 :ok rt
+float64 1.0 n=16 bytes= 0 0 0 12 1 1 0 8 63 240 0 0 0 0 0 0 sum=325 :ok rt
+float64 -2.5 n=16 bytes= 0 0 0 12 1 1 0 8 192 4 0 0 0 0 0 0 sum=218 :ok rt
+float64 0.1 n=16 bytes= 0 0 0 12 1 1 0 8 63 185 153 153 153 153 153 154 sum=1189 :ok rt
+float64 3.14159 n=16 bytes= 0 0 0 12 1 1 0 8 64 9 33 249 240 27 134 110 sum=888 :ok rt
+float64 1.0e300 n=16 bytes= 0 0 0 12 1 1 0 8 126 55 228 60 136 0 117 156 sum=900 :ok rt
+float64 1.7976931348623157e308 n=16 bytes= 0 0 0 12 1 1 0 8 127 239 255 255 255 255 255 255 sum=1918 :ok rt
+float64 4.9e-324 n=16 bytes= 0 0 0 12 1 1 0 8 0 0 0 0 0 0 0 1 sum=23 :ok rt
+float64 2.2250738585072014e-308 n=16 bytes= 0 0 0 12 1 1 0 8 0 16 0 0 0 0 0 0 sum=38 :ok rt
+float64 -1.0e-310 n=16 bytes= 0 0 0 12 1 1 0 8 128 0 18 104 139 112 230 43 sum=796 :ok rt
+float64 123456789.125 n=16 bytes= 0 0 0 12 1 1 0 8 65 157 111 52 84 128 0 0 sum=619 :ok rt
+float64 -1.7976931348623157e308 n=16 bytes= 0 0 0 12 1 1 0 8 255 239 255 255 255 255 255 255 sum=2046 :ok rt
+float64 5.0e-324 n=16 bytes= 0 0 0 12 1 1 0 8 0 0 0 0 0 0 0 1 sum=23 :ok rt
+m1_wire_types_float64 done
+exit=0

@@ -1,0 +1,578 @@
+// M1: round trips of the atom, string, tuple, record and list types through the generated codec, with the frame bytes printed. One of six leaves (see m1_wire_types: one compiler process runs out of memory on the whole set, SD-29).
+// Each line is `<type> <value> n=<frame bytes> bytes=<first 24 bytes, decimal> sum=<sum of all bytes> <verdict>`.
+// The verdict is `rt` (decoded, and re-encoding the decoded value gives the same bytes) or the rejection.
+// tools/test_bees_wire_gen.py checks these bytes against Python's struct.pack, independently of the codec.
+use bees_atoms;
+use bees_wire;
+use bees_wire_msgs;
+
+fn rep(s: string, n: int64) -> string {
+    case n <= 0 of {
+        true -> "";
+        false -> case n == 1 of {
+            true -> s;
+            false -> concat(rep(s, n / 2), rep(s, n - n / 2))
+        }
+    }
+}
+fn sumbytes(rg: region(L, normal), b: buf(L, normal, uint8, 4096), i: int64, n: int64, acc: int64) -> int64 {
+    case i >= n of { true -> acc; false -> sumbytes(rg, b, i + 1, n, acc + bees_wire@rb_i(rg, b, i)) }
+}
+fn show_bytes(rg: region(L, normal), b: buf(L, normal, uint8, 4096), i: int64, n: int64) -> int64 {
+    case i >= n of {
+        true -> 0;
+        false -> {
+            sequence proc[device_io]
+                print_string(" ");
+                _: atom <- print_int64(bees_wire@rb_i(rg, b, i));
+                r: int64 <- show_bytes(rg, b, i + 1, n)
+            produces pure r end
+        }
+    }
+}
+fn min2(a: int64, b: int64) -> int64 { case a < b of { true -> a; false -> b } }
+fn same_bytes(rg: region(L, normal), a: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096), i: int64, n: int64) -> boolean {
+    case i >= n of {
+        true -> true;
+        false -> case bees_wire@rb_i(rg, a, i) == bees_wire@rb_i(rg, c, i) of { true -> same_bytes(rg, a, c, i + 1, n); false -> false }
+    }
+}
+// header of one line: label, frame length, the first bytes, the byte sum
+fn show(rg: region(L, normal), label: string, b: buf(L, normal, uint8, 4096), n: int64) -> int64 {
+    sequence proc[device_io]
+        print_string(label);
+        print_string(" n=");
+        _: atom <- print_int64(n);
+        print_string(" bytes=");
+        _: int64 <- show_bytes(rg, b, 0, min2(n, 24));
+        print_string(" sum=");
+        _: atom <- print_int64(sumbytes(rg, b, 0, n, 0));
+        print_string(" ")
+    produces pure 0 end
+}
+fn verdict(code: int64, same: boolean) -> int64 {
+    sequence proc[device_io]
+        _: atom <- print_atom(bees_wire@reason_atom(code));
+        println(case same of { true -> " rt"; false -> " DIFFERENT" })
+    produces pure 0 end
+}
+fn rejected(n: int64) -> int64 {
+    sequence proc[device_io]
+        println("encode rejected");
+        _: atom <- print_int64(n);
+        println("")
+    produces pure 0 end
+}
+
+fn val_atom_0() -> atom { bees_atoms@a_alpha() }
+fn t_atom_0(rg: region(L, normal), b: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096)) -> int64 {
+    sequence
+        n: int64 <- bees_wire_msgs@enc_t_atom(rg, b, val_atom_0());
+        r: int64 <- case n < 0 of {
+            true -> rejected(n);
+            false -> {
+                sequence
+                    _: int64 <- show(rg, "atom alpha", b, n);
+                    d: { code: int64, v: atom } <- bees_wire_msgs@dec_t_atom(rg, b, n);
+                    m2: int64 <- bees_wire_msgs@enc_t_atom(rg, c, d.v);
+                    same: boolean <- case d.code == 0 of { true -> m2 == n and same_bytes(rg, b, c, 0, n); false -> false };
+                    _: int64 <- verdict(d.code, same)
+                produces pure 0 end
+            }
+        }
+    produces pure r end
+}
+fn val_atom_1() -> atom { bees_atoms@a_beta_gamma() }
+fn t_atom_1(rg: region(L, normal), b: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096)) -> int64 {
+    sequence
+        n: int64 <- bees_wire_msgs@enc_t_atom(rg, b, val_atom_1());
+        r: int64 <- case n < 0 of {
+            true -> rejected(n);
+            false -> {
+                sequence
+                    _: int64 <- show(rg, "atom beta_gamma", b, n);
+                    d: { code: int64, v: atom } <- bees_wire_msgs@dec_t_atom(rg, b, n);
+                    m2: int64 <- bees_wire_msgs@enc_t_atom(rg, c, d.v);
+                    same: boolean <- case d.code == 0 of { true -> m2 == n and same_bytes(rg, b, c, 0, n); false -> false };
+                    _: int64 <- verdict(d.code, same)
+                produces pure 0 end
+            }
+        }
+    produces pure r end
+}
+fn val_atom_2() -> atom { bees_atoms@a_z() }
+fn t_atom_2(rg: region(L, normal), b: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096)) -> int64 {
+    sequence
+        n: int64 <- bees_wire_msgs@enc_t_atom(rg, b, val_atom_2());
+        r: int64 <- case n < 0 of {
+            true -> rejected(n);
+            false -> {
+                sequence
+                    _: int64 <- show(rg, "atom z", b, n);
+                    d: { code: int64, v: atom } <- bees_wire_msgs@dec_t_atom(rg, b, n);
+                    m2: int64 <- bees_wire_msgs@enc_t_atom(rg, c, d.v);
+                    same: boolean <- case d.code == 0 of { true -> m2 == n and same_bytes(rg, b, c, 0, n); false -> false };
+                    _: int64 <- verdict(d.code, same)
+                produces pure 0 end
+            }
+        }
+    produces pure r end
+}
+fn val_atom_3() -> atom { bees_atoms@a_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx() }
+fn t_atom_3(rg: region(L, normal), b: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096)) -> int64 {
+    sequence
+        n: int64 <- bees_wire_msgs@enc_t_atom(rg, b, val_atom_3());
+        r: int64 <- case n < 0 of {
+            true -> rejected(n);
+            false -> {
+                sequence
+                    _: int64 <- show(rg, "atom x*255", b, n);
+                    d: { code: int64, v: atom } <- bees_wire_msgs@dec_t_atom(rg, b, n);
+                    m2: int64 <- bees_wire_msgs@enc_t_atom(rg, c, d.v);
+                    same: boolean <- case d.code == 0 of { true -> m2 == n and same_bytes(rg, b, c, 0, n); false -> false };
+                    _: int64 <- verdict(d.code, same)
+                produces pure 0 end
+            }
+        }
+    produces pure r end
+}
+fn val_string_0() -> string { "" }
+fn t_string_0(rg: region(L, normal), b: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096)) -> int64 {
+    sequence
+        n: int64 <- bees_wire_msgs@enc_t_string(rg, b, val_string_0());
+        r: int64 <- case n < 0 of {
+            true -> rejected(n);
+            false -> {
+                sequence
+                    _: int64 <- show(rg, "string empty", b, n);
+                    d: { code: int64, v: string } <- bees_wire_msgs@dec_t_string(rg, b, n);
+                    m2: int64 <- bees_wire_msgs@enc_t_string(rg, c, d.v);
+                    same: boolean <- case d.code == 0 of { true -> m2 == n and same_bytes(rg, b, c, 0, n); false -> false };
+                    _: int64 <- verdict(d.code, same)
+                produces pure 0 end
+            }
+        }
+    produces pure r end
+}
+fn val_string_1() -> string { "hello" }
+fn t_string_1(rg: region(L, normal), b: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096)) -> int64 {
+    sequence
+        n: int64 <- bees_wire_msgs@enc_t_string(rg, b, val_string_1());
+        r: int64 <- case n < 0 of {
+            true -> rejected(n);
+            false -> {
+                sequence
+                    _: int64 <- show(rg, "string hello", b, n);
+                    d: { code: int64, v: string } <- bees_wire_msgs@dec_t_string(rg, b, n);
+                    m2: int64 <- bees_wire_msgs@enc_t_string(rg, c, d.v);
+                    same: boolean <- case d.code == 0 of { true -> m2 == n and same_bytes(rg, b, c, 0, n); false -> false };
+                    _: int64 <- verdict(d.code, same)
+                produces pure 0 end
+            }
+        }
+    produces pure r end
+}
+fn val_string_2() -> string { "a\tb\r\n!~ z" }
+fn t_string_2(rg: region(L, normal), b: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096)) -> int64 {
+    sequence
+        n: int64 <- bees_wire_msgs@enc_t_string(rg, b, val_string_2());
+        r: int64 <- case n < 0 of {
+            true -> rejected(n);
+            false -> {
+                sequence
+                    _: int64 <- show(rg, "string text", b, n);
+                    d: { code: int64, v: string } <- bees_wire_msgs@dec_t_string(rg, b, n);
+                    m2: int64 <- bees_wire_msgs@enc_t_string(rg, c, d.v);
+                    same: boolean <- case d.code == 0 of { true -> m2 == n and same_bytes(rg, b, c, 0, n); false -> false };
+                    _: int64 <- verdict(d.code, same)
+                produces pure 0 end
+            }
+        }
+    produces pure r end
+}
+fn val_string_3() -> string { rep("x", 1024) }
+fn t_string_3(rg: region(L, normal), b: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096)) -> int64 {
+    sequence
+        n: int64 <- bees_wire_msgs@enc_t_string(rg, b, val_string_3());
+        r: int64 <- case n < 0 of {
+            true -> rejected(n);
+            false -> {
+                sequence
+                    _: int64 <- show(rg, "string x1024", b, n);
+                    d: { code: int64, v: string } <- bees_wire_msgs@dec_t_string(rg, b, n);
+                    m2: int64 <- bees_wire_msgs@enc_t_string(rg, c, d.v);
+                    same: boolean <- case d.code == 0 of { true -> m2 == n and same_bytes(rg, b, c, 0, n); false -> false };
+                    _: int64 <- verdict(d.code, same)
+                produces pure 0 end
+            }
+        }
+    produces pure r end
+}
+fn val_string_4() -> string { rep("abc", 341) }
+fn t_string_4(rg: region(L, normal), b: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096)) -> int64 {
+    sequence
+        n: int64 <- bees_wire_msgs@enc_t_string(rg, b, val_string_4());
+        r: int64 <- case n < 0 of {
+            true -> rejected(n);
+            false -> {
+                sequence
+                    _: int64 <- show(rg, "string x1023", b, n);
+                    d: { code: int64, v: string } <- bees_wire_msgs@dec_t_string(rg, b, n);
+                    m2: int64 <- bees_wire_msgs@enc_t_string(rg, c, d.v);
+                    same: boolean <- case d.code == 0 of { true -> m2 == n and same_bytes(rg, b, c, 0, n); false -> false };
+                    _: int64 <- verdict(d.code, same)
+                produces pure 0 end
+            }
+        }
+    produces pure r end
+}
+fn val_string_5() -> string { "q" }
+fn t_string_5(rg: region(L, normal), b: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096)) -> int64 {
+    sequence
+        n: int64 <- bees_wire_msgs@enc_t_string(rg, b, val_string_5());
+        r: int64 <- case n < 0 of {
+            true -> rejected(n);
+            false -> {
+                sequence
+                    _: int64 <- show(rg, "string x1", b, n);
+                    d: { code: int64, v: string } <- bees_wire_msgs@dec_t_string(rg, b, n);
+                    m2: int64 <- bees_wire_msgs@enc_t_string(rg, c, d.v);
+                    same: boolean <- case d.code == 0 of { true -> m2 == n and same_bytes(rg, b, c, 0, n); false -> false };
+                    _: int64 <- verdict(d.code, same)
+                produces pure 0 end
+            }
+        }
+    produces pure r end
+}
+fn val_string_6() -> string { rep("0123456789abcdef", 64) }
+fn t_string_6(rg: region(L, normal), b: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096)) -> int64 {
+    sequence
+        n: int64 <- bees_wire_msgs@enc_t_string(rg, b, val_string_6());
+        r: int64 <- case n < 0 of {
+            true -> rejected(n);
+            false -> {
+                sequence
+                    _: int64 <- show(rg, "string alpha", b, n);
+                    d: { code: int64, v: string } <- bees_wire_msgs@dec_t_string(rg, b, n);
+                    m2: int64 <- bees_wire_msgs@enc_t_string(rg, c, d.v);
+                    same: boolean <- case d.code == 0 of { true -> m2 == n and same_bytes(rg, b, c, 0, n); false -> false };
+                    _: int64 <- verdict(d.code, same)
+                produces pure 0 end
+            }
+        }
+    produces pure r end
+}
+
+fn lst_i32(n: int32) -> List[int32, mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[int32, mem(normal)] <- empty[int32, mem(normal)]();
+        rest: List[int32, mem(normal)] <- case n <= 0 of { true -> e; false -> lst_i32(n - 1) };
+        out: List[int32, mem(normal)] <- case n <= 0 of { true -> e; false -> prepend[int32, mem(normal)](n * 1000003, rest) }
+    produces pure out end
+}
+fn lst_str(n: int64) -> List[string, mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[string, mem(normal)] <- empty[string, mem(normal)]();
+        rest: List[string, mem(normal)] <- case n <= 0 of { true -> e; false -> lst_str(n - 1) };
+        out: List[string, mem(normal)] <- case n <= 0 of { true -> e; false -> prepend[string, mem(normal)](rep("s", n), rest) }
+    produces pure out end
+}
+fn val_f64_a() -> float64 { 1.5 }
+fn val_f64_b() -> float64 { 0.0 }
+fn val_f64_c() -> float64 { 1.0e-320 }
+fn lst_f64() -> List[float64, mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[float64, mem(normal)] <- empty[float64, mem(normal)]();
+        c: float64 <- val_f64_c();
+        z: float64 <- val_f64_b();
+        a: float64 <- val_f64_a();
+        l1: List[float64, mem(normal)] <- prepend[float64, mem(normal)](c, e);
+        l2: List[float64, mem(normal)] <- prepend[float64, mem(normal)](z, l1);
+        l3: List[float64, mem(normal)] <- prepend[float64, mem(normal)](a, l2)
+    produces pure l3 end
+}
+fn lst_tuple() -> List[(int64, string), mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[(int64, string), mem(normal)] <- empty[(int64, string), mem(normal)]();
+        p1: (int64, string) <- (7, "seven");
+        p2: (int64, string) <- (-8, "");
+        l1: List[(int64, string), mem(normal)] <- prepend[(int64, string), mem(normal)](p2, e);
+        l2: List[(int64, string), mem(normal)] <- prepend[(int64, string), mem(normal)](p1, l1)
+    produces pure l2 end
+}
+fn val_tuple() -> (int8, uint16, string, boolean) { (-5, 65535, "tuple", true) }
+fn val_record() -> { a: int64, b: float64, c: boolean, d: atom } { { a: -9, b: 2.5, c: true, d: bees_atoms@a_beta_gamma() } }
+fn pos_pair() -> (float64, float64) { (0.5, -0.25) }
+fn items() -> List[{ k: atom, v: int16, ok: boolean }, mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[{ k: atom, v: int16, ok: boolean }, mem(normal)] <- empty[{ k: atom, v: int16, ok: boolean }, mem(normal)]();
+        i1: { k: atom, v: int16, ok: boolean } <- { k: bees_atoms@a_alpha(), v: -300, ok: true };
+        i2: { k: atom, v: int16, ok: boolean } <- { k: bees_atoms@a_z(), v: 300, ok: false };
+        l1: List[{ k: atom, v: int16, ok: boolean }, mem(normal)] <- prepend[{ k: atom, v: int16, ok: boolean }, mem(normal)](i2, e);
+        l2: List[{ k: atom, v: int16, ok: boolean }, mem(normal)] <- prepend[{ k: atom, v: int16, ok: boolean }, mem(normal)](i1, l1)
+    produces pure l2 end
+}
+fn grid() -> List[List[uint8, mem(normal)], mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[uint8, mem(normal)] <- empty[uint8, mem(normal)]();
+        r1: List[uint8, mem(normal)] <- prepend[uint8, mem(normal)](200, prepend[uint8, mem(normal)](1, e));
+        eg: List[List[uint8, mem(normal)], mem(normal)] <- empty[List[uint8, mem(normal)], mem(normal)]();
+        g1: List[List[uint8, mem(normal)], mem(normal)] <- prepend[List[uint8, mem(normal)], mem(normal)](e, eg);
+        g2: List[List[uint8, mem(normal)], mem(normal)] <- prepend[List[uint8, mem(normal)], mem(normal)](r1, g1)
+    produces pure g2 end
+}
+fn f32_nested() -> float32 { 0.15625 }
+fn val_nested() -> { id: uint32, tags: List[string, mem(normal)], pos: (float64, float64), items: List[{ k: atom, v: int16, ok: boolean }, mem(normal)], ch: char, big: uint64, f: float32, s: string, grid: List[List[uint8, mem(normal)], mem(normal)] } {
+    sequence
+        v: { id: uint32, tags: List[string, mem(normal)], pos: (float64, float64), items: List[{ k: atom, v: int16, ok: boolean }, mem(normal)], ch: char, big: uint64, f: float32, s: string, grid: List[List[uint8, mem(normal)], mem(normal)] } <- { id: 4000000000, tags: lst_str(3), pos: pos_pair(), items: items(), ch: 'Z', big: 18446744073709551615, f: f32_nested(), s: "nested value", grid: grid() }
+    produces pure v end
+}
+
+fn t_tuple(rg: region(L, normal), b: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096)) -> int64 {
+    sequence
+        n: int64 <- bees_wire_msgs@enc_t_tuple(rg, b, val_tuple());
+        r: int64 <- case n < 0 of {
+            true -> rejected(n);
+            false -> {
+                sequence
+                    _: int64 <- show(rg, "tuple (-5,65535,tuple,true)", b, n);
+                    d: { code: int64, v: (int8, uint16, string, boolean) } <- bees_wire_msgs@dec_t_tuple(rg, b, n);
+                    m2: int64 <- bees_wire_msgs@enc_t_tuple(rg, c, d.v);
+                    same: boolean <- case d.code == 0 of { true -> m2 == n and same_bytes(rg, b, c, 0, n); false -> false };
+                    _: int64 <- verdict(d.code, same)
+                produces pure 0 end
+            }
+        }
+    produces pure r end
+}
+fn t_record(rg: region(L, normal), b: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096)) -> int64 {
+    sequence
+        n: int64 <- bees_wire_msgs@enc_t_record(rg, b, val_record());
+        r: int64 <- case n < 0 of {
+            true -> rejected(n);
+            false -> {
+                sequence
+                    _: int64 <- show(rg, "record {a,b,c,d}", b, n);
+                    d: { code: int64, v: { a: int64, b: float64, c: boolean, d: atom } } <- bees_wire_msgs@dec_t_record(rg, b, n);
+                    m2: int64 <- bees_wire_msgs@enc_t_record(rg, c, d.v);
+                    same: boolean <- case d.code == 0 of { true -> m2 == n and same_bytes(rg, b, c, 0, n); false -> false };
+                    _: int64 <- verdict(d.code, same)
+                produces pure 0 end
+            }
+        }
+    produces pure r end
+}
+fn t_list_i32_0(rg: region(L, normal), b: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096)) -> int64 {
+    sequence
+        n: int64 <- bees_wire_msgs@enc_t_list_i32(rg, b, lst_i32(0));
+        r: int64 <- case n < 0 of {
+            true -> rejected(n);
+            false -> {
+                sequence
+                    _: int64 <- show(rg, "List[int32] empty", b, n);
+                    d: { code: int64, v: List[int32, mem(normal)] } <- bees_wire_msgs@dec_t_list_i32(rg, b, n);
+                    m2: int64 <- bees_wire_msgs@enc_t_list_i32(rg, c, d.v);
+                    same: boolean <- case d.code == 0 of { true -> m2 == n and same_bytes(rg, b, c, 0, n); false -> false };
+                    _: int64 <- verdict(d.code, same)
+                produces pure 0 end
+            }
+        }
+    produces pure r end
+}
+fn t_list_i32_1(rg: region(L, normal), b: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096)) -> int64 {
+    sequence
+        n: int64 <- bees_wire_msgs@enc_t_list_i32(rg, b, lst_i32(1));
+        r: int64 <- case n < 0 of {
+            true -> rejected(n);
+            false -> {
+                sequence
+                    _: int64 <- show(rg, "List[int32] 1", b, n);
+                    d: { code: int64, v: List[int32, mem(normal)] } <- bees_wire_msgs@dec_t_list_i32(rg, b, n);
+                    m2: int64 <- bees_wire_msgs@enc_t_list_i32(rg, c, d.v);
+                    same: boolean <- case d.code == 0 of { true -> m2 == n and same_bytes(rg, b, c, 0, n); false -> false };
+                    _: int64 <- verdict(d.code, same)
+                produces pure 0 end
+            }
+        }
+    produces pure r end
+}
+fn t_list_i32_255(rg: region(L, normal), b: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096)) -> int64 {
+    sequence
+        n: int64 <- bees_wire_msgs@enc_t_list_i32(rg, b, lst_i32(255));
+        r: int64 <- case n < 0 of {
+            true -> rejected(n);
+            false -> {
+                sequence
+                    _: int64 <- show(rg, "List[int32] 255", b, n);
+                    d: { code: int64, v: List[int32, mem(normal)] } <- bees_wire_msgs@dec_t_list_i32(rg, b, n);
+                    m2: int64 <- bees_wire_msgs@enc_t_list_i32(rg, c, d.v);
+                    same: boolean <- case d.code == 0 of { true -> m2 == n and same_bytes(rg, b, c, 0, n); false -> false };
+                    _: int64 <- verdict(d.code, same)
+                produces pure 0 end
+            }
+        }
+    produces pure r end
+}
+fn t_list_i32_256(rg: region(L, normal), b: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096)) -> int64 {
+    sequence
+        n: int64 <- bees_wire_msgs@enc_t_list_i32(rg, b, lst_i32(256));
+        r: int64 <- case n < 0 of {
+            true -> rejected(n);
+            false -> {
+                sequence
+                    _: int64 <- show(rg, "List[int32] 256", b, n);
+                    d: { code: int64, v: List[int32, mem(normal)] } <- bees_wire_msgs@dec_t_list_i32(rg, b, n);
+                    m2: int64 <- bees_wire_msgs@enc_t_list_i32(rg, c, d.v);
+                    same: boolean <- case d.code == 0 of { true -> m2 == n and same_bytes(rg, b, c, 0, n); false -> false };
+                    _: int64 <- verdict(d.code, same)
+                produces pure 0 end
+            }
+        }
+    produces pure r end
+}
+fn t_list_i32_257(rg: region(L, normal), b: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096)) -> int64 {
+    sequence
+        n: int64 <- bees_wire_msgs@enc_t_list_i32(rg, b, lst_i32(257));
+        r: int64 <- case n < 0 of {
+            true -> rejected(n);
+            false -> {
+                sequence
+                    _: int64 <- show(rg, "List[int32] 257", b, n);
+                    d: { code: int64, v: List[int32, mem(normal)] } <- bees_wire_msgs@dec_t_list_i32(rg, b, n);
+                    m2: int64 <- bees_wire_msgs@enc_t_list_i32(rg, c, d.v);
+                    same: boolean <- case d.code == 0 of { true -> m2 == n and same_bytes(rg, b, c, 0, n); false -> false };
+                    _: int64 <- verdict(d.code, same)
+                produces pure 0 end
+            }
+        }
+    produces pure r end
+}
+fn t_list_str(rg: region(L, normal), b: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096)) -> int64 {
+    sequence
+        n: int64 <- bees_wire_msgs@enc_t_list_str(rg, b, lst_str(5));
+        r: int64 <- case n < 0 of {
+            true -> rejected(n);
+            false -> {
+                sequence
+                    _: int64 <- show(rg, "List[string] 5", b, n);
+                    d: { code: int64, v: List[string, mem(normal)] } <- bees_wire_msgs@dec_t_list_str(rg, b, n);
+                    m2: int64 <- bees_wire_msgs@enc_t_list_str(rg, c, d.v);
+                    same: boolean <- case d.code == 0 of { true -> m2 == n and same_bytes(rg, b, c, 0, n); false -> false };
+                    _: int64 <- verdict(d.code, same)
+                produces pure 0 end
+            }
+        }
+    produces pure r end
+}
+fn t_list_f64(rg: region(L, normal), b: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096)) -> int64 {
+    sequence
+        n: int64 <- bees_wire_msgs@enc_t_list_f64(rg, b, lst_f64());
+        r: int64 <- case n < 0 of {
+            true -> rejected(n);
+            false -> {
+                sequence
+                    _: int64 <- show(rg, "List[float64] 3", b, n);
+                    d: { code: int64, v: List[float64, mem(normal)] } <- bees_wire_msgs@dec_t_list_f64(rg, b, n);
+                    m2: int64 <- bees_wire_msgs@enc_t_list_f64(rg, c, d.v);
+                    same: boolean <- case d.code == 0 of { true -> m2 == n and same_bytes(rg, b, c, 0, n); false -> false };
+                    _: int64 <- verdict(d.code, same)
+                produces pure 0 end
+            }
+        }
+    produces pure r end
+}
+fn t_list_tuple(rg: region(L, normal), b: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096)) -> int64 {
+    sequence
+        n: int64 <- bees_wire_msgs@enc_t_list_tuple(rg, b, lst_tuple());
+        r: int64 <- case n < 0 of {
+            true -> rejected(n);
+            false -> {
+                sequence
+                    _: int64 <- show(rg, "List[(int64,string)] 2", b, n);
+                    d: { code: int64, v: List[(int64, string), mem(normal)] } <- bees_wire_msgs@dec_t_list_tuple(rg, b, n);
+                    m2: int64 <- bees_wire_msgs@enc_t_list_tuple(rg, c, d.v);
+                    same: boolean <- case d.code == 0 of { true -> m2 == n and same_bytes(rg, b, c, 0, n); false -> false };
+                    _: int64 <- verdict(d.code, same)
+                produces pure 0 end
+            }
+        }
+    produces pure r end
+}
+fn t_nested(rg: region(L, normal), b: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096)) -> int64 {
+    sequence
+        n: int64 <- bees_wire_msgs@enc_t_nested(rg, b, val_nested());
+        r: int64 <- case n < 0 of {
+            true -> rejected(n);
+            false -> {
+                sequence
+                    _: int64 <- show(rg, "nested (every type)", b, n);
+                    d: { code: int64, v: { id: uint32, tags: List[string, mem(normal)], pos: (float64, float64), items: List[{ k: atom, v: int16, ok: boolean }, mem(normal)], ch: char, big: uint64, f: float32, s: string, grid: List[List[uint8, mem(normal)], mem(normal)] } } <- bees_wire_msgs@dec_t_nested(rg, b, n);
+                    m2: int64 <- bees_wire_msgs@enc_t_nested(rg, c, d.v);
+                    same: boolean <- case d.code == 0 of { true -> m2 == n and same_bytes(rg, b, c, 0, n); false -> false };
+                    _: int64 <- verdict(d.code, same)
+                produces pure 0 end
+            }
+        }
+    produces pure r end
+}
+
+// hello (frame kind 0): the node name as an atom spelling, then the 8-byte schema digest
+fn hello_test(rg: region(L, normal), b: buf(L, normal, uint8, 4096)) -> int64 {
+    sequence proc[device_io]
+        n: int64 <- bees_wire@enc_hello(rg, b, bees_atoms@a_alpha(), bees_wire_msgs@schema_digest());
+        _: int64 <- show(rg, "hello alpha", b, n);
+        d: { code: int64, node: atom, digest: int64 } <- bees_wire@dec_hello(rg, b, n);
+        print_string("digest=");
+        _: atom <- print_int64(d.digest);
+        print_string(" same_digest=");
+        _: atom <- print_boolean(d.digest == bees_wire_msgs@schema_digest());
+        print_string(" same_node=");
+        _: atom <- print_boolean(d.node == bees_atoms@a_alpha());
+        print_string(" code=");
+        _: atom <- print_atom(bees_wire@reason_atom(d.code));
+        println("")
+    produces pure 0 end
+}
+
+fn run_all(rg: region(L, normal), b: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096)) -> int64 {
+    sequence proc[device_io]
+        _: int64 <- t_atom_0(rg, b, c);
+        _: int64 <- t_atom_1(rg, b, c);
+        _: int64 <- t_atom_2(rg, b, c);
+        _: int64 <- t_atom_3(rg, b, c);
+        _: int64 <- t_string_0(rg, b, c);
+        _: int64 <- t_string_1(rg, b, c);
+        _: int64 <- t_string_2(rg, b, c);
+        _: int64 <- t_string_3(rg, b, c);
+        _: int64 <- t_string_4(rg, b, c);
+        _: int64 <- t_string_5(rg, b, c);
+        _: int64 <- t_string_6(rg, b, c);
+        _: int64 <- t_tuple(rg, b, c);
+        _: int64 <- t_record(rg, b, c);
+        _: int64 <- t_list_i32_0(rg, b, c);
+        _: int64 <- t_list_i32_1(rg, b, c);
+        _: int64 <- t_list_i32_255(rg, b, c);
+        _: int64 <- t_list_i32_256(rg, b, c);
+        _: int64 <- t_list_i32_257(rg, b, c);
+        _: int64 <- t_list_str(rg, b, c);
+        _: int64 <- t_list_f64(rg, b, c);
+        _: int64 <- t_list_tuple(rg, b, c);
+        _: int64 <- t_nested(rg, b, c);
+        _: int64 <- hello_test(rg, b);
+        n: int64 <- bees_wire_msgs@enc_t_atom(rg, b, bees_atoms@a_yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy());
+        print_string("atom y*256 encode: ");
+        _: atom <- print_atom(bees_wire@reason_atom(0 - n));
+        println("");
+        println("types done")
+    produces pure 0 end
+}
+fn main() -> int64 {
+    sequence proc[mem(normal)]
+        L: lifetime <- fresh_lifetime();
+        rg: region(L, normal) <- alloc_region(normal);
+        b: buf(L, normal, uint8, 4096) <- alloc_buf(rg, 4096);
+        c: buf(L, normal, uint8, 4096) <- alloc_buf(rg, 4096);
+        _: int64 <- run_all(rg, b, c)
+    produces pure 0 end
+}
+

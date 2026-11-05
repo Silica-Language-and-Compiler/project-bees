@@ -10,7 +10,7 @@ fn idle(msg: int64, state: int64) -> (:no_reply, int64) {
 
 fn spawn_n(n: int64, acc: int64) -> int64 {
     sequence proc[concurrency]
-        a: actor_ref <- spawn(0, idle, stack_policy(0, :keep_last_message));
+        a: actor_ref <- spawn(0, idle, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
         ok: boolean <- cast(a, 1 impl ActorMessage {});
         got: int64 <- case ok of { true -> 1; false -> 0 };
         rest: int64 <- case n <= 1 of { true -> acc + got; false -> spawn_n(n - 1, acc + got) }

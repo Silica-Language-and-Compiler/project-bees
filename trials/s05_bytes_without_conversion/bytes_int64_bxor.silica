@@ -528,24 +528,24 @@ fn bxor64(a: uint64, b: uint64) -> uint64 {
 }
 
 // Store n (non-negative here) into 8 bytes, little-endian, purely with int64 arithmetic.
-fn put_i64(b: buf(L, normal, uint8, 8), n: int64, i: int64) -> atom {
+fn put_i64(rg: region(L, normal), b: buf(L, normal, uint8, 8), n: int64, i: int64) -> atom {
     sequence proc[mem(normal)]
         v: uint8 <- low_byte(n);
         _: atom <- write_buf(b, i, v);
         rest: atom <- case i == 7 of {
             true -> :ok;
-            false -> put_i64(b, n / 256, i + 1)
+            false -> put_i64(rg, b, n / 256, i + 1)
         }
     produces pure rest end
 }
 
-fn get_i64(b: buf(L, normal, uint8, 8), i: int64) -> int64 {
+fn get_i64(rg: region(L, normal), b: buf(L, normal, uint8, 8), i: int64) -> int64 {
     sequence proc[mem(normal)]
         v: uint8 <- read_buf(b, i);
         lo: int64 <- u8_to_i64(v);
         total: int64 <- case i == 7 of {
             true -> lo;
-            false -> lo + 256 * get_i64(b, i + 1)
+            false -> lo + 256 * get_i64(rg, b, i + 1)
         }
     produces pure total end
 }
@@ -553,10 +553,10 @@ fn get_i64(b: buf(L, normal, uint8, 8), i: int64) -> int64 {
 fn main() -> int64 {
     sequence proc[mem(normal), device_io]
         L: lifetime <- fresh_lifetime();
-        r: region(L, normal) <- alloc_region(normal);
-        b: buf(L, normal, uint8, 8) <- alloc_buf(r, 8);
-        _: atom <- put_i64(b, 1234567890123, 0);
-        back: int64 <- get_i64(b, 0);
+        rg: region(L, normal) <- alloc_region(normal);
+        b: buf(L, normal, uint8, 8) <- alloc_buf(rg, 8);
+        _: atom <- put_i64(rg, b, 1234567890123, 0);
+        back: int64 <- get_i64(rg, b, 0);
         _: atom <- print_int64(back);
         println("");
         b0: uint8 <- read_buf(b, 0);

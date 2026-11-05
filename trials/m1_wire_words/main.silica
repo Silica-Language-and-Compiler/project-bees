@@ -14,35 +14,35 @@ fn rep(s: string, n: int64) -> string {
     }
 }
 // fill every byte with 255 so that padding that is not masked would show
-fn flood2(b: buf(L, normal, uint8, 4096), i: int64) -> int64 {
+fn flood2(rg: region(L, normal), b: buf(L, normal, uint8, 4096), i: int64) -> int64 {
     case i >= 4096 of {
         true -> 0;
-        false -> flood3(b, bees_wire@put_i(b, i, 255))
+        false -> flood3(rg, b, bees_wire@put_i(rg, b, i, 255))
     }
 }
-fn flood3(b: buf(L, normal, uint8, 4096), next: int64) -> int64 { flood2(b, next) }
-fn copy_words(src: buf(L, normal, uint8, 4096), dst: buf(L, normal, uint8, 4096), n: int64, i: int64, count: int64) -> int64 {
+fn flood3(rg: region(L, normal), b: buf(L, normal, uint8, 4096), next: int64) -> int64 { flood2(rg, b, next) }
+fn copy_words(rg: region(L, normal), src: buf(L, normal, uint8, 4096), dst: buf(L, normal, uint8, 4096), n: int64, i: int64, count: int64) -> int64 {
     case i >= count of {
         true -> 0;
-        false -> copy_next(src, dst, n, i, count, bees_wire@put_word(dst, i, bees_wire@get_word(src, n, i)))
+        false -> copy_next(rg, src, dst, n, i, count, bees_wire@put_word(rg, dst, i, bees_wire@get_word(rg, src, n, i)))
     }
 }
-fn copy_next(src: buf(L, normal, uint8, 4096), dst: buf(L, normal, uint8, 4096), n: int64, i: int64, count: int64, next: int64) -> int64 {
-    case next < 0 of { true -> next; false -> copy_words(src, dst, n, i + 1, count) }
+fn copy_next(rg: region(L, normal), src: buf(L, normal, uint8, 4096), dst: buf(L, normal, uint8, 4096), n: int64, i: int64, count: int64, next: int64) -> int64 {
+    case next < 0 of { true -> next; false -> copy_words(rg, src, dst, n, i + 1, count) }
 }
-fn same_prefix(a: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096), i: int64, n: int64) -> boolean {
+fn same_prefix(rg: region(L, normal), a: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096), i: int64, n: int64) -> boolean {
     case i >= n of {
         true -> true;
-        false -> case bees_wire@rb_i(a, i) == bees_wire@rb_i(c, i) of { true -> same_prefix(a, c, i + 1, n); false -> false }
+        false -> case bees_wire@rb_i(rg, a, i) == bees_wire@rb_i(rg, c, i) of { true -> same_prefix(rg, a, c, i + 1, n); false -> false }
     }
 }
-fn zeros(c: buf(L, normal, uint8, 4096), i: int64, stop: int64) -> boolean {
+fn zeros(rg: region(L, normal), c: buf(L, normal, uint8, 4096), i: int64, stop: int64) -> boolean {
     case i >= stop of {
         true -> true;
-        false -> case bees_wire@rb_i(c, i) == 0 of { true -> zeros(c, i + 1, stop); false -> false }
+        false -> case bees_wire@rb_i(rg, c, i) == 0 of { true -> zeros(rg, c, i + 1, stop); false -> false }
     }
 }
-fn report(label: string, a: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096), n: int64) -> int64 {
+fn report(rg: region(L, normal), label: string, a: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096), n: int64) -> int64 {
     sequence proc[device_io]
         count: int64 <- bees_wire@word_count(n);
         print_string(label);
@@ -51,18 +51,18 @@ fn report(label: string, a: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8
         print_string(" words=");
         _: atom <- print_int64(count);
         print_string(" total=");
-        _: atom <- print_int64(bees_wire@frame_total_from_word0(bees_wire@get_word(a, n, 0)));
+        _: atom <- print_int64(bees_wire@frame_total_from_word0(bees_wire@get_word(rg, a, n, 0)));
         print_string(" w0=");
-        _: atom <- print_int64(bees_wire@get_word(a, n, 0));
+        _: atom <- print_int64(bees_wire@get_word(rg, a, n, 0));
         print_string(" wlast=");
-        _: atom <- print_int64(bees_wire@get_word(a, n, count - 1));
-        _: int64 <- copy_words(a, c, n, 0, count);
+        _: atom <- print_int64(bees_wire@get_word(rg, a, n, count - 1));
+        _: int64 <- copy_words(rg, a, c, n, 0, count);
         print_string(" same=");
-        _: atom <- print_boolean(same_prefix(a, c, 0, n));
+        _: atom <- print_boolean(same_prefix(rg, a, c, 0, n));
         print_string(" pad0=");
-        _: atom <- print_boolean(zeros(c, n, count * 8));
+        _: atom <- print_boolean(zeros(rg, c, n, count * 8));
         print_string(" check=");
-        _: atom <- print_atom(bees_wire@reason_atom(bees_wire_msgs@validate(c, n)));
+        _: atom <- print_atom(bees_wire@reason_atom(bees_wire_msgs@validate(rg, c, n)));
         println("")
     produces pure 0 end
 }
@@ -92,32 +92,32 @@ fn more(k: int64, acc: List[string, mem(normal)]) -> List[string, mem(normal)] {
         }
     produces pure out end
 }
-fn go(a: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096)) -> int64 {
+fn go(rg: region(L, normal), a: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096)) -> int64 {
     sequence
-        _: int64 <- flood2(c, 0);
-        n1: int64 <- bees_wire_msgs@enc_wmsg(a, v1());
-        _: int64 <- report("wmsg -1,hello,-2.5", a, c, n1);
-        _: int64 <- flood2(c, 0);
-        n2: int64 <- bees_wire_msgs@enc_wmsg(a, v2());
-        _: int64 <- report("wmsg int64 min,empty,1e300", a, c, n2);
-        _: int64 <- flood2(c, 0);
-        n3: int64 <- bees_wire_msgs@enc_lst(a, ff(256));
-        _: int64 <- report("List[uint8] 256 x 255", a, c, n3);
-        _: int64 <- flood2(c, 0);
-        n4: int64 <- bees_wire_msgs@enc_lst(a, ff(0));
-        _: int64 <- report("List[uint8] empty", a, c, n4);
-        _: int64 <- flood2(c, 0);
-        n5: int64 <- bees_wire_msgs@enc_lstr(a, strs(4, 996));
-        _: int64 <- report("frame of 4096 bytes", a, c, n5)
+        _: int64 <- flood2(rg, c, 0);
+        n1: int64 <- bees_wire_msgs@enc_wmsg(rg, a, v1());
+        _: int64 <- report(rg, "wmsg -1,hello,-2.5", a, c, n1);
+        _: int64 <- flood2(rg, c, 0);
+        n2: int64 <- bees_wire_msgs@enc_wmsg(rg, a, v2());
+        _: int64 <- report(rg, "wmsg int64 min,empty,1e300", a, c, n2);
+        _: int64 <- flood2(rg, c, 0);
+        n3: int64 <- bees_wire_msgs@enc_lst(rg, a, ff(256));
+        _: int64 <- report(rg, "List[uint8] 256 x 255", a, c, n3);
+        _: int64 <- flood2(rg, c, 0);
+        n4: int64 <- bees_wire_msgs@enc_lst(rg, a, ff(0));
+        _: int64 <- report(rg, "List[uint8] empty", a, c, n4);
+        _: int64 <- flood2(rg, c, 0);
+        n5: int64 <- bees_wire_msgs@enc_lstr(rg, a, strs(4, 996));
+        _: int64 <- report(rg, "frame of 4096 bytes", a, c, n5)
     produces pure 0 end
 }
 fn main() -> int64 {
     sequence proc[device_io, mem(normal)]
         L: lifetime <- fresh_lifetime();
-        r: region(L, normal) <- alloc_region(normal);
-        a: buf(L, normal, uint8, 4096) <- alloc_buf(r, 4096);
-        c: buf(L, normal, uint8, 4096) <- alloc_buf(r, 4096);
-        _: int64 <- go(a, c);
+        rg: region(L, normal) <- alloc_region(normal);
+        a: buf(L, normal, uint8, 4096) <- alloc_buf(rg, 4096);
+        c: buf(L, normal, uint8, 4096) <- alloc_buf(rg, 4096);
+        _: int64 <- go(rg, a, c);
         println("words done")
     produces pure 0 end
 }

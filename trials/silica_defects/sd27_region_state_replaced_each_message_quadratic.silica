@@ -1,0 +1,45 @@
+use bees_atoms;
+use bees_reporter;
+// SD-27 (open on silica-999936; first seen 2026-11-05): an actor that keeps a freshly allocated region as its state
+// and replaces it on every message takes time QUADRATIC in the number of messages. 400 messages take 0.7 s of CPU,
+// 800 take 3.0 s, 1,600 take 12.0 s, 5,000 take 126 s; a plain counter actor takes 0.5 s for 20,000 calls. The output is
+// correct (800 below); the defect is the time, which this trial cannot assert: a fixed compiler runs it in well under
+// a second. state_policy makes no difference (all three choices measured the same at 200 messages). On silica-999939
+// the same program with 100,000 messages finished.
+// Expected: 800
+fn some_term(c: ref(L, normal, (atom, int64, ref?(L, normal, rec)))) -> ref?(L, normal, (atom, int64, ref?(L, normal, rec))) { c }
+
+fn beh(msg: int64, state: { r: region(L, normal), root: ref?(L, normal, (atom, int64, ref?(L, normal, rec))) }) -> (:reply, int64, { r: region(L, normal), root: ref?(L, normal, (atom, int64, ref?(L, normal, rec))) }) {
+    sequence proc[mem(normal)]
+        old_v: int64 <- case state.root of {
+            :none -> 0;
+            c: ref(L, normal, (atom, int64, ref?(L, normal, rec))) -> {
+                node: (atom, int64, ref?(L, normal, rec)) <- read_ref(c);
+                (_: atom, v: int64, _: ref?(L, normal, (atom, int64, ref?(L, normal, rec)))) <- node;
+                v
+            }
+        };
+        L: lifetime <- fresh_lifetime();
+        fresh: region(L, normal) <- alloc_region(normal);
+        moved: ref(L, normal, (atom, int64, ref?(L, normal, rec))) <- alloc_rec(fresh, (bees_atoms@a_int(), old_v + msg, :none))
+    produces pure (:reply, old_v + msg, { r: fresh, root: some_term(moved) }) end
+}
+
+fn send_n(a: actor_ref, n: int64) -> int64 {
+    sequence proc[concurrency]
+        v: int64 <- call(a, 1 impl ActorMessage {});
+        rest: int64 <- case n <= 1 of { true -> v; false -> send_n(a, n - 1) }
+    produces pure rest end
+}
+
+fn main() -> int64 {
+    sequence proc[concurrency, device_io, mem(normal)]
+        _: atom <- bees_reporter@start();
+        L: lifetime <- fresh_lifetime();
+        r: region(L, normal) <- alloc_region(normal);
+        a: actor_ref <- spawn({ r: r, root: :none }, beh, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        last: int64 <- send_n(a, 800);
+        _: atom <- print_int64(last);
+        println("")
+    produces pure 0 end
+}

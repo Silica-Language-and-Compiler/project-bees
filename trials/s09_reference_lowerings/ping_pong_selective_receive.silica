@@ -153,10 +153,10 @@ fn main() -> int64 {
         _: atom <- bees_reporter@start();
         L: lifetime <- fresh_lifetime();
         rp: region(L, normal) <- alloc_region(normal);
-        pong_ref: actor_ref <- spawn({ h: { r: rp } }, pong, stack_policy(0, :keep_last_message));
+        pong_ref: actor_ref <- spawn({ h: { r: rp } }, pong, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
         L: lifetime <- fresh_lifetime();
         rq: region(L, normal) <- alloc_region(normal);
-        ping_ref: actor_ref <- spawn({ h: { r: rq }, saved: :none, pong: pong_ref, phase: 0 }, ping, stack_policy(0, :keep_last_message));
+        ping_ref: actor_ref <- spawn({ h: { r: rq }, saved: :none, pong: pong_ref, phase: 0 }, ping, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
         kick: { r: region(L, normal), c: ref?(L, normal, (int64, int64, float64, atom, actor_ref, ref?(L, normal, rec), ref?(L, normal, rec))) } <- msg_atom(new_heap(), bees_atoms@a_kick());
         _: boolean <- cast(ping_ref, kick impl ActorMessage {});
         _: int64 <- wait_for_exit()

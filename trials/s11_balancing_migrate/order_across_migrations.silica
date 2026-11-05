@@ -4,17 +4,17 @@ use bees_reporter;
 // robin) and finally sends -1. The actor checks that every sequence number is the previous
 // plus one and, on -1, prints the count received, whether the order ever broke, and "done".
 // Expected: 100000 false / done
+// The new state is built in the behaviour itself so that silica-999936 can prove its release; built through a `case`
+// result the run takes time quadratic in the queue depth (SD-28).
 fn checker(msg: int64, state: { expect: int64, broken: boolean }) -> (:no_reply, { expect: int64, broken: boolean }) {
-    sequence
-        next: { expect: int64, broken: boolean } <- case msg == 0 - 1 of {
-            true -> state;
-            false -> { expect: state.expect + 1, broken: state.broken or msg != state.expect }
+    case msg == 0 - 1 of {
+        true -> {
+            sequence
+                _: atom <- report(state.expect, state.broken)
+            produces pure (:no_reply, state) end
         };
-        _: atom <- case msg == 0 - 1 of {
-            true -> report(state.expect, state.broken);
-            false -> :ok
-        }
-    produces pure (:no_reply, next) end
+        false -> (:no_reply, { expect: state.expect + 1, broken: state.broken or msg != state.expect })
+    }
 }
 
 fn report(count: int64, broken: boolean) -> atom {
@@ -42,7 +42,7 @@ fn send_n(a: actor_ref, i: int64, n: int64) -> atom {
 fn main() -> int64 {
     sequence proc[concurrency, device_io]
         _: atom <- bees_reporter@start();
-        a: actor_ref <- spawn({ expect: 0, broken: false }, checker, stack_policy(0, :keep_last_message), 1);
+        a: actor_ref <- spawn({ expect: 0, broken: false }, checker, stack_policy(0, :keep_last_message), state_policy(:keep_state_area), 1);
         _: atom <- send_n(a, 0, 100000);
         _: boolean <- cast(a, 0 - 1 impl ActorMessage {});
         _: int64 <- wait_for_exit()

@@ -599,30 +599,30 @@ fn scale2(v: float64, e: int64) -> float64 {
     }
 }
 
-fn byte_f(b: buf(L, normal, uint8, 8), i: int64) -> float64 {
+fn byte_f(rg: region(L, normal), b: buf(L, normal, uint8, 8), i: int64) -> float64 {
     sequence proc[mem(normal)]
         v: uint8 <- read_buf(b, i)
     produces pure u8_to_f64(v) end
 }
-fn byte_i(b: buf(L, normal, uint8, 8), i: int64) -> int64 {
+fn byte_i(rg: region(L, normal), b: buf(L, normal, uint8, 8), i: int64) -> int64 {
     sequence proc[mem(normal)]
         v: uint8 <- read_buf(b, i)
     produces pure u8_to_i64(v) end
 }
 
-fn exp_bits(b: buf(L, normal, uint8, 8)) -> int64 { (byte_i(b, 7) % 128) * 16 + byte_i(b, 6) / 16 }
-fn sign_bit(b: buf(L, normal, uint8, 8)) -> boolean { byte_i(b, 7) >= 128 }
-fn nibble_f(b: buf(L, normal, uint8, 8)) -> float64 { u8_to_f64(low_byte(byte_i(b, 6) % 16)) }
+fn exp_bits(rg: region(L, normal), b: buf(L, normal, uint8, 8)) -> int64 { (byte_i(rg, b, 7) % 128) * 16 + byte_i(rg, b, 6) / 16 }
+fn sign_bit(rg: region(L, normal), b: buf(L, normal, uint8, 8)) -> boolean { byte_i(rg, b, 7) >= 128 }
+fn nibble_f(rg: region(L, normal), b: buf(L, normal, uint8, 8)) -> float64 { u8_to_f64(low_byte(byte_i(rg, b, 6) % 16)) }
 
 // the 52-bit mantissa as an integer-valued float
-fn mant_f(b: buf(L, normal, uint8, 8)) -> float64 {
-    (((((nibble_f(b) * f256() + byte_f(b, 5)) * f256() + byte_f(b, 4)) * f256() + byte_f(b, 3)) * f256() + byte_f(b, 2)) * f256() + byte_f(b, 1)) * f256() + byte_f(b, 0)
+fn mant_f(rg: region(L, normal), b: buf(L, normal, uint8, 8)) -> float64 {
+    (((((nibble_f(rg, b) * f256() + byte_f(rg, b, 5)) * f256() + byte_f(rg, b, 4)) * f256() + byte_f(rg, b, 3)) * f256() + byte_f(rg, b, 2)) * f256() + byte_f(rg, b, 1)) * f256() + byte_f(rg, b, 0)
 }
 
-fn magnitude(b: buf(L, normal, uint8, 8)) -> float64 {
-    case is_zero(exp_bits(b)) of {
-        true -> scale2(mant_f(b), 0 - 1074);
-        false -> scale2(pow2(52, 0, one()) + mant_f(b), exp_bits(b) - 1023 - 52)
+fn magnitude(rg: region(L, normal), b: buf(L, normal, uint8, 8)) -> float64 {
+    case is_zero(exp_bits(rg, b)) of {
+        true -> scale2(mant_f(rg, b), 0 - 1074);
+        false -> scale2(pow2(52, 0, one()) + mant_f(rg, b), exp_bits(rg, b) - 1023 - 52)
     }
 }
 
@@ -630,7 +630,7 @@ fn negate_if(neg: boolean, m: float64) -> float64 {
     case neg of { true -> zero() - m; false -> m }
 }
 
-fn decode_f64(b: buf(L, normal, uint8, 8)) -> float64 { negate_if(sign_bit(b), magnitude(b)) }
+fn decode_f64(rg: region(L, normal), b: buf(L, normal, uint8, 8)) -> float64 { negate_if(sign_bit(rg, b), magnitude(rg, b)) }
 
 // ---- encoding ----
 fn is_neg(v: float64) -> boolean { v < zero() }
@@ -671,35 +671,35 @@ fn mantissa_float(a: float64, e: int64) -> float64 {
 }
 fn mantissa_int(v: float64) -> int64 { peel(mantissa_float(abs_f(v), exp_of_abs(v)), 51, 0) }
 
-fn put_bytes(b: buf(L, normal, uint8, 8), n: int64, i: int64, last: int64) -> atom {
+fn put_bytes(rg: region(L, normal), b: buf(L, normal, uint8, 8), n: int64, i: int64, last: int64) -> atom {
     sequence proc[mem(normal)]
         v: uint8 <- low_byte(n);
         _: atom <- write_buf(b, i, v);
-        rest: atom <- case i == last of { true -> :ok; false -> put_bytes(b, n / 256, i + 1, last) }
+        rest: atom <- case i == last of { true -> :ok; false -> put_bytes(rg, b, n / 256, i + 1, last) }
     produces pure rest end
 }
 
-fn write_parts(b: buf(L, normal, uint8, 8), neg: boolean, biased: int64, mant: int64) -> atom {
+fn write_parts(rg: region(L, normal), b: buf(L, normal, uint8, 8), neg: boolean, biased: int64, mant: int64) -> atom {
     sequence
-        _: atom <- put_bytes(b, mant, 0, 5);
+        _: atom <- put_bytes(rg, b, mant, 0, 5);
         b6: int64 <- mant / 281474976710656 + (biased % 16) * 16;
         b7: int64 <- biased / 16 + (case neg of { true -> 128; false -> 0 });
-        _: atom <- put_bytes(b, b6, 6, 6);
-        _: atom <- put_bytes(b, b7, 7, 7)
+        _: atom <- put_bytes(rg, b, b6, 6, 6);
+        _: atom <- put_bytes(rg, b, b7, 7, 7)
     produces pure :ok end
 }
 
 // The value is fetched afresh for each use (SD-14: a float parameter does not survive a call).
-fn encode_f64(b: buf(L, normal, uint8, 8), i: int64) -> atom {
-    write_parts(b, is_neg(value(i)), biased_exp(exp_of_abs(value(i))), mantissa_int(value(i)))
+fn encode_f64(rg: region(L, normal), b: buf(L, normal, uint8, 8), i: int64) -> atom {
+    write_parts(rg, b, is_neg(value(i)), biased_exp(exp_of_abs(value(i))), mantissa_int(value(i)))
 }
 
-fn show(b: buf(L, normal, uint8, 8), i: int64) -> atom {
+fn show(rg: region(L, normal), b: buf(L, normal, uint8, 8), i: int64) -> atom {
     sequence proc[device_io]
-        v: int64 <- byte_i(b, i);
+        v: int64 <- byte_i(rg, b, i);
         _: atom <- print_int64(v);
         print_string(" ");
-        r: atom <- case i == 0 of { true -> :ok; false -> show(b, i - 1) }
+        r: atom <- case i == 0 of { true -> :ok; false -> show(rg, b, i - 1) }
     produces pure r end
 }
 
@@ -716,22 +716,22 @@ fn value(i: int64) -> float64 {
     case i of { 0 -> v0(); 1 -> v1(); 2 -> v2(); 3 -> v3(); 4 -> v4(); 5 -> v5(); _: int64 -> v6() }
 }
 
-fn round_trip(b: buf(L, normal, uint8, 8), i: int64) -> atom {
+fn round_trip(rg: region(L, normal), b: buf(L, normal, uint8, 8), i: int64) -> atom {
     sequence proc[device_io]
-        _: atom <- encode_f64(b, i);
-        _: atom <- show(b, 7);
-        ok: boolean <- same(decode_f64(b), value(i));
+        _: atom <- encode_f64(rg, b, i);
+        _: atom <- show(rg, b, 7);
+        ok: boolean <- same(decode_f64(rg, b), value(i));
         _: atom <- print_boolean(ok);
         println("");
-        rest: atom <- case i == 6 of { true -> :ok; false -> round_trip(b, i + 1) }
+        rest: atom <- case i == 6 of { true -> :ok; false -> round_trip(rg, b, i + 1) }
     produces pure rest end
 }
 
 fn main() -> int64 {
     sequence proc[mem(normal)]
         L: lifetime <- fresh_lifetime();
-        r: region(L, normal) <- alloc_region(normal);
-        b: buf(L, normal, uint8, 8) <- alloc_buf(r, 8);
-        _: atom <- round_trip(b, 0)
+        rg: region(L, normal) <- alloc_region(normal);
+        b: buf(L, normal, uint8, 8) <- alloc_buf(rg, 8);
+        _: atom <- round_trip(rg, b, 0)
     produces pure 0 end
 }

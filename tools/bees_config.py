@@ -127,7 +127,8 @@ FIXED_ATOMS = {
     "set_report_sink", "sink_set", "terminate_actor",
 }
 
-TIER = 256
+# Arms per generated `case` (Silica rejects 512). BEES_TIER lowers it so a trial can cross the tier boundary with few entries.
+TIER = int(os.environ.get("BEES_TIER", "256"))
 
 ATOM_RE = re.compile(r"(?<![A-Za-z0-9_'\"]):([A-Za-z_][A-Za-z0-9_]*)")
 

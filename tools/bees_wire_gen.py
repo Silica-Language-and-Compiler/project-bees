@@ -487,13 +487,13 @@ class Gen:
 
     def enc_call(self, ty, p, v, depth):
         if ty[0] == "prim":
-            return f"bees_wire@enc_{PRIM_CORE[ty[1]]}(b, {p}, {v})"
-        return f"enc_t{self.names[canon(ty)]}(b, {p}, {v}, {depth})"
+            return f"bees_wire@enc_{PRIM_CORE[ty[1]]}(rg, b, {p}, {v})"
+        return f"enc_t{self.names[canon(ty)]}(rg, b, {p}, {v}, {depth})"
 
     def dec_call(self, ty, p, depth):
         if ty[0] == "prim":
-            return f"bees_wire@dec_{PRIM_CORE[ty[1]]}(b, len, {p})"
-        return f"dec_t{self.names[canon(ty)]}(b, len, {p}, {depth})"
+            return f"bees_wire@dec_{PRIM_CORE[ty[1]]}(rg, b, len, {p})"
+        return f"dec_t{self.names[canon(ty)]}(rg, b, len, {p}, {depth})"
 
     def helper(self, lines, idx, ty):
         B = "buf(L, normal, uint8, 4096)"
@@ -509,7 +509,7 @@ class Gen:
             for i, (f, t) in enumerate(parts):
                 access = f"v.{f}" if kind == "record" else f"x{i}"
                 e = self.enc_call(t, e, access, "depth + 1")
-            lines.append(f"fn enc_t{idx}(b: {B}, pos: int64, v: {st}, depth: int64) -> int64 {{")
+            lines.append(f"fn enc_t{idx}(rg: region(L, normal), b: {B}, pos: int64, v: {st}, depth: int64) -> int64 {{")
             if kind == "tuple":
                 pat = ", ".join(f"x{i}" for i in range(len(parts)))
                 lines += ["    sequence", f"        ({pat}): {st} <- v;", f"        r: int64 <- {e}",
@@ -517,7 +517,7 @@ class Gen:
             else:
                 lines += ["    " + e, "}", ""]
             # decoder
-            lines.append(f"fn dec_t{idx}(b: {B}, len: int64, pos: int64, depth: int64) -> {{ v: {st}, pos: int64 }} {{")
+            lines.append(f"fn dec_t{idx}(rg: region(L, normal), b: {B}, len: int64, pos: int64, depth: int64) -> {{ v: {st}, pos: int64 }} {{")
             lines.append("    sequence")
             lines.append("        p0: int64 <- bees_wire@enter(pos, depth);")
             prev = "p0"
@@ -535,24 +535,24 @@ class Gen:
         else:  # list
             et = ty[1]
             es = silica(et)
-            lines += [f"fn enc_items_{idx}(b: {B}, pos: int64, v: {st}, i: int64, n: int64, depth: int64) -> int64 {{",
+            lines += [f"fn enc_items_{idx}(rg: region(L, normal), b: {B}, pos: int64, v: {st}, i: int64, n: int64, depth: int64) -> int64 {{",
                       "    case pos < 0 or i >= n of {",
                       "        true -> pos;",
                       "        false -> {",
                       "            sequence proc[mem(normal)]",
                       f"                e: {es} <- list_at[{es}, mem(normal)](v, i);",
-                      f"                r: int64 <- enc_items_{idx}(b, {self.enc_call(et, 'pos', 'e', 'depth')}, v, i + 1, n, depth)",
+                      f"                r: int64 <- enc_items_{idx}(rg, b, {self.enc_call(et, 'pos', 'e', 'depth')}, v, i + 1, n, depth)",
                       "            produces pure r end",
                       "        }",
                       "    }", "}", ""]
-            lines += [f"fn enc_t{idx}(b: {B}, pos: int64, v: {st}, depth: int64) -> int64 {{",
+            lines += [f"fn enc_t{idx}(rg: region(L, normal), b: {B}, pos: int64, v: {st}, depth: int64) -> int64 {{",
                       "    sequence proc[mem(normal)]",
                       f"        n: int64 <- length[{es}, mem(normal)](v);",
-                      "        p: int64 <- bees_wire@enc_count(b, bees_wire@enter(pos, depth), n);",
-                      f"        r: int64 <- enc_items_{idx}(b, p, v, 0, n, depth + 1)",
+                      "        p: int64 <- bees_wire@enc_count(rg, b, bees_wire@enter(pos, depth), n);",
+                      f"        r: int64 <- enc_items_{idx}(rg, b, p, v, 0, n, depth + 1)",
                       "    produces pure r end", "}", ""]
             ms = min_size(et)
-            lines += [f"fn dec_items_{idx}(b: {B}, len: int64, pos: int64, n: int64, depth: int64) -> {{ v: {st}, pos: int64 }} {{",
+            lines += [f"fn dec_items_{idx}(rg: region(L, normal), b: {B}, len: int64, pos: int64, n: int64, depth: int64) -> {{ v: {st}, pos: int64 }} {{",
                       "    sequence proc[mem(normal)]",
                       f"        nil: {st} <- empty[{es}, mem(normal)]();",
                       f"        out: {{ v: {st}, pos: int64 }} <- case pos < 0 or n == 0 of {{",
@@ -560,7 +560,7 @@ class Gen:
                       "            false -> {",
                       "                sequence proc[mem(normal)]",
                       f"                    e: {{ v: {es}, pos: int64 }} <- {self.dec_call(et, 'pos', 'depth')};",
-                      f"                    rest: {{ v: {st}, pos: int64 }} <- dec_items_{idx}(b, len, e.pos, n - 1, depth);",
+                      f"                    rest: {{ v: {st}, pos: int64 }} <- dec_items_{idx}(rg, b, len, e.pos, n - 1, depth);",
                       # the element is bound first: a float64 passed as a field access straight into prepend is
                       # stored as zero (silica-defects SD-26)
                       f"                    x: {es} <- e.v;",
@@ -570,11 +570,11 @@ class Gen:
                       "            }",
                       "        }",
                       "    produces pure out end", "}", ""]
-            lines += [f"fn dec_t{idx}(b: {B}, len: int64, pos: int64, depth: int64) -> {{ v: {st}, pos: int64 }} {{",
+            lines += [f"fn dec_t{idx}(rg: region(L, normal), b: {B}, len: int64, pos: int64, depth: int64) -> {{ v: {st}, pos: int64 }} {{",
                       "    sequence",
                       "        p0: int64 <- bees_wire@enter(pos, depth);",
-                      f"        c: {{ v: int64, pos: int64 }} <- bees_wire@dec_count(b, len, p0, {ms});",
-                      f"        out: {{ v: {st}, pos: int64 }} <- dec_items_{idx}(b, len, c.pos, c.v, depth + 1)",
+                      f"        c: {{ v: int64, pos: int64 }} <- bees_wire@dec_count(rg, b, len, p0, {ms});",
+                      f"        out: {{ v: {st}, pos: int64 }} <- dec_items_{idx}(rg, b, len, c.pos, c.v, depth + 1)",
                       "    produces pure out end", "}", ""]
 
 
@@ -586,9 +586,9 @@ def gen_msgs(out_dir, msgs):
              "// Decode results are { code, v }: code 0 is accepted, any other code is a rejection reason",
              "// (bees_wire@reason_atom). Encoders return the frame length in bytes, or the negated reason.",
              "module bees_wire_msgs;", "use bees_wire;", ""]
-    ex = ["kind_count/0", "schema_digest/0", "kind_of/2", "validate/2"]
+    ex = ["kind_count/0", "schema_digest/0", "kind_of/3", "validate/3"]
     for name, _ in msgs:
-        ex += [f"enc_{name}/2", f"dec_{name}/2", f"kind_id_{name}/0"]
+        ex += [f"enc_{name}/3", f"dec_{name}/3", f"kind_id_{name}/0"]
     lines += [f"export {e};" for e in ex] + [""]
     lines += [f"fn kind_count() -> int64 {{ {len(msgs)} }}",
               "// FNV-1a (64 bit) of the canonical schema text, as the signed reading of the unsigned value.",
@@ -602,23 +602,23 @@ def gen_msgs(out_dir, msgs):
         g.helper(lines, idx, ty)
     for i, (name, ty) in enumerate(msgs):
         st = silica(ty)
-        lines += [f"fn enc_{name}(b: {B}, msg: {st}) -> int64 {{",
-                  f"    bees_wire@finish(b, {g.enc_call(ty, f'bees_wire@enc_u16(b, bees_wire@put_prefix(b, 1), {i})', 'msg', '0')})",
+        lines += [f"fn enc_{name}(rg: region(L, normal), b: {B}, msg: {st}) -> int64 {{",
+                  f"    bees_wire@finish(rg, b, {g.enc_call(ty, f'bees_wire@enc_u16(rg, b, bees_wire@put_prefix(rg, b, 1), {i})', 'msg', '0')})",
                   "}", ""]
-        lines += [f"fn dec_{name}(b: {B}, len: int64) -> {{ code: int64, v: {st} }} {{",
+        lines += [f"fn dec_{name}(rg: region(L, normal), b: {B}, len: int64) -> {{ code: int64, v: {st} }} {{",
                   "    sequence",
-                  f"        p0: int64 <- bees_wire@open_send(b, len, {i});",
+                  f"        p0: int64 <- bees_wire@open_send(rg, b, len, {i});",
                   f"        f: {{ v: {st}, pos: int64 }} <- {g.dec_call(ty, 'p0', '0')};",
                   "        p1: int64 <- bees_wire@close(f.pos, len);",
                   f"        out: {{ code: int64, v: {st} }} <- {{ code: bees_wire@code_of(p1), v: f.v }}",
                   "    produces pure out end", "}", ""]
-    lines += [f"fn kind_of(b: {B}, len: int64) -> int64 {{ bees_wire@kind_of(b, len, kind_count()) }}", ""]
-    emit_switch(lines, "validate_slot", [("b", B), ("len", "int64"), ("kind", "int64")], "kind", "int64",
-                [(i, f"dec_{n}(b, len).code") for i, (n, _) in enumerate(msgs)], "bees_wire@reason_unknown_kind()")
-    lines += [f"fn validate(b: {B}, len: int64) -> int64 {{",
-              "    case kind_of(b, len) < 0 of {",
-              "        true -> 0 - kind_of(b, len);",
-              "        false -> validate_slot(b, len, kind_of(b, len))",
+    lines += [f"fn kind_of(rg: region(L, normal), b: {B}, len: int64) -> int64 {{ bees_wire@kind_of(rg, b, len, kind_count()) }}", ""]
+    emit_switch(lines, "validate_slot", [("rg", "region(L, normal)"), ("b", B), ("len", "int64"), ("kind", "int64")], "kind", "int64",
+                [(i, f"dec_{n}(rg, b, len).code") for i, (n, _) in enumerate(msgs)], "bees_wire@reason_unknown_kind()")
+    lines += [f"fn validate(rg: region(L, normal), b: {B}, len: int64) -> int64 {{",
+              "    case kind_of(rg, b, len) < 0 of {",
+              "        true -> 0 - kind_of(rg, b, len);",
+              "        false -> validate_slot(rg, b, len, kind_of(rg, b, len))",
               "    }", "}", ""]
     with open(os.path.join(out_dir, "bees_wire_msgs.silica"), "w") as out:
         out.write("\n".join(lines))

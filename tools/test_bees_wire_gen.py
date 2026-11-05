@@ -208,17 +208,24 @@ class GoldenFramesAgainstStruct(unittest.TestCase):
     code with the codec, must give the same bytes. The trial's golden is read, not re-run."""
 
     LEAF = os.path.join(ROOT, "trials", "m1_wire_types")
+    # the round trips are split over six leaves (one compiler process cannot type-check them all, SD-29); they share types.wire
+    LEAVES = ["m1_wire_types", "m1_wire_types_signed_a", "m1_wire_types_signed_b", "m1_wire_types_float64",
+              "m1_wire_types_float32", "m1_wire_types_text"]
+
+    def golden_text(self):
+        paths = [os.path.join(ROOT, "trials", leaf, "main.scout") for leaf in self.LEAVES]
+        return "\n".join(read(g) for g in paths) if all(os.path.exists(g) for g in paths) else None
 
     def test_primitive_frames(self):
-        golden = os.path.join(self.LEAF, "main.scout")
+        golden = self.golden_text()
         wire = os.path.join(self.LEAF, "types.wire")
-        if not (os.path.exists(golden) and os.path.exists(wire)):
+        if golden is None or not os.path.exists(wire):
             self.skipTest("trial golden not recorded yet")
         kinds = {name: i for i, (name, _) in enumerate(W.collect([wire]))}
         fmt = {"uint8": ">B", "uint16": ">H", "uint32": ">I", "uint64": ">Q", "int8": ">b", "int16": ">h",
                "int32": ">i", "int64": ">q", "float64": ">d", "float32": ">f"}
         checked = 0
-        for line in read(golden).split("\n"):
+        for line in golden.split("\n"):
             m = re.match(r"^(\S+) (\S+) n=(\d+) bytes=((?: \d+)*) sum=\d+ :ok rt$", line.strip())
             if not m:
                 continue
@@ -237,11 +244,10 @@ class GoldenFramesAgainstStruct(unittest.TestCase):
         self.assertGreater(checked, 70)
 
     def test_hello_frame_and_digest(self):
-        golden = os.path.join(self.LEAF, "main.scout")
+        text = self.golden_text()
         wire = os.path.join(self.LEAF, "types.wire")
-        if not (os.path.exists(golden) and os.path.exists(wire)):
+        if text is None or not os.path.exists(wire):
             self.skipTest("trial golden not recorded yet")
-        text = read(golden)
         digest = W.signed64(W.digest(W.collect([wire])))
         m = re.search(r"^hello alpha n=(\d+) bytes=((?: \d+)*) sum=\d+ digest=(-?\d+) same_digest=true same_node=true code=:ok$",
                       text, re.M)

@@ -37,7 +37,7 @@ fn spin(n: int64) -> int64 { case n == 0 of { true -> 0; false -> spin(n - 1) } 
 
 fn spawn_worker() -> actor_ref {
     sequence proc[concurrency]
-        w: actor_ref <- spawn(0, worker, stack_policy(0, :keep_last_message))
+        w: actor_ref <- spawn(0, worker, stack_policy(0, :keep_last_message), state_policy(:keep_state_area))
     produces pure w end
 }
 
@@ -48,7 +48,7 @@ fn main() -> int64 {
         b: actor_ref <- spawn_worker();
         c: actor_ref <- spawn_worker();
         d: actor_ref <- spawn_worker();
-        k: actor_ref <- spawn(0, killer, stack_policy(0, :keep_last_message));
+        k: actor_ref <- spawn(0, killer, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
         _: boolean <- cast(a, 0 impl ActorMessage {});
         _: boolean <- cast(b, 1 impl ActorMessage {});
         _: boolean <- cast(c, 2 impl ActorMessage {});

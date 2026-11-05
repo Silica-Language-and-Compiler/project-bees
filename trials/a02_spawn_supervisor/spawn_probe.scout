@@ -3,7 +3,7 @@ first added
 
 === Silica Actor Failure ===
 actor_id:        4294967296
-agent_type_atom: 27
+agent_type_atom: 28
 reason:          :normal
 reason_tag:      0
 supervisor_acb:  0xADDR

@@ -1,0 +1,27 @@
+atom alpha n=14 bytes= 0 0 0 10 1 1 0 12 5 97 108 112 104 97 sum=547 :ok rt
+atom beta_gamma n=19 bytes= 0 0 0 15 1 1 0 12 10 98 101 116 97 95 103 97 109 109 97 sum=1061 :ok rt
+atom z n=10 bytes= 0 0 0 6 1 1 0 12 1 122 sum=143 :ok rt
+atom x*255 n=264 bytes= 0 0 1 4 1 1 0 12 255 120 120 120 120 120 120 120 120 120 120 120 120 120 120 120 sum=30874 :ok rt
+string empty n=12 bytes= 0 0 0 8 1 1 0 13 0 0 0 0 sum=23 :ok rt
+string hello n=17 bytes= 0 0 0 13 1 1 0 13 0 0 0 5 104 101 108 108 111 sum=565 :ok rt
+string text n=21 bytes= 0 0 0 17 1 1 0 13 0 0 0 9 97 9 98 13 10 33 126 32 122 sum=581 :ok rt
+string x1024 n=1036 bytes= 0 0 4 8 1 1 0 13 0 0 4 0 120 120 120 120 120 120 120 120 120 120 120 120 sum=122911 :ok rt
+string x1023 n=1035 bytes= 0 0 4 7 1 1 0 13 0 0 3 255 97 98 99 97 98 99 97 98 99 97 98 99 sum=100538 :ok rt
+string x1 n=13 bytes= 0 0 0 9 1 1 0 13 0 0 0 1 113 sum=138 :ok rt
+string alpha n=1036 bytes= 0 0 4 8 1 1 0 13 0 0 4 0 48 49 50 51 52 53 54 55 56 57 97 98 sum=71839 :ok rt
+tuple (-5,65535,tuple,true) n=21 bytes= 0 0 0 17 1 1 0 14 251 255 255 0 0 0 5 116 117 112 108 101 1 sum=1354 :ok rt
+record {a,b,c,d} n=36 bytes= 0 0 0 32 1 1 0 15 255 255 255 255 255 255 255 247 64 4 0 0 0 0 0 0 sum=3182 :ok rt
+List[int32] empty n=12 bytes= 0 0 0 8 1 1 0 16 0 0 0 0 sum=26 :ok rt
+List[int32] 1 n=16 bytes= 0 0 0 12 1 1 0 16 0 0 0 1 0 15 66 67 sum=179 :ok rt
+List[int32] 255 n=1032 bytes= 0 0 4 4 1 1 0 16 0 0 0 255 15 51 0 189 15 35 190 122 15 20 124 55 sum=98966 :ok rt
+List[int32] 256 n=1036 bytes= 0 0 4 8 1 1 0 16 0 0 1 0 15 66 67 0 15 51 0 189 15 35 190 122 sum=98864 :ok rt
+encode rejected
+-4
+List[string] 5 n=47 bytes= 0 0 0 43 1 1 0 17 0 0 0 5 0 0 0 5 115 115 115 115 115 0 0 0 sum=1807 :ok rt
+List[float64] 3 n=36 bytes= 0 0 0 32 1 1 0 18 0 0 0 3 63 248 0 0 0 0 0 0 0 0 0 0 sum=605 :ok rt
+List[(int64,string)] 2 n=41 bytes= 0 0 0 37 1 1 0 20 0 0 0 2 0 0 0 0 0 0 0 7 0 0 0 5 sum=2651 :ok rt
+nested (every type) n=114 bytes= 0 0 0 110 1 1 0 19 238 107 40 0 0 0 0 3 0 0 0 3 115 115 115 0 sum=6718 :ok rt
+hello alpha n=20 bytes= 0 0 0 16 1 0 5 97 108 112 104 97 252 50 199 48 98 19 160 68 sum=1434 digest=-273937616698367932 same_digest=true same_node=true code=:ok
+atom y*256 encode: :too_long
+types done
+exit=0

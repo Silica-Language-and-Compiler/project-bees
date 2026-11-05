@@ -4,7 +4,7 @@ cell ok
 
 === Silica Actor Failure ===
 actor_id:        4294967296
-agent_type_atom: 28
+agent_type_atom: 29
 reason:          :language_error
 reason_tag:      2
 supervisor_acb:  0xADDR
