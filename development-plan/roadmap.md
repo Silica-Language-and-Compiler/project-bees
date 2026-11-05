@@ -25,6 +25,8 @@ statements still reflect fixed point 1, and only macOS has been re-verified.
 
 
 **Re-checked 2026-11-05** on `silica-999936` (chunk 15 phases 0 to 8): all 65 trials green after the required `state_policy` argument and the buffer-with-region rule (E2323); three new Silica defects, SD-27 to SD-29, in [silica-defects.md](silica-defects.md); details in [spikes/rerun-2026-11-05.md](spikes/rerun-2026-11-05.md). Two earlier measurements need that note beside them: the 100,000-dispatch region-replacement figure below (S6) now takes quadratic time (SD-27), and a large generated module table no longer compiles in one process (SD-29). Silica's transport design (branch `binary-transport-support`) is the subject of D35.
+
+**M1b done 2026-11-05:** the typed codec and a `bees_term` codec both write ETF, byte-checked against `erl` (OTP 28); 81 trials green. See [spikes/M1b-etf-codec.md](spikes/M1b-etf-codec.md); open items are listed in its sections 7 to 9 and in mvp.md section 5.
 ---
 
 ## 1. Purpose

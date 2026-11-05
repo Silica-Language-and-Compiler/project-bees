@@ -1,14 +1,18 @@
-# The atoms bees_wire uses (rejection reasons). Every leaf that links bees_wire needs this manifest.
-rejected
+# The atoms bees_wire uses: the language's rejection reasons (Silica's transport design, section 3 of
+# development-plan/silica-transport-alignment.md). Every leaf that links bees_wire needs this manifest.
+bad_version
 truncated
+trailing_bytes
+bad_tag
 too_large
 too_deep
 too_long
-bad_text
+out_of_range
+bad_utf8
 unknown_atom
-unknown_kind
-bad_float
-bad_boolean
-bad_version
-bad_frame_kind
-trailing
+bad_variant
+missing_field
+duplicate_field
+unknown_field
+foreign_actor
+unsupported

@@ -1,0 +1,16 @@
+m1_wire_types_u64.0 n=3 hex=836100 :ok rt
+m1_wire_types_u64.1 n=6 hex=83627fffffff :ok rt
+m1_wire_types_u64.2 n=8 hex=836e040000000080 :ok rt
+m1_wire_types_u64.3 n=8 hex=836e0400ffffffff :ok rt
+m1_wire_types_u64.4 n=9 hex=836e05000000000001 :ok rt
+m1_wire_types_u64.5 n=12 hex=836e08000000000000000001 :ok rt
+m1_wire_types_u64.6 n=12 hex=836e0800ffffffffffffff7f :ok rt
+m1_wire_types_u64.7 n=12 hex=836e08000000000000000080 :ok rt
+m1_wire_types_u64.8 n=12 hex=836e0800ffffffffffffffff :ok rt
+m1_wire_types_u64.9 n=3 hex=836161 :ok rt
+m1_wire_types_u64.10 n=3 hex=836100 :ok rt
+m1_wire_types_u64.11 n=3 hex=83617f :ok rt
+m1_wire_types_u64.12 n=3 hex=83617e :ok rt
+m1_wire_types_u64.13 n=3 hex=836120 :ok rt
+m1_wire_types_u64 done
+exit=0

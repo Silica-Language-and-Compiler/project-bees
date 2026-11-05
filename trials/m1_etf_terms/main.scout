@@ -1,0 +1,12 @@
+m1_etf_terms.0 n=3 hex=836100 :ok rt
+m1_etf_terms.1 n=3 hex=8361ff :ok rt
+m1_etf_terms.2 n=6 hex=836200000100 :ok rt
+m1_etf_terms.3 n=6 hex=8362ffffffff :ok rt
+m1_etf_terms.4 n=6 hex=83627fffffff :ok rt
+m1_etf_terms.5 n=6 hex=836280000000 :ok rt
+m1_etf_terms.6 n=8 hex=836e040000000080 :ok rt
+m1_etf_terms.7 n=8 hex=836e040101000080 :ok rt
+m1_etf_terms.8 n=12 hex=836e0800ffffffffffffff7f :ok rt
+m1_etf_terms.9 n=12 hex=836e08010000000000000080 :ok rt
+m1_etf_terms done
+exit=0

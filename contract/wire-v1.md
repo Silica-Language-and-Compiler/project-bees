@@ -1,9 +1,13 @@
 # BEES wire format, version 1
 
-> **Superseded 2026-11-04.** The underlying protocol now matches the BEAM and Erlang: the Erlang distribution protocol and the
-> External Term Format. This document describes the typed, tag-free encoding built in the first codec milestone. Its limits, the
-> ASCII-only text rule, and the rejection reasons still apply to the new encoding; its frame layout and term encoding do not. It
-> stays until a revision describing the Erlang profile replaces it.
+> **Superseded 2026-11-04 and replaced in code 2026-11-05 (milestone M1b).** The underlying protocol now matches the BEAM and
+> Erlang: the Erlang distribution protocol and the External Term Format, and the reference implementation now encodes typed
+> messages as ETF (`term_to_binary/1` bytes, checked against the installed `erl`; see
+> [development-plan/spikes/M1b-etf-codec.md](../development-plan/spikes/M1b-etf-codec.md)). This document describes the typed,
+> tag-free encoding built in the first codec milestone and **no code produces it any more**. Its limits (frame 4096 bytes, depth 16,
+> 256 list elements, atom 255 bytes, string 1024 bytes) still apply to the ETF encoding; its ASCII-only text rule now covers all of
+> ASCII (0 to 127); its frame layout, kind ids, schema digest, hello frame and term encoding are gone. It stays until the Erlang
+> profile document (milestone M5) replaces it.
 
 **Status:** as verified by the reference implementation (`src/inter_nodal/bees_wire.silica` with the units that
 `tools/bees_config.py wire` generates) and by the trials `m1_wire_types`, `m1_wire_reject`, `m1_wire_words`,

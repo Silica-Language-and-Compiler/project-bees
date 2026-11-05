@@ -14,7 +14,7 @@ A compiler writes manifests next to its units. Three kinds, told apart by extens
   <unit>.module    the module table entries of one module (formats below).
   <name>.pools     requests for pools of child ids (formats below).
   <unit>.wire      message types that cross between nodes (format in tools/bees_wire_gen.py):
-                   `message <name> <silica type>`; one kind id per message in manifest order.
+                   `message <name> <silica type>`; a message is found by its name, which is also added to the atoms.
 
 `generate` writes, into OUT_DIR, each unit only when its manifests exist:
 
@@ -25,9 +25,10 @@ A compiler writes manifests next to its units. Three kinds, told apart by extens
   bees_modules.silica    when a `.module` file exists: dispatch by module, function and arity
                    (apply/3 style) and by fun id.
   bees_ids.silica        when a `.pools` file exists: child-id pools.
-  bees_wire_tables.silica, bees_wire_msgs.silica
-                   when a `.wire` file exists: the byte tables and the per-message encoders, decoders,
-                   kind ids, schema digest and dispatcher (hand-written core: src/inter_nodal/bees_wire.silica).
+  bees_wire_tables.silica, bees_wire_ints.silica, bees_wire_msgs.silica
+                   when a `.wire` file exists: the byte tables, the integer codecs and the per-message ETF
+                   encoders and decoders (enc_<name> / dec_<name>), the lookup of a message by target name and the
+                   dispatcher (hand-written core: src/inter_nodal/bees_wire.silica).
                    A message type with a field the wire does not carry is a build error (exit 1).
 
 Everything generated is sorted, so the same manifests give byte-identical units, and none of it
@@ -547,6 +548,10 @@ def generate(out_dir, manifests):
         except bees_wire_gen.WireError as e:
             print("bees_config: " + str(e), file=sys.stderr)
             return 1
+    # a message name is also an atom: the target name the receiver dispatches on (bees_wire_msgs@index_of)
+    if any(p.endswith(".wire") for p in manifests):
+        import bees_wire_gen
+        atoms = sorted(set(atoms) | set(bees_wire_gen.message_names([p for p in manifests if p.endswith(".wire")])))
     rc = write_atoms(out_dir, atoms)
     if rc == 0 and modules:
         rc = gen_modules(out_dir, atoms, modules)

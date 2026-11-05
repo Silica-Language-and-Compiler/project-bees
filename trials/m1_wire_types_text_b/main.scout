@@ -1,0 +1,18 @@
+m1_wire_types_text.17 dec :bad_tag -
+m1_wire_types_text.18 dec :ok rt
+m1_wire_types_text.19 dec :ok rt
+m1_wire_types_text.20 dec :ok rt
+m1_wire_types_text.21 dec :unknown_atom -
+m1_wire_types_text.22 dec :unknown_atom -
+m1_wire_types_text.23 dec :too_long -
+m1_wire_types_text.24 dec :unsupported -
+m1_wire_types_text.25 dec :bad_utf8 -
+m1_wire_types_text.26 dec :unsupported -
+m1_wire_types_text.27 dec :unsupported -
+m1_wire_types_text.28 dec :bad_utf8 -
+m1_wire_types_text.29 dec :bad_utf8 -
+m1_wire_types_text.30 dec :bad_tag -
+m1_wire_types_text.31 dec :too_long -
+m1_wire_types_text.32 dec :bad_tag -
+m1_wire_types_text done
+exit=0

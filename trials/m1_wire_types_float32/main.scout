@@ -1,23 +1,22 @@
-float32 0.0 n=12 bytes= 0 0 0 8 1 1 0 9 0 0 0 0 sum=19 :ok rt
-float32 NEG0 n=12 bytes= 0 0 0 8 1 1 0 9 128 0 0 0 sum=147 :ok rt
-float32 1.0 n=12 bytes= 0 0 0 8 1 1 0 9 63 128 0 0 sum=210 :ok rt
-float32 -2.5 n=12 bytes= 0 0 0 8 1 1 0 9 192 32 0 0 sum=243 :ok rt
-float32 0.1 n=12 bytes= 0 0 0 8 1 1 0 9 61 204 204 205 sum=693 :ok rt
-float32 3.4028234663852886e38 n=12 bytes= 0 0 0 8 1 1 0 9 127 127 255 255 sum=783 :ok rt
-float32 1.401298464324817e-45 n=12 bytes= 0 0 0 8 1 1 0 9 0 0 0 1 sum=20 :ok rt
-float32 1.1754943508222875e-38 n=12 bytes= 0 0 0 8 1 1 0 9 0 128 0 0 sum=147 :ok rt
-float32 8.5e-39 n=12 bytes= 0 0 0 8 1 1 0 9 0 92 142 139 sum=392 :ok rt
-float32 -3.4028234663852886e38 n=12 bytes= 0 0 0 8 1 1 0 9 255 127 255 255 sum=911 :ok rt
-float32 16777216.0 n=12 bytes= 0 0 0 8 1 1 0 9 75 128 0 0 sum=222 :ok rt
-float32 0.15625 n=12 bytes= 0 0 0 8 1 1 0 9 62 32 0 0 sum=113 :ok rt
-boolean false n=9 bytes= 0 0 0 5 1 1 0 10 0 sum=17 :ok rt
-boolean true n=9 bytes= 0 0 0 5 1 1 0 10 1 sum=18 :ok rt
-char A n=12 bytes= 0 0 0 8 1 1 0 11 0 0 0 65 sum=86 :ok rt
-char space n=12 bytes= 0 0 0 8 1 1 0 11 0 0 0 32 sum=53 :ok rt
-char tilde n=12 bytes= 0 0 0 8 1 1 0 11 0 0 0 126 sum=147 :ok rt
-char newline n=12 bytes= 0 0 0 8 1 1 0 11 0 0 0 10 sum=31 :ok rt
-char quote n=12 bytes= 0 0 0 8 1 1 0 11 0 0 0 39 sum=60 :ok rt
-char backslash n=12 bytes= 0 0 0 8 1 1 0 11 0 0 0 92 sum=113 :ok rt
-char tab n=12 bytes= 0 0 0 8 1 1 0 11 0 0 0 9 sum=30 :ok rt
+m1_wire_types_float32.0 n=10 hex=83460000000000000000 :ok rt
+m1_wire_types_float32.1 n=10 hex=83468000000000000000 :ok rt
+m1_wire_types_float32.2 n=10 hex=83463ff0000000000000 :ok rt
+m1_wire_types_float32.3 n=10 hex=8346c004000000000000 :ok rt
+m1_wire_types_float32.4 n=10 hex=83463fb99999a0000000 :ok rt
+m1_wire_types_float32.5 n=10 hex=834647efffffe0000000 :ok rt
+m1_wire_types_float32.6 n=10 hex=834636a0000000000000 :ok rt
+m1_wire_types_float32.7 n=10 hex=83463810000000000000 :ok rt
+m1_wire_types_float32.8 n=10 hex=8346380723a2c0000000 :ok rt
+m1_wire_types_float32.9 n=10 hex=8346c7efffffe0000000 :ok rt
+m1_wire_types_float32.10 n=10 hex=83464170000000000000 :ok rt
+m1_wire_types_float32.11 n=10 hex=83463fc4000000000000 :ok rt
+m1_wire_types_float32.12 dec :out_of_range -
+m1_wire_types_float32.13 dec :out_of_range -
+m1_wire_types_float32.14 dec :out_of_range -
+m1_wire_types_float32.15 dec :ok rt
+m1_wire_types_float32.16 dec :out_of_range -
+m1_wire_types_float32.17 dec :unsupported -
+m1_wire_types_float32.18 dec :out_of_range -
+m1_wire_types_float32.19 dec :bad_tag -
 m1_wire_types_float32 done
 exit=0

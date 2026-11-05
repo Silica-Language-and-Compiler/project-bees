@@ -1,8 +1,8 @@
-// M1: a frame as 8-byte words. A frame is encoded into a byte buffer, read out as big-endian int64 words
+// M1b: an ETF frame as 8-byte words. A frame is encoded into a byte buffer, read out as big-endian int64 words
 // (bytes past the frame length read as zero even when the buffer holds garbage), written into a second buffer
-// word by word, and the copy must be byte-identical, zero-padded, valid and decode to the same value.
+// word by word, and the copy must be byte-identical, zero-padded and valid.
 // This is the shape M2 needs: the foreign-function boundary moves one int64 per call.
-// A line is `<case>: words=<count> total=<from word 0> w0=<first word> wlast=<last word> same=<> pad0=<> check=<reason>`.
+// A line is `<case>: n=<bytes> words=<count> w0=<first word> wlast=<last word> same=<> pad0=<> check=<reason>`.
 use bees_atoms;
 use bees_wire;
 use bees_wire_msgs;
@@ -42,7 +42,7 @@ fn zeros(rg: region(L, normal), c: buf(L, normal, uint8, 4096), i: int64, stop: 
         false -> case bees_wire@rb_i(rg, c, i) == 0 of { true -> zeros(rg, c, i + 1, stop); false -> false }
     }
 }
-fn report(rg: region(L, normal), label: string, a: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096), n: int64) -> int64 {
+fn report(rg: region(L, normal), label: string, a: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096), n: int64, name: atom) -> int64 {
     sequence proc[device_io]
         count: int64 <- bees_wire@word_count(n);
         print_string(label);
@@ -50,8 +50,6 @@ fn report(rg: region(L, normal), label: string, a: buf(L, normal, uint8, 4096), 
         _: atom <- print_int64(n);
         print_string(" words=");
         _: atom <- print_int64(count);
-        print_string(" total=");
-        _: atom <- print_int64(bees_wire@frame_total_from_word0(bees_wire@get_word(rg, a, n, 0)));
         print_string(" w0=");
         _: atom <- print_int64(bees_wire@get_word(rg, a, n, 0));
         print_string(" wlast=");
@@ -62,7 +60,7 @@ fn report(rg: region(L, normal), label: string, a: buf(L, normal, uint8, 4096), 
         print_string(" pad0=");
         _: atom <- print_boolean(zeros(rg, c, n, count * 8));
         print_string(" check=");
-        _: atom <- print_atom(bees_wire@reason_atom(bees_wire_msgs@validate(rg, c, n)));
+        _: atom <- print_atom(bees_wire@reason_atom(bees_wire_msgs@validate_named(rg, c, n, name)));
         println("")
     produces pure 0 end
 }
@@ -96,19 +94,19 @@ fn go(rg: region(L, normal), a: buf(L, normal, uint8, 4096), c: buf(L, normal, u
     sequence
         _: int64 <- flood2(rg, c, 0);
         n1: int64 <- bees_wire_msgs@enc_wmsg(rg, a, v1());
-        _: int64 <- report(rg, "wmsg -1,hello,-2.5", a, c, n1);
+        _: int64 <- report(rg, "wmsg -1,hello,-2.5", a, c, n1, bees_atoms@a_wmsg());
         _: int64 <- flood2(rg, c, 0);
         n2: int64 <- bees_wire_msgs@enc_wmsg(rg, a, v2());
-        _: int64 <- report(rg, "wmsg int64 min,empty,1e300", a, c, n2);
+        _: int64 <- report(rg, "wmsg int64 min,empty,1e300", a, c, n2, bees_atoms@a_wmsg());
         _: int64 <- flood2(rg, c, 0);
         n3: int64 <- bees_wire_msgs@enc_lst(rg, a, ff(256));
-        _: int64 <- report(rg, "List[uint8] 256 x 255", a, c, n3);
+        _: int64 <- report(rg, "List[uint8] 256 x 255", a, c, n3, bees_atoms@a_lst());
         _: int64 <- flood2(rg, c, 0);
         n4: int64 <- bees_wire_msgs@enc_lst(rg, a, ff(0));
-        _: int64 <- report(rg, "List[uint8] empty", a, c, n4);
+        _: int64 <- report(rg, "List[uint8] empty", a, c, n4, bees_atoms@a_lst());
         _: int64 <- flood2(rg, c, 0);
-        n5: int64 <- bees_wire_msgs@enc_lstr(rg, a, strs(4, 996));
-        _: int64 <- report(rg, "frame of 4096 bytes", a, c, n5)
+        n5: int64 <- bees_wire_msgs@enc_lstr(rg, a, strs(4, 997));
+        _: int64 <- report(rg, "frame of 4096 bytes", a, c, n5, bees_atoms@a_lstr())
     produces pure 0 end
 }
 fn main() -> int64 {
@@ -118,6 +116,13 @@ fn main() -> int64 {
         a: buf(L, normal, uint8, 4096) <- alloc_buf(rg, 4096);
         c: buf(L, normal, uint8, 4096) <- alloc_buf(rg, 4096);
         _: int64 <- go(rg, a, c);
+        print_string("frame_total_from_word0 (4-byte length prefix framing of the distribution layer), prefix 100 / 4092 / 2^31: ");
+        _: atom <- print_int64(bees_wire@frame_total_from_word0(429496729600));
+        print_string(" ");
+        _: atom <- print_int64(bees_wire@frame_total_from_word0(17575017316352));
+        print_string(" ");
+        _: atom <- print_int64(bees_wire@frame_total_from_word0(-9223372036854775808));
+        println("");
         println("words done")
     produces pure 0 end
 }

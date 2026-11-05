@@ -1,21 +1,20 @@
-uint8 0 n=9 bytes= 0 0 0 5 1 1 0 0 0 sum=7 :ok rt
-uint8 255 n=9 bytes= 0 0 0 5 1 1 0 0 255 sum=262 :ok rt
-uint8 1 n=9 bytes= 0 0 0 5 1 1 0 0 1 sum=8 :ok rt
-uint8 128 n=9 bytes= 0 0 0 5 1 1 0 0 128 sum=135 :ok rt
-uint16 0 n=10 bytes= 0 0 0 6 1 1 0 1 0 0 sum=9 :ok rt
-uint16 65535 n=10 bytes= 0 0 0 6 1 1 0 1 255 255 sum=519 :ok rt
-uint16 1 n=10 bytes= 0 0 0 6 1 1 0 1 0 1 sum=10 :ok rt
-uint16 256 n=10 bytes= 0 0 0 6 1 1 0 1 1 0 sum=10 :ok rt
-uint16 32768 n=10 bytes= 0 0 0 6 1 1 0 1 128 0 sum=137 :ok rt
-uint32 0 n=12 bytes= 0 0 0 8 1 1 0 2 0 0 0 0 sum=12 :ok rt
-uint32 4294967295 n=12 bytes= 0 0 0 8 1 1 0 2 255 255 255 255 sum=1032 :ok rt
-uint32 1 n=12 bytes= 0 0 0 8 1 1 0 2 0 0 0 1 sum=13 :ok rt
-uint32 65536 n=12 bytes= 0 0 0 8 1 1 0 2 0 1 0 0 sum=13 :ok rt
-uint32 2147483648 n=12 bytes= 0 0 0 8 1 1 0 2 128 0 0 0 sum=140 :ok rt
-uint64 0 n=16 bytes= 0 0 0 12 1 1 0 3 0 0 0 0 0 0 0 0 sum=17 :ok rt
-uint64 18446744073709551615 n=16 bytes= 0 0 0 12 1 1 0 3 255 255 255 255 255 255 255 255 sum=2057 :ok rt
-uint64 1 n=16 bytes= 0 0 0 12 1 1 0 3 0 0 0 0 0 0 0 1 sum=18 :ok rt
-uint64 72057594037927936 n=16 bytes= 0 0 0 12 1 1 0 3 1 0 0 0 0 0 0 0 sum=18 :ok rt
-uint64 9223372036854775808 n=16 bytes= 0 0 0 12 1 1 0 3 128 0 0 0 0 0 0 0 sum=145 :ok rt
+m1_wire_types.0 n=3 hex=836100 :ok rt
+m1_wire_types.1 n=3 hex=836101 :ok rt
+m1_wire_types.2 n=3 hex=83617f :ok rt
+m1_wire_types.3 n=3 hex=836180 :ok rt
+m1_wire_types.4 n=3 hex=8361ff :ok rt
+m1_wire_types.5 n=3 hex=836100 :ok rt
+m1_wire_types.6 n=3 hex=8361ff :ok rt
+m1_wire_types.7 n=6 hex=836200000100 :ok rt
+m1_wire_types.8 n=6 hex=836200007fff :ok rt
+m1_wire_types.9 n=6 hex=836200008000 :ok rt
+m1_wire_types.10 n=6 hex=83620000ffff :ok rt
+m1_wire_types.11 n=3 hex=836100 :ok rt
+m1_wire_types.12 n=3 hex=8361ff :ok rt
+m1_wire_types.13 n=6 hex=836200000100 :ok rt
+m1_wire_types.14 n=6 hex=83620000ffff :ok rt
+m1_wire_types.15 n=6 hex=836200010000 :ok rt
+m1_wire_types.16 n=6 hex=83627fffffff :ok rt
+m1_wire_types.17 n=8 hex=836e040000000080 :ok rt
 m1_wire_types done
 exit=0

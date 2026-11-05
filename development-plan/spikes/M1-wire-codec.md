@@ -1,5 +1,9 @@
 # M1: the wire codec, in memory
 
+> **Superseded by [M1b-etf-codec.md](M1b-etf-codec.md) (2026-11-05).** The typed tag-free encoding described here was replaced by ETF; the
+> generator, `bees_wire` and the trials were retargeted, kind ids, the digest and the hello frame are gone, and the reasons were
+> renamed to the language's atoms. What follows is the record of M1 as it was.
+
 **Status:** run 2026-11-04 on `silica-999939-macos-applesilicon`. **Done.** Every supported type round-trips, hostile
 frames are refused without a fault, and 200,000 frames cost 1.9 MB. Nothing here touches a socket, the network or a
 foreign call. The format is in [`contract/wire-v1.md`](../../contract/wire-v1.md); the plan is

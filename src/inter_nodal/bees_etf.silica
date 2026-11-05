@@ -1,0 +1,176 @@
+// bees_etf: ETF for terms of ANY shape, the checking half (BEES MVP milestone M1b; the lasting part: Silica's receiving
+// type is always static, so a compiled BEAM program that sends and receives terms of any shape needs its own codec).
+//
+// This unit holds everything that needs no term cell: the structural validator of one ETF term (check), the frame
+// check (validate), and BEES's own remote reference, the NEW_PID_EXT / PID_EXT pid (enc_pid, dec_pid): the node as an
+// atom, a 4-byte id, a 4-byte serial and a creation. Silica's actor_ref is NOT used for a foreign pid (a BEES
+// implementation detail: foreign references are plain values here). The terms themselves are built and written by
+// bees_etf_term (generated: tools/gen_bees_etf.py), which spells bees_term's cell type.
+//
+// What a term may hold: integers (up to 64 bits), floats, atoms (ONLY atoms the program holds, bees_atoms; unknown
+// atoms are rejected :unknown_atom), binaries, tuples, lists (proper or not), nil, STRING_EXT (a list of small ints),
+// and pids. Maps are NOT supported: bees_term has no map cell, so MAP_EXT is rejected :unsupported (as are funs,
+// references, ports, bit binaries, compressed terms and atom cache references). Limits as the typed codec: depth 16,
+// 256 list elements or tuple components, atoms of 255 bytes, binaries of 1024 bytes, a frame of 4096 bytes. The
+// validator allocates nothing, so a hostile frame costs no memory.
+module bees_etf;
+use bees_atoms;
+use bees_wire;
+use bees_wire_ints;
+
+export check/5;
+export validate/3;
+export end_of/4;
+export enc_pid/7;
+export dec_pid/4;
+export dec_pid_node/4;
+export dec_pid_id/4;
+export dec_pid_serial/4;
+export dec_pid_creation/4;
+export dec_pid_code/4;
+
+fn bi(rg: region(L, normal), b: buf(L, normal, uint8, 4096), i: int64) -> int64 { bees_wire@bi(rg, b, i) }
+fn u32(rg: region(L, normal), b: buf(L, normal, uint8, 4096), i: int64) -> int64 { bees_wire@rd_u32(rg, b, i) }
+fn have(len: int64, pos: int64, n: int64) -> boolean { bees_wire@have(len, pos, n) }
+fn enter_at(pos: int64, k: int64, depth: int64) -> int64 { bees_wire@enter(pos + k, depth) }
+fn atom_from(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, p: int64) -> { v: atom, pos: int64 } { bees_wire@dec_atom(rg, b, len, p) }
+fn i64_at(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, p: int64) -> { v: int64, pos: int64 } { bees_wire_ints@dec_int64(rg, b, len, p) }
+fn f64_at(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, p: int64) -> { v: float64, pos: int64 } { bees_wire@dec_f64(rg, b, len, p) }
+fn adv(len: int64, pos: int64, n: int64) -> int64 { case have(len, pos, n) of { true -> pos + n; false -> 0 - 2 } }
+
+// ---- check: walk one term, enforcing everything decoding needs; the position after it, or the rejection ----
+fn check(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, depth: int64) -> int64 {
+    case have(len, pos, 1) of {
+        false -> bees_wire@fail(pos, 2);
+        true -> check_tag(rg, b, len, pos, depth, bi(rg, b, pos))
+    }
+}
+fn check_tag(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, depth: int64, tag: int64) -> int64 {
+    case tag of {
+        97 -> i64_at(rg, b, len, pos).pos;
+        98 -> i64_at(rg, b, len, pos).pos;
+        110 -> i64_at(rg, b, len, pos).pos;
+        70 -> f64_at(rg, b, len, pos).pos;
+        100 -> atom_from(rg, b, len, pos).pos;
+        115 -> atom_from(rg, b, len, pos).pos;
+        118 -> atom_from(rg, b, len, pos).pos;
+        119 -> atom_from(rg, b, len, pos).pos;
+        106 -> pos + 1;
+        107 -> check_str(rg, b, len, pos, depth);
+        108 -> check_list(rg, b, len, pos, depth);
+        109 -> check_bin(rg, b, len, pos);
+        104 -> check_tuple(rg, b, len, pos, depth, 2, bi(rg, b, pos + 1));
+        105 -> check_tuple(rg, b, len, pos, depth, 5, u32(rg, b, pos + 1));
+        88 -> check_pid(rg, b, len, atom_from(rg, b, len, pos + 1), 12);
+        103 -> check_pid(rg, b, len, atom_from(rg, b, len, pos + 1), 9);
+        116 -> 0 - 16;
+        _: int64 -> 0 - bees_wire@tag_reason(tag)
+    }
+}
+fn check_str(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, depth: int64) -> int64 {
+    case depth >= 16 of {
+        true -> 0 - 6;
+        false -> case have(len, pos, 3) of {
+            false -> 0 - 2;
+            true -> case bi(rg, b, pos + 1) * 256 + bi(rg, b, pos + 2) > 256 of {
+                true -> 0 - 7;
+                false -> adv(len, pos, 3 + bi(rg, b, pos + 1) * 256 + bi(rg, b, pos + 2))
+            }
+        }
+    }
+}
+fn check_bin(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> int64 {
+    case have(len, pos, 5) of {
+        false -> 0 - 2;
+        true -> case u32(rg, b, pos + 1) > 1024 of { true -> 0 - 7; false -> adv(len, pos, 5 + u32(rg, b, pos + 1)) }
+    }
+}
+// a tuple: SMALL_TUPLE_EXT (header 2 bytes, arity at pos + 1) or LARGE_TUPLE_EXT (5 bytes); `n` is read by the caller
+fn check_tuple(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, depth: int64, hdr: int64, n: int64) -> int64 {
+    case have(len, pos, hdr) of {
+        false -> 0 - 2;
+        true -> case n > 256 of {
+            true -> 0 - 7;
+            false -> check_items(rg, b, len, enter_at(pos, hdr, depth), n, depth + 1)
+        }
+    }
+}
+fn check_items(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, n: int64, depth: int64) -> int64 {
+    case pos < 0 or n <= 0 of {
+        true -> pos;
+        false -> check_items(rg, b, len, check(rg, b, len, pos, depth), n - 1, depth)
+    }
+}
+fn check_list(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, depth: int64) -> int64 {
+    case have(len, pos, 5) of {
+        false -> 0 - 2;
+        true -> check_list_n(rg, b, len, pos, depth, u32(rg, b, pos + 1))
+    }
+}
+fn check_list_n(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, depth: int64, n: int64) -> int64 {
+    case n > 256 of {
+        true -> 0 - 7;
+        false -> case have(len, pos + 5, n) of {
+            false -> 0 - 2;
+            true -> check(rg, b, len, check_items(rg, b, len, enter_at(pos, 5, depth), n, depth + 1), depth + 1)
+        }
+    }
+}
+fn check_pid(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, a: { v: atom, pos: int64 }, after: int64) -> int64 {
+    case a.pos < 0 of { true -> a.pos; false -> adv(len, a.pos, after) }
+}
+// the position after the term at pos, for a term that check has accepted (the depth restarts at 0: a subtree is shallower)
+fn end_of(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> int64 { check(rg, b, len, pos, 0) }
+
+// 0 for a valid frame (131 and exactly one term), else the rejection reason code (bees_wire@reason_atom names it)
+fn validate(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64) -> int64 {
+    bees_wire@code_of(bees_wire@close(check(rg, b, len, bees_wire@hdr(rg, b, len), 0), len))
+}
+
+// ---- BEES's own remote reference: NEW_PID_EXT (88: node atom, id 4, serial 4, creation 4) and PID_EXT (103: node atom,
+// id 4, serial 4, creation 1). The value is (node, id, serial, creation), the three numbers 0..2^32-1. ----
+fn pid_fail(p: int64) -> { node: atom, id: int64, serial: int64, creation: int64, pos: int64 } {
+    { node: :ok, id: 0, serial: 0, creation: 0, pos: p }
+}
+fn dec_pid(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> { node: atom, id: int64, serial: int64, creation: int64, pos: int64 } {
+    case have(len, pos, 1) of {
+        false -> pid_fail(bees_wire@fail(pos, 2));
+        true -> pid_tag(rg, b, len, pos, bi(rg, b, pos))
+    }
+}
+fn pid_tag(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, tag: int64) -> { node: atom, id: int64, serial: int64, creation: int64, pos: int64 } {
+    case tag of {
+        88 -> pid_body(rg, b, len, atom_from(rg, b, len, pos + 1), 12);
+        103 -> pid_body(rg, b, len, atom_from(rg, b, len, pos + 1), 9);
+        _: int64 -> pid_fail(0 - bees_wire@tag_reason(tag))
+    }
+}
+fn pid_body(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, a: { v: atom, pos: int64 }, after: int64) -> { node: atom, id: int64, serial: int64, creation: int64, pos: int64 } {
+    case a.pos < 0 of {
+        true -> pid_fail(a.pos);
+        false -> case have(len, a.pos, after) of {
+            false -> pid_fail(0 - 2);
+            true -> { node: a.v, id: u32(rg, b, a.pos), serial: u32(rg, b, a.pos + 4), creation: pid_creation(rg, b, a.pos + 8, after == 12), pos: a.pos + after }
+        }
+    }
+}
+fn pid_creation(rg: region(L, normal), b: buf(L, normal, uint8, 4096), p: int64, big: boolean) -> int64 { case big of { true -> u32(rg, b, p); false -> bi(rg, b, p) } }
+// the same, one field each, for a caller that needs only that field (the position of a failure is dec_pid_code)
+fn dec_pid_node(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> atom { dec_pid(rg, b, len, pos).node }
+fn dec_pid_id(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> int64 { dec_pid(rg, b, len, pos).id }
+fn dec_pid_serial(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> int64 { dec_pid(rg, b, len, pos).serial }
+fn dec_pid_creation(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> int64 { dec_pid(rg, b, len, pos).creation }
+fn dec_pid_code(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> int64 { dec_pid(rg, b, len, pos).pos }
+
+fn in32(n: int64) -> boolean { n >= 0 and n <= 4294967295 }
+// NEW_PID_EXT for (node, id, serial, creation); out_of_range for a number that is not 32 bits, unknown_atom for a node
+// the program does not hold
+fn enc_pid(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, node: atom, id: int64, serial: int64, creation: int64) -> int64 {
+    case pos < 0 of {
+        true -> pos;
+        false -> case in32(id) and in32(serial) and in32(creation) of {
+            false -> 0 - 8;
+            true -> bees_wire@put_u32(rg, b, bees_wire@put_u32(rg, b, bees_wire@put_u32(rg, b, bees_wire@enc_atom(rg, b, bees_wire@put_i(rg, b, pos, 88), node), id), serial), creation)
+        }
+    }
+}

@@ -1,4 +1,4 @@
-# M1 rejection trial: messages whose frames are fed hostile bytes. deep17 nests 17 levels, one above the limit
+# M1b rejection trial: messages whose frames are fed hostile bytes. deep17 nests 17 levels, one above the limit
 # (bees_config warns; every frame of it is rejected as too_deep).
 message small { a: uint16, s: string, l: List[uint8], at: atom, ok: boolean }
 message lst List[uint8]

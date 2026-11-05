@@ -1,25 +1,27 @@
-// bees_wire: the wire codec core (BEES MVP milestone M1; the format is contract/wire-v1.md).
+// bees_wire: the typed ETF codec core (BEES MVP milestone M1b; formats: ETF as `term_to_binary/1` of OTP 26+ writes it).
 //
-// A frame lives in a byte buffer buf(L, normal, uint8, 4096) (the largest frame) and a length in bytes,
-// carried beside it as an int64. This unit holds the byte, integer, float, boolean, char, string and atom
-// readers and writers, the bounds-checked frame header, the depth and count checks, and the packing of a
-// frame into 8-byte words. The per-message encoders and decoders are generated (bees_wire_msgs).
+// A frame is the bytes of one External Term Format term, starting with the version byte 131, in a byte buffer
+// buf(L, normal, uint8, 4096) (the largest frame) with its length in bytes carried beside it as an int64. This unit
+// holds the byte, float, boolean, char, string and atom readers and writers, the integer header and the integer
+// emitter (the typed integer widths are generated: bees_wire_ints), the tuple, map and list headers, a structural
+// skipper, the frame check, the limits, and the packing of a frame into 8-byte words. The per-message encoders and
+// decoders are generated (bees_wire_msgs).
 //
 // Conventions that make the whole codec free of exceptions and of unbounded allocation:
-//  - A POSITION is an int64 cursor into the frame. A negative position is a REJECTION: -pos is the reason
-//    code (reason_*). Every reader and writer returns it unchanged when it is handed one ("sticky"), so a
-//    generated codec threads the position through its fields and checks once at the end.
+//  - A POSITION is an int64 cursor into the frame. A negative position is a REJECTION: -pos is the reason code
+//    (reason_*). Every reader and writer returns it unchanged when it is handed one ("sticky"), so a generated
+//    codec threads the position through its fields and checks once at the end.
 //  - A decoder returns { v, pos }: the value (a zero value when pos < 0) and the next position.
-//  - Every read is checked (have) before it is made, so an out-of-bounds read, which would end the actor,
-//    never happens; every write checks the 4096-byte capacity.
-//  - Counts and lengths are checked against their limits (and a list count against the bytes left) BEFORE
-//    anything is allocated, so a hostile frame allocates at most what a valid 4 KiB frame would.
-//  - Silica has no conversion between types: every byte <-> typed integer step is a lookup in
-//    bees_wire_tables or same-type arithmetic. Floats are built from per-bit powers of two and taken apart
-//    by comparison against powers of two (all exact), as in spike S5.
-//  - Text (strings, atom spellings, chars) is ASCII only: tab, newline, carriage return and 0x20..0x7E.
-//    Silica's string operations are UTF-8 aware and have no bytes-to-string conversion, so bytes become
-//    text through a one-character literal per byte; any other byte is rejected as bad_text.
+//  - Every read is checked (have) before it is made, so an out-of-bounds read, which would end the actor, never
+//    happens; every write checks the 4096-byte capacity.
+//  - Counts and lengths are checked against their limits (and a list count against the bytes left) BEFORE anything is
+//    allocated, so a hostile frame allocates at most what a valid 4 KiB frame would.
+//  - Silica has no conversion between types: every byte <-> typed integer step is a lookup in bees_wire_tables or
+//    same-type arithmetic. Floats are built from per-bit powers of two and taken apart by comparison against powers
+//    of two (all exact), as in spike S5. A float32 travels as the float64 of the same value (ETF has no float32).
+//  - Text (strings, atom spellings, chars) is ASCII: 0x00..0x7F. Valid UTF-8 beyond ASCII is :unsupported (Silica has
+//    no byte-to-character conversion for it), invalid UTF-8 is :bad_utf8.
+//  - The rejection reasons are the language's atoms (Silica's transport design); see reason_atom.
 module bees_wire;
 use bees_atoms;
 use bees_wire_tables;
@@ -29,61 +31,37 @@ export max_depth/0;
 export max_list/0;
 export max_atom/0;
 export max_string/0;
-export version/0;
-export reason_truncated/0;
-export reason_too_large/0;
-export reason_too_deep/0;
-export reason_too_long/0;
-export reason_bad_text/0;
-export reason_unknown_atom/0;
-export reason_unknown_kind/0;
-export reason_bad_float/0;
-export reason_bad_boolean/0;
-export reason_bad_version/0;
-export reason_bad_frame_kind/0;
-export reason_trailing/0;
-export reason_atom/1;
 export code_of/1;
+export reason_atom/1;
+export tag_reason/1;
+export have/3;
+export fail/2;
 export enter/2;
-export enc_count/4;
-export dec_count/5;
-export put_prefix/3;
-export finish/3;
-export open_send/4;
-export kind_of/4;
-export close/2;
-export frame_kind/2;
-export enc_hello/4;
-export dec_hello/3;
-export frame_open/3;
-export word_count/1;
-export get_word/4;
-export put_word/4;
-export frame_total_from_word0/1;
 export rb/3;
 export rb_i/3;
-export put_i/4;
-export put_u32/4;
+export bi/3;
+export rd_u32/3;
 export put_u8/4;
-export put_ascii/6;
-export dec_ascii/5;
-
-export enc_u8/4;
-export dec_u8/4;
-export enc_u16/4;
-export dec_u16/4;
-export enc_u32/4;
-export dec_u32/4;
-export enc_u64/4;
-export dec_u64/4;
-export enc_i8/4;
-export dec_i8/4;
-export enc_i16/4;
-export dec_i16/4;
-export enc_i32/4;
-export dec_i32/4;
-export enc_i64/4;
-export dec_i64/4;
+export put_i/4;
+export put_u16/4;
+export put_u32/4;
+export hdr/3;
+export put_hdr/2;
+export finish/3;
+export close/2;
+export expect/5;
+export int_hdr/4;
+export emit_int/6;
+export put_tuple_hdr/4;
+export tuple_hdr/5;
+export put_map_hdr/4;
+export dec_map_hdr/5;
+export put_list_hdr/4;
+export put_string_hdr/4;
+export put_nil/3;
+export list_hdr/6;
+export expect_nil/4;
+export skip/5;
 export enc_f32/4;
 export dec_f32/4;
 export enc_f64/4;
@@ -92,30 +70,40 @@ export enc_bool/4;
 export dec_bool/4;
 export enc_char/4;
 export dec_char/4;
+export dec_byte_char/4;
+export put_byte_char/4;
 export enc_atom/4;
 export dec_atom/4;
 export enc_string/4;
 export dec_string/4;
+export put_atom_text/4;
+export dec_atom_text/4;
+export ih/4;
+export word_count/1;
+export get_word/4;
+export put_word/4;
+export frame_total_from_word0/1;
+export reason_bad_version/0;
+export reason_truncated/0;
+export reason_trailing_bytes/0;
+export reason_bad_tag/0;
+export reason_too_large/0;
+export reason_too_deep/0;
+export reason_too_long/0;
+export reason_out_of_range/0;
+export reason_bad_utf8/0;
+export reason_unknown_atom/0;
+export reason_bad_variant/0;
+export reason_missing_field/0;
+export reason_duplicate_field/0;
+export reason_unknown_field/0;
+export reason_foreign_actor/0;
+export reason_unsupported/0;
 
 // ---- local wrappers of the tables (an argument such as `v / 256` is only typed for a local call) ----
 fn tab_u8_int64(b: uint8) -> int64 { bees_wire_tables@tab_u8_int64(b) }
-fn lb_int64(n: int64) -> uint8 { bees_wire_tables@lb_int64(n) }
-fn tab_u8_int32(b: uint8) -> int32 { bees_wire_tables@tab_u8_int32(b) }
-fn lb_int32(n: int32) -> uint8 { bees_wire_tables@lb_int32(n) }
-fn tab_u8_int16(b: uint8) -> int16 { bees_wire_tables@tab_u8_int16(b) }
-fn lb_int16(n: int16) -> uint8 { bees_wire_tables@lb_int16(n) }
-fn tab_u8_uint16(b: uint8) -> uint16 { bees_wire_tables@tab_u8_uint16(b) }
-fn lb_uint16(n: uint16) -> uint8 { bees_wire_tables@lb_uint16(n) }
-fn tab_u8_uint32(b: uint8) -> uint32 { bees_wire_tables@tab_u8_uint32(b) }
-fn lb_uint32(n: uint32) -> uint8 { bees_wire_tables@lb_uint32(n) }
-fn tab_u8_uint64(b: uint8) -> uint64 { bees_wire_tables@tab_u8_uint64(b) }
-fn lb_uint64(n: uint64) -> uint8 { bees_wire_tables@lb_uint64(n) }
-fn tab_s8_int8(b: uint8) -> int8 { bees_wire_tables@tab_s8_int8(b) }
-fn tab_s8_int16(b: uint8) -> int16 { bees_wire_tables@tab_s8_int16(b) }
-fn tab_s8_int32(b: uint8) -> int32 { bees_wire_tables@tab_s8_int32(b) }
 fn tab_s8_int64(b: uint8) -> int64 { bees_wire_tables@tab_s8_int64(b) }
-fn lb_int8(n: int8) -> uint8 { bees_wire_tables@lb_int8(n) }
-fn tab_is_text(b: uint8) -> boolean { bees_wire_tables@tab_is_text(b) }
+fn lb_int64(n: int64) -> uint8 { bees_wire_tables@lb_int64(n) }
 fn tab_text_str(b: uint8) -> string { bees_wire_tables@tab_text_str(b) }
 fn tab_text_char(b: uint8) -> char { bees_wire_tables@tab_text_char(b) }
 fn tab_str_byte(c: string) -> int64 { bees_wire_tables@tab_str_byte(c) }
@@ -127,39 +115,46 @@ fn max_depth() -> int64 { 16 }
 fn max_list() -> int64 { 256 }
 fn max_atom() -> int64 { 255 }
 fn max_string() -> int64 { 1024 }
-fn version() -> int64 { 1 }
 
-// ---- rejection reasons: a positive code; a negative position is a code negated ----
-fn reason_truncated() -> int64 { 1 }
-fn reason_too_large() -> int64 { 2 }
-fn reason_too_deep() -> int64 { 3 }
-fn reason_too_long() -> int64 { 4 }
-fn reason_bad_text() -> int64 { 5 }
-fn reason_unknown_atom() -> int64 { 6 }
-fn reason_unknown_kind() -> int64 { 7 }
-fn reason_bad_float() -> int64 { 8 }
-fn reason_bad_boolean() -> int64 { 9 }
-fn reason_bad_version() -> int64 { 10 }
-fn reason_bad_frame_kind() -> int64 { 11 }
-fn reason_trailing() -> int64 { 12 }
+// ---- rejection reasons: a positive code; a negative position is a code negated. The names are the language's. ----
+fn reason_bad_version() -> int64 { 1 }
+fn reason_truncated() -> int64 { 2 }
+fn reason_trailing_bytes() -> int64 { 3 }
+fn reason_bad_tag() -> int64 { 4 }
+fn reason_too_large() -> int64 { 5 }
+fn reason_too_deep() -> int64 { 6 }
+fn reason_too_long() -> int64 { 7 }
+fn reason_out_of_range() -> int64 { 8 }
+fn reason_bad_utf8() -> int64 { 9 }
+fn reason_unknown_atom() -> int64 { 10 }
+fn reason_bad_variant() -> int64 { 11 }
+fn reason_missing_field() -> int64 { 12 }
+fn reason_duplicate_field() -> int64 { 13 }
+fn reason_unknown_field() -> int64 { 14 }
+fn reason_foreign_actor() -> int64 { 15 }
+fn reason_unsupported() -> int64 { 16 }
 
 // 0 is accepted (the fixed atom :ok); every other code is one of the reason atoms.
 fn reason_atom(code: int64) -> atom {
     case code of {
         0 -> :ok;
-        1 -> bees_atoms@a_truncated();
-        2 -> bees_atoms@a_too_large();
-        3 -> bees_atoms@a_too_deep();
-        4 -> bees_atoms@a_too_long();
-        5 -> bees_atoms@a_bad_text();
-        6 -> bees_atoms@a_unknown_atom();
-        7 -> bees_atoms@a_unknown_kind();
-        8 -> bees_atoms@a_bad_float();
-        9 -> bees_atoms@a_bad_boolean();
-        10 -> bees_atoms@a_bad_version();
-        11 -> bees_atoms@a_bad_frame_kind();
-        12 -> bees_atoms@a_trailing();
-        _: int64 -> bees_atoms@a_rejected()
+        1 -> bees_atoms@a_bad_version();
+        2 -> bees_atoms@a_truncated();
+        3 -> bees_atoms@a_trailing_bytes();
+        4 -> bees_atoms@a_bad_tag();
+        5 -> bees_atoms@a_too_large();
+        6 -> bees_atoms@a_too_deep();
+        7 -> bees_atoms@a_too_long();
+        8 -> bees_atoms@a_out_of_range();
+        9 -> bees_atoms@a_bad_utf8();
+        10 -> bees_atoms@a_unknown_atom();
+        11 -> bees_atoms@a_bad_variant();
+        12 -> bees_atoms@a_missing_field();
+        13 -> bees_atoms@a_duplicate_field();
+        14 -> bees_atoms@a_unknown_field();
+        15 -> bees_atoms@a_foreign_actor();
+        16 -> bees_atoms@a_unsupported();
+        _: int64 -> bees_atoms@a_unsupported()
     }
 }
 
@@ -167,6 +162,16 @@ fn code_of(pos: int64) -> int64 { case pos < 0 of { true -> 0 - pos; false -> 0 
 // a failed position stays as it is; a good one becomes the rejection for `code`
 fn fail(pos: int64, code: int64) -> int64 { case pos < 0 of { true -> pos; false -> 0 - code } }
 fn have(len: int64, pos: int64, n: int64) -> boolean { pos >= 0 and n >= 0 and pos + n <= len and len <= 4096 }
+// The reason for a tag that is not what the reader expected: a tag of the format that BEES does not implement
+// (compressed terms, atom cache references, pids and ports and references and funs as typed values, bit binaries,
+// large bigs, the old float text) is :unsupported; any other tag is :bad_tag.
+fn tag_reason(tag: int64) -> int64 {
+    case tag of {
+        77 -> 16; 80 -> 16; 82 -> 16; 88 -> 16; 89 -> 16; 90 -> 16; 99 -> 16; 101 -> 16; 102 -> 16; 103 -> 16;
+        111 -> 16; 112 -> 16; 113 -> 16; 114 -> 16; 117 -> 16; 120 -> 16; 121 -> 16;
+        _: int64 -> 4
+    }
+}
 
 // ---- bytes ----
 fn rb(rg: region(L, normal), b: buf(L, normal, uint8, 4096), i: int64) -> uint8 {
@@ -177,16 +182,12 @@ fn rb(rg: region(L, normal), b: buf(L, normal, uint8, 4096), i: int64) -> uint8 
 fn bi(rg: region(L, normal), b: buf(L, normal, uint8, 4096), i: int64) -> int64 { tab_u8_int64(rb(rg, b, i)) }
 // a byte of the frame as an int64 (0..255); the index must be inside the buffer
 fn rb_i(rg: region(L, normal), b: buf(L, normal, uint8, 4096), i: int64) -> int64 { bi(rg, b, i) }
-// write the byte n (0..255, as an int64) at pos; and an int64 below 2^32 as four big-endian bytes
-fn put_i(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, n: int64) -> int64 { put_u8(rg, b, pos, lb_int64(n)) }
-fn put_u32(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, n: int64) -> int64 { put_u32_of(rg, b, pos, n) }
-
 // Write one byte at pos and return pos + 1; a negative pos stays; past the buffer is too_large.
 fn put_u8(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, v: uint8) -> int64 {
     case pos < 0 of {
         true -> pos;
         false -> case pos >= 4096 of {
-            true -> 0 - 2;
+            true -> 0 - 5;
             false -> {
                 sequence proc[mem(normal)]
                     _: atom <- write_buf(b, pos, v)
@@ -195,131 +196,331 @@ fn put_u8(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, v: 
         }
     }
 }
+// write the byte n (0..255, as an int64) at pos
+fn put_i(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, n: int64) -> int64 { put_u8(rg, b, pos, lb_int64(n)) }
+fn put_u16(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, n: int64) -> int64 { put_i(rg, b, put_i(rg, b, pos, n / 256), n) }
 // the unsigned 32-bit value at pos as an int64 (the caller has checked have(len, pos, 4))
 fn rd_u32(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64) -> int64 {
     bi(rg, b, pos) * 16777216 + bi(rg, b, pos + 1) * 65536 + bi(rg, b, pos + 2) * 256 + bi(rg, b, pos + 3)
 }
 // a non-negative int64 n < 2^32 as four big-endian bytes
-fn put_u32_of(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, n: int64) -> int64 {
-    put_u8(rg, b, put_u8(rg, b, put_u8(rg, b, put_u8(rg, b, pos, lb_int64(n / 16777216)), lb_int64(n / 65536)), lb_int64(n / 256)), lb_int64(n))
+fn put_u32(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, n: int64) -> int64 {
+    put_i(rg, b, put_i(rg, b, put_i(rg, b, put_i(rg, b, pos, n / 16777216), n / 65536), n / 256), n)
+}
+// the byte `want` at pos: pos + 1, or the rejection (a negative pos stays, no byte is truncated, another tag is bad_tag
+// or unsupported)
+fn expect(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, want: int64) -> int64 {
+    case have(len, pos, 1) of {
+        false -> fail(pos, 2);
+        true -> case bi(rg, b, pos) == want of { true -> pos + 1; false -> 0 - tag_reason(bi(rg, b, pos)) }
+    }
 }
 
-// ---- nesting and counts ----
+// ---- the frame: the version byte 131, then one term that ends at the frame's last byte ----
+// hdr: 1 (the position after the version byte) or the rejection. An empty frame is truncated, over 4096 bytes is
+// too_large, a first byte other than 131 is bad_version.
+fn hdr(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64) -> int64 {
+    case len > 4096 of {
+        true -> 0 - 5;
+        false -> case len < 1 of {
+            true -> 0 - 2;
+            false -> case bi(rg, b, 0) == 131 of { true -> 1; false -> 0 - 1 }
+        }
+    }
+}
+fn put_hdr(rg: region(L, normal), b: buf(L, normal, uint8, 4096)) -> int64 { put_i(rg, b, 0, 131) }
+// the frame's length in bytes (the position after the last byte written), or the rejection a writer left
+fn finish(rg: region(L, normal), b: buf(L, normal, uint8, 4096), last: int64) -> int64 { last }
+// the term must end exactly at the frame's end
+fn close(pos: int64, len: int64) -> int64 {
+    case pos < 0 of { true -> pos; false -> case pos == len of { true -> pos; false -> 0 - 3 } }
+}
+
+// ---- nesting ----
 // Entering a composite at nesting depth `depth` (0 for the outermost): the 17th level is too_deep.
 fn enter(pos: int64, depth: int64) -> int64 {
-    case pos < 0 of { true -> pos; false -> case depth >= 16 of { true -> 0 - 3; false -> pos } }
+    case pos < 0 of { true -> pos; false -> case depth >= 16 of { true -> 0 - 6; false -> pos } }
 }
-fn enc_count(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, n: int64) -> int64 {
+
+// ---- integers: the header reads any of SMALL_INTEGER_EXT (97), INTEGER_EXT (98) and SMALL_BIG_EXT (110, at most 8
+// digit bytes) as a sign and a magnitude in two halves hi:lo (each below 2^32) and the next position. The typed
+// widths (bees_wire_ints) range-check the halves and build their own type from them. ----
+fn ih(neg: boolean, hi: int64, lo: int64, pos: int64) -> { neg: boolean, hi: int64, lo: int64, pos: int64 } { { neg: neg, hi: hi, lo: lo, pos: pos } }
+fn ih_fail(pos: int64) -> { neg: boolean, hi: int64, lo: int64, pos: int64 } { ih(false, 0, 0, pos) }
+fn int_hdr(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> { neg: boolean, hi: int64, lo: int64, pos: int64 } {
+    case have(len, pos, 1) of {
+        false -> ih_fail(fail(pos, 2));
+        true -> int_tag(rg, b, len, pos, bi(rg, b, pos))
+    }
+}
+fn int_tag(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, tag: int64) -> { neg: boolean, hi: int64, lo: int64, pos: int64 } {
+    case tag of {
+        97 -> case have(len, pos, 2) of { true -> ih(false, 0, bi(rg, b, pos + 1), pos + 2); false -> ih_fail(0 - 2) };
+        98 -> case have(len, pos, 5) of { true -> int4(rd_u32(rg, b, pos + 1), pos + 5); false -> ih_fail(0 - 2) };
+        110 -> case have(len, pos, 2) of { true -> big_n(rg, b, len, pos, bi(rg, b, pos + 1)); false -> ih_fail(0 - 2) };
+        _: int64 -> ih_fail(0 - tag_reason(tag))
+    }
+}
+// a signed 32-bit value (as its unsigned reading u) as sign and magnitude
+fn int4(u: int64, next: int64) -> { neg: boolean, hi: int64, lo: int64, pos: int64 } {
+    case u >= 2147483648 of {
+        true -> ih(true, 0, 4294967296 - u, next);
+        false -> ih(false, 0, u, next)
+    }
+}
+fn big_n(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, n: int64) -> { neg: boolean, hi: int64, lo: int64, pos: int64 } {
+    case n > 8 of {
+        true -> ih_fail(0 - 8);
+        false -> case have(len, pos, 3 + n) of {
+            false -> ih_fail(0 - 2);
+            true -> big_sign(rg, b, pos, n, bi(rg, b, pos + 2))
+        }
+    }
+}
+fn big_sign(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, n: int64, sign: int64) -> { neg: boolean, hi: int64, lo: int64, pos: int64 } {
+    case sign > 1 of {
+        true -> ih_fail(0 - 4);
+        false -> big_mag(sign == 1, digits(rg, b, pos + 3, min4(n)), digits(rg, b, pos + 7, n - 4), pos + 3 + n)
+    }
+}
+fn big_mag(neg: boolean, lo: int64, hi: int64, next: int64) -> { neg: boolean, hi: int64, lo: int64, pos: int64 } {
+    ih(case lo == 0 and hi == 0 of { true -> false; false -> neg }, hi, lo, next)
+}
+fn min4(n: int64) -> int64 { case n > 4 of { true -> 4; false -> n } }
+fn pow256(k: int64) -> int64 { case k of { 0 -> 1; 1 -> 256; 2 -> 65536; _: int64 -> 16777216 } }
+// the little-endian value of k (at most 4) bytes at p
+fn digits(rg: region(L, normal), b: buf(L, normal, uint8, 4096), p: int64, k: int64) -> int64 {
+    case k <= 0 of {
+        true -> 0;
+        false -> digits(rg, b, p, k - 1) + bi(rg, b, p + k - 1) * pow256(k - 1)
+    }
+}
+// The smallest encoding, as erl writes it: 97 for 0..255, 98 for a 32-bit signed value, else 110 with the fewest
+// digit bytes. The magnitude comes in as hi:lo of w, where the value is w when neg is false and -(w + 1) when true
+// (so that the most negative value of a width never has to be negated in its own type).
+fn emit_int(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, neg: boolean, hi0: int64, lo0: int64) -> int64 {
     case pos < 0 of {
         true -> pos;
-        false -> case n > 256 of { true -> 0 - 4; false -> put_u32_of(rg, b, pos, n) }
+        false -> emit_mag(rg, b, pos, neg, carry_hi(neg, hi0, lo0), carry_lo(neg, lo0))
     }
 }
-// A list count: at most 256, and at most the bytes that are left divided by the smallest element, all
-// before a single element is allocated.
-fn dec_count(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, minsize: int64) -> { v: int64, pos: int64 } {
-    case have(len, pos, 4) of {
-        false -> { v: 0, pos: fail(pos, 1) };
-        true -> count_checked(rd_u32(rg, b, pos), len - pos - 4, minsize, pos + 4)
+fn carry_lo(neg: boolean, lo0: int64) -> int64 {
+    case neg of { true -> case lo0 == 4294967295 of { true -> 0; false -> lo0 + 1 }; false -> lo0 }
+}
+fn carry_hi(neg: boolean, hi0: int64, lo0: int64) -> int64 {
+    case neg of { true -> case lo0 == 4294967295 of { true -> hi0 + 1; false -> hi0 }; false -> hi0 }
+}
+fn lim32(neg: boolean) -> int64 { case neg of { true -> 2147483648; false -> 2147483647 } }
+fn emit_mag(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, neg: boolean, hi: int64, lo: int64) -> int64 {
+    case hi == 0 of {
+        false -> emit_big(rg, b, pos, neg, hi, lo);
+        true -> case neg == false and lo <= 255 of {
+            true -> put_i(rg, b, put_i(rg, b, pos, 97), lo);
+            false -> case lo <= lim32(neg) of {
+                true -> put_u32(rg, b, put_i(rg, b, pos, 98), case neg of { true -> 4294967296 - lo; false -> lo });
+                false -> emit_big(rg, b, pos, neg, hi, lo)
+            }
+        }
     }
 }
-fn count_checked(n: int64, left: int64, minsize: int64, next: int64) -> { v: int64, pos: int64 } {
+fn ndigits(x: int64) -> int64 { case x == 0 of { true -> 0; false -> 1 + ndigits(x / 256) } }
+fn sign_byte(neg: boolean) -> int64 { case neg of { true -> 1; false -> 0 } }
+fn emit_big(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, neg: boolean, hi: int64, lo: int64) -> int64 {
+    emit_digits(rg, b, put_i(rg, b, put_i(rg, b, put_i(rg, b, pos, 110), case hi > 0 of { true -> 4 + ndigits(hi); false -> ndigits(lo) }), sign_byte(neg)), hi, lo)
+}
+fn emit_digits(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, hi: int64, lo: int64) -> int64 {
+    put_le(rg, b, put_le(rg, b, pos, lo, case hi > 0 of { true -> 4; false -> ndigits(lo) }), hi, ndigits(hi))
+}
+fn put_le(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, x: int64, k: int64) -> int64 {
+    case k <= 0 of { true -> pos; false -> put_le(rg, b, put_i(rg, b, pos, x), x / 256, k - 1) }
+}
+
+// ---- tuple, map and list headers ----
+fn put_tuple_hdr(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, arity: int64) -> int64 {
+    case arity <= 255 of {
+        true -> put_i(rg, b, put_i(rg, b, pos, 104), arity);
+        false -> put_u32(rg, b, put_i(rg, b, pos, 105), arity)
+    }
+}
+// SMALL_TUPLE_EXT or LARGE_TUPLE_EXT of exactly `arity` elements: the position of the first element. Fewer elements
+// than declared is :missing_field, more is :unknown_field.
+fn tuple_hdr(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, arity: int64) -> int64 {
+    case have(len, pos, 1) of {
+        false -> fail(pos, 2);
+        true -> tuple_tag(rg, b, len, pos, bi(rg, b, pos), arity)
+    }
+}
+fn tuple_tag(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, tag: int64, arity: int64) -> int64 {
+    case tag of {
+        104 -> case have(len, pos, 2) of { true -> tuple_arity(bi(rg, b, pos + 1), arity, pos + 2); false -> 0 - 2 };
+        105 -> case have(len, pos, 5) of { true -> tuple_arity(rd_u32(rg, b, pos + 1), arity, pos + 5); false -> 0 - 2 };
+        _: int64 -> 0 - tag_reason(tag)
+    }
+}
+fn tuple_arity(got: int64, want: int64, next: int64) -> int64 {
+    case got == want of { true -> next; false -> case got < want of { true -> 0 - 12; false -> 0 - 14 } }
+}
+fn put_map_hdr(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, n: int64) -> int64 { put_u32(rg, b, put_i(rg, b, pos, 116), n) }
+// MAP_EXT with at most maxn pairs: { pair count, position of the first key }; more pairs than fields is :unknown_field
+fn dec_map_hdr(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, maxn: int64) -> { v: int64, pos: int64 } {
+    sequence
+        p: int64 <- expect(rg, b, len, pos, 116);
+        out: { v: int64, pos: int64 } <- case have(len, p, 4) of {
+            false -> { v: 0, pos: fail(p, 2) };
+            true -> map_count(rd_u32(rg, b, p), maxn, p + 4)
+        }
+    produces pure out end
+}
+fn map_count(n: int64, maxn: int64, next: int64) -> { v: int64, pos: int64 } {
+    case n > maxn of { true -> { v: 0, pos: 0 - 14 }; false -> { v: n, pos: next } }
+}
+// LIST_EXT: tag 108, a 4-byte count, the elements, then NIL_EXT (the caller writes the elements and put_nil)
+fn put_list_hdr(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, n: int64) -> int64 {
+    case pos < 0 of {
+        true -> pos;
+        false -> case n > 256 of { true -> 0 - 7; false -> put_u32(rg, b, put_i(rg, b, pos, 108), n) }
+    }
+}
+// STRING_EXT: tag 107, a 2-byte count, then the bytes
+fn put_string_hdr(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, n: int64) -> int64 { put_u16(rg, b, put_i(rg, b, pos, 107), n) }
+fn put_nil(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64) -> int64 { put_i(rg, b, pos, 106) }
+fn expect_nil(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> int64 { expect(rg, b, len, pos, 106) }
+// A list header: { n elements, how they come, position of the first }. how: 0 NIL_EXT (n = 0), 1 LIST_EXT (the
+// elements, then NIL_EXT), 2 STRING_EXT (n bytes, each an element; only when `allow_str`). The count is at most 256
+// and at most the bytes left divided by the smallest element, checked before any element is allocated.
+fn list_hdr(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, minsize: int64, allow_str: boolean) -> { n: int64, k: int64, pos: int64 } {
+    case have(len, pos, 1) of {
+        false -> lh(0, 0, fail(pos, 2));
+        true -> list_tag(rg, b, len, pos, bi(rg, b, pos), minsize, allow_str)
+    }
+}
+fn lh(n: int64, k: int64, pos: int64) -> { n: int64, k: int64, pos: int64 } { { n: n, k: k, pos: pos } }
+fn list_tag(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, tag: int64, minsize: int64, allow_str: boolean) -> { n: int64, k: int64, pos: int64 } {
+    case tag of {
+        106 -> lh(0, 0, pos + 1);
+        108 -> case have(len, pos, 5) of {
+            true -> list_count(rd_u32(rg, b, pos + 1), len - pos - 5, minsize, pos + 5);
+            false -> lh(0, 0, 0 - 2)
+        };
+        107 -> case allow_str of {
+            false -> lh(0, 0, 0 - 4);
+            true -> case have(len, pos, 3) of {
+                true -> str_count(rg, b, len, pos, bi(rg, b, pos + 1) * 256 + bi(rg, b, pos + 2));
+                false -> lh(0, 0, 0 - 2)
+            }
+        };
+        _: int64 -> lh(0, 0, 0 - tag_reason(tag))
+    }
+}
+fn list_count(n: int64, left: int64, minsize: int64, next: int64) -> { n: int64, k: int64, pos: int64 } {
     case n > 256 of {
-        true -> { v: 0, pos: 0 - 4 };
-        false -> case n * minsize > left of {
-            true -> { v: 0, pos: 0 - 1 };
-            false -> { v: n, pos: next }
-        }
+        true -> lh(0, 0, 0 - 7);
+        false -> case n * minsize > left of { true -> lh(0, 0, 0 - 2); false -> lh(n, 1, next) }
+    }
+}
+fn str_count(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, n: int64) -> { n: int64, k: int64, pos: int64 } {
+    case n > 256 of {
+        true -> lh(0, 0, 0 - 7);
+        false -> case have(len, pos + 3, n) of { false -> lh(0, 0, 0 - 2); true -> lh(n, 2, pos + 3) }
     }
 }
 
-// ---- integers (one pattern for all eight widths: bytes most significant first; signed values are written as the
-// value plus 2^(bits) for a negative one, built in two steps that never leave the type's range) ----
-fn dec_u8(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> { v: uint8, pos: int64 } {
+// ---- skip: walk one term of the shapes a typed value can have (integers, floats, atoms, binaries, tuples, lists,
+// nil, STRING_EXT, maps) without building anything, enforcing the limits. Returns the position after the term. A
+// record decoder uses it to find where each map value starts, because map keys may come in any order. ----
+fn skip(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, depth: int64) -> int64 {
     case have(len, pos, 1) of {
-        false -> { v: 0, pos: fail(pos, 1) };
-        true -> { v: rb(rg, b, pos), pos: pos + 1 }
+        false -> fail(pos, 2);
+        true -> skip_tag(rg, b, len, pos, depth, bi(rg, b, pos))
     }
 }
-fn enc_u8(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, v: uint8) -> int64 { put_u8(rg, b, pos, v) }
-fn dec_u16(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> { v: uint16, pos: int64 } {
-    case have(len, pos, 2) of {
-        false -> { v: 0, pos: fail(pos, 1) };
-        true -> { v: tab_u8_uint16(rb(rg, b, pos)) * 256 + tab_u8_uint16(rb(rg, b, pos + 1)), pos: pos + 2 }
+fn adv(len: int64, pos: int64, n: int64) -> int64 { case have(len, pos, n) of { true -> pos + n; false -> 0 - 2 } }
+fn skip_tag(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, depth: int64, tag: int64) -> int64 {
+    case tag of {
+        97 -> adv(len, pos, 2);
+        98 -> adv(len, pos, 5);
+        70 -> adv(len, pos, 9);
+        106 -> adv(len, pos, 1);
+        110 -> case have(len, pos, 2) of { true -> adv(len, pos, 3 + bi(rg, b, pos + 1)); false -> 0 - 2 };
+        115 -> case have(len, pos, 2) of { true -> adv(len, pos, 2 + bi(rg, b, pos + 1)); false -> 0 - 2 };
+        119 -> case have(len, pos, 2) of { true -> adv(len, pos, 2 + bi(rg, b, pos + 1)); false -> 0 - 2 };
+        100 -> skip_text16(rg, b, len, pos, 255);
+        118 -> skip_text16(rg, b, len, pos, 255);
+        107 -> case depth >= 16 of { true -> 0 - 6; false -> case have(len, pos, 3) of { true -> adv(len, pos, 3 + bi(rg, b, pos + 1) * 256 + bi(rg, b, pos + 2)); false -> 0 - 2 } };
+        109 -> skip_text32(rg, b, len, pos);
+        104 -> case have(len, pos, 2) of { true -> skip_items(rg, b, len, enter(pos + 2, depth), bi(rg, b, pos + 1), depth + 1); false -> 0 - 2 };
+        105 -> case have(len, pos, 5) of { true -> skip_big_tuple(rg, b, len, pos, depth, rd_u32(rg, b, pos + 1)); false -> 0 - 2 };
+        108 -> case have(len, pos, 5) of { true -> skip_list(rg, b, len, pos, depth, rd_u32(rg, b, pos + 1)); false -> 0 - 2 };
+        116 -> case have(len, pos, 5) of { true -> skip_map(rg, b, len, pos, depth, rd_u32(rg, b, pos + 1)); false -> 0 - 2 };
+        _: int64 -> 0 - tag_reason(tag)
     }
 }
-fn enc_u16(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, v: uint16) -> int64 { put_u8(rg, b, put_u8(rg, b, pos, lb_uint16(v / 256)), lb_uint16(v)) }
-fn dec_u32(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> { v: uint32, pos: int64 } {
-    case have(len, pos, 4) of {
-        false -> { v: 0, pos: fail(pos, 1) };
-        true -> { v: tab_u8_uint32(rb(rg, b, pos)) * 16777216 + tab_u8_uint32(rb(rg, b, pos + 1)) * 65536 + tab_u8_uint32(rb(rg, b, pos + 2)) * 256 + tab_u8_uint32(rb(rg, b, pos + 3)), pos: pos + 4 }
+// text with a 2-byte length (limit `max`)
+fn skip_text16(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, max: int64) -> int64 {
+    case have(len, pos, 3) of {
+        false -> 0 - 2;
+        true -> case bi(rg, b, pos + 1) * 256 + bi(rg, b, pos + 2) > max of { true -> 0 - 7; false -> adv(len, pos, 3 + bi(rg, b, pos + 1) * 256 + bi(rg, b, pos + 2)) }
     }
 }
-fn enc_u32(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, v: uint32) -> int64 { put_u8(rg, b, put_u8(rg, b, put_u8(rg, b, put_u8(rg, b, pos, lb_uint32(v / 16777216)), lb_uint32(v / 65536)), lb_uint32(v / 256)), lb_uint32(v)) }
-fn dec_u64(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> { v: uint64, pos: int64 } {
-    case have(len, pos, 8) of {
-        false -> { v: 0, pos: fail(pos, 1) };
-        true -> { v: tab_u8_uint64(rb(rg, b, pos)) * 72057594037927936 + tab_u8_uint64(rb(rg, b, pos + 1)) * 281474976710656 + tab_u8_uint64(rb(rg, b, pos + 2)) * 1099511627776 + tab_u8_uint64(rb(rg, b, pos + 3)) * 4294967296 + tab_u8_uint64(rb(rg, b, pos + 4)) * 16777216 + tab_u8_uint64(rb(rg, b, pos + 5)) * 65536 + tab_u8_uint64(rb(rg, b, pos + 6)) * 256 + tab_u8_uint64(rb(rg, b, pos + 7)), pos: pos + 8 }
+fn skip_text32(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> int64 {
+    case have(len, pos, 5) of {
+        false -> 0 - 2;
+        true -> case rd_u32(rg, b, pos + 1) > 1024 of { true -> 0 - 7; false -> adv(len, pos, 5 + rd_u32(rg, b, pos + 1)) }
     }
 }
-fn enc_u64(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, v: uint64) -> int64 { put_u8(rg, b, put_u8(rg, b, put_u8(rg, b, put_u8(rg, b, put_u8(rg, b, put_u8(rg, b, put_u8(rg, b, put_u8(rg, b, pos, lb_uint64(v / 72057594037927936)), lb_uint64(v / 281474976710656)), lb_uint64(v / 1099511627776)), lb_uint64(v / 4294967296)), lb_uint64(v / 16777216)), lb_uint64(v / 65536)), lb_uint64(v / 256)), lb_uint64(v)) }
-fn dec_i8(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> { v: int8, pos: int64 } {
-    case have(len, pos, 1) of {
-        false -> { v: 0, pos: fail(pos, 1) };
-        true -> { v: tab_s8_int8(rb(rg, b, pos)), pos: pos + 1 }
+fn skip_items(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, n: int64, depth: int64) -> int64 {
+    case pos < 0 or n <= 0 of {
+        true -> pos;
+        false -> skip_items(rg, b, len, skip(rg, b, len, pos, depth), n - 1, depth)
     }
 }
-fn enc_i8(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, v: int8) -> int64 { put_u8(rg, b, pos, lb_int8(v)) }
-fn dec_i16(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> { v: int16, pos: int64 } {
-    case have(len, pos, 2) of {
-        false -> { v: 0, pos: fail(pos, 1) };
-        true -> { v: tab_s8_int16(rb(rg, b, pos)) * 256 + tab_u8_int16(rb(rg, b, pos + 1)), pos: pos + 2 }
+fn skip_big_tuple(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, depth: int64, n: int64) -> int64 {
+    case n > 256 of { true -> 0 - 7; false -> skip_items(rg, b, len, enter(pos + 5, depth), n, depth + 1) }
+}
+fn skip_list(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, depth: int64, n: int64) -> int64 {
+    case n > 256 of {
+        true -> 0 - 7;
+        false -> skip(rg, b, len, skip_items(rg, b, len, enter(pos + 5, depth), n, depth + 1), depth + 1)
     }
 }
-fn mag_i16(v: int16) -> int16 { case v < 0 of { true -> v + 16384 + 16384; false -> v } }
-fn sgn_i16(v: int16) -> int16 { case v < 0 of { true -> 128; false -> 0 } }
-fn enc_i16(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, v: int16) -> int64 { put_u8(rg, b, put_u8(rg, b, pos, lb_int16(mag_i16(v) / 256 + sgn_i16(v))), lb_int16(mag_i16(v))) }
-fn dec_i32(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> { v: int32, pos: int64 } {
-    case have(len, pos, 4) of {
-        false -> { v: 0, pos: fail(pos, 1) };
-        true -> { v: tab_s8_int32(rb(rg, b, pos)) * 16777216 + tab_u8_int32(rb(rg, b, pos + 1)) * 65536 + tab_u8_int32(rb(rg, b, pos + 2)) * 256 + tab_u8_int32(rb(rg, b, pos + 3)), pos: pos + 4 }
-    }
-}
-fn mag_i32(v: int32) -> int32 { case v < 0 of { true -> v + 1073741824 + 1073741824; false -> v } }
-fn sgn_i32(v: int32) -> int32 { case v < 0 of { true -> 128; false -> 0 } }
-fn enc_i32(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, v: int32) -> int64 { put_u8(rg, b, put_u8(rg, b, put_u8(rg, b, put_u8(rg, b, pos, lb_int32(mag_i32(v) / 16777216 + sgn_i32(v))), lb_int32(mag_i32(v) / 65536)), lb_int32(mag_i32(v) / 256)), lb_int32(mag_i32(v))) }
-fn dec_i64(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> { v: int64, pos: int64 } {
-    case have(len, pos, 8) of {
-        false -> { v: 0, pos: fail(pos, 1) };
-        true -> { v: tab_s8_int64(rb(rg, b, pos)) * 72057594037927936 + tab_u8_int64(rb(rg, b, pos + 1)) * 281474976710656 + tab_u8_int64(rb(rg, b, pos + 2)) * 1099511627776 + tab_u8_int64(rb(rg, b, pos + 3)) * 4294967296 + tab_u8_int64(rb(rg, b, pos + 4)) * 16777216 + tab_u8_int64(rb(rg, b, pos + 5)) * 65536 + tab_u8_int64(rb(rg, b, pos + 6)) * 256 + tab_u8_int64(rb(rg, b, pos + 7)), pos: pos + 8 }
-    }
-}
-fn mag_i64(v: int64) -> int64 { case v < 0 of { true -> v + 4611686018427387904 + 4611686018427387904; false -> v } }
-fn sgn_i64(v: int64) -> int64 { case v < 0 of { true -> 128; false -> 0 } }
-fn enc_i64(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, v: int64) -> int64 { put_u8(rg, b, put_u8(rg, b, put_u8(rg, b, put_u8(rg, b, put_u8(rg, b, put_u8(rg, b, put_u8(rg, b, put_u8(rg, b, pos, lb_int64(mag_i64(v) / 72057594037927936 + sgn_i64(v))), lb_int64(mag_i64(v) / 281474976710656)), lb_int64(mag_i64(v) / 1099511627776)), lb_int64(mag_i64(v) / 4294967296)), lb_int64(mag_i64(v) / 16777216)), lb_int64(mag_i64(v) / 65536)), lb_int64(mag_i64(v) / 256)), lb_int64(mag_i64(v))) }
-
-// ---- boolean: one byte, 0 or 1 ----
-fn u8_zero() -> uint8 { 0 }
-fn u8_one() -> uint8 { 1 }
-fn dec_bool(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> { v: boolean, pos: int64 } {
-    case have(len, pos, 1) of {
-        false -> { v: false, pos: fail(pos, 1) };
-        true -> case bi(rg, b, pos) of {
-            0 -> { v: false, pos: pos + 1 };
-            1 -> { v: true, pos: pos + 1 };
-            _: int64 -> { v: false, pos: 0 - 9 }
-        }
-    }
-}
-fn enc_bool(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, v: boolean) -> int64 {
-    put_u8(rg, b, pos, case v of { true -> u8_one(); false -> u8_zero() })
+fn skip_map(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, depth: int64, n: int64) -> int64 {
+    case n > 256 of { true -> 0 - 7; false -> skip_items(rg, b, len, enter(pos + 5, depth), n * 2, depth + 1) }
 }
 
-// ---- text: ASCII only ----
-fn text_ok(rg: region(L, normal), b: buf(L, normal, uint8, 4096), i: int64, stop: int64) -> boolean {
+// ---- text: ASCII ----
+// 0: every byte in i..stop-1 is ASCII; 1: valid UTF-8 with a non-ASCII character; -1: not UTF-8
+fn text_check(rg: region(L, normal), b: buf(L, normal, uint8, 4096), i: int64, stop: int64, acc: int64) -> int64 {
     case i >= stop of {
-        true -> true;
-        false -> case tab_is_text(rb(rg, b, i)) of { true -> text_ok(rg, b, i + 1, stop); false -> false }
+        true -> acc;
+        false -> text_step(rg, b, i, stop, acc, bi(rg, b, i))
+    }
+}
+fn text_step(rg: region(L, normal), b: buf(L, normal, uint8, 4096), i: int64, stop: int64, acc: int64, c: int64) -> int64 {
+    case c < 128 of {
+        true -> text_check(rg, b, i + 1, stop, acc);
+        false -> text_next(rg, b, i, stop, seq_len(rg, b, i, stop, c))
+    }
+}
+fn text_next(rg: region(L, normal), b: buf(L, normal, uint8, 4096), i: int64, stop: int64, n: int64) -> int64 {
+    case n == 0 of { true -> 0 - 1; false -> text_check(rg, b, i + n, stop, 1) }
+}
+fn rng(rg: region(L, normal), b: buf(L, normal, uint8, 4096), i: int64, stop: int64, lo: int64, hi: int64) -> boolean {
+    case i < stop of { true -> bi(rg, b, i) >= lo and bi(rg, b, i) <= hi; false -> false }
+}
+fn lo3(c: int64) -> int64 { case c == 224 of { true -> 160; false -> 128 } }
+fn hi3(c: int64) -> int64 { case c == 237 of { true -> 159; false -> 191 } }
+fn lo4(c: int64) -> int64 { case c == 240 of { true -> 144; false -> 128 } }
+fn hi4(c: int64) -> int64 { case c == 244 of { true -> 143; false -> 191 } }
+fn seq_len(rg: region(L, normal), b: buf(L, normal, uint8, 4096), i: int64, stop: int64, c: int64) -> int64 {
+    case c >= 194 and c <= 223 of {
+        true -> case rng(rg, b, i + 1, stop, 128, 191) of { true -> 2; false -> 0 };
+        false -> case c >= 224 and c <= 239 of {
+            true -> case rng(rg, b, i + 1, stop, lo3(c), hi3(c)) and rng(rg, b, i + 2, stop, 128, 191) of { true -> 3; false -> 0 };
+            false -> case c >= 240 and c <= 244 of {
+                true -> case rng(rg, b, i + 1, stop, lo4(c), hi4(c)) and rng(rg, b, i + 2, stop, 128, 191) and rng(rg, b, i + 3, stop, 128, 191) of { true -> 4; false -> 0 };
+                false -> 0
+            }
+        }
     }
 }
 // the text bytes i..j-1 as a string, by halves (a balanced concat tree: O(n log n), shallow recursion)
@@ -332,18 +533,21 @@ fn text_of(rg: region(L, normal), b: buf(L, normal, uint8, 4096), i: int64, j: i
         }
     }
 }
-// n text bytes at pos (n already limit-checked by the caller), or a rejection
-fn dec_text(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, n: int64) -> { v: string, pos: int64 } {
+// n text bytes at pos (n already limit-checked by the caller), or a rejection. latin1: the bytes are Latin-1, so any
+// byte above 127 is a character BEES cannot hold (:unsupported); in UTF-8 it is :unsupported when valid and
+// :bad_utf8 when not.
+fn dec_text(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, n: int64, latin1: boolean) -> { v: string, pos: int64 } {
     case have(len, pos, n) of {
-        false -> { v: "", pos: fail(pos, 1) };
-        true -> case text_ok(rg, b, pos, pos + n) of {
-            false -> { v: "", pos: 0 - 5 };
-            true -> { v: text_of(rg, b, pos, pos + n), pos: pos + n }
-        }
+        false -> { v: "", pos: fail(pos, 2) };
+        true -> text_verdict(rg, b, pos, n, text_check(rg, b, pos, pos + n, 0), latin1)
     }
 }
-// Decode n text bytes; used by the generated and hand-written readers alike.
-fn dec_ascii(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, n: int64) -> { v: string, pos: int64 } { dec_text(rg, b, len, pos, n) }
+fn text_verdict(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, n: int64, check: int64, latin1: boolean) -> { v: string, pos: int64 } {
+    case check == 0 of {
+        true -> { v: text_of(rg, b, pos, pos + n), pos: pos + n };
+        false -> case check > 0 or latin1 of { true -> { v: "", pos: 0 - 16 }; false -> { v: "", pos: 0 - 9 } }
+    }
+}
 // the bytes of s[i..n-1], each looked up from its one-character substring
 fn put_text(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, s: string, i: int64, n: int64) -> int64 {
     case pos < 0 or i >= n of {
@@ -353,23 +557,25 @@ fn put_text(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, s
 }
 fn put_text_at(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, s: string, i: int64, n: int64, code: int64) -> int64 {
     case code < 0 of {
-        true -> 0 - 5;
-        false -> put_text(rg, b, put_u8(rg, b, pos, lb_int64(code)), s, i + 1, n)
+        true -> 0 - 16;
+        false -> put_text(rg, b, put_i(rg, b, pos, code), s, i + 1, n)
     }
 }
-// n text bytes of s starting at pos (the caller has written any length prefix and checked n)
-fn put_ascii(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, s: string, i: int64, n: int64) -> int64 { put_text(rg, b, pos, s, i, n) }
 
+// ---- string: BINARY_EXT (109), a 4-byte count and the bytes ----
 fn dec_string(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> { v: string, pos: int64 } {
-    case have(len, pos, 4) of {
-        false -> { v: "", pos: fail(pos, 1) };
-        true -> string_body(rg, b, len, pos + 4, rd_u32(rg, b, pos))
+    string_after(rg, b, len, expect(rg, b, len, pos, 109))
+}
+fn string_after(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, p: int64) -> { v: string, pos: int64 } {
+    case have(len, p, 4) of {
+        false -> { v: "", pos: fail(p, 2) };
+        true -> string_body(rg, b, len, p + 4, rd_u32(rg, b, p))
     }
 }
 fn string_body(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, n: int64) -> { v: string, pos: int64 } {
     case n > 1024 of {
-        true -> { v: "", pos: 0 - 4 };
-        false -> dec_text(rg, b, len, pos, n)
+        true -> { v: "", pos: 0 - 7 };
+        false -> dec_text(rg, b, len, pos, n, false)
     }
 }
 fn enc_string(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, s: string) -> int64 {
@@ -380,22 +586,48 @@ fn enc_string(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64,
 }
 fn string_out(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, s: string, n: int64) -> int64 {
     case n > 1024 of {
-        true -> 0 - 4;
+        true -> 0 - 7;
         false -> case length_chars(s) == n of {
-            false -> 0 - 5;
-            true -> put_text(rg, b, put_u32_of(rg, b, pos, n), s, 0, n)
+            false -> 0 - 16;
+            true -> put_text(rg, b, put_u32(rg, b, put_i(rg, b, pos, 109), n), s, 0, n)
         }
     }
 }
 
-// An atom travels as its spelling: a u8 byte count and the text. The receiver looks the spelling up in its
-// own atom table and refuses what it does not hold.
-fn dec_atom(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> { v: atom, pos: int64 } {
+// ---- atoms: an atom travels as its spelling, SMALL_ATOM_UTF8_EXT (119) when written. All four tags are read:
+// 119 and 118 (UTF-8, 1- and 2-byte lengths), 115 and 100 (Latin-1). The receiver looks the spelling up in its own
+// atom table (bees_atoms) and refuses what it does not hold. ----
+fn dec_atom_text(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> { v: string, pos: int64 } {
     case have(len, pos, 1) of {
-        false -> { v: :ok, pos: fail(pos, 1) };
-        true -> atom_of_text(dec_text(rg, b, len, pos + 1, bi(rg, b, pos)))
+        false -> { v: "", pos: fail(pos, 2) };
+        true -> atom_tag(rg, b, len, pos, bi(rg, b, pos))
     }
 }
+fn atom_tag(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, tag: int64) -> { v: string, pos: int64 } {
+    case tag of {
+        119 -> atom8(rg, b, len, pos + 1, false);
+        115 -> atom8(rg, b, len, pos + 1, true);
+        118 -> atom16(rg, b, len, pos + 1, false);
+        100 -> atom16(rg, b, len, pos + 1, true);
+        _: int64 -> { v: "", pos: 0 - tag_reason(tag) }
+    }
+}
+fn atom8(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, latin1: boolean) -> { v: string, pos: int64 } {
+    case have(len, pos, 1) of {
+        false -> { v: "", pos: 0 - 2 };
+        true -> dec_text(rg, b, len, pos + 1, bi(rg, b, pos), latin1)
+    }
+}
+fn atom16(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, latin1: boolean) -> { v: string, pos: int64 } {
+    case have(len, pos, 2) of {
+        false -> { v: "", pos: 0 - 2 };
+        true -> atom16_body(rg, b, len, pos + 2, bi(rg, b, pos) * 256 + bi(rg, b, pos + 1), latin1)
+    }
+}
+fn atom16_body(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64, n: int64, latin1: boolean) -> { v: string, pos: int64 } {
+    case n > 255 of { true -> { v: "", pos: 0 - 7 }; false -> dec_text(rg, b, len, pos, n, latin1) }
+}
+fn dec_atom(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> { v: atom, pos: int64 } { atom_of_text(dec_atom_text(rg, b, len, pos)) }
 fn atom_of_text(t: { v: string, pos: int64 }) -> { v: atom, pos: int64 } {
     case t.pos < 0 of {
         true -> { v: :ok, pos: t.pos };
@@ -405,7 +637,7 @@ fn atom_of_text(t: { v: string, pos: int64 }) -> { v: atom, pos: int64 } {
 fn atom_found(r: { found: boolean, value: atom }, next: int64) -> { v: atom, pos: int64 } {
     case r.found of {
         true -> { v: r.value, pos: next };
-        false -> { v: :ok, pos: 0 - 6 }
+        false -> { v: :ok, pos: 0 - 10 }
     }
 }
 fn enc_atom(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, a: atom) -> int64 {
@@ -416,43 +648,66 @@ fn enc_atom(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, a
 }
 fn atom_out(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, s: string) -> int64 {
     case s == "?" or length_bytes(s) == 0 of {
-        true -> 0 - 6;
+        true -> 0 - 10;
+        false -> put_atom_text(rg, b, pos, s)
+    }
+}
+// an atom spelling written as SMALL_ATOM_UTF8_EXT (at most 255 bytes: the Erlang maximum, so tag 118 is never needed)
+fn put_atom_text(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, s: string) -> int64 {
+    case pos < 0 of {
+        true -> pos;
         false -> case length_bytes(s) > 255 of {
-            true -> 0 - 4;
+            true -> 0 - 7;
             false -> case length_chars(s) == length_bytes(s) of {
-                false -> 0 - 5;
-                true -> put_text(rg, b, put_u8(rg, b, pos, lb_int64(length_bytes(s))), s, 0, length_bytes(s))
+                false -> 0 - 16;
+                true -> put_text(rg, b, put_i(rg, b, put_i(rg, b, pos, 119), length_bytes(s)), s, 0, length_bytes(s))
             }
         }
     }
 }
 
-// char: the code point as a u32; only the text characters are accepted
-fn dec_char(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> { v: char, pos: int64 } {
-    case have(len, pos, 4) of {
-        false -> { v: ' ', pos: fail(pos, 1) };
-        true -> char_of(rd_u32(rg, b, pos), pos + 4)
-    }
-}
-fn char_of(cp: int64, next: int64) -> { v: char, pos: int64 } {
-    case cp > 255 of {
-        true -> { v: ' ', pos: 0 - 5 };
-        false -> case tab_is_text(lb_int64(cp)) of {
-            false -> { v: ' ', pos: 0 - 5 };
-            true -> { v: tab_text_char(lb_int64(cp)), pos: next }
+// ---- boolean: the atoms true and false ----
+fn dec_bool(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> { v: boolean, pos: int64 } { bool_of_text(dec_atom_text(rg, b, len, pos)) }
+fn bool_of_text(t: { v: string, pos: int64 }) -> { v: boolean, pos: int64 } {
+    case t.pos < 0 of {
+        true -> { v: false, pos: t.pos };
+        false -> case t.v == "true" of {
+            true -> { v: true, pos: t.pos };
+            false -> case t.v == "false" of { true -> { v: false, pos: t.pos }; false -> { v: false, pos: 0 - 11 } }
         }
     }
+}
+fn enc_bool(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, v: boolean) -> int64 {
+    put_atom_text(rg, b, pos, case v of { true -> "true"; false -> "false" })
+}
+
+// ---- char: its code point as an integer, 0..127 ----
+fn fin_char(h: { neg: boolean, hi: int64, lo: int64, pos: int64 }) -> { v: char, pos: int64 } {
+    case h.pos < 0 of {
+        true -> { v: ' ', pos: h.pos };
+        false -> case h.neg == false and h.hi == 0 and h.lo <= 127 of {
+            true -> { v: tab_text_char(lb_int64(h.lo)), pos: h.pos };
+            false -> { v: ' ', pos: 0 - 8 }
+        }
+    }
+}
+fn dec_char(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> { v: char, pos: int64 } { fin_char(int_hdr(rg, b, len, pos)) }
+// an element of a STRING_EXT: the byte at pos
+fn dec_byte_char(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> { v: char, pos: int64 } {
+    fin_char(ih(false, 0, case have(len, pos, 1) of { true -> bi(rg, b, pos); false -> 0 }, case have(len, pos, 1) of { true -> pos + 1; false -> fail(pos, 2) }))
 }
 fn enc_char(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, c: char) -> int64 {
     case pos < 0 of {
         true -> pos;
         false -> case tab_char_byte(c) < 0 of {
-            true -> 0 - 5;
-            false -> put_u32_of(rg, b, pos, tab_char_byte(c))
+            true -> 0 - 16;
+            false -> emit_int(rg, b, pos, false, 0, tab_char_byte(c))
         }
     }
 }
+fn put_byte_char(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, c: char) -> int64 { put_i(rg, b, pos, tab_char_byte(c)) }
 
+// ---- float64: NEW_FLOAT_EXT (70), IEEE 754 big-endian ----
 // ---- float64: IEEE 754 big-endian, built and taken apart with exact same-type arithmetic ----
 fn p2s0_f64() -> float64 { 2.0 }
 fn p2s1_f64() -> float64 { 4.0 }
@@ -538,15 +793,6 @@ fn magnitude_f64(rg: region(L, normal), b: buf(L, normal, uint8, 4096), p: int64
     }
 }
 fn value_f64(rg: region(L, normal), b: buf(L, normal, uint8, 4096), p: int64) -> float64 { negate_if_f64(sign_bit_f64(rg, b, p), magnitude_f64(rg, b, p)) }
-fn dec_f64(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> { v: float64, pos: int64 } {
-    case have(len, pos, 8) of {
-        false -> { v: zero_f64(), pos: fail(pos, 1) };
-        true -> case exp_bits_f64(rg, b, pos) == 2047 of {
-            true -> { v: zero_f64(), pos: 0 - 8 };
-            false -> { v: value_f64(rg, b, pos), pos: pos + 8 }
-        }
-    }
-}
 
 // the sign of a zero is the sign of 1/v
 fn is_neg_f64(v: float64) -> boolean {
@@ -597,15 +843,6 @@ fn put_parts_f64(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int
         lb_int64(mant / 65536)), lb_int64(mant / 256)), lb_int64(mant))
 }
 
-fn enc_f64(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, v: float64) -> int64 {
-    case pos < 0 of {
-        true -> pos;
-        false -> case finite_f64(v) of {
-            false -> 0 - 8;
-            true -> put_parts_f64(rg, b, pos, is_neg_f64(v), biased_f64(exp_of_abs_f64(v)), mantissa_int_f64(v))
-        }
-    }
-}
 
 // ---- float32: IEEE 754 big-endian, built and taken apart with exact same-type arithmetic ----
 fn p2s0_f32() -> float32 { 2.0 }
@@ -686,15 +923,6 @@ fn magnitude_f32(rg: region(L, normal), b: buf(L, normal, uint8, 4096), p: int64
     }
 }
 fn value_f32(rg: region(L, normal), b: buf(L, normal, uint8, 4096), p: int64) -> float32 { negate_if_f32(sign_bit_f32(rg, b, p), magnitude_f32(rg, b, p)) }
-fn dec_f32(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> { v: float32, pos: int64 } {
-    case have(len, pos, 4) of {
-        false -> { v: zero_f32(), pos: fail(pos, 1) };
-        true -> case exp_bits_f32(rg, b, pos) == 255 of {
-            true -> { v: zero_f32(), pos: 0 - 8 };
-            false -> { v: value_f32(rg, b, pos), pos: pos + 4 }
-        }
-    }
-}
 
 // the sign of a zero is the sign of 1/v
 fn is_neg_f32(v: float32) -> boolean {
@@ -737,111 +965,85 @@ fn mantissa_float_f32(a: float32, e: int64) -> float32 {
 }
 fn mantissa_int_f32(v: float32) -> int64 { peel_f32(mantissa_float_f32(abs_f32(v), exp_of_abs_f32(v)), 22, 0) }
 
-fn put_parts_f32(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, neg: boolean, biased: int64, mant: int64) -> int64 {
-    put_u8(rg, b, put_u8(rg, b, put_u8(rg, b, put_u8(rg, b, pos,
-        lb_int64(biased / 2 + sign_add(neg))),
-        lb_int64((biased % 2) * 128 + mant / 65536)),
-        lb_int64(mant / 256)), lb_int64(mant))
+
+
+fn sign_add(neg: boolean) -> int64 { case neg of { true -> 128; false -> 0 } }
+
+fn mant_i_f64(rg: region(L, normal), b: buf(L, normal, uint8, 4096), p: int64) -> int64 {
+    (bi(rg, b, p + 1) % 16) * 281474976710656 + bi(rg, b, p + 2) * 1099511627776 + bi(rg, b, p + 3) * 4294967296 + bi(rg, b, p + 4) * 16777216 + bi(rg, b, p + 5) * 65536 + bi(rg, b, p + 6) * 256 + bi(rg, b, p + 7)
+}
+fn pow2_i(k: int64) -> int64 { case k <= 0 of { true -> 1; false -> 2 * pow2_i(k - 1) } }
+
+fn dec_f64(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> { v: float64, pos: int64 } { f64_after(rg, b, len, expect(rg, b, len, pos, 70)) }
+fn f64_after(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, p: int64) -> { v: float64, pos: int64 } {
+    case have(len, p, 8) of {
+        false -> { v: zero_f64(), pos: fail(p, 2) };
+        true -> case exp_bits_f64(rg, b, p) == 2047 of {
+            true -> { v: zero_f64(), pos: 0 - 8 };
+            false -> { v: value_f64(rg, b, p), pos: p + 8 }
+        }
+    }
+}
+fn enc_f64(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, v: float64) -> int64 {
+    case pos < 0 of {
+        true -> pos;
+        false -> case finite_f64(v) of {
+            false -> 0 - 8;
+            true -> put_parts_f64(rg, b, put_i(rg, b, pos, 70), is_neg_f64(v), biased_f64(exp_of_abs_f64(v)), mantissa_int_f64(v))
+        }
+    }
 }
 
+// ---- float32: carried as the float64 of the same value (NEW_FLOAT_EXT has only 8 bytes). Writing widens exactly;
+// reading refuses a float64 that a float32 cannot hold exactly (or that is infinite or NaN) as out_of_range. ----
+fn kf_f32(k: int64) -> float32 { bits_f32(k / 65536, 7) * p2s4_f32() + bits_f32((k / 256) % 256, 7) * f256_f32() + bits_f32(k % 256, 7) }
+fn drop_bits(e: int64) -> int64 { case e >= 0 - 126 of { true -> 29; false -> 29 + (0 - 126 - e) } }
+fn dec_f32(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> { v: float32, pos: int64 } { f32_after(rg, b, len, expect(rg, b, len, pos, 70)) }
+fn f32_after(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, p: int64) -> { v: float32, pos: int64 } {
+    case have(len, p, 8) of {
+        false -> { v: zero_f32(), pos: fail(p, 2) };
+        true -> f32_val(rg, b, p, exp_bits_f64(rg, b, p), mant_i_f64(rg, b, p))
+    }
+}
+fn f32_val(rg: region(L, normal), b: buf(L, normal, uint8, 4096), p: int64, ex: int64, m: int64) -> { v: float32, pos: int64 } {
+    case ex == 2047 of {
+        true -> { v: zero_f32(), pos: 0 - 8 };
+        false -> case ex == 0 of {
+            true -> case m == 0 of {
+                true -> { v: negate_if_f32(sign_bit_f64(rg, b, p), zero_f32()), pos: p + 8 };
+                false -> { v: zero_f32(), pos: 0 - 8 }
+            };
+            false -> f32_norm(rg, b, p, ex - 1023, m)
+        }
+    }
+}
+fn f32_norm(rg: region(L, normal), b: buf(L, normal, uint8, 4096), p: int64, e: int64, m: int64) -> { v: float32, pos: int64 } {
+    case e > 127 or e < 0 - 149 of {
+        true -> { v: zero_f32(), pos: 0 - 8 };
+        false -> case m % pow2_i(drop_bits(e)) == 0 of {
+            false -> { v: zero_f32(), pos: 0 - 8 };
+            true -> { v: negate_if_f32(sign_bit_f64(rg, b, p), scale2_f32(kf_f32((4503599627370496 + m) / pow2_i(drop_bits(e))), case e >= 0 - 126 of { true -> e - 23; false -> 0 - 149 })), pos: p + 8 }
+        }
+    }
+}
 fn enc_f32(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, v: float32) -> int64 {
     case pos < 0 of {
         true -> pos;
         false -> case finite_f32(v) of {
             false -> 0 - 8;
-            true -> put_parts_f32(rg, b, pos, is_neg_f32(v), biased_f32(exp_of_abs_f32(v)), mantissa_int_f32(v))
+            true -> put_wide_f32(rg, b, put_i(rg, b, pos, 70), v)
         }
     }
 }
-
-fn sign_add(neg: boolean) -> int64 { case neg of { true -> 128; false -> 0 } }
-
-// ---- the frame: u32 length | u8 version | u8 kind | body ----
-// Writing: put_prefix writes a zero length, the version and the frame kind (returns 6); the body follows;
-// finish writes the real length into the first four bytes and returns the frame's total length in bytes
-// (or the rejection a writer left in the position).
-fn put_prefix(rg: region(L, normal), b: buf(L, normal, uint8, 4096), kind: int64) -> int64 {
-    put_u8(rg, b, put_u8(rg, b, put_u32_of(rg, b, 0, 0), lb_int64(1)), lb_int64(kind))
-}
-fn finish(rg: region(L, normal), b: buf(L, normal, uint8, 4096), last: int64) -> int64 {
-    case last < 0 of {
-        true -> last;
-        false -> case put_u32_of(rg, b, 0, last - 4) < 0 of { true -> 0 - 2; false -> last }
+fn put_wide_f32(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, v: float32) -> int64 {
+    case v == zero_f32() of {
+        true -> put_parts_f64(rg, b, pos, is_neg_f32(v), 0, 0);
+        false -> put_parts_f64(rg, b, pos, is_neg_f32(v), exp_of_abs_f32(v) + 1023, wide_mant_int_f32(v))
     }
 }
-fn frame_kind(rg: region(L, normal), b: buf(L, normal, uint8, 4096)) -> int64 { bi(rg, b, 5) }
-
-// Reading: validate the frame as a whole before any field is read. `len` is the number of bytes held.
-fn frame_open(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64) -> int64 {
-    case len > 4096 of {
-        true -> 0 - 2;
-        false -> case len < 4 of {
-            true -> 0 - 1;
-            false -> frame_declared(rg, b, len, rd_u32(rg, b, 0))
-        }
-    }
-}
-fn frame_declared(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, declared: int64) -> int64 {
-    case declared > 4092 of {
-        true -> 0 - 2;
-        false -> case declared + 4 > len of {
-            true -> 0 - 1;
-            false -> case declared + 4 < len of {
-                true -> 0 - 12;
-                false -> case declared < 2 of {
-                    true -> 0 - 1;
-                    false -> case bi(rg, b, 4) == 1 of { true -> 6; false -> 0 - 10 }
-                }
-            }
-        }
-    }
-}
-// kind_of: a send frame's message kind id (0 .. count-1), or a negated reason.
-fn kind_of(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, count: int64) -> int64 {
-    case frame_open(rg, b, len) < 0 of {
-        true -> frame_open(rg, b, len);
-        false -> case frame_kind(rg, b) == 1 of {
-            false -> 0 - 11;
-            true -> case have(len, 6, 2) of {
-                false -> 0 - 1;
-                true -> kind_in_range(kind_id_at(rg, b, 6), count)
-            }
-        }
-    }
-}
-fn kind_in_range(id: int64, count: int64) -> int64 { case id >= count of { true -> 0 - 7; false -> id } }
-// after the prefix: 'open_send' also checks that the frame is a send of message kind `id`
-fn open_send(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, id: int64) -> int64 {
-    case frame_open(rg, b, len) < 0 of {
-        true -> frame_open(rg, b, len);
-        false -> case frame_kind(rg, b) == 1 of {
-            false -> 0 - 11;
-            true -> case have(len, 6, 2) of {
-                false -> 0 - 1;
-                true -> case kind_id_at(rg, b, 6) == id of { true -> 8; false -> 0 - 7 }
-            }
-        }
-    }
-}
-fn kind_id_at(rg: region(L, normal), b: buf(L, normal, uint8, 4096), p: int64) -> int64 { bi(rg, b, p) * 256 + bi(rg, b, p + 1) }
-fn close(pos: int64, len: int64) -> int64 {
-    case pos < 0 of { true -> pos; false -> case pos == len of { true -> pos; false -> 0 - 12 } }
-}
-
-// ---- hello (frame kind 0): the node name as an atom spelling, then the 8-byte schema digest ----
-fn enc_hello(rg: region(L, normal), b: buf(L, normal, uint8, 4096), node: atom, digest: int64) -> int64 {
-    finish(rg, b, enc_i64(rg, b, enc_atom(rg, b, put_prefix(rg, b, 0), node), digest))
-}
-fn dec_hello(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64) -> { code: int64, node: atom, digest: int64 } {
-    sequence
-        p0: int64 <- frame_open(rg, b, len);
-        p1: int64 <- case p0 < 0 of { true -> p0; false -> case frame_kind(rg, b) == 0 of { true -> p0; false -> 0 - 11 } };
-        a: { v: atom, pos: int64 } <- dec_atom(rg, b, len, p1);
-        d: { v: int64, pos: int64 } <- dec_i64(rg, b, len, a.pos);
-        p2: int64 <- close(d.pos, len);
-        out: { code: int64, node: atom, digest: int64 } <- { code: code_of(p2), node: a.v, digest: d.v }
-    produces pure out end
-}
+// the 23 fraction bits of a nonzero float32 v, placed in the top of a float64's 52 (exact, also when v is subnormal)
+fn wide_mant_f32(a: float32, e: int64) -> float32 { scale2_f32(a, 23 - e) - pow2_f32(23, 0, one_f32()) }
+fn wide_mant_int_f32(v: float32) -> int64 { peel_f32(wide_mant_f32(abs_f32(v), exp_of_abs_f32(v)), 22, 0) * 536870912 }
 
 // ---- 8-byte words (big-endian, an int64 per 8 bytes) for the foreign-function boundary ----
 fn word_count(len: int64) -> int64 { (len + 7) / 8 }
@@ -862,13 +1064,22 @@ fn word_of(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, p:
         + byte_or_zero(rg, b, len, p + 6) * 256 + byte_or_zero(rg, b, len, p + 7)
 }
 // write word w at word index i; returns the next byte position, or a rejection past the buffer
-fn put_word(rg: region(L, normal), b: buf(L, normal, uint8, 4096), i: int64, w: int64) -> int64 { enc_i64(rg, b, i * 8, w) }
-// The frame's total length in bytes (length field + 4), from the first word of a frame. The caller compares
-// it with max_frame before it reads further words.
+fn put_word(rg: region(L, normal), b: buf(L, normal, uint8, 4096), i: int64, w: int64) -> int64 { put_i(rg, b, put_i(rg, b, put_i(rg, b, put_i(rg, b, put_i(rg, b, put_i(rg, b, put_i(rg, b, put_i(rg, b, i * 8, wb7(w)), wb6(w)), wb5(w)), wb4(w)), wb3(w)), wb2(w)), wb1(w)), wb0(w)) }
+fn wmag(w: int64) -> int64 { case w < 0 of { true -> w + 4611686018427387904 + 4611686018427387904; false -> w } }
+fn wb7(w: int64) -> int64 { wmag(w) / 72057594037927936 + case w < 0 of { true -> 128; false -> 0 } }
+fn wb6(w: int64) -> int64 { wmag(w) / 281474976710656 }
+fn wb5(w: int64) -> int64 { wmag(w) / 1099511627776 }
+fn wb4(w: int64) -> int64 { wmag(w) / 4294967296 }
+fn wb3(w: int64) -> int64 { wmag(w) / 16777216 }
+fn wb2(w: int64) -> int64 { wmag(w) / 65536 }
+fn wb1(w: int64) -> int64 { wmag(w) / 256 }
+fn wb0(w: int64) -> int64 { wmag(w) }
+// The total length of a frame carried with a 4-byte big-endian length prefix (what the distribution layer's
+// WireFrame framing writes), from the first word of the frame. The caller compares it with max_frame (plus the 4
+// prefix bytes) before it reads further words.
 fn frame_total_from_word0(w: int64) -> int64 {
     case w < 0 of {
         true -> (w + 4611686018427387904 + 4611686018427387904) / 4294967296 + 2147483648 + 4;
         false -> w / 4294967296 + 4
     }
 }
-

@@ -1,0 +1,15 @@
+m1_wire_types_signed_b.13 n=12 hex=836e08000000000000000001 :ok rt
+m1_wire_types_signed_b.14 n=12 hex=836e0800ffffffffffffff7f :ok rt
+m1_wire_types_signed_b.15 dec :ok rt
+m1_wire_types_signed_b.16 dec :ok rt
+m1_wire_types_signed_b.17 dec :ok rt
+m1_wire_types_signed_b.18 dec :ok rt
+m1_wire_types_signed_b.19 dec :ok rt
+m1_wire_types_signed_b.20 dec :ok rt
+m1_wire_types_signed_b.21 dec :out_of_range -
+m1_wire_types_signed_b.22 dec :out_of_range -
+m1_wire_types_signed_b.23 dec :out_of_range -
+m1_wire_types_signed_b.24 dec :out_of_range -
+m1_wire_types_signed_b.25 dec :out_of_range -
+m1_wire_types_signed_b done
+exit=0

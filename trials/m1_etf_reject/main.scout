@@ -1,0 +1,14 @@
+m1_etf_reject.0 n=3 hex=836100 :ok rt
+m1_etf_reject.1 dec :unknown_atom -
+m1_etf_reject.2 dec :unsupported -
+m1_etf_reject.3 dec :unsupported -
+m1_etf_reject.4 dec :unsupported -
+m1_etf_reject.5 dec :unsupported -
+m1_etf_reject.6 dec :unsupported -
+m1_etf_reject.7 dec :unsupported -
+m1_etf_reject.8 dec :unsupported -
+m1_etf_reject.9 dec :out_of_range -
+m1_etf_reject.10 dec :out_of_range -
+m1_etf_reject.11 dec :unknown_atom -
+m1_etf_reject done
+exit=0

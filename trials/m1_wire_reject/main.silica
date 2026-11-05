@@ -1,10 +1,12 @@
-// M1: hostile and malformed frames. Every case builds a frame by hand (or mutates a valid one) and feeds it to the
-// generated validator/decoder; each must come back as a rejection reason, never a fault, and the program goes on.
-// Reasons: truncated too_large too_deep too_long bad_text unknown_atom unknown_kind bad_float bad_boolean bad_version
-// bad_frame_kind trailing.  A line is `<case> -> <reason>` (:ok means the frame was accepted).
+// M1b: hostile and malformed frames on ETF. Every case builds a frame by hand (or mutates a valid one) and feeds it to the
+// generated validator or decoder (found by the target NAME, as a REG_SEND would), and to the term validator; each must come back as
+// a rejection reason (the language's atoms), never a fault, and the program goes on.
+// A line is `<case> -> <reason>` (:ok means the frame was accepted). The oracle-checked decode and reject entries are in the
+// m1_wire_types* and m1_etf_* leaves; these are the limit cases that need a hand-built frame.
 use bees_atoms;
 use bees_wire;
 use bees_wire_msgs;
+use bees_etf;
 
 fn line(label: string, code: int64) -> int64 {
     sequence proc[device_io]
@@ -20,18 +22,35 @@ fn rep(s: string, n: int64) -> string {
         false -> case n == 1 of { true -> s; false -> concat(rep(s, n / 2), rep(s, n - n / 2)) }
     }
 }
-// a frame prefix: length placeholder, version 1, frame kind, message kind id (two bytes); returns the next position
-fn pre(rg: region(L, normal), b: buf(L, normal, uint8, 4096), fk: int64, id: int64) -> int64 {
-    bees_wire@put_i(rg, b, bees_wire@put_i(rg, b, bees_wire@put_i(rg, b, bees_wire@put_u32(rg, b, 0, 0), 1), fk), id / 256)
-}
-fn pre2(rg: region(L, normal), b: buf(L, normal, uint8, 4096), fk: int64, id: int64) -> int64 { bees_wire@put_i(rg, b, pre(rg, b, fk, id), id % 256) }
+fn pre(rg: region(L, normal), b: buf(L, normal, uint8, 4096)) -> int64 { bees_wire@put_hdr(rg, b) }
+fn p(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, x: int64) -> int64 { bees_wire@put_i(rg, b, pos, x) }
 fn fill(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, n: int64, v: int64) -> int64 {
-    case n <= 0 of { true -> pos; false -> fill(rg, b, bees_wire@put_i(rg, b, pos, v), n - 1, v) }
+    case n <= 0 of { true -> pos; false -> fill(rg, b, p(rg, b, pos, v), n - 1, v) }
 }
-fn fin(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64) -> int64 { bees_wire@finish(rg, b, pos) }
+// n small-integer elements (97 7)
+fn elems(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, n: int64) -> int64 {
+    case n <= 0 of { true -> pos; false -> elems(rg, b, p(rg, b, p(rg, b, pos, 97), 7), n - 1) }
+}
+// a LIST_EXT header with count n
+fn lhead(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, n: int64) -> int64 { bees_wire@put_u32(rg, b, p(rg, b, pos, 108), n) }
+fn bhead(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, n: int64) -> int64 { bees_wire@put_u32(rg, b, p(rg, b, pos, 109), n) }
 fn code_of_enc(n: int64) -> int64 { case n < 0 of { true -> 0 - n; false -> 0 } }
-// validate through the generated dispatcher
-fn v(rg: region(L, normal), b: buf(L, normal, uint8, 4096), n: int64) -> int64 { bees_wire_msgs@validate(rg, b, n) }
+// validate through the generated dispatcher, by target name
+fn v_bol(rg: region(L, normal), b: buf(L, normal, uint8, 4096), n: int64) -> int64 { bees_wire_msgs@validate_named(rg, b, n, bees_atoms@a_bol()) }
+fn v_chr(rg: region(L, normal), b: buf(L, normal, uint8, 4096), n: int64) -> int64 { bees_wire_msgs@validate_named(rg, b, n, bees_atoms@a_chr()) }
+fn v_deep16(rg: region(L, normal), b: buf(L, normal, uint8, 4096), n: int64) -> int64 { bees_wire_msgs@validate_named(rg, b, n, bees_atoms@a_deep16()) }
+fn v_deep17(rg: region(L, normal), b: buf(L, normal, uint8, 4096), n: int64) -> int64 { bees_wire_msgs@validate_named(rg, b, n, bees_atoms@a_deep17()) }
+fn v_flt(rg: region(L, normal), b: buf(L, normal, uint8, 4096), n: int64) -> int64 { bees_wire_msgs@validate_named(rg, b, n, bees_atoms@a_flt()) }
+fn v_flt32(rg: region(L, normal), b: buf(L, normal, uint8, 4096), n: int64) -> int64 { bees_wire_msgs@validate_named(rg, b, n, bees_atoms@a_flt32()) }
+fn v_known(rg: region(L, normal), b: buf(L, normal, uint8, 4096), n: int64) -> int64 { bees_wire_msgs@validate_named(rg, b, n, bees_atoms@a_known()) }
+fn v_lst(rg: region(L, normal), b: buf(L, normal, uint8, 4096), n: int64) -> int64 { bees_wire_msgs@validate_named(rg, b, n, bees_atoms@a_lst()) }
+fn v_lstr(rg: region(L, normal), b: buf(L, normal, uint8, 4096), n: int64) -> int64 { bees_wire_msgs@validate_named(rg, b, n, bees_atoms@a_lstr()) }
+fn v_small(rg: region(L, normal), b: buf(L, normal, uint8, 4096), n: int64) -> int64 { bees_wire_msgs@validate_named(rg, b, n, bees_atoms@a_small()) }
+fn v_str(rg: region(L, normal), b: buf(L, normal, uint8, 4096), n: int64) -> int64 { bees_wire_msgs@validate_named(rg, b, n, bees_atoms@a_str()) }
+fn v_tag(rg: region(L, normal), b: buf(L, normal, uint8, 4096), n: int64) -> int64 { bees_wire_msgs@validate_named(rg, b, n, bees_atoms@a_tag()) }
+fn vl(rg: region(L, normal), b: buf(L, normal, uint8, 4096), n: int64) -> int64 { v_lst(rg, b, n) }
+fn vs(rg: region(L, normal), b: buf(L, normal, uint8, 4096), n: int64) -> int64 { v_str(rg, b, n) }
+fn vt(rg: region(L, normal), b: buf(L, normal, uint8, 4096), n: int64) -> int64 { v_tag(rg, b, n) }
 
 // --- truncation at every length of a valid frame
 fn small_value() -> { a: uint16, s: string, l: List[uint8, mem(normal)], at: atom, ok: boolean } {
@@ -44,7 +63,7 @@ fn small_value() -> { a: uint16, s: string, l: List[uint8, mem(normal)], at: ato
 fn count_trunc(rg: region(L, normal), b: buf(L, normal, uint8, 4096), i: int64, n: int64, hits: int64, other: int64) -> int64 {
     case i >= n of {
         true -> hits * 1000 + other;
-        false -> case v(rg, b, i) == 1 of {
+        false -> case v_small(rg, b, i) == 2 of {
             true -> count_trunc(rg, b, i + 1, n, hits + 1, other);
             false -> count_trunc(rg, b, i + 1, n, hits, other + 1)
         }
@@ -53,18 +72,27 @@ fn count_trunc(rg: region(L, normal), b: buf(L, normal, uint8, 4096), i: int64, 
 fn count_trunc_dec(rg: region(L, normal), b: buf(L, normal, uint8, 4096), i: int64, n: int64, hits: int64, other: int64) -> int64 {
     case i >= n of {
         true -> hits * 1000 + other;
-        false -> case bees_wire_msgs@dec_small(rg, b, i).code == 1 of {
+        false -> case bees_wire_msgs@dec_small(rg, b, i).code == 2 of {
             true -> count_trunc_dec(rg, b, i + 1, n, hits + 1, other);
             false -> count_trunc_dec(rg, b, i + 1, n, hits, other + 1)
         }
     }
 }
-fn count_trunc_hello(rg: region(L, normal), b: buf(L, normal, uint8, 4096), i: int64, n: int64, hits: int64, other: int64) -> int64 {
+fn count_trunc_term(rg: region(L, normal), b: buf(L, normal, uint8, 4096), i: int64, n: int64, hits: int64, other: int64) -> int64 {
     case i >= n of {
         true -> hits * 1000 + other;
-        false -> case bees_wire@dec_hello(rg, b, i).code == 1 of {
-            true -> count_trunc_hello(rg, b, i + 1, n, hits + 1, other);
-            false -> count_trunc_hello(rg, b, i + 1, n, hits, other + 1)
+        false -> case bees_etf@validate(rg, b, i) == 2 of {
+            true -> count_trunc_term(rg, b, i + 1, n, hits + 1, other);
+            false -> count_trunc_term(rg, b, i + 1, n, hits, other + 1)
+        }
+    }
+}
+fn count_trunc_lstr(rg: region(L, normal), b: buf(L, normal, uint8, 4096), i: int64, n: int64, hits: int64, other: int64) -> int64 {
+    case i >= n of {
+        true -> hits * 1000 + other;
+        false -> case v_lstr(rg, b, i) == 2 of {
+            true -> count_trunc_lstr(rg, b, i + 1, n, hits + 1, other);
+            false -> count_trunc_lstr(rg, b, i + 1, n, hits, other + 1)
         }
     }
 }
@@ -74,10 +102,10 @@ fn truncation(rg: region(L, normal), b: buf(L, normal, uint8, 4096)) -> int64 {
         print_string("valid small frame: n=");
         _: atom <- print_int64(n);
         print_string(" validate -> ");
-        _: atom <- print_atom(bees_wire@reason_atom(v(rg, b, n)));
+        _: atom <- print_atom(bees_wire@reason_atom(v_small(rg, b, n)));
         println("");
         t: int64 <- count_trunc(rg, b, 0, n, 0, 0);
-        print_string("truncated at every length 0..n-1 via validate: truncated/other = ");
+        print_string("truncated at every length 0..n-1 via validate_named: truncated/other = ");
         _: atom <- print_int64(t / 1000);
         print_string("/");
         _: atom <- print_int64(t % 1000);
@@ -88,28 +116,26 @@ fn truncation(rg: region(L, normal), b: buf(L, normal, uint8, 4096)) -> int64 {
         print_string("/");
         _: atom <- print_int64(t2 % 1000);
         println("");
-        h: int64 <- bees_wire@enc_hello(rg, b, bees_atoms@a_node_a(), 0 - 1234567890123);
-        print_string("valid hello frame: n=");
-        _: atom <- print_int64(h);
-        println("");
-        t3: int64 <- count_trunc_hello(rg, b, 0, h, 0, 0);
-        print_string("hello truncated at every length 0..n-1: truncated/other = ");
+        n3: int64 <- bees_wire_msgs@enc_lstr(rg, b, str_list2(3, 5));
+        print_string("a list of three binaries (frame of ");
+        _: atom <- print_int64(n3);
+        println(" bytes), as a term and as a message, truncated at every length:");
+        t3: int64 <- count_trunc_term(rg, b, 0, n3, 0, 0);
+        print_string("  term, truncated/other = ");
         _: atom <- print_int64(t3 / 1000);
         print_string("/");
         _: atom <- print_int64(t3 % 1000);
+        println("");
+        t4: int64 <- count_trunc_lstr(rg, b, 0, n3, 0, 0);
+        print_string("  message lstr, truncated/other = ");
+        _: atom <- print_int64(t4 / 1000);
+        print_string("/");
+        _: atom <- print_int64(t4 % 1000);
         println("")
     produces pure 0 end
 }
 
 // --- oversized
-fn str_list(n: int64, len: int64) -> List[string, mem(normal)] {
-    sequence proc[mem(normal)]
-        e: List[string, mem(normal)] <- empty[string, mem(normal)]();
-        rest: List[string, mem(normal)] <- case n <= 1 of { true -> e; false -> str_list(n - 1, len) };
-        out: List[string, mem(normal)] <- prepend[string, mem(normal)](rep("k", len), rest)
-    produces pure out end
-}
-// n strings: the first n-1 are 1024 bytes, the last `last` bytes
 fn str_list2(n: int64, last: int64) -> List[string, mem(normal)] {
     sequence proc[mem(normal)]
         e: List[string, mem(normal)] <- empty[string, mem(normal)]();
@@ -127,20 +153,14 @@ fn more_strs(k: int64, acc: List[string, mem(normal)]) -> List[string, mem(norma
 }
 fn oversized(rg: region(L, normal), b: buf(L, normal, uint8, 4096)) -> int64 {
     sequence proc[device_io]
-        _: int64 <- line("frame longer than 4096 bytes held (len 4097)", v(rg, b, 4097));
-        p: int64 <- fill(rg, b, pre2(rg, b, 1, 1), 40, 7);
-        _: int64 <- fin(rg, b, p);
-        _: int64 <- bees_wire@put_u32(rg, b, 0, 70000);
-        _: int64 <- line("declared length 70000 in a 100-byte frame", v(rg, b, 100));
-        _: int64 <- bees_wire@put_u32(rg, b, 0, 4093);
-        _: int64 <- line("declared length 4093 (one over the limit) in a 100-byte frame", v(rg, b, 100));
-        e1: int64 <- bees_wire_msgs@enc_lstr(rg, b, str_list(5, 1024));
-        _: int64 <- line("encode 5 strings of 1024 bytes (about 5 KiB)", code_of_enc(e1));
-        e2: int64 <- bees_wire_msgs@enc_lstr(rg, b, str_list2(4, 996));
+        _: int64 <- line("frame longer than 4096 bytes held (len 4097)", vl(rg, b, 4097));
+        _: int64 <- line("the same as a term", bees_etf@validate(rg, b, 4097));
+        _: int64 <- line("an empty frame", vl(rg, b, 0));
+        e2: int64 <- bees_wire_msgs@enc_lstr(rg, b, str_list2(4, 997));
         print_string("encode a frame of exactly 4096 bytes: n=");
         _: atom <- print_int64(e2);
-        _: int64 <- line(" validate", v(rg, b, e2));
-        e3: int64 <- bees_wire_msgs@enc_lstr(rg, b, str_list2(4, 997));
+        _: int64 <- line(" validate", v_lstr(rg, b, e2));
+        e3: int64 <- bees_wire_msgs@enc_lstr(rg, b, str_list2(4, 998));
         _: int64 <- line("encode a frame of 4097 bytes", code_of_enc(e3))
     produces pure 0 end
 }
@@ -148,135 +168,118 @@ fn oversized(rg: region(L, normal), b: buf(L, normal, uint8, 4096)) -> int64 {
 // --- depth
 fn deep16_value() -> { d: { d: { d: { d: { d: { d: { d: { d: { d: { d: { d: { d: { d: { d: { d: { d: uint8 } } } } } } } } } } } } } } } } { { d: { d: { d: { d: { d: { d: { d: { d: { d: { d: { d: { d: { d: { d: { d: { d: 7 } } } } } } } } } } } } } } } } }
 fn deep17_value() -> { d: { d: { d: { d: { d: { d: { d: { d: { d: { d: { d: { d: { d: { d: { d: { d: { d: uint8 } } } } } } } } } } } } } } } } } { { d: { d: { d: { d: { d: { d: { d: { d: { d: { d: { d: { d: { d: { d: { d: { d: { d: 7 } } } } } } } } } } } } } } } } } }
+// 17 maps inside each other, each holding the key d: 131, then (116 0 0 0 1 119 1 100) 17 times, then 97 7
+fn maps(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, k: int64) -> int64 {
+    case k <= 0 of {
+        true -> p(rg, b, p(rg, b, pos, 97), 7);
+        false -> maps(rg, b, p(rg, b, p(rg, b, p(rg, b, bees_wire@put_u32(rg, b, p(rg, b, pos, 116), 1), 119), 1), 100), k - 1)
+    }
+}
 fn depth(rg: region(L, normal), b: buf(L, normal, uint8, 4096)) -> int64 {
     sequence proc[device_io]
         n: int64 <- bees_wire_msgs@enc_deep16(rg, b, deep16_value());
         print_string("16 levels: n=");
         _: atom <- print_int64(n);
-        _: int64 <- line(" validate", v(rg, b, n));
+        _: int64 <- line(" validate", v_deep16(rg, b, n));
         e: int64 <- bees_wire_msgs@enc_deep17(rg, b, deep17_value());
         _: int64 <- line("encode 17 levels", code_of_enc(e));
-        p: int64 <- bees_wire@put_i(rg, b, pre2(rg, b, 1, 8), 7);
-        m: int64 <- fin(rg, b, p);
-        _: int64 <- line("decode 17 levels (handcrafted frame)", v(rg, b, m))
+        m16: int64 <- maps(rg, b, pre(rg, b), 16);
+        _: int64 <- line("decode 16 levels (handcrafted frame)", v_deep16(rg, b, m16));
+        m17: int64 <- maps(rg, b, pre(rg, b), 17);
+        _: int64 <- line("decode 17 levels (handcrafted frame)", v_deep17(rg, b, m17));
+        _: int64 <- line("17 levels of maps as a term (maps are not terms)", bees_etf@validate(rg, b, m17))
     produces pure 0 end
 }
 
 // --- counts and lengths
 fn counts(rg: region(L, normal), b: buf(L, normal, uint8, 4096)) -> int64 {
     sequence proc[device_io]
-        p1: int64 <- fill(rg, b, bees_wire@put_u32(rg, b, pre2(rg, b, 1, 1), 256), 256, 7);
-        n1: int64 <- fin(rg, b, p1);
+        n1: int64 <- p(rg, b, elems(rg, b, lhead(rg, b, pre(rg, b), 256), 256), 106);
         print_string("list of 256: n=");
         _: atom <- print_int64(n1);
-        _: int64 <- line(" validate", v(rg, b, n1));
-        p2: int64 <- fill(rg, b, bees_wire@put_u32(rg, b, pre2(rg, b, 1, 1), 257), 257, 7);
-        n2: int64 <- fin(rg, b, p2);
-        _: int64 <- line("list of 257", v(rg, b, n2));
-        p3: int64 <- fill(rg, b, bees_wire@put_u32(rg, b, pre2(rg, b, 1, 1), 4294967295), 3, 7);
-        n3: int64 <- fin(rg, b, p3);
-        _: int64 <- line("list count 4294967295, 3 bytes follow", v(rg, b, n3));
-        p4: int64 <- fill(rg, b, bees_wire@put_u32(rg, b, pre2(rg, b, 1, 1), 200), 3, 7);
-        n4: int64 <- fin(rg, b, p4);
-        _: int64 <- line("list count 200, 3 bytes follow", v(rg, b, n4));
-        p5: int64 <- fill(rg, b, bees_wire@put_u32(rg, b, pre2(rg, b, 1, 2), 1024), 1024, 97);
-        n5: int64 <- fin(rg, b, p5);
+        _: int64 <- line(" validate", vl(rg, b, n1));
+        n2: int64 <- p(rg, b, elems(rg, b, lhead(rg, b, pre(rg, b), 257), 257), 106);
+        _: int64 <- line("list of 257", vl(rg, b, n2));
+        n3: int64 <- elems(rg, b, lhead(rg, b, pre(rg, b), 4294967295), 3);
+        _: int64 <- line("list count 4294967295, 3 elements follow", vl(rg, b, n3));
+        n4: int64 <- elems(rg, b, lhead(rg, b, pre(rg, b), 200), 3);
+        _: int64 <- line("list count 200, 3 elements follow", vl(rg, b, n4));
+        n4b: int64 <- p(rg, b, p(rg, b, p(rg, b, p(rg, b, p(rg, b, pre(rg, b), 107), 1), 1), 0), 0);
+        _: int64 <- line("STRING_EXT of 257 bytes (count only)", vl(rg, b, n4b));
+        n5: int64 <- fill(rg, b, bhead(rg, b, pre(rg, b), 1024), 1024, 97);
         print_string("string of 1024: n=");
         _: atom <- print_int64(n5);
-        _: int64 <- line(" validate", v(rg, b, n5));
-        p6: int64 <- fill(rg, b, bees_wire@put_u32(rg, b, pre2(rg, b, 1, 2), 1025), 1025, 97);
-        n6: int64 <- fin(rg, b, p6);
-        _: int64 <- line("string of 1025", v(rg, b, n6));
-        p7: int64 <- fill(rg, b, bees_wire@put_u32(rg, b, pre2(rg, b, 1, 2), 4294967295), 3, 97);
-        n7: int64 <- fin(rg, b, p7);
-        _: int64 <- line("string count 4294967295, 3 bytes follow", v(rg, b, n7));
-        p8: int64 <- fill(rg, b, bees_wire@put_u32(rg, b, pre2(rg, b, 1, 2), 1000), 3, 97);
-        n8: int64 <- fin(rg, b, p8);
-        _: int64 <- line("string count 1000, 3 bytes follow", v(rg, b, n8));
-        p9: int64 <- fill(rg, b, bees_wire@put_i(rg, b, pre2(rg, b, 1, 3), 255), 3, 122);
-        n9: int64 <- fin(rg, b, p9);
-        _: int64 <- line("atom count 255, 3 bytes follow", v(rg, b, n9));
-        p10: int64 <- fill(rg, b, bees_wire@put_i(rg, b, pre2(rg, b, 1, 3), 255), 255, 122);
-        n10: int64 <- fin(rg, b, p10);
-        _: int64 <- line("atom of 255 bytes that the program does not hold", v(rg, b, n10));
+        _: int64 <- line(" validate", vs(rg, b, n5));
+        n6: int64 <- fill(rg, b, bhead(rg, b, pre(rg, b), 1025), 1025, 97);
+        _: int64 <- line("string of 1025", vs(rg, b, n6));
+        n7: int64 <- fill(rg, b, bhead(rg, b, pre(rg, b), 4294967295), 3, 97);
+        _: int64 <- line("string count 4294967295, 3 bytes follow", vs(rg, b, n7));
+        n8: int64 <- fill(rg, b, bhead(rg, b, pre(rg, b), 1000), 3, 97);
+        _: int64 <- line("string count 1000, 3 bytes follow", vs(rg, b, n8));
+        n9: int64 <- fill(rg, b, p(rg, b, p(rg, b, pre(rg, b), 119), 255), 3, 122);
+        _: int64 <- line("atom count 255, 3 bytes follow", vt(rg, b, n9));
+        n10: int64 <- fill(rg, b, p(rg, b, p(rg, b, pre(rg, b), 119), 255), 255, 122);
+        _: int64 <- line("atom of 255 bytes that the program does not hold", vt(rg, b, n10));
+        n11: int64 <- fill(rg, b, p(rg, b, p(rg, b, p(rg, b, pre(rg, b), 118), 1), 0), 256, 122);
+        _: int64 <- line("ATOM_UTF8_EXT of 256 bytes", vt(rg, b, n11));
         e: int64 <- bees_wire_msgs@enc_tag(rg, b, bees_atoms@a_yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy());
         _: int64 <- line("encode an atom whose spelling is 256 bytes", code_of_enc(e))
     produces pure 0 end
 }
 
-// --- atoms, kinds, text, booleans, headers, floats, trailing bytes
-fn spelled(rg: region(L, normal), b: buf(L, normal, uint8, 4096), id: int64, c0: int64, c1: int64, c2: int64, c3: int64) -> int64 {
-    fin(rg, b, bees_wire@put_i(rg, b, bees_wire@put_i(rg, b, bees_wire@put_i(rg, b, bees_wire@put_i(rg, b, bees_wire@put_i(rg, b, pre2(rg, b, 1, id), 4), c0), c1), c2), c3))
-}
+// --- text, atoms, booleans, floats, headers, trailing bytes
 fn content(rg: region(L, normal), b: buf(L, normal, uint8, 4096)) -> int64 {
     sequence
-        n1: int64 <- spelled(rg, b, 3, 110, 111, 112, 101);
-        _: int64 <- line("atom nope (not held)", v(rg, b, n1));
-        n2: int64 <- fin(rg, b, bees_wire@put_i(rg, b, bees_wire@put_i(rg, b, bees_wire@put_i(rg, b, bees_wire@put_i(rg, b, bees_wire@put_i(rg, b, bees_wire@put_i(rg, b, bees_wire@put_i(rg, b, pre2(rg, b, 1, 3), 5), 107), 110), 111), 119), 110), 0));
-        _: int64 <- line("atom known, then one more byte", v(rg, b, n2));
-        n3: int64 <- fin(rg, b, bees_wire@put_i(rg, b, bees_wire@put_i(rg, b, bees_wire@put_i(rg, b, bees_wire@put_i(rg, b, bees_wire@put_i(rg, b, bees_wire@put_i(rg, b, pre2(rg, b, 1, 3), 5), 107), 110), 111), 119), 110));
-        _: int64 <- line("atom known", v(rg, b, n3));
-        n4: int64 <- fin(rg, b, bees_wire@put_i(rg, b, pre2(rg, b, 1, 3), 0));
-        _: int64 <- line("atom with an empty spelling", v(rg, b, n4));
-        n5: int64 <- spelled(rg, b, 3, 110, 111, 200, 101);
-        _: int64 <- line("atom spelling with byte 200", v(rg, b, n5));
-        n6: int64 <- fin(rg, b, bees_wire@put_i(rg, b, pre2(rg, b, 1, 11), 0));
-        _: int64 <- line("unknown kind id 11", v(rg, b, n6));
-        n7: int64 <- fin(rg, b, bees_wire@put_i(rg, b, pre2(rg, b, 1, 65535), 0));
-        _: int64 <- line("unknown kind id 65535", v(rg, b, n7));
-        n8: int64 <- fin(rg, b, pre(rg, b, 1, 0));
-        _: int64 <- line("frame ends inside the kind id", v(rg, b, n8));
-        n9: int64 <- fin(rg, b, bees_wire@put_i(rg, b, bees_wire@put_u32(rg, b, pre2(rg, b, 1, 2), 3), 97));
-        _: int64 <- line("string count 3, one byte follows", v(rg, b, n9));
-        t1: int64 <- fin(rg, b, bees_wire@put_i(rg, b, bees_wire@put_i(rg, b, bees_wire@put_i(rg, b, bees_wire@put_u32(rg, b, pre2(rg, b, 1, 2), 3), 97), 128), 99));
-        _: int64 <- line("string with byte 128", v(rg, b, t1));
-        t2: int64 <- fin(rg, b, bees_wire@put_i(rg, b, bees_wire@put_i(rg, b, bees_wire@put_u32(rg, b, pre2(rg, b, 1, 2), 2), 195), 169));
-        _: int64 <- line("string 0xC3 0xA9 (UTF-8 e-acute)", v(rg, b, t2));
-        t3: int64 <- fin(rg, b, bees_wire@put_i(rg, b, bees_wire@put_i(rg, b, bees_wire@put_u32(rg, b, pre2(rg, b, 1, 2), 2), 97), 0));
-        _: int64 <- line("string with a NUL byte", v(rg, b, t3));
-        t4: int64 <- fin(rg, b, bees_wire@put_i(rg, b, bees_wire@put_i(rg, b, bees_wire@put_u32(rg, b, pre2(rg, b, 1, 2), 2), 97), 127));
-        _: int64 <- line("string with byte 127", v(rg, b, t4));
-        c1: int64 <- fin(rg, b, bees_wire@put_u32(rg, b, pre2(rg, b, 1, 6), 233));
-        _: int64 <- line("char code point 233", v(rg, b, c1));
-        c2: int64 <- fin(rg, b, bees_wire@put_i(rg, b, bees_wire@put_i(rg, b, bees_wire@put_i(rg, b, bees_wire@put_i(rg, b, pre2(rg, b, 1, 6), 0), 1), 246), 0));
-        _: int64 <- line("char code point 0x1F600", v(rg, b, c2));
-        c3: int64 <- fin(rg, b, bees_wire@put_u32(rg, b, pre2(rg, b, 1, 6), 65));
-        _: int64 <- line("char A", v(rg, b, c3));
-        o1: int64 <- fin(rg, b, bees_wire@put_i(rg, b, pre2(rg, b, 1, 10), 2));
-        _: int64 <- line("boolean byte 2", v(rg, b, o1));
-        o2: int64 <- fin(rg, b, bees_wire@put_i(rg, b, pre2(rg, b, 1, 10), 1));
-        _: int64 <- line("boolean byte 1", v(rg, b, o2));
-        h1: int64 <- fin(rg, b, bees_wire@put_i(rg, b, pre2(rg, b, 1, 10), 1));
-        _: int64 <- bees_wire@put_i(rg, b, 4, 2);
-        _: int64 <- line("version byte 2", v(rg, b, h1));
-        h2: int64 <- fin(rg, b, bees_wire@put_i(rg, b, pre2(rg, b, 2, 10), 1));
-        _: int64 <- line("frame kind 2", v(rg, b, h2));
-        h3: int64 <- fin(rg, b, bees_wire@put_i(rg, b, pre2(rg, b, 0, 10), 1));
-        _: int64 <- line("frame kind 0 (hello) where a send is expected", v(rg, b, h3));
-        d1: int64 <- bees_wire@enc_hello(rg, b, bees_atoms@a_node_a(), 5);
-        _: int64 <- line("hello frame where a send is expected (dec_bol)", bees_wire_msgs@dec_bol(rg, b, d1).code);
-        d2: int64 <- fin(rg, b, bees_wire@put_i(rg, b, pre2(rg, b, 1, 10), 1));
-        hd: { code: int64, node: atom, digest: int64 } <- bees_wire@dec_hello(rg, b, d2);
-        _: int64 <- line("send frame where a hello is expected", hd.code);
-        g1: int64 <- fin(rg, b, fill(rg, b, pre2(rg, b, 1, 4), 8, 0));
-        _: int64 <- bees_wire@put_i(rg, b, 8, 127);
-        _: int64 <- bees_wire@put_i(rg, b, 9, 240);
-        _: int64 <- line("float64 +infinity", v(rg, b, g1));
-        _: int64 <- bees_wire@put_i(rg, b, 9, 248);
-        _: int64 <- line("float64 NaN", v(rg, b, g1));
-        g2: int64 <- fin(rg, b, fill(rg, b, pre2(rg, b, 1, 5), 4, 0));
-        _: int64 <- bees_wire@put_i(rg, b, 8, 255);
-        _: int64 <- bees_wire@put_i(rg, b, 9, 128);
-        _: int64 <- line("float32 -infinity", v(rg, b, g2));
-        _: int64 <- bees_wire@put_i(rg, b, 9, 192);
-        _: int64 <- line("float32 NaN", v(rg, b, g2));
-        x1: int64 <- fin(rg, b, fill(rg, b, pre2(rg, b, 1, 5), 5, 0));
-        _: int64 <- line("float32 and one byte more", v(rg, b, x1));
-        x2: int64 <- fin(rg, b, fill(rg, b, pre2(rg, b, 1, 5), 4, 0));
-        _: int64 <- bees_wire@put_i(rg, b, x2, 0);
-        _: int64 <- line("one byte past the declared length", v(rg, b, x2 + 1));
-        x3: int64 <- fin(rg, b, fill(rg, b, pre2(rg, b, 1, 5), 4, 0));
-        _: int64 <- line("float32 zero", v(rg, b, x3))
+        a1: int64 <- p(rg, b, p(rg, b, p(rg, b, p(rg, b, p(rg, b, p(rg, b, pre(rg, b), 119), 4), 110), 111), 112), 101);
+        _: int64 <- line("atom nope (not held), as a message", vt(rg, b, a1));
+        _: int64 <- line("atom nope (not held), as a term", bees_etf@validate(rg, b, a1));
+        a2: int64 <- p(rg, b, p(rg, b, p(rg, b, p(rg, b, p(rg, b, p(rg, b, p(rg, b, pre(rg, b), 119), 5), 107), 110), 111), 119), 110);
+        _: int64 <- line("atom known", vt(rg, b, a2));
+        _: int64 <- line("atom known, then one more byte", vt(rg, b, a2 + 1));
+        a3: int64 <- p(rg, b, p(rg, b, pre(rg, b), 119), 0);
+        _: int64 <- line("atom with an empty spelling", vt(rg, b, a3));
+        a4: int64 <- p(rg, b, p(rg, b, p(rg, b, p(rg, b, p(rg, b, pre(rg, b), 119), 3), 110), 200), 101);
+        _: int64 <- line("atom spelling with byte 200", vt(rg, b, a4));
+        t1: int64 <- p(rg, b, p(rg, b, p(rg, b, bhead(rg, b, pre(rg, b), 3), 97), 128), 99);
+        _: int64 <- line("string with byte 128", vs(rg, b, t1));
+        t2: int64 <- p(rg, b, p(rg, b, bhead(rg, b, pre(rg, b), 2), 195), 169);
+        _: int64 <- line("string 0xC3 0xA9 (UTF-8 e-acute)", vs(rg, b, t2));
+        t3: int64 <- p(rg, b, p(rg, b, bhead(rg, b, pre(rg, b), 2), 97), 0);
+        _: int64 <- line("string with a NUL byte", vs(rg, b, t3));
+        t4: int64 <- p(rg, b, p(rg, b, bhead(rg, b, pre(rg, b), 2), 97), 127);
+        _: int64 <- line("string with byte 127", vs(rg, b, t4));
+        t5: int64 <- p(rg, b, p(rg, b, p(rg, b, p(rg, b, bhead(rg, b, pre(rg, b), 4), 240), 159), 152), 128);
+        _: int64 <- line("string holding a 4-byte UTF-8 character", vs(rg, b, t5));
+        c1: int64 <- p(rg, b, p(rg, b, bees_wire@put_u32(rg, b, p(rg, b, pre(rg, b), 98), 233), 0), 0);
+        _: int64 <- line("char code point 233 (and two more bytes)", v_chr(rg, b, c1 - 2));
+        c3: int64 <- p(rg, b, p(rg, b, pre(rg, b), 97), 65);
+        _: int64 <- line("char A", v_chr(rg, b, c3));
+        o1: int64 <- p(rg, b, p(rg, b, p(rg, b, p(rg, b, p(rg, b, pre(rg, b), 119), 4), 116), 114), 117);
+        _: int64 <- line("boolean atom tru", v_bol(rg, b, o1));
+        o2: int64 <- p(rg, b, p(rg, b, p(rg, b, p(rg, b, p(rg, b, p(rg, b, pre(rg, b), 119), 4), 116), 114), 117), 101);
+        _: int64 <- line("boolean atom true", v_bol(rg, b, o2));
+        o3: int64 <- p(rg, b, p(rg, b, pre(rg, b), 97), 1);
+        _: int64 <- line("boolean given the integer 1", v_bol(rg, b, o3));
+        h1: int64 <- p(rg, b, p(rg, b, pre(rg, b), 97), 1);
+        _: int64 <- bees_wire@put_i(rg, b, 0, 130);
+        _: int64 <- line("version byte 130", vl(rg, b, h1));
+        _: int64 <- bees_wire@put_i(rg, b, 0, 131);
+        _: int64 <- line("a message name nobody registered", v_known(rg, b, h1));
+        g1: int64 <- fill(rg, b, p(rg, b, pre(rg, b), 70), 8, 0);
+        _: int64 <- bees_wire@put_i(rg, b, 2, 127);
+        _: int64 <- bees_wire@put_i(rg, b, 3, 240);
+        _: int64 <- line("float64 +infinity", v_flt(rg, b, g1));
+        _: int64 <- bees_wire@put_i(rg, b, 3, 248);
+        _: int64 <- line("float64 NaN", v_flt(rg, b, g1));
+        _: int64 <- line("float64 NaN, as a term", bees_etf@validate(rg, b, g1));
+        _: int64 <- bees_wire@put_i(rg, b, 2, 255);
+        _: int64 <- bees_wire@put_i(rg, b, 3, 240);
+        _: int64 <- line("float32 -infinity", v_flt32(rg, b, g1));
+        _: int64 <- bees_wire@put_i(rg, b, 2, 0);
+        _: int64 <- bees_wire@put_i(rg, b, 3, 0);
+        _: int64 <- line("float32 zero", v_flt32(rg, b, g1));
+        _: int64 <- line("float64 zero and one byte more", v_flt(rg, b, g1 + 1));
+        _: int64 <- line("float64 zero", v_flt(rg, b, g1))
     produces pure 0 end
 }
 
@@ -292,6 +295,24 @@ fn floats(rg: region(L, normal), b: buf(L, normal, uint8, 4096)) -> int64 {
     produces pure 0 end
 }
 
+// --- dispatch by name
+fn names(rg: region(L, normal), b: buf(L, normal, uint8, 4096)) -> int64 {
+    sequence proc[device_io]
+        print_string("index_of small/lst/bol/known: ");
+        _: atom <- print_int64(bees_wire_msgs@index_of(bees_atoms@a_small()));
+        print_string(" ");
+        _: atom <- print_int64(bees_wire_msgs@index_of(bees_atoms@a_lst()));
+        print_string(" ");
+        _: atom <- print_int64(bees_wire_msgs@index_of(bees_atoms@a_bol()));
+        print_string(" ");
+        _: atom <- print_int64(bees_wire_msgs@index_of(bees_atoms@a_known()));
+        println("");
+        print_string("msg_count: ");
+        _: atom <- print_int64(bees_wire_msgs@msg_count());
+        println("")
+    produces pure 0 end
+}
+
 fn run_all(rg: region(L, normal), b: buf(L, normal, uint8, 4096)) -> int64 {
     sequence proc[device_io]
         _: int64 <- truncation(rg, b);
@@ -300,9 +321,10 @@ fn run_all(rg: region(L, normal), b: buf(L, normal, uint8, 4096)) -> int64 {
         _: int64 <- counts(rg, b);
         _: int64 <- content(rg, b);
         _: int64 <- floats(rg, b);
+        _: int64 <- names(rg, b);
         n: int64 <- bees_wire_msgs@enc_small(rg, b, small_value());
         print_string("after every rejection a valid frame still decodes: ");
-        _: atom <- print_atom(bees_wire@reason_atom(v(rg, b, n)));
+        _: atom <- print_atom(bees_wire@reason_atom(v_small(rg, b, n)));
         println("");
         println("reject done")
     produces pure 0 end

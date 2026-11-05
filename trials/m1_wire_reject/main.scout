@@ -1,60 +1,61 @@
-valid small frame: n=32 validate -> :ok
-truncated at every length 0..n-1 via validate: truncated/other = 32/0
-truncated at every length 0..n-1 via dec_small: truncated/other = 32/0
-valid hello frame: n=21
-hello truncated at every length 0..n-1: truncated/other = 21/0
+valid small frame: n=56 validate -> :ok
+truncated at every length 0..n-1 via validate_named: truncated/other = 56/0
+truncated at every length 0..n-1 via dec_small: truncated/other = 56/0
+a list of three binaries (frame of 2075 bytes), as a term and as a message, truncated at every length:
+  term, truncated/other = 2075/0
+  message lstr, truncated/other = 2075/0
 frame longer than 4096 bytes held (len 4097) -> :too_large
-declared length 70000 in a 100-byte frame -> :too_large
-declared length 4093 (one over the limit) in a 100-byte frame -> :too_large
-encode 5 strings of 1024 bytes (about 5 KiB) -> :too_large
+the same as a term -> :too_large
+an empty frame -> :truncated
 encode a frame of exactly 4096 bytes: n=4096 validate -> :ok
 encode a frame of 4097 bytes -> :too_large
-16 levels: n=9 validate -> :ok
+16 levels: n=131 validate -> :ok
 encode 17 levels -> :too_deep
+decode 16 levels (handcrafted frame) -> :ok
 decode 17 levels (handcrafted frame) -> :too_deep
-list of 256: n=268 validate -> :ok
+17 levels of maps as a term (maps are not terms) -> :unsupported
+list of 256: n=519 validate -> :ok
 list of 257 -> :too_long
-list count 4294967295, 3 bytes follow -> :too_long
-list count 200, 3 bytes follow -> :truncated
-string of 1024: n=1036 validate -> :ok
+list count 4294967295, 3 elements follow -> :too_long
+list count 200, 3 elements follow -> :truncated
+STRING_EXT of 257 bytes (count only) -> :too_long
+string of 1024: n=1030 validate -> :ok
 string of 1025 -> :too_long
 string count 4294967295, 3 bytes follow -> :too_long
 string count 1000, 3 bytes follow -> :truncated
 atom count 255, 3 bytes follow -> :truncated
 atom of 255 bytes that the program does not hold -> :unknown_atom
+ATOM_UTF8_EXT of 256 bytes -> :too_long
 encode an atom whose spelling is 256 bytes -> :too_long
-atom nope (not held) -> :unknown_atom
-atom known, then one more byte -> :trailing
+atom nope (not held), as a message -> :unknown_atom
+atom nope (not held), as a term -> :unknown_atom
 atom known -> :ok
+atom known, then one more byte -> :trailing_bytes
 atom with an empty spelling -> :unknown_atom
-atom spelling with byte 200 -> :bad_text
-unknown kind id 11 -> :unknown_kind
-unknown kind id 65535 -> :unknown_kind
-frame ends inside the kind id -> :truncated
-string count 3, one byte follows -> :truncated
-string with byte 128 -> :bad_text
-string 0xC3 0xA9 (UTF-8 e-acute) -> :bad_text
-string with a NUL byte -> :bad_text
-string with byte 127 -> :bad_text
-char code point 233 -> :bad_text
-char code point 0x1F600 -> :bad_text
+atom spelling with byte 200 -> :bad_utf8
+string with byte 128 -> :bad_utf8
+string 0xC3 0xA9 (UTF-8 e-acute) -> :unsupported
+string with a NUL byte -> :ok
+string with byte 127 -> :ok
+string holding a 4-byte UTF-8 character -> :unsupported
+char code point 233 (and two more bytes) -> :out_of_range
 char A -> :ok
-boolean byte 2 -> :bad_boolean
-boolean byte 1 -> :ok
-version byte 2 -> :bad_version
-frame kind 2 -> :bad_frame_kind
-frame kind 0 (hello) where a send is expected -> :bad_frame_kind
-hello frame where a send is expected (dec_bol) -> :bad_frame_kind
-send frame where a hello is expected -> :bad_frame_kind
-float64 +infinity -> :bad_float
-float64 NaN -> :bad_float
-float32 -infinity -> :bad_float
-float32 NaN -> :bad_float
-float32 and one byte more -> :trailing
-one byte past the declared length -> :trailing
+boolean atom tru -> :truncated
+boolean atom true -> :ok
+boolean given the integer 1 -> :bad_tag
+version byte 130 -> :bad_version
+a message name nobody registered -> :unknown_atom
+float64 +infinity -> :out_of_range
+float64 NaN -> :out_of_range
+float64 NaN, as a term -> :out_of_range
+float32 -infinity -> :out_of_range
 float32 zero -> :ok
-encode float64 +infinity -> :bad_float
-encode float64 NaN -> :bad_float
+float64 zero and one byte more -> :trailing_bytes
+float64 zero -> :ok
+encode float64 +infinity -> :out_of_range
+encode float64 NaN -> :out_of_range
+index_of small/lst/bol/known: 0 1 10 -1
+msg_count: 11
 after every rejection a valid frame still decodes: :ok
 reject done
 exit=0

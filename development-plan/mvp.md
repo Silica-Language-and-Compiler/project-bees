@@ -48,8 +48,8 @@ local  inbox         cast  { total: int64 }
   `name` on this node. It is an ordinary cast-only Silica actor whose message type is `<type>`.
 - `local name cast <type>`: a name on this node that the peer may cast to. `bees_config` generates the decoder that
   delivers to it with `cast_registered`.
-- Every message type gets a small numeric **kind id**, assigned in manifest order, and the whole schema gets a digest
-  computed at build time.
+- Every message type is found by its **name** (M1b: the registered name of a REG_SEND, which is an atom the build adds to `bees_atoms`; the
+  numeric kind id and the schema digest of M1 are gone).
 
 ### 3.2 Units
 
@@ -88,7 +88,7 @@ BEES uses **only the latest version of the protocol**. That is handshake **versi
 installed OTP 28 (`ERL_DIST_VER_LOW` and `ERL_DIST_VER_HIGH` are both 6). Nothing older is spoken: no `n` send-name message
 of OTP 22 and earlier, no flag sets for older peers, no atom-cache negotiation. **The layouts below were read from the installed
 OTP 28 source** (`kernel-10.0`, `dist_util.erl` and `dist.hrl`) **and the pid encoding was checked with `term_to_binary`.** The
-ETF layouts for the other types are still to be checked against vectors from `erl` (milestone M1b).
+ETF layouts for the other types were checked against vectors from `erl` in milestone M1b.
 
 **Distribution flags.** A node sends 8 bytes of flags. The flags OTP 28 makes mandatory, which BEES must set, are the OTP 25 set
 (extended references `0x4`, fun tags `0x10`, new fun tags `0x80`, extended pids and ports `0x100`, export pointer tag `0x200`, bit
@@ -132,13 +132,14 @@ identity: a `NEW_PID_EXT` (tag 88: the node as an atom, a 4-byte id, a 4-byte se
 | `boolean` | the atoms `true` and `false` |
 | `atom` | small atom UTF-8 or atom UTF-8, by spelling; refused if the program does not hold it (D16) |
 | `string` | binary |
-| tuple, record | small tuple (large tuple above 255), fields in declared order |
-| `List[T]` | list with a nil tail; the empty list is nil |
+| tuple | small tuple (large tuple above 255), components in order |
+| record | map with atom keys, written in name order and read in any order (M1b; the language's rule, silica-transport-alignment.md section 3) |
+| `List[T]` | list with a nil tail; the empty list is nil; a list of integers or chars that are all 0 to 255 is a string ext, as erl writes it |
 
 The decoder checks the whole term against the declared type and refuses a mismatch, an unknown tag, a bad length, a non-proper
-list, or a term outside the limits. **The M1 rules carry over:** text is ASCII only, the limits (frame 4 KiB, depth 16, 256
+list, or a term outside the limits. **The M1 rules carry over (the text rule widened to all of ASCII, 0 to 127, in M1b):** text is ASCII only, the limits (frame 4 KiB, depth 16, 256
 list elements, atom 255 bytes, string 1 KiB), bounds-checked reads that reject instead of faulting, and nothing allocated
-before the checks. **Not in the MVP:** pids, references, ports and funs as values, maps, big integers beyond 64 bits, atom
+before the checks. **Not in the MVP:** pids, references, ports and funs as typed values (a pid is a term, `bees_etf`), maps as terms, big integers beyond 64 bits, atom
 caches and the distribution header, compressed terms, atoms outside ASCII, tagged tuples.
 
 **The manifest** keeps `message <name> <silica type>` and adds, in M3: this node's name, `peer` lines (name, host,
@@ -182,7 +183,7 @@ a small driver script that starts two executables and compares their outputs.
 | --- | --- | --- |
 | **M0** | **Done 2026-11-04: blocked.** Re-creation by hand does not pass Silica's checker (trial `m0_recreation`, note S8). | The written finding: the receive path needs `Recreatable`. |
 | **M1** | **Done 2026-11-04 as a typed tag-free codec (in memory only; superseded in part by M1b, D34; see [spikes/M1-wire-codec.md](spikes/M1-wire-codec.md)).** The schema manifest, the `bees_config` generator for encoders and decoders, and the `bees_wire` core. | Round-trip trials for every supported type and for nested values (`m1_wire_types`); rejection trials for truncated, oversized, too-deep, over-long, unknown-atom, unknown-kind, bad-text and other hostile input (`m1_wire_reject`); word packing (`m1_wire_words`); a message type with an unsupported field is a build error (`tools/test_bees_wire_gen.py`); no allocation grows on rejection: 200,000 frames, 1.9 MB peak (`m1_wire_memory`). Excluded and why: tagged tuples (atom-literal types), `float16`, non-ASCII text. |
-| **M1b** | **Interim of Silica's `Transportable` (D35, [silica-transport-alignment.md](silica-transport-alignment.md)); the dynamic term codec is lasting.** Retarget the M1 generator and `bees_wire` from the typed tag-free encoding to **ETF** (D34): the encoders and decoders per type, dispatch by target name, ETF integers of every width and encoding, floats, atoms, binaries, tuples, lists; keep the manifest, limits, rejection reasons (mapped onto the language's rejection atoms) and the memory behaviour; add the codec for terms of any shape, `bees_term` to and from ETF, and the `NEW_PID_EXT` pid form. Test vectors generated by the installed `erl` (`term_to_binary`) are the oracle. | Every supported type encodes to the same bytes as `term_to_binary` and decodes from every valid encoding (including the ones `erl` can produce for the same value); the rejection trials of M1 pass on ETF; the memory check holds. |
+| **M1b** | **Done 2026-11-05 (typed ETF codec and the any-shape term codec; see [spikes/M1b-etf-codec.md](spikes/M1b-etf-codec.md)).** Interim of Silica's `Transportable` (D35, [silica-transport-alignment.md](silica-transport-alignment.md)); the dynamic term codec is lasting. The M1 generator and `bees_wire` retargeted from the typed tag-free encoding to **ETF** (D34): `enc_<name>` / `dec_<name>` per message, dispatch by target name (`index_of`), integers of every width and encoding, floats, atoms, binaries, tuples, maps for records, lists; the manifest, limits, rejection reasons (mapped onto the language's atoms) and the memory behaviour kept; `bees_etf` and `bees_etf_term`: `bees_term` to and from ETF for terms of any shape, with the `NEW_PID_EXT` pid form. Test vectors generated by the installed `erl` (`term_to_binary`) are the oracle. | Every supported type encodes to the same bytes as `term_to_binary` (232 typed and 87 term entries, `tools/etf_oracle/*.vectors`; records with `[deterministic]`, because erl's default map key order is not reproducible) and decodes from every valid encoding tried (`minor_version` 0 where it applies, the other atom tags, STRING_EXT, SMALL_BIG for any integer, any map key order); the rejection trials of M1 pass on ETF (`m1_wire_reject`, `m1_etf_reject*`); the memory check holds (200,000 frames, 1.9 MB peak). **Not covered, by decision or by the compiler:** tagged tuples and `unit` as message types, maps as terms (`bees_term` has no map cell: rejected `:unsupported`), text beyond ASCII (valid UTF-8 beyond ASCII is `:unsupported`), `float16`; see the note for the list. |
 | **M2** | The native edge sockets, `127.0.0.1` only, with a poll timeout, **as an actor that speaks Silica's carrier contract** (D35: `:open`, `:tx`, `:credit`, `:rx`, `:link_up`, `:link_down`), so the language's `(:tcp)` can replace it. | Two OS processes exchange one frame of words over a TCP connection; the listener refuses non-local addresses. |
 | **M3** | `bees_net`, `bees_dist` and `bees_ingress`: the version-6 handshake without a digest, ticks, `REG_SEND`, the generated peer table, proxies and deliverers, delivery by registered name. | Two plain Silica programs complete the handshake and a cast to a remote name arrives; a connection from an unlisted node is closed; a frame before the handshake is dropped; a tick keeps an idle link alive and its absence ends the proxies. |
 | **M4** | The demo and measurements. A plain Silica service on node a and a client on node b exchange casts with a payload that uses every supported type, the service answering through `reply_to`; a node stopped mid-run; a hostile frame injected. | The answers arrive with the payload intact; the surviving node's sender sees only Silica's normal dead-actor behaviour; the hostile frame is refused; message rate and each node's peak memory are recorded in a spike note. |

@@ -1,18 +1,15 @@
-int32 -2147483648 n=12 bytes= 0 0 0 8 1 1 0 6 128 0 0 0 sum=144 :ok rt
-int32 2147483647 n=12 bytes= 0 0 0 8 1 1 0 6 127 255 255 255 sum=908 :ok rt
-int32 0 n=12 bytes= 0 0 0 8 1 1 0 6 0 0 0 0 sum=16 :ok rt
-int32 -1 n=12 bytes= 0 0 0 8 1 1 0 6 255 255 255 255 sum=1036 :ok rt
-int32 1 n=12 bytes= 0 0 0 8 1 1 0 6 0 0 0 1 sum=17 :ok rt
-int32 65536 n=12 bytes= 0 0 0 8 1 1 0 6 0 1 0 0 sum=17 :ok rt
-int32 -65536 n=12 bytes= 0 0 0 8 1 1 0 6 255 255 0 0 sum=526 :ok rt
-int32 123456789 n=12 bytes= 0 0 0 8 1 1 0 6 7 91 205 21 sum=340 :ok rt
-int64 -9223372036854775808 n=16 bytes= 0 0 0 12 1 1 0 7 128 0 0 0 0 0 0 0 sum=149 :ok rt
-int64 9223372036854775807 n=16 bytes= 0 0 0 12 1 1 0 7 127 255 255 255 255 255 255 255 sum=1933 :ok rt
-int64 0 n=16 bytes= 0 0 0 12 1 1 0 7 0 0 0 0 0 0 0 0 sum=21 :ok rt
-int64 -1 n=16 bytes= 0 0 0 12 1 1 0 7 255 255 255 255 255 255 255 255 sum=2061 :ok rt
-int64 1 n=16 bytes= 0 0 0 12 1 1 0 7 0 0 0 0 0 0 0 1 sum=22 :ok rt
-int64 72057594037927936 n=16 bytes= 0 0 0 12 1 1 0 7 1 0 0 0 0 0 0 0 sum=22 :ok rt
-int64 -72057594037927936 n=16 bytes= 0 0 0 12 1 1 0 7 255 0 0 0 0 0 0 0 sum=276 :ok rt
-int64 1234567890123456789 n=16 bytes= 0 0 0 12 1 1 0 7 17 34 16 244 125 233 129 21 sum=840 :ok rt
+m1_wire_types_signed_b.0 n=6 hex=836280000000 :ok rt
+m1_wire_types_signed_b.1 n=6 hex=8362ffffffff :ok rt
+m1_wire_types_signed_b.2 n=3 hex=836100 :ok rt
+m1_wire_types_signed_b.3 n=3 hex=8361ff :ok rt
+m1_wire_types_signed_b.4 n=6 hex=836200000100 :ok rt
+m1_wire_types_signed_b.5 n=6 hex=83627fffffff :ok rt
+m1_wire_types_signed_b.6 n=12 hex=836e08010000000000000080 :ok rt
+m1_wire_types_signed_b.7 n=12 hex=836e08010000000000000001 :ok rt
+m1_wire_types_signed_b.8 n=8 hex=836e040101000080 :ok rt
+m1_wire_types_signed_b.9 n=6 hex=836280000000 :ok rt
+m1_wire_types_signed_b.10 n=6 hex=83627fffffff :ok rt
+m1_wire_types_signed_b.11 n=8 hex=836e040000000080 :ok rt
+m1_wire_types_signed_b.12 n=9 hex=836e05000000000001 :ok rt
 m1_wire_types_signed_b done
 exit=0

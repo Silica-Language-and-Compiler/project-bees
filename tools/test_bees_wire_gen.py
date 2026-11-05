@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
-"""Tests for the wire half of tools/bees_config.py (tools/bees_wire_gen.py).
-Run: python3 tools/test_bees_wire_gen.py   (Python 3, standard library only; Silica is not involved except that the
-round-trip trial's recorded output is read and its frame bytes are compared with Python's struct.pack)."""
+"""Tests for the wire half of tools/bees_config.py (tools/bees_wire_gen.py) and for the ETF codec's oracle checks.
+Run: python3 tools/test_bees_wire_gen.py   (Python 3, standard library only; Silica is not compiled here: the trials'
+recorded outputs are read and their frame bytes are compared with the vectors the installed `erl` produced,
+tools/etf_oracle/*.vectors, written by tools/etf_cases.py; the vectors themselves are re-checked against a live `erl`
+when one is installed).
+Run from any directory."""
 import os
 import re
 import struct
@@ -15,6 +18,7 @@ ROOT = os.path.dirname(HERE)
 CONFIG = os.path.join(HERE, "bees_config.py")
 sys.path.insert(0, HERE)
 import bees_wire_gen as W  # noqa: E402
+import etf_cases as C  # noqa: E402
 
 
 def run(args):
@@ -114,36 +118,8 @@ class BuildErrors(unittest.TestCase):
         self.assertIn("too_deep", r.stderr)
 
 
-class Digest(unittest.TestCase):
-    def test_fnv_vectors(self):
-        self.assertEqual(W.fnv1a64(b""), 0xCBF29CE484222325)
-        self.assertEqual(W.fnv1a64(b"a"), 0xAF63DC4C8601EC8C)
-        self.assertEqual(W.fnv1a64(b"foobar"), 0x85944171F73967E8)
-
-    def test_signed_reading(self):
-        self.assertEqual(W.signed64(0), 0)
-        self.assertEqual(W.signed64((1 << 63) - 1), (1 << 63) - 1)
-        self.assertEqual(W.signed64(1 << 63), -(1 << 63))
-        self.assertEqual(W.signed64((1 << 64) - 1), -1)
-
-    def test_schema_text_and_digest(self):
-        with tempfile.TemporaryDirectory() as d:
-            m = write(d, "x.wire", "message a int64\nmessage b { x: atom, y: List[string] }\n")
-            msgs = W.collect([m])
-            self.assertEqual(W.schema_text(msgs),
-                             "bees-wire 1\nlimits frame=4096 depth=16 list=256 atom=255 string=1024\n"
-                             "message 0 a int64\nmessage 1 b {x:atom,y:List[string]}\n")
-            self.assertEqual(W.digest(msgs), W.fnv1a64(W.schema_text(msgs).encode()))
-            # whitespace and the optional list space do not change the digest; order and names and types do
-            m2 = write(d, "y.wire", "message a   int64\nmessage b {x:atom, y: List[string, mem(normal)]}\n")
-            self.assertEqual(W.digest(W.collect([m2])), W.digest(msgs))
-            for text in ("message b { x: atom, y: List[string] }\nmessage a int64\n",
-                         "message a int64\nmessage b { x: atom, y: List[uint8] }\n",
-                         "message a int64\nmessage c { x: atom, y: List[string] }\n"):
-                m3 = write(d, "z.wire", text)
-                self.assertNotEqual(W.digest(W.collect([m3])), W.digest(msgs))
-
-    def test_kind_ids_in_manifest_order_across_files(self):
+class Names(unittest.TestCase):
+    def test_message_names_are_dispatch_targets(self):
         with tempfile.TemporaryDirectory() as d:
             a = write(d, "a.wire", "message one int64\nmessage two string\n")
             b = write(d, "b.wire", "message three atom\n")
@@ -151,10 +127,20 @@ class Digest(unittest.TestCase):
             self.assertEqual(run(["wire", "-o", out, a, b]).returncode, 0)
             src = read(os.path.join(out, "bees_wire_msgs.silica"))
             for name, idx in (("one", 0), ("two", 1), ("three", 2)):
-                self.assertIn(f"fn kind_id_{name}() -> int64 {{ {idx} }}", src)
-            self.assertIn("fn kind_count() -> int64 { 3 }", src)
-            digest = W.signed64(W.digest(W.collect([a, b])))
-            self.assertIn(f"fn schema_digest() -> int64 {{ {digest} }}", src)
+                self.assertIn(f"fn msg_index_{name}() -> int64 {{ {idx} }}", src)
+                self.assertIn(f"case name == bees_atoms@a_{name}() of", src)
+            self.assertIn("fn msg_count() -> int64 { 3 }", src)
+            self.assertEqual(W.message_names([a, b]), ["one", "two", "three"])
+
+    def test_generate_adds_the_message_names_to_the_atoms(self):
+        with tempfile.TemporaryDirectory() as d:
+            a = write(d, "a.wire", "message ping int64\n")
+            at = write(d, "a.atoms", "extra\n")
+            out = os.path.join(d, "out")
+            self.assertEqual(run(["generate", "-o", out, a, at]).returncode, 0)
+            src = read(os.path.join(out, "bees_atoms.silica"))
+            self.assertIn("fn a_ping() -> atom { :ping }", src)
+            self.assertIn("fn a_extra() -> atom { :extra }", src)
 
 
 class Generated(unittest.TestCase):
@@ -164,18 +150,20 @@ class Generated(unittest.TestCase):
         self.assertEqual(run(["wire", "-o", out, m]).returncode, 0)
         return out
 
+    UNITS = ("bees_wire_tables.silica", "bees_wire_ints.silica", "bees_wire_msgs.silica")
+
     def test_deterministic(self):
         text = "message a { n: int64, l: List[string] }\nmessage b (atom, float64)\n"
         with tempfile.TemporaryDirectory() as d1, tempfile.TemporaryDirectory() as d2:
             o1, o2 = self.generate(d1, text), self.generate(d2, text)
-            for f in ("bees_wire_tables.silica", "bees_wire_msgs.silica"):
+            for f in self.UNITS:
                 self.assertEqual(read(os.path.join(o1, f)), read(os.path.join(o2, f)))
 
     def test_no_atom_literals_and_tiers(self):
         text = "message a { n: int64, l: List[string], at: atom }\n" + "".join(f"message m{i} int64\n" for i in range(600))
         with tempfile.TemporaryDirectory() as d:
             out = self.generate(d, text)
-            units = [os.path.join(out, f) for f in ("bees_wire_tables.silica", "bees_wire_msgs.silica")]
+            units = [os.path.join(out, f) for f in self.UNITS]
             r = run(["check"] + units)
             self.assertEqual(r.returncode, 0, r.stdout)
             for u in units:
@@ -187,106 +175,182 @@ class Generated(unittest.TestCase):
                     elif re.match(r"^(-?\d+|\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*') -> ", s):
                         arms += 1
                         self.assertLessEqual(arms, W.TIER, u)
-            src = read(units[1])
-            self.assertIn("fn validate_slot_2(", src)   # 601 kinds are split over three helpers
+            src = read(units[2])
+            self.assertIn("fn validate_slot_2(", src)   # 601 messages are split over three helpers
+            self.assertIn("fn index_of_9(", src)         # the name lookup is chunked too (64 per helper)
+
+    def test_records_are_written_in_name_order(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = self.generate(d, "message r { zeta: int64, alpha: int64, mid: int64 }\n")
+            src = read(os.path.join(out, "bees_wire_msgs.silica"))
+            enc = [ln for ln in src.split("\n") if ln.startswith("    bees_wire_ints@enc_int64(")][0]
+            self.assertLess(enc.index('"alpha"'), enc.index('"mid"'))
+            self.assertLess(enc.index('"mid"'), enc.index('"zeta"'))
 
     def test_limits_match_the_core(self):
         core = read(os.path.join(ROOT, "src", "inter_nodal", "bees_wire.silica"))
         for name, value in (("max_frame", W.MAX_FRAME), ("max_depth", W.MAX_DEPTH), ("max_list", W.MAX_LIST),
-                            ("max_atom", W.MAX_ATOM), ("max_string", W.MAX_STRING), ("version", W.WIRE_VERSION)):
+                            ("max_atom", W.MAX_ATOM), ("max_string", W.MAX_STRING)):
             self.assertIn(f"fn {name}() -> int64 {{ {value} }}", core)
         self.assertIn("buf(L, normal, uint8, %d)" % W.MAX_FRAME, core)
 
-    def test_reason_atoms_are_declared(self):
+    def test_reason_atoms_are_declared_and_numbered_alike(self):
         atoms = [ln.strip() for ln in read(os.path.join(ROOT, "src", "inter_nodal", "bees_wire.atoms")).split("\n")
                  if ln.strip() and not ln.startswith("#")]
-        self.assertEqual(sorted(atoms), sorted(W.WIRE_ATOMS))
+        self.assertEqual(atoms, W.REASONS)
+        core = read(os.path.join(ROOT, "src", "inter_nodal", "bees_wire.silica"))
+        for i, r in enumerate(W.REASONS, 1):
+            self.assertIn(f"fn reason_{r}() -> int64 {{ {i} }}", core)
+            self.assertIn(f"        {i} -> bees_atoms@a_{r}();", core)
+
+    def test_term_unit_is_current(self):
+        sys.path.insert(0, HERE)
+        import gen_bees_etf
+        self.assertEqual(read(os.path.join(ROOT, "src", "inter_nodal", "bees_etf_term.silica")),
+                         gen_bees_etf.expand(gen_bees_etf.SRC))
 
 
-class GoldenFramesAgainstStruct(unittest.TestCase):
-    """The round-trip trial prints the first bytes of every primitive's frame. Python's struct.pack, which shares no
-    code with the codec, must give the same bytes. The trial's golden is read, not re-run."""
+# ------------------------------------------------------------------------------ the oracle
 
-    LEAF = os.path.join(ROOT, "trials", "m1_wire_types")
-    # the round trips are split over six leaves (one compiler process cannot type-check them all, SD-29); they share types.wire
-    LEAVES = ["m1_wire_types", "m1_wire_types_signed_a", "m1_wire_types_signed_b", "m1_wire_types_float64",
-              "m1_wire_types_float32", "m1_wire_types_text"]
+def parse_golden(path):
+    """The lines of a trial's golden: {id: ('enc', hex, reason, verdict) | ('dec', reason, verdict) | ('rej', reason)}."""
+    got = {}
+    for line in read(path).split("\n"):
+        m = re.match(r"^(\S+) n=(\d+) hex=([0-9a-f]*) (:\S+) (rt|DIFFERENT)$", line)
+        if m:
+            got[m.group(1)] = ("enc", m.group(3), m.group(4), m.group(5), int(m.group(2)))
+            continue
+        m = re.match(r"^(\S+) dec (:\S+) (rt|DIFFERENT|-)$", line)
+        if m:
+            got[m.group(1)] = ("dec", m.group(2), m.group(3))
+            continue
+        m = re.match(r"^(\S+) encode rejected (\S+)", line)
+        if m:
+            got[m.group(1)] = ("rej", m.group(2))
+    return got
 
-    def golden_text(self):
-        paths = [os.path.join(ROOT, "trials", leaf, "main.scout") for leaf in self.LEAVES]
-        return "\n".join(read(g) for g in paths) if all(os.path.exists(g) for g in paths) else None
 
-    def test_primitive_frames(self):
-        golden = self.golden_text()
-        wire = os.path.join(self.LEAF, "types.wire")
-        if golden is None or not os.path.exists(wire):
-            self.skipTest("trial golden not recorded yet")
-        kinds = {name: i for i, (name, _) in enumerate(W.collect([wire]))}
-        fmt = {"uint8": ">B", "uint16": ">H", "uint32": ">I", "uint64": ">Q", "int8": ">b", "int16": ">h",
-               "int32": ">i", "int64": ">q", "float64": ">d", "float32": ">f"}
-        checked = 0
-        for line in golden.split("\n"):
-            m = re.match(r"^(\S+) (\S+) n=(\d+) bytes=((?: \d+)*) sum=\d+ :ok rt$", line.strip())
-            if not m:
-                continue
-            ty, val, n, bytes_ = m.group(1), m.group(2), int(m.group(3)), [int(x) for x in m.group(4).split()]
-            if ty in fmt:
-                v = -0.0 if val == "NEG0" else (float(val) if ty.startswith("float") else int(val))
-                body = struct.pack(fmt[ty], v)
-            elif ty == "boolean":
-                body = bytes([1 if val == "true" else 0])
+class Oracle(unittest.TestCase):
+    """The vectors come from the installed erl (term_to_binary/1); the trials' recorded output must equal them byte for
+    byte, every alternative encoding must decode to the same value, and every hostile frame must be refused with the
+    language's reason."""
+
+    def test_vectors_were_written_by_erl(self):
+        header, vec = C.read_vectors(C.TYPED_VECTORS)
+        self.assertTrue(header.startswith("# OTP "), header)
+        self.assertGreater(len(vec), 200)
+        header, vec = C.read_vectors(C.TERMS_VECTORS)
+        self.assertTrue(header.startswith("# OTP "), header)
+        self.assertGreater(len(vec), 80)
+
+    def test_vectors_match_a_live_erl(self):
+        if subprocess.run(["which", "erl"], capture_output=True).returncode != 0:
+            self.skipTest("erl is not installed")
+        for program, path in ((C.erl_program, C.TYPED_VECTORS), (C.erl_term_program, C.TERMS_VECTORS)):
+            out = C.run_erl(program())
+            live = dict(line.split(" ") for line in out.splitlines() if not line.startswith("#"))
+            _, vec = C.read_vectors(path)
+            self.assertEqual(live, vec, path)
+
+    def test_every_expected_reason_is_a_language_atom(self):
+        for lf in C.LEAVES.values():
+            for c in lf["cases"]:
+                if c[0] == "dec" and c[3] != "ok":
+                    self.assertIn(c[3], W.REASONS)
+        for lf in C.TERM_LEAVES.values():
+            for c in lf["cases"]:
+                if c[0] == "dec" and c[2] != "ok":
+                    self.assertIn(c[2], W.REASONS)
+
+    def test_trial_sizes_stay_small(self):
+        # silica-defects SD-29: one compiler process runs out of memory on a lot of wide-typed code
+        for name in C.LEAVES:
+            for dname, idxs in C.leaf_dirs(name):
+                self.assertLessEqual(len(idxs), C.CHUNK)
+        for name in C.TERM_LEAVES:
+            for dname, idxs in C.term_leaf_dirs(name):
+                self.assertLessEqual(len(idxs), C.TERM_CHUNK)
+
+    def check_leaf(self, dname, idxs, cases, vec, name, expect_of, enc_hex):
+        path = os.path.join(ROOT, "trials", dname, "main.scout")
+        if not os.path.exists(path):
+            self.skipTest(f"{dname}: golden not recorded yet")
+        got = parse_golden(path)
+        for k in idxs:
+            ident = f"{name}.{k}"
+            r = got.get(ident)
+            self.assertIsNotNone(r, f"{dname}: no line for {ident}")
+            c = cases[k]
+            if c[0] == "enc":
+                self.assertEqual(r[0], "enc", (ident, r))
+                self.assertEqual(r[1], vec[ident], f"{ident}: the frame differs from erl's")
+                self.assertEqual(r[4], len(vec[ident]) // 2, ident)
+                self.assertEqual((r[2], r[3]), (":ok", "rt"), ident)
             else:
-                continue
-            frame = struct.pack(">IBBH", 2 + 2 + len(body), 1, 1, kinds["t_" + ty]) + body
-            self.assertEqual(n, len(frame), line)
-            self.assertEqual(bytes(bytes_), frame[:24], line)
-            checked += 1
-        self.assertGreater(checked, 70)
+                expect = expect_of(c)
+                self.assertEqual(r[0], "dec", (ident, r))
+                if expect == "ok":
+                    self.assertEqual((r[1], r[2]), (":ok", "rt"), ident)
+                else:
+                    self.assertEqual(r[1], ":" + expect, ident)
 
-    def test_hello_frame_and_digest(self):
-        text = self.golden_text()
-        wire = os.path.join(self.LEAF, "types.wire")
-        if text is None or not os.path.exists(wire):
-            self.skipTest("trial golden not recorded yet")
-        digest = W.signed64(W.digest(W.collect([wire])))
-        m = re.search(r"^hello alpha n=(\d+) bytes=((?: \d+)*) sum=\d+ digest=(-?\d+) same_digest=true same_node=true code=:ok$",
-                      text, re.M)
-        self.assertIsNotNone(m)
-        self.assertEqual(int(m.group(3)), digest)
-        frame = struct.pack(">IBBB", 1 + 1 + 1 + 5 + 8, 1, 0, 5) + b"alpha" + struct.pack(">q", digest)
-        self.assertEqual(int(m.group(1)), len(frame))
-        self.assertEqual(bytes(int(x) for x in m.group(2).split()), frame[:24])
+    def test_typed_trials_match_erl(self):
+        _, vec = C.read_vectors(C.TYPED_VECTORS)
+        for name, lf in C.LEAVES.items():
+            for dname, idxs in C.leaf_dirs(name):
+                self.check_leaf(dname, idxs, lf["cases"], vec, name, lambda c: c[3], None)
+
+    def test_term_trials_match_erl(self):
+        _, vec = C.read_vectors(C.TERMS_VECTORS)
+        for name, lf in C.TERM_LEAVES.items():
+            for dname, idxs in C.term_leaf_dirs(name):
+                self.check_leaf(dname, idxs, lf["cases"], vec, name, lambda c: c[2], None)
 
 
-class DocumentVectors(unittest.TestCase):
-    """The worked example of contract/wire-v1.md: the bytes below are the ones the document lists, and the vectors
-    trial (trials/m1_wire_vectors) must produce exactly them."""
+class IndependentEncoder(unittest.TestCase):
+    """A second, independent writer of ETF (Python's struct) agrees with erl on the scalar types, so the vectors do not
+    rest on erl alone for the layouts that matter (integers, floats, atoms, binaries, tuples)."""
 
-    HEX = {
-        "a": "00 00 00 05 01 01 00 00 ff",
-        "b": "00 00 00 0c 01 01 00 01 ff fe 00 00 00 02 68 69",
-        "c": "00 00 00 0a 01 01 00 02 00 00 00 02 01 00",
-        "hello": "00 00 00 0d 01 00 02 6e 31 bd fe 92 0b 6e 5e 1c 92",
-    }
-    DIGEST = 0xBDFE920B6E5E1C92
+    @staticmethod
+    def enc_int(v):
+        if 0 <= v <= 255:
+            return bytes([97, v])
+        if -2 ** 31 <= v < 2 ** 31:
+            return bytes([98]) + struct.pack(">i", v)
+        mag, digits = abs(v), []
+        while mag:
+            digits.append(mag & 255)
+            mag >>= 8
+        return bytes([110, len(digits), 1 if v < 0 else 0] + digits)
 
-    def test_digest_of_the_example_schema(self):
-        leaf = os.path.join(ROOT, "trials", "m1_wire_vectors")
-        msgs = W.collect([os.path.join(leaf, "vectors.wire")])
-        self.assertEqual(W.digest(msgs), self.DIGEST)
-        self.assertEqual(W.schema_text(msgs),
-                         "bees-wire 1\nlimits frame=4096 depth=16 list=256 atom=255 string=1024\n"
-                         "message 0 a uint8\nmessage 1 b {n:int16,s:string}\nmessage 2 c List[boolean]\n")
-
-    def test_trial_golden_matches_the_document(self):
-        golden = os.path.join(ROOT, "trials", "m1_wire_vectors", "main.scout")
-        if not os.path.exists(golden):
-            self.skipTest("trial golden not recorded yet")
-        text = read(golden)
-        self.assertIn(str(W.signed64(self.DIGEST)), text.split("\n")[0])
-        for name, hexes in self.HEX.items():
-            want = " ".join(str(int(x, 16)) for x in hexes.split())
-            self.assertIn(f"{name}: {want} \n", text + "\n", name)
+    def test_integers_floats_text_agree_with_erl(self):
+        _, vec = C.read_vectors(C.TYPED_VECTORS)
+        checked = 0
+        for name, lf in C.LEAVES.items():
+            tys = {m: C.parse_type(t) for m, t in lf["msgs"]}
+            for k, c in enumerate(lf["cases"]):
+                if c[0] != "enc":
+                    continue
+                ty, v = tys[c[1]], c[2]
+                if ty[0] != "prim":
+                    continue
+                n = ty[1]
+                if n in W.INT_TYPES:
+                    body = self.enc_int(v)
+                elif n == "float64" or n == "float32":
+                    body = bytes([70]) + struct.pack(">d", v)
+                elif n == "char":
+                    body = self.enc_int(ord(v))
+                elif n == "boolean":
+                    body = bytes([119, 4 if v else 5]) + (b"true" if v else b"false")
+                elif n == "atom":
+                    body = bytes([119, len(v)]) + v.encode()
+                else:
+                    t = v.text() if isinstance(v, C.Rep) else v
+                    body = bytes([109]) + struct.pack(">I", len(t)) + t.encode()
+                self.assertEqual((bytes([131]) + body).hex(), vec[f"{name}.{k}"], (name, k, v))
+                checked += 1
+        self.assertGreater(checked, 90)
 
 
 if __name__ == "__main__":
