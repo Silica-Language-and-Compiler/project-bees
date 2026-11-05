@@ -3,7 +3,7 @@
 > **Ruling 2026-11-05, after the first run:** an any-type term is not supported by Silica; handling it is the language transpiler's job, not BEES's and not Silica's. The term codec this note first described has been deleted; where it is mentioned below it is history. Decision 2 (remote pid as a tuple inside a term) is moot.
 
 **Status:** run 2026-11-05 on `silica-999936-macos-applesilicon` with Erlang/OTP 28 (erts-15.0) as the byte oracle. **Done, with the
-limits in section 8.** Nothing here touches a socket, the network or a foreign call. Plan: [`mvp.md`](../mvp.md) section 3.4 and
+limits in section 8.** Nothing here touches a transport, the network or a foreign call. Plan: [`mvp.md`](../mvp.md) section 3.4 and
 milestone M1b; the design it follows: [`silica-transport-alignment.md`](../silica-transport-alignment.md) (D35). It supersedes
 [M1-wire-codec.md](M1-wire-codec.md) and the layout in [`contract/wire-v1.md`](../../contract/wire-v1.md).
 

@@ -5,7 +5,7 @@
 > renamed to the language's atoms. What follows is the record of M1 as it was.
 
 **Status:** run 2026-11-04 on `silica-999939-macos-applesilicon`. **Done.** Every supported type round-trips, hostile
-frames are refused without a fault, and 200,000 frames cost 1.9 MB. Nothing here touches a socket, the network or a
+frames are refused without a fault, and 200,000 frames cost 1.9 MB. Nothing here touches a transport, the network or a
 foreign call. The format is in [`contract/wire-v1.md`](../../contract/wire-v1.md); the plan is
 [`mvp.md`](../mvp.md) section 3.4 and milestone M1.
 **Trials:** `trials/m1_wire_types`, `m1_wire_reject`, `m1_wire_words`, `m1_wire_vectors`, `m1_wire_memory`, and

@@ -16,7 +16,7 @@ ESP32-S3 (D29). This spike checks that choice before B1 and B3 depend on it. It 
 
 1. Can rustls on the hosted targets, and Mbed TLS on the ESP32-S3, meet the TRUST TLS profile behind one small C
    interface? On the ESP32-S3 the first check is X25519MLKEM768 (R3).
-2. Does it fit BEES's I/O model: no sockets of its own, no callbacks into Silica, and every output re-created?
+2. Does it fit BEES's I/O model: no transports of its own, no callbacks into Silica, and every output re-created?
 3. What does it cost in code size and RAM, especially on the ESP32-S3?
 4. Which C TLS library on the ESP32-S3 meets the TRUST profile, X25519MLKEM768 included?
 5. Can the same interface also offer the BEAM-mode compatibility profile (inter-nodal-modes §4.5), so that stock OTP
@@ -37,7 +37,7 @@ and the native-edge rules (gap ledger §4).
 | R6 | No 0-RTT, renegotiation or compression | Configuration review (rustls doesn't implement renegotiation or compression) |
 | R7 | ALPN `trust/1`, enforced | A peer offering another ALPN is refused; a peer offering none is refused by the interface's check after the handshake |
 | R8 | The peer's certificate DER and its SHA-512 are available (D11), and so are the client-side pins | The interface returns both, and the fingerprint matches one computed separately |
-| R9 | No sockets of its own; ciphertext in, ciphertext and plaintext out | The test harness pumps bytes between two endpoints through memory buffers only |
+| R9 | No transports of its own; ciphertext in, ciphertext and plaintext out | The test harness pumps bytes between two endpoints through memory buffers only |
 | R10 | No callbacks into Silica (Fifi only calls outward) | Interface review: every function is called by Silica and returns |
 | R11 | Every output can be re-created (S-5) | Outputs are flat byte buffers with explicit lengths, plus scalars |
 | R12 | Builds for all four 1.0 targets (D29) | Per-target build (§5) |
@@ -48,9 +48,9 @@ and the native-edge rules (gap ledger §4).
 
 ## 3. The C interface (`dangerous_bees_native` TLS entries)
 
-The interface owns no sockets and makes no callbacks. Silica reads and writes the network through its own TCP/IP
+The interface owns no transports and makes no callbacks. Silica reads and writes the network through its own TCP/IP
 (S-22) on the hosted targets, and through the board's lwIP behind the edge on the ESP32-S3 (D29). It hands incoming ciphertext to the engine, takes outgoing ciphertext back, and re-creates everything the
-engine returns (S-5) before the data is used or written to a socket.
+engine returns (S-5) before the data is used or written to a transport.
 
 ```c
 /* Configuration: PEM inputs and a profile. Each profile is fixed inside the engine:
@@ -71,7 +71,7 @@ bees_tls_conn *bees_tls_server_new(const bees_tls_config *);
 bees_tls_conn *bees_tls_client_new(const bees_tls_config *, const uint8_t *server_name, size_t len);
 void           bees_tls_conn_free(bees_tls_conn *);
 
-/* Ciphertext in and out: no sockets. */
+/* Ciphertext in and out: no transports. */
 int bees_tls_feed(bees_tls_conn *, const uint8_t *in, size_t len, size_t *consumed);  /* ciphertext from the peer */
 int bees_tls_pull(bees_tls_conn *, uint8_t *out, size_t cap, size_t *written);        /* ciphertext for the peer */
 

@@ -359,11 +359,11 @@ no bytecode is loaded.
 | Registered names, process-information queries | planned |
 | Result-returning variants of common fallible library calls | planned |
 | In-memory tables, counters, persistent storage of values | planned |
-| Host input and output, files, sockets and DNS (wrappers over Silica's foreign-function interface) | planned |
+| Host input and output, files, transports and DNS (wrappers over Silica's foreign-function interface) | planned |
 | Re-creation of foreign data | blocked on Silica |
 | Balancing and placement of actors across cores | planned |
 | Secure inter-node communication (TRUST) and BEAM-compatible distribution | planned |
-| Encoding and decoding of values for a wire (ETF), framing and sockets | Silica is designing these as language features (`Transportable`, `encode`/`decode`, a carrier actor contract); BEES leaves typed values to them when they exist and supplies the distribution layer, terms of any shape and foreign pids above them. Until then BEES ships its own interim codec |
+| Encoding and decoding of values for a wire (ETF), framing and transports | Silica is designing these as language features (`Transportable`, `encode`/`decode`, a carrier actor contract); BEES leaves typed values to them when they exist and supplies the distribution layer, terms of any shape and foreign pids above them. Until then BEES ships its own interim codec |
 
 ## B3. Not provided (yours or Silica's)
 

@@ -322,13 +322,13 @@ land in time; if one slips, everything that closes after it slips with it.
 | **M1.A** | PoC shim v0: bees_term subset, evacuation, receive helpers, PoC BIFs, one Supervisor mapping | BEES | `shim` | M0 | — | — | M1.T, M1.B, M1 |
 | **M1.T** | PoC contract slice: reference lowerings end to end; bees_config generating module table and atom lookup | BEES | `contract` | M1.A | — | — | M1 |
 | **M1.B** | PoC protocol layers over an in-process loopback transport (TRUST call path; EPMD, handshake, delivery) | BEES | `inter_nodal` | M1.A | — | — | M1.N, M1 |
-| **M1.N** | PoC on real sockets: TRUST over mTLS between two BEES nodes; cleartext to an erl -sname node | BEES | `inter_nodal` | M1.B, S-5, S12, S4 | — | — | — |
+| **M1.N** | PoC on real transports: TRUST over mTLS between two BEES nodes; cleartext to an erl -sname node | BEES | `inter_nodal` | M1.B, S-5, S12, S4 | — | — | — |
 | **M1** | Stage 1 exit: three programs match the BEAM; latency and memory measured; ledger updated | BEES | `plan` | M1.A, M1.T, M1.B | — | M1.N (deferred to B1 and B3) | A1, A2, B1, B3 |
 | **A1** | Terms and memory | BEES | `shim` | M1 | S-11, S-15 | — | A3 |
 | **A2** | Processes and signals (save queue, pdict, exit hub, child-id pools, names) | BEES | `shim` | M1 | A1, S-2, S-26, S-28 | S-9 (shutdown: 0, no terminate/2); S-29 (BEES name table, hub removes names) | A3, A4, A6, I1 |
 | **A3** | ERTS modules and BIFs (tiers, result-returning variants, ets, persistent_term, code, bees_log, crypto) | BEES | `shim` | A1, A2 | S-5, S-8 | — | A5 |
 | **A4** | OTP behaviours on Silica constructs (Supervisor, split gen_server, state machine; proc_lib/sys support) | BEES | `shim` | A2 | S-17, S-2 | — | X2 |
-| **A5** | Host I/O and observability (bees_io, bees_inet, bees_file, I/O server, telemetry) | BEES | `shim` | A3 | S-5, S-8 | S-22 (native-edge sockets) | I2, SEC |
+| **A5** | Host I/O and observability (bees_io, bees_inet, bees_file, I/O server, telemetry) | BEES | `shim` | A3 | S-5, S-8 | S-22 (native-edge transports) | I2, SEC |
 | **A6** | Balancing and placement (bees_place, spawn supervisors, dispatch budget, watchdog, statistics) | BEES | `shim` | A2, S11 | S-6, S-23, S-24 | — | X2 |
 | **T1** | Contract 1.0 (all eight items, cross-language rules, versioning) | BEES | `contract` | R0.3 | A1, A2, A4 | — | T2 |
 | **T2** | Conformance kit (reference lowerings + self-check suite, packaged for compiler CI) | BEES | `contract` | T1 | T1 | — | I3, R1 |

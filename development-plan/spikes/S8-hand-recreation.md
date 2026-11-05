@@ -43,7 +43,7 @@ hand-written route is rejected where Silica enforces taint, as the specification
   unchecked handler, which the specification forbids and which Silica may start rejecting at any time. **BEES does not
   build on it.**
 - Receiving from the network waits on Silica's `Recreatable` (Silica ROADMAP chunk 13). The sending half, the wire
-  codec and the sockets do not.
+  codec and the transports do not.
 - The old S4 spike results stand, but they proved less than they appeared to: the foreign values there were untracked.
 
 ## Silica details met

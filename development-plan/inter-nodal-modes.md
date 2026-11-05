@@ -45,7 +45,7 @@ graph TD
   DBIF --> DI[bees_dist]
   TR --> TCODEC[trust/1 codec]
   DI --> CODEC[ETF codec: Silica's Transportable]
-  TCODEC --> IO[bees_io ports<br/>over the S-22 socket wrappers]
+  TCODEC --> IO[bees_io ports<br/>over the S-22 transport wrappers]
   CODEC --> IO
   IO <--> EDGE[(native edge:<br/>TLS, random bytes)]
   EDGE -->|FFI-derived data| RC[re-creation<br/>S-5]
@@ -66,7 +66,7 @@ therefore depends on the mode:
 - **TRUST** follows the reference design exactly. A request names `{M, F, A}` and `Args`.
   1. The server first applies the **forbidden guard**. This is the reference implementation's default map, which
      covers code loading, ports, `apply`, `spawn*`, atom creation, `binary_to_term`, tracing, the registry, timers,
-     OS and file access, sockets, and OTP behaviour entry points. BEES extends it with its own internal modules: every
+     OS and file access, transports, and OTP behaviour entry points. BEES extends it with its own internal modules: every
      `bees_*` module, the generated module-table, atom-lookup and dispatch-entry modules, and the `trpc`, `trust_`, `semp_` and `tempus_` prefixes.
   2. It then checks the fingerprint's **permission spec**.
   3. Only then does it call the function through the module table, in a per-request worker process.
@@ -81,7 +81,7 @@ therefore depends on the mode:
 
 BEES keeps Silica's FFI spec as written.
 - FFI-derived data stays tainted however it is copied (FFI spec §7.4).
-- It cannot be sent on a socket (§7.3).
+- It cannot be sent on a transport (§7.3).
 - It must be consumed or discarded in the handler that receives it (§7.6).
 
 TLS and secure random bytes come through the native edge (D17), so remote input takes one of two paths:
@@ -89,8 +89,8 @@ TLS and secure random bytes come through the native edge (D17), so remote input 
 - **FFI-derived data** (TLS plaintext, random bytes, digests, peer-certificate data) is first **re-created** (S-5).
   - The compiler-derived `recreate` checks the declared limits, rebuilds the value in a fresh region, and rejects
     anything that does not fit its type.
-  - Only the re-created value leaves the handler. TLS ciphertext bound for a socket is re-created the same way.
-- **Cleartext bytes from Silica's own sockets** are untainted but untrusted.
+  - Only the re-created value leaves the handler. TLS ciphertext bound for a transport is re-created the same way.
+- **Cleartext bytes from Silica's own transports** are untainted but untrusted.
 
 Both then pass **`bees_ingress`**, the single path for remote input into processes. It does the protocol-level
 validation that the compiler cannot do:
@@ -433,7 +433,7 @@ Exit signals crossing a node boundary follow D18.
     handshake message. If the program's atom lookup does not hold that name as an atom, BEES answers with the
     `not_allowed` status and closes the connection. Adding a peer means rebuilding the program. The BEES node's own
     name must also be in the code.
-  - The challenge is random bytes from the native edge. The digest is MD5 over the cookie followed by the challenge. Both are re-created (S-5) before they are written to the socket, which is Silica's own (S-22).
+  - The challenge is random bytes from the native edge. The digest is MD5 over the cookie followed by the challenge. Both are re-created (S-5) before they are written to the transport, which is Silica's own (S-22).
   - The cookie is read from `cookie_file`. It is never read implicitly from `~/.erlang.cookie`, and it is never
     logged.
   - Capability flags: advertise exactly what BEES implements, plus the flags the targeted OTP releases make mandatory
@@ -456,7 +456,7 @@ Exit signals crossing a node boundary follow D18.
   | Export funs (`fun M:F/A`) | Fun terms that run through the module table |
   | Local funs | Opaque terms; calling one raises `badfun` (gap ledger §5) |
 
-- **Node connections:** one connection process per peer node. It learns of local deaths from the exit hub (D23). It owns the socket through `bees_io`, the tick timer,
+- **Node connections:** one connection process per peer node. It learns of local deaths from the exit hub (D23). It owns the transport through `bees_io`, the tick timer,
   and the set of links that cross that connection, so that losing the connection fires all of them.
 
 ### 4.4 Delivery
