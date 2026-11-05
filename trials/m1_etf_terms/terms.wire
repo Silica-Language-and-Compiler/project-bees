@@ -1,2 +1,0 @@
-# GENERATED: the wire tables and integer codecs are linked by every leaf that uses bees_wire
-message unused int64

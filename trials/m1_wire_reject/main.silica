@@ -1,12 +1,11 @@
 // M1b: hostile and malformed frames on ETF. Every case builds a frame by hand (or mutates a valid one) and feeds it to the
-// generated validator or decoder (found by the target NAME, as a REG_SEND would), and to the term validator; each must come back as
+// generated validator or decoder (found by the target NAME, as a REG_SEND would); each must come back as
 // a rejection reason (the language's atoms), never a fault, and the program goes on.
 // A line is `<case> -> <reason>` (:ok means the frame was accepted). The oracle-checked decode and reject entries are in the
-// m1_wire_types* and m1_etf_* leaves; these are the limit cases that need a hand-built frame.
+// m1_wire_types* leaves; these are the limit cases that need a hand-built frame.
 use bees_atoms;
 use bees_wire;
 use bees_wire_msgs;
-use bees_etf;
 
 fn line(label: string, code: int64) -> int64 {
     sequence proc[device_io]
@@ -78,15 +77,6 @@ fn count_trunc_dec(rg: region(L, normal), b: buf(L, normal, uint8, 4096), i: int
         }
     }
 }
-fn count_trunc_term(rg: region(L, normal), b: buf(L, normal, uint8, 4096), i: int64, n: int64, hits: int64, other: int64) -> int64 {
-    case i >= n of {
-        true -> hits * 1000 + other;
-        false -> case bees_etf@validate(rg, b, i) == 2 of {
-            true -> count_trunc_term(rg, b, i + 1, n, hits + 1, other);
-            false -> count_trunc_term(rg, b, i + 1, n, hits, other + 1)
-        }
-    }
-}
 fn count_trunc_lstr(rg: region(L, normal), b: buf(L, normal, uint8, 4096), i: int64, n: int64, hits: int64, other: int64) -> int64 {
     case i >= n of {
         true -> hits * 1000 + other;
@@ -119,13 +109,7 @@ fn truncation(rg: region(L, normal), b: buf(L, normal, uint8, 4096)) -> int64 {
         n3: int64 <- bees_wire_msgs@enc_lstr(rg, b, str_list2(3, 5));
         print_string("a list of three binaries (frame of ");
         _: atom <- print_int64(n3);
-        println(" bytes), as a term and as a message, truncated at every length:");
-        t3: int64 <- count_trunc_term(rg, b, 0, n3, 0, 0);
-        print_string("  term, truncated/other = ");
-        _: atom <- print_int64(t3 / 1000);
-        print_string("/");
-        _: atom <- print_int64(t3 % 1000);
-        println("");
+        println(" bytes), as a message, truncated at every length:");
         t4: int64 <- count_trunc_lstr(rg, b, 0, n3, 0, 0);
         print_string("  message lstr, truncated/other = ");
         _: atom <- print_int64(t4 / 1000);
@@ -154,7 +138,6 @@ fn more_strs(k: int64, acc: List[string, mem(normal)]) -> List[string, mem(norma
 fn oversized(rg: region(L, normal), b: buf(L, normal, uint8, 4096)) -> int64 {
     sequence proc[device_io]
         _: int64 <- line("frame longer than 4096 bytes held (len 4097)", vl(rg, b, 4097));
-        _: int64 <- line("the same as a term", bees_etf@validate(rg, b, 4097));
         _: int64 <- line("an empty frame", vl(rg, b, 0));
         e2: int64 <- bees_wire_msgs@enc_lstr(rg, b, str_list2(4, 997));
         print_string("encode a frame of exactly 4096 bytes: n=");
@@ -186,8 +169,7 @@ fn depth(rg: region(L, normal), b: buf(L, normal, uint8, 4096)) -> int64 {
         m16: int64 <- maps(rg, b, pre(rg, b), 16);
         _: int64 <- line("decode 16 levels (handcrafted frame)", v_deep16(rg, b, m16));
         m17: int64 <- maps(rg, b, pre(rg, b), 17);
-        _: int64 <- line("decode 17 levels (handcrafted frame)", v_deep17(rg, b, m17));
-        _: int64 <- line("17 levels of maps as a term (maps are not terms)", bees_etf@validate(rg, b, m17))
+        _: int64 <- line("decode 17 levels (handcrafted frame)", v_deep17(rg, b, m17))
     produces pure 0 end
 }
 
@@ -232,7 +214,6 @@ fn content(rg: region(L, normal), b: buf(L, normal, uint8, 4096)) -> int64 {
     sequence
         a1: int64 <- p(rg, b, p(rg, b, p(rg, b, p(rg, b, p(rg, b, p(rg, b, pre(rg, b), 119), 4), 110), 111), 112), 101);
         _: int64 <- line("atom nope (not held), as a message", vt(rg, b, a1));
-        _: int64 <- line("atom nope (not held), as a term", bees_etf@validate(rg, b, a1));
         a2: int64 <- p(rg, b, p(rg, b, p(rg, b, p(rg, b, p(rg, b, p(rg, b, p(rg, b, pre(rg, b), 119), 5), 107), 110), 111), 119), 110);
         _: int64 <- line("atom known", vt(rg, b, a2));
         _: int64 <- line("atom known, then one more byte", vt(rg, b, a2 + 1));
@@ -271,7 +252,6 @@ fn content(rg: region(L, normal), b: buf(L, normal, uint8, 4096)) -> int64 {
         _: int64 <- line("float64 +infinity", v_flt(rg, b, g1));
         _: int64 <- bees_wire@put_i(rg, b, 3, 248);
         _: int64 <- line("float64 NaN", v_flt(rg, b, g1));
-        _: int64 <- line("float64 NaN, as a term", bees_etf@validate(rg, b, g1));
         _: int64 <- bees_wire@put_i(rg, b, 2, 255);
         _: int64 <- bees_wire@put_i(rg, b, 3, 240);
         _: int64 <- line("float32 -infinity", v_flt32(rg, b, g1));

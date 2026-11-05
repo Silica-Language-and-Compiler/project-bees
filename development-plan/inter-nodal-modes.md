@@ -44,7 +44,7 @@ graph TD
   TRPC --> TR[bees_trust]
   DBIF --> DI[bees_dist]
   TR --> TCODEC[trust/1 codec]
-  DI --> CODEC[bees_etf codec]
+  DI --> CODEC[ETF codec: Silica's Transportable]
   TCODEC --> IO[bees_io ports<br/>over the S-22 socket wrappers]
   CODEC --> IO
   IO <--> EDGE[(native edge:<br/>TLS, random bytes)]

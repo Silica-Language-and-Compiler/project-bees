@@ -24,7 +24,7 @@ distribution protocol is explicitly left to a later design built above this one*
 | BEES piece | After the transport lands | Until then |
 | --- | --- | --- |
 | Typed message codec: the `.wire` manifest, `tools/bees_wire_gen.py`, `bees_wire` (M1, M1b) | **The language's.** The compiler emits `impl Transportable` for each message type and a program calls `encode`/`decode((:etf), ...)`. The manifest, the generator and `bees_wire` go away | keep them, retargeted to ETF (M1b), with the same bytes the language will produce (both are checked against `erl`), behind the two-function shape `enc_<name>` / `dec_<name>` so the swap changes only the body |
-| Dynamic Erlang terms (`bees_term` to and from ETF) | **BEES keeps this.** Silica's receiving type is always static (their principle 5) and an atom the program lacks is rejected, so a BEAM-compiled program that sends and receives terms of any shape needs a codec from the universal term type to ETF (section 4). Unknown atoms rejected agrees with D16 | write it in M1b: it is needed by the first BEAM-compiled program, and not by the typed MVP |
+| Dynamic Erlang terms (`bees_term` to and from ETF) | **Not BEES's (ruled 2026-11-05).** An any-type term is not supported by Silica; the language transpiler handles it, not BEES and not Silica. M1b's version was deleted. Reason it is needed at all: Silica's receiving type is always static (their principle 5) and an atom the program lacks is rejected, so a BEAM-compiled program that sends and receives terms of any shape needs a codec from the universal term type to ETF (section 4). Unknown atoms rejected agrees with D16 | write it in M1b: it is needed by the first BEAM-compiled program, and not by the typed MVP |
 | Framing | 4-byte length prefix after the handshake: `WireFrame`. **The handshake's 2-byte framing is BEES's**; `WireFrame` has no 2-byte form | small `bees_net` framing, 2 and 4 byte, with the `unframe` shape of §5 |
 | Sockets (M2) | the `(:tcp)` carrier | the M2 native-edge socket actor **speaks the carrier actor contract** of §6.2 (the nine messages, credits), so `bees_dist` is written against the contract and the carrier swaps in |
 | Distribution: handshake v6, flags, ticks, control messages, `REG_SEND`, name table, proxies, atom-cache refusal, remote references, the node table | **BEES.** Their §7 lists exactly what this layer needs and says the transport provides it | M3 as planned |
@@ -54,7 +54,7 @@ Ruled 2026-11-05: these are BEES implementation details and stay out of the lang
 
 1. **Foreign actor references.** BEES defines its own remote-reference form `{ node, creation, id, serial }` and reads and writes
    `NEW_PID_EXT` itself; the language's `actor_ref` encoding is used only for local actors.
-2. **Terms of any shape.** BEES's codec between `bees_term` and ETF, as its own code, with unknown atoms rejected (D16).
+2. ~~Terms of any shape.~~ **Withdrawn 2026-11-05:** any-type is not supported by Silica; the language transpiler handles it, not BEES and not Silica.
 3. **The handshake's 2-byte framing.** BEES's own framing in `bees_net`, beside the language's 4-byte `WireFrame`.
 4. **TLS for TRUST.** BEES puts the TLS engine between the carrier and the framing (still waiting on a TLS engine, S12).
 5. **Remote-node bookkeeping:** the node table, creation numbers and atom-cache refusal, as in M3.
@@ -64,7 +64,7 @@ Silica's open point 12 (a frame and its decoded value in a small heap) does not 
 ## 5. Effect on the plan
 
 - **M1b is rescoped**: the typed-message half is explicitly an interim of the language's `Transportable`; the new, lasting
-  part is the dynamic term codec and the rest of what the language will not provide (the pid form, the 2-byte
+  part is the rest of what the language will not provide (the pid form, the 2-byte
   handshake framing).
 - **M2** is written against the carrier contract.
 - **M3** is unchanged, and every `decode` is the receive step the M0 gate waits on.

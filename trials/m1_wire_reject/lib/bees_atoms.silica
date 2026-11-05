@@ -5,7 +5,6 @@ export a_bad_tag/0;
 export a_bad_utf8/0;
 export a_bad_variant/0;
 export a_bad_version/0;
-export a_bees_remote_pid/0;
 export a_bol/0;
 export a_chr/0;
 export a_deep16/0;
@@ -42,7 +41,6 @@ fn a_bad_tag() -> atom { :bad_tag }
 fn a_bad_utf8() -> atom { :bad_utf8 }
 fn a_bad_variant() -> atom { :bad_variant }
 fn a_bad_version() -> atom { :bad_version }
-fn a_bees_remote_pid() -> atom { :bees_remote_pid }
 fn a_bol() -> atom { :bol }
 fn a_chr() -> atom { :chr }
 fn a_deep16() -> atom { :deep16 }
@@ -77,7 +75,6 @@ fn spelling(a: atom) -> string {
         :bad_utf8 -> "bad_utf8";
         :bad_variant -> "bad_variant";
         :bad_version -> "bad_version";
-        :bees_remote_pid -> "bees_remote_pid";
         :bol -> "bol";
         :chr -> "chr";
         :deep16 -> "deep16";
@@ -115,44 +112,43 @@ fn index(a: atom) -> int64 {
         :bad_utf8 -> 1;
         :bad_variant -> 2;
         :bad_version -> 3;
-        :bees_remote_pid -> 4;
-        :bol -> 5;
-        :chr -> 6;
-        :deep16 -> 7;
-        :deep17 -> 8;
-        :duplicate_field -> 9;
-        :flt -> 10;
-        :flt32 -> 11;
-        :foreign_actor -> 12;
-        :known -> 13;
-        :lst -> 14;
-        :lstr -> 15;
-        :missing_field -> 16;
-        :node_a -> 17;
-        :node_b -> 18;
-        :out_of_range -> 19;
-        :small -> 20;
-        :str -> 21;
-        :tag -> 22;
-        :too_deep -> 23;
-        :too_large -> 24;
-        :too_long -> 25;
-        :trailing_bytes -> 26;
-        :truncated -> 27;
-        :unknown_atom -> 28;
-        :unknown_field -> 29;
-        :unsupported -> 30;
-        :yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy -> 31;
+        :bol -> 4;
+        :chr -> 5;
+        :deep16 -> 6;
+        :deep17 -> 7;
+        :duplicate_field -> 8;
+        :flt -> 9;
+        :flt32 -> 10;
+        :foreign_actor -> 11;
+        :known -> 12;
+        :lst -> 13;
+        :lstr -> 14;
+        :missing_field -> 15;
+        :node_a -> 16;
+        :node_b -> 17;
+        :out_of_range -> 18;
+        :small -> 19;
+        :str -> 20;
+        :tag -> 21;
+        :too_deep -> 22;
+        :too_large -> 23;
+        :too_long -> 24;
+        :trailing_bytes -> 25;
+        :truncated -> 26;
+        :unknown_atom -> 27;
+        :unknown_field -> 28;
+        :unsupported -> 29;
+        :yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy -> 30;
         _: atom -> -1
     }
 }
 
 fn from_spelling_0(s: string) -> { found: boolean, value: atom } {
-    case s == "bad_tag" of { true -> { found: true, value: :bad_tag }; false -> case s == "bad_utf8" of { true -> { found: true, value: :bad_utf8 }; false -> case s == "bad_variant" of { true -> { found: true, value: :bad_variant }; false -> case s == "bad_version" of { true -> { found: true, value: :bad_version }; false -> case s == "bees_remote_pid" of { true -> { found: true, value: :bees_remote_pid }; false -> case s == "bol" of { true -> { found: true, value: :bol }; false -> case s == "chr" of { true -> { found: true, value: :chr }; false -> case s == "deep16" of { true -> { found: true, value: :deep16 }; false -> case s == "deep17" of { true -> { found: true, value: :deep17 }; false -> case s == "duplicate_field" of { true -> { found: true, value: :duplicate_field }; false -> case s == "flt" of { true -> { found: true, value: :flt }; false -> case s == "flt32" of { true -> { found: true, value: :flt32 }; false -> case s == "foreign_actor" of { true -> { found: true, value: :foreign_actor }; false -> case s == "known" of { true -> { found: true, value: :known }; false -> case s == "lst" of { true -> { found: true, value: :lst }; false -> case s == "lstr" of { true -> { found: true, value: :lstr }; false -> case s == "missing_field" of { true -> { found: true, value: :missing_field }; false -> case s == "node_a" of { true -> { found: true, value: :node_a }; false -> case s == "node_b" of { true -> { found: true, value: :node_b }; false -> case s == "out_of_range" of { true -> { found: true, value: :out_of_range }; false -> case s == "small" of { true -> { found: true, value: :small }; false -> case s == "str" of { true -> { found: true, value: :str }; false -> case s == "tag" of { true -> { found: true, value: :tag }; false -> case s == "too_deep" of { true -> { found: true, value: :too_deep }; false -> case s == "too_large" of { true -> { found: true, value: :too_large }; false -> case s == "too_long" of { true -> { found: true, value: :too_long }; false -> case s == "trailing_bytes" of { true -> { found: true, value: :trailing_bytes }; false -> case s == "truncated" of { true -> { found: true, value: :truncated }; false -> case s == "unknown_atom" of { true -> { found: true, value: :unknown_atom }; false -> case s == "unknown_field" of { true -> { found: true, value: :unknown_field }; false -> case s == "unsupported" of { true -> { found: true, value: :unsupported }; false -> case s == "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy" of { true -> { found: true, value: :yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy }; false -> { found: false, value: :unknown } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } }
+    case s == "bad_tag" of { true -> { found: true, value: :bad_tag }; false -> case s == "bad_utf8" of { true -> { found: true, value: :bad_utf8 }; false -> case s == "bad_variant" of { true -> { found: true, value: :bad_variant }; false -> case s == "bad_version" of { true -> { found: true, value: :bad_version }; false -> case s == "bol" of { true -> { found: true, value: :bol }; false -> case s == "chr" of { true -> { found: true, value: :chr }; false -> case s == "deep16" of { true -> { found: true, value: :deep16 }; false -> case s == "deep17" of { true -> { found: true, value: :deep17 }; false -> case s == "duplicate_field" of { true -> { found: true, value: :duplicate_field }; false -> case s == "flt" of { true -> { found: true, value: :flt }; false -> case s == "flt32" of { true -> { found: true, value: :flt32 }; false -> case s == "foreign_actor" of { true -> { found: true, value: :foreign_actor }; false -> case s == "known" of { true -> { found: true, value: :known }; false -> case s == "lst" of { true -> { found: true, value: :lst }; false -> case s == "lstr" of { true -> { found: true, value: :lstr }; false -> case s == "missing_field" of { true -> { found: true, value: :missing_field }; false -> case s == "node_a" of { true -> { found: true, value: :node_a }; false -> case s == "node_b" of { true -> { found: true, value: :node_b }; false -> case s == "out_of_range" of { true -> { found: true, value: :out_of_range }; false -> case s == "small" of { true -> { found: true, value: :small }; false -> case s == "str" of { true -> { found: true, value: :str }; false -> case s == "tag" of { true -> { found: true, value: :tag }; false -> case s == "too_deep" of { true -> { found: true, value: :too_deep }; false -> case s == "too_large" of { true -> { found: true, value: :too_large }; false -> case s == "too_long" of { true -> { found: true, value: :too_long }; false -> case s == "trailing_bytes" of { true -> { found: true, value: :trailing_bytes }; false -> case s == "truncated" of { true -> { found: true, value: :truncated }; false -> case s == "unknown_atom" of { true -> { found: true, value: :unknown_atom }; false -> case s == "unknown_field" of { true -> { found: true, value: :unknown_field }; false -> case s == "unsupported" of { true -> { found: true, value: :unsupported }; false -> case s == "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy" of { true -> { found: true, value: :yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy }; false -> { found: false, value: :unknown } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } }
 }
 
 fn from_spelling(s: string) -> { found: boolean, value: atom } {
     from_spelling_0(s)
 }
 
-fn count() -> int64 { 32 }
+fn count() -> int64 { 31 }

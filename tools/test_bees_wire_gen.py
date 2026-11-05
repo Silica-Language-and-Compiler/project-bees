@@ -203,12 +203,6 @@ class Generated(unittest.TestCase):
             self.assertIn(f"fn reason_{r}() -> int64 {{ {i} }}", core)
             self.assertIn(f"        {i} -> bees_atoms@a_{r}();", core)
 
-    def test_term_unit_is_current(self):
-        sys.path.insert(0, HERE)
-        import gen_bees_etf
-        self.assertEqual(read(os.path.join(ROOT, "src", "inter_nodal", "bees_etf_term.silica")),
-                         gen_bees_etf.expand(gen_bees_etf.SRC))
-
 
 # ------------------------------------------------------------------------------ the oracle
 
@@ -239,14 +233,11 @@ class Oracle(unittest.TestCase):
         header, vec = C.read_vectors(C.TYPED_VECTORS)
         self.assertTrue(header.startswith("# OTP "), header)
         self.assertGreater(len(vec), 200)
-        header, vec = C.read_vectors(C.TERMS_VECTORS)
-        self.assertTrue(header.startswith("# OTP "), header)
-        self.assertGreater(len(vec), 80)
 
     def test_vectors_match_a_live_erl(self):
         if subprocess.run(["which", "erl"], capture_output=True).returncode != 0:
             self.skipTest("erl is not installed")
-        for program, path in ((C.erl_program, C.TYPED_VECTORS), (C.erl_term_program, C.TERMS_VECTORS)):
+        for program, path in ((C.erl_program, C.TYPED_VECTORS),):
             out = C.run_erl(program())
             live = dict(line.split(" ") for line in out.splitlines() if not line.startswith("#"))
             _, vec = C.read_vectors(path)
@@ -257,19 +248,12 @@ class Oracle(unittest.TestCase):
             for c in lf["cases"]:
                 if c[0] == "dec" and c[3] != "ok":
                     self.assertIn(c[3], W.REASONS)
-        for lf in C.TERM_LEAVES.values():
-            for c in lf["cases"]:
-                if c[0] == "dec" and c[2] != "ok":
-                    self.assertIn(c[2], W.REASONS)
 
     def test_trial_sizes_stay_small(self):
         # silica-defects SD-29: one compiler process runs out of memory on a lot of wide-typed code
         for name in C.LEAVES:
             for dname, idxs in C.leaf_dirs(name):
                 self.assertLessEqual(len(idxs), C.CHUNK)
-        for name in C.TERM_LEAVES:
-            for dname, idxs in C.term_leaf_dirs(name):
-                self.assertLessEqual(len(idxs), C.TERM_CHUNK)
 
     def check_leaf(self, dname, idxs, cases, vec, name, expect_of, enc_hex):
         path = os.path.join(ROOT, "trials", dname, "main.scout")
@@ -299,12 +283,6 @@ class Oracle(unittest.TestCase):
         for name, lf in C.LEAVES.items():
             for dname, idxs in C.leaf_dirs(name):
                 self.check_leaf(dname, idxs, lf["cases"], vec, name, lambda c: c[3], None)
-
-    def test_term_trials_match_erl(self):
-        _, vec = C.read_vectors(C.TERMS_VECTORS)
-        for name, lf in C.TERM_LEAVES.items():
-            for dname, idxs in C.term_leaf_dirs(name):
-                self.check_leaf(dname, idxs, lf["cases"], vec, name, lambda c: c[2], None)
 
 
 class IndependentEncoder(unittest.TestCase):

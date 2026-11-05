@@ -1,11 +1,9 @@
 valid small frame: n=56 validate -> :ok
 truncated at every length 0..n-1 via validate_named: truncated/other = 56/0
 truncated at every length 0..n-1 via dec_small: truncated/other = 56/0
-a list of three binaries (frame of 2075 bytes), as a term and as a message, truncated at every length:
-  term, truncated/other = 2075/0
+a list of three binaries (frame of 2075 bytes), as a message, truncated at every length:
   message lstr, truncated/other = 2075/0
 frame longer than 4096 bytes held (len 4097) -> :too_large
-the same as a term -> :too_large
 an empty frame -> :truncated
 encode a frame of exactly 4096 bytes: n=4096 validate -> :ok
 encode a frame of 4097 bytes -> :too_large
@@ -13,7 +11,6 @@ encode a frame of 4097 bytes -> :too_large
 encode 17 levels -> :too_deep
 decode 16 levels (handcrafted frame) -> :ok
 decode 17 levels (handcrafted frame) -> :too_deep
-17 levels of maps as a term (maps are not terms) -> :unsupported
 list of 256: n=519 validate -> :ok
 list of 257 -> :too_long
 list count 4294967295, 3 elements follow -> :too_long
@@ -28,7 +25,6 @@ atom of 255 bytes that the program does not hold -> :unknown_atom
 ATOM_UTF8_EXT of 256 bytes -> :too_long
 encode an atom whose spelling is 256 bytes -> :too_long
 atom nope (not held), as a message -> :unknown_atom
-atom nope (not held), as a term -> :unknown_atom
 atom known -> :ok
 atom known, then one more byte -> :trailing_bytes
 atom with an empty spelling -> :unknown_atom
@@ -47,7 +43,6 @@ version byte 130 -> :bad_version
 a message name nobody registered -> :unknown_atom
 float64 +infinity -> :out_of_range
 float64 NaN -> :out_of_range
-float64 NaN, as a term -> :out_of_range
 float32 -infinity -> :out_of_range
 float32 zero -> :ok
 float64 zero and one byte more -> :trailing_bytes
