@@ -5,6 +5,8 @@ Source: `../silica`, branch `binary-transport-support`, `compiler/design_documen
 trials.** BEES cannot build on it yet. This note says what BEES should leave to it when it lands, what BEES keeps, and
 how to write the interim code so the swap is small. Decision D35 in the roadmap records the ruling.
 
+> **Update 2026-11-05 (user, from Silica):** both marker traits (`Transportable`, `Recreatable`) are being dropped. What stays is derived calls: `encode`, `decode`, and a future `recreate`, with the limits passed **as arguments** instead of declared per type. §4.1 of the transport design and §7.7 of the FFI wrapper specification are being amended together so decoding and re-creation remain one mechanism. Silica's branch also now has an implementation commit (9f103d161f: transport builtins, derived `encode`/`decode`, the ETF protocol on Apple Silicon); its design file has uncommitted edits. BEES has not tried either with a compiler binary, so the text below that says "design only" or `impl Transportable` describes the earlier design, and the exact call forms must be re-read when the amended design is committed. Nothing in /Users/yenrab/silica was changed from here.
+
 ## 1. What Silica plans to provide
 
 Transport becomes part of the language (Lee, 2026-11-05), in three separable pieces:
@@ -46,7 +48,7 @@ distribution protocol is explicitly left to a later design built above this one*
 4. **Records are ETF maps and `unit` is `{}`**, as their §4.7 proposes; a program that talks to an Erlang record declares a
    tagged tuple.
 5. **The socket actor speaks the carrier contract.** The owner casts `(:open ...)`, grants credit, and receives `(:rx ...)`.
-6. **Limits are declared per type** (`max_bytes`, `max_depth`, `max_length`), the way the manifest's limits already are.
+6. **Limits are named in one place** (`max_bytes`, `max_depth`, `max_length`), as the manifest's limits are now. Silica is moving them from a per-type declaration to arguments of the call (update above), so keep them behind the generated `enc_<name>`/`dec_<name>` and the swap changes only their bodies.
 
 ## 4. What BEES implements itself (not language features)
 
