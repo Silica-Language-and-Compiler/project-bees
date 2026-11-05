@@ -257,6 +257,30 @@ def min_size(ty):
 
 
 
+DIST_LINES = ("node", "creation", "timing", "peer", "remote", "local")
+
+
+def parse_dist_message_line(line, where):
+    """`remote <name> @ <node> cast <type>` or `local <name> cast <type>` -> (name, type text)."""
+    toks = line.split(None)
+    try:
+        if toks[0] == "remote":
+            if toks[2] != "@" or toks[4] != "cast":
+                raise IndexError
+            cut = 5
+        else:
+            if toks[2] != "cast":
+                raise IndexError
+            cut = 3
+    except IndexError:
+        raise WireError(f"{where}: cannot read '{line}' (expected: remote <name> @ <node> cast <type> | "
+                        "local <name> cast <type>)")
+    rest = line.split(None, cut)
+    if len(rest) <= cut:
+        raise WireError(f"{where}: '{line}' has no message type")
+    return toks[1], rest[cut]
+
+
 def parse_wire(path):
     """-> list of (name, type, canonical text); warnings go to stderr."""
     msgs = []
@@ -267,6 +291,14 @@ def parse_wire(path):
                 continue
             where = f"{path}:{n}"
             parts = line.split(None, 2)
+            if parts[0] in DIST_LINES:
+                # M3: node, creation, timing and peer lines belong to bees_dist_gen; remote and local lines also
+                # declare the message type that their registered name carries
+                kind = parts[0]
+                if kind not in ("remote", "local"):
+                    continue
+                parsed = parse_dist_message_line(line, where)
+                parts = ["message", parsed[0], parsed[1]]
             if parts[0] != "message" or len(parts) != 3:
                 raise WireError(f"{where}: cannot read '{line}' (expected: message <name> <type>)")
             name, text = parts[1], parts[2]

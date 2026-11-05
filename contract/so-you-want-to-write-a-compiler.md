@@ -302,8 +302,8 @@ no bytecode is loaded.
   `spawn_dangerous`. The declarations, the worker and its spawn site were required to be in one unit on the previous
   compiler; not re-verified on this one.
 - **A8.2** Data returned by foreign code is tainted. It reaches a BEES program only through **re-creation**: a
-  validated copy built in a fresh region. Until Silica delivers the re-creation trait (`Recreatable`), nothing a
-  foreign call returns can leave the handler that received it.
+  validated copy built in a fresh region. Until the linked Silica has its derived re-creation call (`recreate`, or `decode` over a received string; the marker traits `Recreatable` and `Transportable` are gone), nothing a
+  foreign call returns can leave the handler that received it. BEES's own receive step is a stub behind one function (`bees_ingress@recreate`).
 - **A8.3** Each dangerous actor is an operating-system thread. Pool them.
 
 ## A9. What you must document for your own users

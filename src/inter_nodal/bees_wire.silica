@@ -78,6 +78,8 @@ export enc_string/4;
 export dec_string/4;
 export put_atom_text/4;
 export dec_atom_text/4;
+export dec_text/6;
+export put_text/6;
 export ih/4;
 export word_count/1;
 export get_word/4;

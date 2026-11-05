@@ -1,0 +1,41 @@
+// M3 shape 3: an actor that casts to a registered name nobody holds fails (actor_not_found); main survives and
+// a later actor still runs. Delivery to a local name therefore happens in a short-lived deliverer actor.
+use bees_atoms;
+
+fn deliverer(msg: int64, st: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        _: boolean <- cast_registered(bees_atoms@a_nobody_home(), msg impl ActorMessage {});
+        _: atom <- stop_self(:normal)
+    produces pure (:no_reply, st) end
+}
+
+fn show(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- start_reporter();
+        d: actor_ref <- spawn(0, deliverer, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: boolean <- cast(d, 1 impl ActorMessage {});
+        _: atom <- println("main goes on");
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}
+
+fn rep(report: string, st: int64) -> (:no_reply, int64) {
+    sequence proc[device_io]
+        _: atom <- print_string("REPORT: actor_not_found named: ");
+        _: atom <- print_boolean(contains(report, "actor_not_found"));
+        _: atom <- println("")
+    produces pure (:no_reply, st) end
+}
+fn start_reporter() -> atom {
+    sequence proc[concurrency]
+        r: actor_ref <- spawn(0, rep, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        ok: atom <- register_failure_reporter(r)
+    produces pure ok end
+}
+fn region_dump_limit() -> int64 { 0 }

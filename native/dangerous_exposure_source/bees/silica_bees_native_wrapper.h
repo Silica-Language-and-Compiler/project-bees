@@ -45,5 +45,11 @@ int64_t bees_tcp_last_word(int64_t slot);
 /* Write one word, waiting at most timeout_ms for the transport to take it. */
 int64_t bees_tcp_write_word(int64_t slot, int64_t timeout_ms, int64_t word);
 
+/* M3: parts shorter than a word. read_part reads exactly count bytes (1 to 8; another count returns 5) and leaves them
+ * right-aligned in last_word; write_part writes the low count bytes of the word. read_word and write_word are the
+ * parts of 8. */
+int64_t bees_tcp_read_part(int64_t slot, int64_t timeout_ms, int64_t count);
+int64_t bees_tcp_write_part(int64_t slot, int64_t timeout_ms, int64_t word, int64_t count);
+
 /* Close the link (wakes a blocked reader, which then reports 4). Always 0 for a valid slot. */
 int64_t bees_tcp_close(int64_t slot);

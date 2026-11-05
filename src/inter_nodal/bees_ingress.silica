@@ -1,0 +1,119 @@
+// BEES ingress, M3: the one place where bytes that came from the network enter the program, and the audit trail.
+//
+// THE RECEIVE STEP IS A STUB (mvp.md section 4, M3 note): `recreate` is the single function that will become Silica's
+// derived decode/recreate. The linked compiler (silica-999936) has neither (E2007 on `decode` and `recreate`, trial
+// m3_decode_probe), so today it copies the bytes of a part into the frame buffer and that is all it does. It does NOT
+// clear taint: the checker does not see the copy, because the handler that receives a foreign-function result is not
+// checked (SD-25) and the worker's result reaches it as a plain cast. What protects the program from hostile bytes
+// is BEES's own validation after the copy, never this function:
+//   - the frame length is bounded before a byte is stored (max_body) and the buffer holds at most 4096 bytes;
+//   - every later read is bounds-checked and rejects instead of faulting (bees_wire, bees_dist);
+//   - a frame is accepted only if its pid is from the connected peer, its target is a name this program lists (D16),
+//     and its payload validates against that name's declared type (limits: depth 16, 256 elements, atoms the
+//     program holds, ASCII text) before anything is decoded or allocated for it.
+// What it does not give: the language's own guarantee that foreign data is clean. A compiler that checks handlers
+// (SD-25) will reject this code, and that is the signal to replace `recreate` with the derived call.
+module bees_ingress;
+use bees_atoms;
+use bees_wire;
+
+export recreate/4;
+export audit/3;
+export banner/0;
+export reason_text/1;
+
+// Store the parts of a frame in a buffer. `ws` holds the parts as the transport read them, newest first (the conn actor keeps
+// them in its state, because a buffer cannot be part of an actor's state); `need` is the frame's byte count. Part j (in order of
+// arrival) is the 8 bytes at 8j, or the last k = need - 8j (< 8) bytes, big-endian and right-aligned in its word. Returns 0, or
+// a negative reason when it does not fit.
+fn recreate(rg: region(L, normal), b: buf(L, normal, uint8, 4096), ws: List[int64, mem(normal)], need: int64) -> int64 {
+    case need < 1 or need > 4096 of {
+        true -> 0 - 5;
+        false -> parts(rg, b, ws, (need + 7) / 8, need, 0)
+    }
+}
+fn parts(rg: region(L, normal), b: buf(L, normal, uint8, 4096), ws: List[int64, mem(normal)], np: int64, need: int64, j: int64) -> int64 {
+    case j >= np of {
+        true -> 0;
+        false -> part_done(rg, b, ws, np, need, j, store(rg, b, j * 8, min8(need - j * 8), word_at(ws, np - 1 - j)))
+    }
+}
+fn word_at(ws: List[int64, mem(normal)], i: int64) -> int64 {
+    sequence proc[mem(normal)]
+        w: int64 <- list_at[int64, mem(normal)](ws, i)
+    produces pure w end
+}
+fn min8(n: int64) -> int64 { case n >= 8 of { true -> 8; false -> n } }
+fn part_done(rg: region(L, normal), b: buf(L, normal, uint8, 4096), ws: List[int64, mem(normal)], np: int64, need: int64, j: int64, r: int64) -> int64 {
+    case r < 0 of {
+        true -> r;
+        false -> parts(rg, b, ws, np, need, j + 1)
+    }
+}
+// the low `k` bytes (1 to 8) of w at pos..pos+k-1; returns the next position or a negative reason
+fn store(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, k: int64, w: int64) -> int64 {
+    case pos < 0 or k < 1 or k > 8 of {
+        true -> 0 - 5;
+        false -> case pos + k > 4096 of {
+            true -> 0 - 5;
+            false -> case k == 8 of {
+                true -> whole_word(rg, b, pos, w);
+                false -> short_part(rg, b, pos, k, w, 0)
+            }
+        }
+    }
+}
+// a full part lands on a multiple of 8 (every part before the last of a frame has 8 bytes)
+fn whole_word(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, w: int64) -> int64 {
+    case pos % 8 == 0 of {
+        true -> bees_wire@put_word(rg, b, pos / 8, w);
+        false -> 0 - 4
+    }
+}
+fn pow256(m: int64) -> int64 {
+    case m of {
+        0 -> 1;
+        1 -> 256;
+        2 -> 65536;
+        3 -> 16777216;
+        4 -> 4294967296;
+        5 -> 1099511627776;
+        _: int64 -> 281474976710656
+    }
+}
+fn put_at(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, n: int64) -> int64 { bees_wire@put_i(rg, b, pos, n) }
+fn short_part(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, k: int64, w: int64, j: int64) -> int64 {
+    case j >= k of {
+        true -> pos + k;
+        false -> short_next(rg, b, pos, k, w, j, put_at(rg, b, pos + j, w / pow256(k - 1 - j)))
+    }
+}
+fn short_next(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, k: int64, w: int64, j: int64, r: int64) -> int64 {
+    case r < 0 of {
+        true -> r;
+        false -> short_part(rg, b, pos, k, w, j + 1)
+    }
+}
+
+fn reason_text(code: int64) -> string { bees_atoms@spelling(bees_wire@reason_atom(code)) }
+
+// One audit line per refused or dropped thing, to the program's standard output (the program's own sink for it is the
+// compiler's job; BEES only counts and names). kind says what, who names the peer or the reason, n is a count or a code.
+fn audit(kind: string, who: string, n: int64) -> atom {
+    sequence proc[device_io]
+        _: atom <- print_string("[bees audit] ");
+        _: atom <- print_string(kind);
+        _: atom <- print_string(" ");
+        _: atom <- print_string(who);
+        _: atom <- print_string(" ");
+        _: atom <- print_int64(n);
+        _: atom <- println("")
+    produces pure :ok end
+}
+
+// Printed once by every node at start (mvp.md 3.5): the MVP link has no authentication and no encryption.
+fn banner() -> atom {
+    sequence proc[device_io]
+        _: atom <- println("[bees] TEST ONLY: no authentication, no encryption on this transport (127.0.0.1); TRUST's TLS is not built yet")
+    produces pure :ok end
+}

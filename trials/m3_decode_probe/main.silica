@@ -1,0 +1,7 @@
+fn main() -> int64 {
+    sequence proc[device_io]
+        out: atom <- println("probe")
+    produces
+        pure 0
+    end
+}

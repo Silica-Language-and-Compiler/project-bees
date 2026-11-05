@@ -142,7 +142,7 @@ list elements, atom 255 bytes, string 1 KiB), bounds-checked reads that reject i
 before the checks. **Not in the MVP:** pids, references, ports and funs as typed values (a pid is a term), maps as terms, big integers beyond 64 bits, atom
 caches and the distribution header, compressed terms, atoms outside ASCII, tagged tuples.
 
-**The manifest** keeps `message <name> <silica type>` and adds, in M3: this node's name, `peer` lines (name, host,
+**The manifest** keeps `message <name> <silica type>` and adds (built in M3, format in `tools/bees_dist_gen.py`): this node's name, `peer` lines (name, host,
 port, `listen` or `dial`), and `remote` / `local` lines that tie a registered **name** to its message type. Kind ids and the
 schema digest from the first codec are no longer on the wire; a schema mismatch shows up as a refused frame.
 
@@ -160,19 +160,29 @@ only. TRUST's TLS layer (section 3.4) is added around the same byte stream later
 ## 4. The gate: receiving bytes from the network
 
 Bytes returned by a foreign call are **tainted**, and Silica's rules stop a tainted value leaving the handler that
-receives it. The compiler-derived re-creation trait (`Recreatable`) that would clean such values is **not delivered in
-Silica yet**.
+receives it. **Update 2026-11-05:** Silica has dropped both marker traits (`Transportable`, `Recreatable`). What remains
+are derived calls, `encode`, `decode` and a future `recreate`, with their limits passed as arguments
+(`decode((:etf), frame, { max_bytes: N, max_depth: D, max_length: L })`); `decode` and `recreate` are one mechanism
+(the transport design, section 4.1, and the FFI wrapper specification, section 7.7, are being amended together). Silica's branch
+`binary-transport-support` implements `encode` and `decode` (commit 9f103d161f), but **the linked compiler binary
+(silica-999936) has neither, nor `recreate`**: M3 tried each on a tiny trial (`trials/m3_decode_probe`: E2007 unknown
+function for `encode`, `decode` and `recreate`; an `impl Transportable` declaration is accepted and ignored). So nothing
+in the toolchain BEES builds with clears taint today.
 
 **Milestone M0 was run on 2026-11-04** ([spikes/S8-hand-recreation.md](spikes/S8-hand-recreation.md)) to see whether BEES
 could re-create received bytes by hand, rebuilding each value from literals by branching on the tainted bytes. **It
 cannot.** Silica's checker treats every value derived from a tainted one as tainted, a `case` over literals included, and
-rejects it in the worker's `produces pure` (E2100). The only thing that compiles is forwarding the raw value from the
-receiving handler, which the specification forbids and Silica does not check; the MVP does not build on it.
+rejects it in the worker's `produces pure` (E2100).
 
-**Consequence:** the **receive path waits on Silica's `Recreatable`** (Silica ROADMAP chunk 13). Everything else in the
-MVP does not: the schema and generators, the wire codec, the transports, the sending half, the handshake and the proxies
-can be built and tested now, with the receive step stubbed behind one function (`bees_ingress@recreate`) that will call
-`recreate` when it exists.
+**What M3 does (decision to review):** the receive step is one function, `bees_ingress@recreate`, a **stub**. It copies the
+parts the transport delivered into a frame buffer; it does not clear taint, and it works only because the handler that receives
+an FFI result is not checked (SD-25). Everything after it is BEES's own validation: bounded frame length before any byte is
+stored, bounds-checked reads that reject instead of faulting, the sender's pid checked against the connected peer, a target name
+that the program lists, the payload validated against that name's declared type before anything is decoded. That is
+**safe against malformed and hostile bytes in the sense of "cannot fault or exhaust the receiver"**, and it is **not** the
+language's taint guarantee: the compiler cannot vouch for it, and a compiler that starts checking handlers will reject it.
+When `recreate` (or `decode` over a received string) is callable, that one function is replaced by the derived call and its
+limits become the call's arguments; nothing else changes.
 
 ## 5. Milestones
 
@@ -181,11 +191,11 @@ a small driver script that starts two executables and compares their outputs.
 
 | # | Milestone | Exit criteria |
 | --- | --- | --- |
-| **M0** | **Done 2026-11-04: blocked.** Re-creation by hand does not pass Silica's checker (trial `m0_recreation`, note S8). | The written finding: the receive path needs `Recreatable`. |
+| **M0** | **Done 2026-11-04: blocked.** Re-creation by hand does not pass Silica's checker (trial `m0_recreation`, note S8). | The written finding: the receive path needs re-creation. |
 | **M1** | **Done 2026-11-04 as a typed tag-free codec (in memory only; superseded in part by M1b, D34; see [spikes/M1-wire-codec.md](spikes/M1-wire-codec.md)).** The schema manifest, the `bees_config` generator for encoders and decoders, and the `bees_wire` core. | Round-trip trials for every supported type and for nested values (`m1_wire_types`); rejection trials for truncated, oversized, too-deep, over-long, unknown-atom, unknown-kind, bad-text and other hostile input (`m1_wire_reject`); word packing (`m1_wire_words`); a message type with an unsupported field is a build error (`tools/test_bees_wire_gen.py`); no allocation grows on rejection: 200,000 frames, 1.9 MB peak (`m1_wire_memory`). Excluded and why: tagged tuples (atom-literal types), `float16`, non-ASCII text. |
 | **M1b** | **Done 2026-11-05 (typed ETF codec; the any-shape term codec first built with it was deleted, see below; see [spikes/M1b-etf-codec.md](spikes/M1b-etf-codec.md)).** Interim of Silica's `Transportable` (D35, [silica-transport-alignment.md](silica-transport-alignment.md)); **Ruling 2026-11-05: an any-type term is not supported by Silica and is the language transpiler's to handle, not BEES's or Silica's, so the term codec (`bees_etf`, `bees_etf_term`) was deleted.** The M1 generator and `bees_wire` retargeted from the typed tag-free encoding to **ETF** (D34): `enc_<name>` / `dec_<name>` per message, dispatch by target name (`index_of`), integers of every width and encoding, floats, atoms, binaries, tuples, maps for records, lists; the manifest, limits, rejection reasons (mapped onto the language's atoms) and the memory behaviour kept. Test vectors generated by the installed `erl` (`term_to_binary`) are the oracle. | Every supported type encodes to the same bytes as `term_to_binary` (232 typed entries, `tools/etf_oracle/*.vectors`; records with `[deterministic]`, because erl's default map key order is not reproducible) and decodes from every valid encoding tried (`minor_version` 0 where it applies, the other atom tags, STRING_EXT, SMALL_BIG for any integer, any map key order); the rejection trials of M1 pass on ETF (`m1_wire_reject`); the memory check holds (200,000 frames, 1.9 MB peak). **Not covered, by decision or by the compiler:** tagged tuples and `unit` as message types, text beyond ASCII (valid UTF-8 beyond ASCII is `:unsupported`), `float16`; see the note for the list. |
 | **M2** | **Done 2026-11-05 (see [spikes/M2-carrier-transport.md](spikes/M2-carrier-transport.md)).** The native edge's TCP transport, `127.0.0.1` only, with a poll timeout, **as an actor that speaks Silica's carrier contract** (D35: `:open`, `:tx`, `:credit`, `:close`; `:link_up`, `:rx`, `:tx_credit`, `:tx_failed`, `:link_down`), so the language's `(:tcp)` can replace it. | Two OS processes exchange one frame of words over a TCP connection; the listener refuses non-local addresses. Met: `trials/m2_carrier_tcp` (a listener and a connector, started by `tools/run_pair.py`, each receives the other's four words, both signs and the full int64 range intact; eight refusal and control cases). **Not covered:** decoding or checking what arrives (`Recreatable` is absent; the owner's reading of event tags depends on SD-25); `string` segments, length prefix and ETF on the link; one peer per listener; send credit is advisory; no TLS; macOS arm64 only, fixed ports; the worker and its spawn site stay in each program's root unit (SD-17), so the edge is generated into it; SD-30 and SD-31 found. |
-| **M3** | `bees_net`, `bees_dist` and `bees_ingress`: the version-6 handshake without a digest, ticks, `REG_SEND`, the generated peer table, proxies and deliverers, delivery by registered name. | Two plain Silica programs complete the handshake and a cast to a remote name arrives; a connection from an unlisted node is closed; a frame before the handshake is dropped; a tick keeps an idle link alive and its absence ends the proxies. |
+| **M3** | **Done 2026-11-05 (see [spikes/M3-distribution.md](spikes/M3-distribution.md)).** `bees_net`, `bees_dist` and `bees_ingress` (in `src/inter_nodal/`): the version-6 handshake without a digest (2-byte framing, `N` / `s` / `N`, flags `0x4_0307_0F94`), 4-byte framing after it, net ticks, `REG_SEND` (`{6, FromPid, '', ToName}`, `FromPid` a NEW_PID_EXT typed value, the payload as M1b ETF), the generated peer table, proxies and deliverers (`tools/bees_dist_gen.py`), delivery by registered name. | Two plain Silica programs complete the handshake and a cast to a remote name arrives; a connection from an unlisted node is closed; a frame before the handshake is dropped; a tick keeps an idle link alive and its absence ends the proxies. Met: `trials/m3_dist` (five two-process scenarios, goldens stable over repeated runs) and `trials/m3_dist_frames`; byte layouts equal OTP 28's (live `erl`, `dist.hrl`) in `tools/test_bees_dist.py`; `make integrate` 99 passed, `make kit` green. **Not covered:** the receive step is a **stub** (`bees_ingress@recreate`: neither `decode` nor `recreate` exists in the linked compiler, SD-32; it copies and does not clear taint, section 4); a received tick is counted but not echoed (OTP's behaviour: each side ticks when idle); no stock Erlang node was connected; one live link per node, no reconnect; `FromPid` is the proxy's index; a name nobody holds fails a short-lived deliverer (SD-33); the carrier now moves parts of 1 to 8 bytes; no authentication or encryption (banner printed), `127.0.0.1` and macOS arm64 only. |
 | **M4** | The demo and measurements. A plain Silica service on node a and a client on node b exchange casts with a payload that uses every supported type, the service answering through `reply_to`; a node stopped mid-run; a hostile frame injected. | The answers arrive with the payload intact; the surviving node's sender sees only Silica's normal dead-actor behaviour; the hostile frame is refused; message rate and each node's peak memory are recorded in a spike note. |
 | **M5** | Documentation. `contract/wire-v1.md` rewritten as the Erlang profile BEES implements (flags, control messages, ETF subset, limits); the node behaviour added to the compiler guide's "what BEES provides"; roadmap updated. | The profile is complete enough that a second implementation could be written from it, and says exactly where it differs from OTP. |
 
@@ -196,7 +206,7 @@ a small driver script that starts two executables and compares their outputs.
 | Silica FFI (`dangerous_` workers, several messages per worker) | Works (spike S4 and the re-run). |
 | Silica transport (`Transportable`, `encode`/`decode((:etf))`, `WireFrame`, the carrier contract, `(:tcp)`; branch `binary-transport-support`) | **Design only** (2026-11-05). BEES writes interims to its shapes (D35). The hosted `(:tcp)` carrier also waits for Silica chunk 9 (transports); `decode` as the receive step waits for chunk 13. |
 | `buf(uint8)` across the foreign-function boundary | Not delivered. The edge moves 8 bytes per call as an `int64`. |
-| Silica re-creation (`Recreatable`) | Not delivered, and no hand-written substitute passes the checker (M0). **Blocks the receive path.** |
+| Silica re-creation (derived `recreate`/`decode` calls; the marker traits are gone) | `decode` is on Silica's branch but not in the linked binary; `recreate` is not built (M3 probe). No hand-written substitute passes the checker (M0). BEES runs a stub behind `bees_ingress@recreate` (section 4). |
 | Registered names (`spawn_registered`, `cast_registered`) | Work. Silica's later `register` / `whereis` are not needed. |
 | The exit listener and hub | Exist (A2). |
 | A pair-of-processes trial driver | New, small. |
@@ -223,8 +233,7 @@ a small driver script that starts two executables and compares their outputs.
 
 ## 8. Risks
 
-- **The receive path waits on Silica's `Recreatable`** (M0 result). Mitigation: build and test everything else; stub the
-  receive step behind one function; ask Silica to prioritise chunk 13.
+- **The receive step is a stub** until Silica's derived `recreate`/`decode` is in the linked binary (M0, M3 result). Mitigation: it is one function, `bees_ingress@recreate`; everything after it validates.
 - **A generator must understand Silica type syntax.** It reads a restricted subset of the type grammar. Mitigation: start
   with records, tuples, `List[T]` and the primitives; reject the rest at build time.
 - **Word-sized foreign calls are slow.** 4 KiB is 512 calls per frame. Acceptable for the MVP; measured in M4.

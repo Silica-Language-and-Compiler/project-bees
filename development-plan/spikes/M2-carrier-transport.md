@@ -77,3 +77,7 @@ may not forward foreign data). The receive path carries raw words only and decod
 - **Other platforms.** Built and run on macOS arm64 only; the C uses `SO_NOSIGPIPE` under `#ifdef` and POSIX calls, untested on Linux. The pair uses fixed ports (47311, 47321, 47322): a program already holding one fails the trial.
 - **Connector started first** is supported by the C retry (25 ms until `open_ms`) but the committed pair runs the listener first.
 - **Throughput and memory**: not measured. Each event is built by record-returning helpers, which leak stack per call (SD-21 was closed, but not re-measured here).
+
+## 6. Changed by M3
+
+The carrier now moves **parts of 1 to 8 bytes** (`k` bytes per receive request and per `:tx`), because the distribution frames are not multiples of 8 (spikes/M3-distribution.md). A word is the part of 8; the trial roles pass `k` = 8 and the goldens did not change. `Recreatable` in the text above is now "derived `recreate`/`decode`, not in the linked binary" (SD-32).

@@ -25,6 +25,8 @@ A compiler writes manifests next to its units. Three kinds, told apart by extens
   bees_modules.silica    when a `.module` file exists: dispatch by module, function and arity
                    (apply/3 style) and by fun id.
   bees_ids.silica        when a `.pools` file exists: child-id pools.
+  bees_peers.silica   when a `.wire` manifest has a `node` line (M3: node, peer, remote and local lines; the peer table,
+                   the proxies and the deliverers; format in tools/bees_dist_gen.py).
   bees_wire_tables.silica, bees_wire_ints.silica, bees_wire_msgs.silica
                    when a `.wire` file exists: the byte tables, the integer codecs and the per-message ETF
                    encoders and decoders (enc_<name> / dec_<name>), the lookup of a message by target name and the
@@ -534,6 +536,19 @@ def gen_wire(out_dir, manifests):
     return 0
 
 
+def gen_peers(out_dir, wires):
+    """bees_peers.silica (M3) when a .wire manifest has a `node` line."""
+    import bees_dist_gen
+    if not bees_dist_gen.has_dist(wires):
+        return 0
+    try:
+        bees_dist_gen.generate(out_dir, wires)
+    except (bees_dist_gen.DistError, bees_dist_gen.W.WireError) as e:
+        print("bees_config: " + str(e), file=sys.stderr)
+        return 1
+    return 0
+
+
 def generate(out_dir, manifests):
     try:
         atoms, modules, pools = collect(manifests)
@@ -559,6 +574,8 @@ def generate(out_dir, manifests):
         rc = gen_ids(out_dir, atoms, pools)
     if rc == 0 and any(p.endswith(".wire") for p in manifests):
         rc = gen_wire(out_dir, manifests)
+    if rc == 0:
+        rc = gen_peers(out_dir, [p for p in manifests if p.endswith(".wire")])
     return rc
 
 

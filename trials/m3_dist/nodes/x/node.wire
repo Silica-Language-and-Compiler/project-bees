@@ -1,0 +1,4 @@
+# M3 node x: not in a's peer table; dials a
+node   x@127.0.0.1
+peer   a@127.0.0.1 127.0.0.1 47411 dial
+remote inbox @ a@127.0.0.1 cast { op: atom, n: int64 }

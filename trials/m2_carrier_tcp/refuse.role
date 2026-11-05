@@ -34,7 +34,7 @@ fn finish_line() -> atom {
 fn start_case(driver: actor_ref, i: int64) -> boolean {
     sequence proc[concurrency]
         c: actor_ref <- carrier_new(i, 300, 300);
-        m: { tag: atom, peer: actor_ref, text: string, n: int64 } <- cmd(bees_atoms@a_open(), driver, case_address(i), 0);
+        m: { tag: atom, peer: actor_ref, text: string, n: int64, k: int64 } <- cmd(bees_atoms@a_open(), driver, case_address(i), 0, 8);
         ok: boolean <- cast(c, m impl ActorMessage {})
     produces pure ok end
 }

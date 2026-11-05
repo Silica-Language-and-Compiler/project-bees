@@ -42,7 +42,7 @@ node("M0", "Stage 0 exit: all thirteen spike notes merged, S-5 filed, contract v
 # Silica's AI_POLICY: human-vetted, no AI co-authors. A sub-agent may draft the proposal and the failing trial;
 # a person files and lands it.
 TS = [
-    ("S-5",  "Re-creation (Recreatable trait) — THE CRITICAL PATH", ["S8"], "Filed first, before any other Track S item."),
+    ("S-5",  "Re-creation (derived recreate/decode calls; the marker traits are dropped) — THE CRITICAL PATH", ["S8"], "Filed first, before any other Track S item."),
     ("S-26", "64-bit actor identity", [], ""),
     ("S-28", "Supervisor exit reports to a report sink", ["S7"], ""),
     ("S-2",  "Runtime link", [], ""),

@@ -1,0 +1,4 @@
+message len 2
+byte0 200
+byte1 7
+exit=0

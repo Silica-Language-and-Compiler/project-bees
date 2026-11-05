@@ -11,6 +11,8 @@ export open/3;
 export read_word/2;
 export last_word/1;
 export write_word/3;
+export read_part/3;
+export write_part/4;
 export close/1;
 
 wrapper_meta "dangerous_exposure_source/bees/silica_bees_native_wrapper.meta";
@@ -29,6 +31,12 @@ fn last_word_raw(slot: int64) -> int64;
 
 foreign c_wrapper "bees_tcp_write_word"
 fn write_word_raw(slot: int64, timeout_ms: int64, word: int64) -> int64;
+
+foreign c_wrapper "bees_tcp_read_part"
+fn read_part_raw(slot: int64, timeout_ms: int64, count: int64) -> int64;
+
+foreign c_wrapper "bees_tcp_write_part"
+fn write_part_raw(slot: int64, timeout_ms: int64, word: int64, count: int64) -> int64;
 
 foreign c_wrapper "bees_tcp_close"
 fn close_raw(slot: int64) -> int64;
@@ -51,6 +59,16 @@ fn last_word(slot: int64) -> int64 {
 
 fn write_word(slot: int64, timeout_ms: int64, word: int64) -> int64 {
     r: int64 <- write_word_raw(slot, timeout_ms, word);
+    r + 0
+}
+
+fn read_part(slot: int64, timeout_ms: int64, count: int64) -> int64 {
+    r: int64 <- read_part_raw(slot, timeout_ms, count);
+    r + 0
+}
+
+fn write_part(slot: int64, timeout_ms: int64, word: int64, count: int64) -> int64 {
+    r: int64 <- write_part_raw(slot, timeout_ms, word, count);
     r + 0
 }
 

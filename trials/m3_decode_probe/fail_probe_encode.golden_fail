@@ -1,0 +1,32 @@
+Files to compile: 
+1
+Parsing 
+fail_probe_encode.silica...
+  Lexing...
+  Parsing...
+Compiling 
+fail_probe_encode.silica...
+  Module checking...
+  FFI metadata...
+  FFI placement...
+  Type checking...
+❌ Compilation error: 
+TypeError error at 
+fail_probe_encode.silica
+ line: 5
+ column: 26
+E2007
+
+unknown function: encode
+See specification: spec:sect6
+
+<!-- SILICA-ERROR-METADATA
+errorCode: E2007
+errorType: error
+file: fail_probe_encode.silica
+line: 5
+column: 26
+offset: 232
+specSection: sect6
+-->
+exit=1

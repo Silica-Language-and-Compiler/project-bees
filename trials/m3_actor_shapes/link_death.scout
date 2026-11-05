@@ -1,0 +1,6 @@
+start
+REPORT: the failing actor's reason names link_down:
+true
+late: casting to the proxy
+late: the proxy was alive
+exit=0

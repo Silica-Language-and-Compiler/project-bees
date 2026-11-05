@@ -63,3 +63,15 @@ wrapper bees_tcp_open_text {
         { name: "addr_len", role: "length", length_of: "addr_ptr" }
     ]
 }
+
+wrapper bees_tcp_read_part {
+    symbol: "bees_tcp_read_part"
+    result: "scalar"
+    error_domain: "dangerous_bees_native"
+}
+
+wrapper bees_tcp_write_part {
+    symbol: "bees_tcp_write_part"
+    result: "scalar"
+    error_domain: "dangerous_bees_native"
+}

@@ -201,7 +201,7 @@ external dependency.
   any compiler exists.
 - **Track S — Silica prerequisites** (Silica repo). The class-U items in the
   [gap ledger](gap-ledger.md#3-track-s--silica-prerequisites). BEES files each one as the smallest reasonable proposal,
-  with a reproducing trial, and may implement it. **S-5 is the critical path** and is filed first (R0.4); behind it
+  with a reproducing trial, and may implement it. **S-5 is the critical path** and is filed first (R0.4; since 2026-11-05 the marker trait `Recreatable` is gone and the item is a derived `recreate`/`decode` call with limits as arguments, not in the linked binary yet: MVP M3 runs a stub behind `bees_ingress@recreate`); behind it
   come S-26 and S-28 (A2), S-15 (A1) and S-6 (X2). S-1 is filed as a spec defect but no longer blocks BEES (D30). That work follows Silica's own rules: fixed points, trial goldens,
   and `AI_POLICY.md` (human-vetted, no AI co-authors, smallest reasonable PRs).
 - **External dependency: the language compilers.** They are not BEES work. BEES publishes the contract early (Stage

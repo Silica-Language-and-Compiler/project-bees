@@ -1,0 +1,50 @@
+// M3 shape 1: a region and a buf in a message record, and a buf in actor state written by many dispatches.
+// A sender builds a frame in a fresh region and casts { rg, b, len }; the receiver reads it back.
+use bees_reporter;
+
+fn put(rg: region(L, normal), b: buf(L, normal, uint8, 4096), i: int64, v: uint8) -> int64 {
+    sequence proc[mem(normal)]
+        _: atom <- write_buf(b, i, v)
+    produces pure i + 1 end
+}
+fn get(rg: region(L, normal), b: buf(L, normal, uint8, 4096), i: int64) -> uint8 {
+    sequence proc[mem(normal)]
+        v: uint8 <- read_buf(b, i)
+    produces pure v end
+}
+fn show(label: string, n: int64) -> atom {
+    sequence proc[device_io]
+        _: atom <- print_string(label);
+        _: atom <- print_int64(n);
+        _: atom <- println("")
+    produces pure :ok end
+}
+fn rx(msg: { rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64 }, st: int64) -> (:no_reply, int64) {
+    sequence
+        a: int64 <- get_i(msg.rg, msg.b, 0);
+        z: int64 <- get_i(msg.rg, msg.b, 1);
+        _: atom <- show("message len ", msg.len);
+        _: atom <- show("byte0 ", a);
+        _: atom <- show("byte1 ", z)
+    produces pure (:no_reply, st + 1) end
+}
+fn get_i(rg: region(L, normal), b: buf(L, normal, uint8, 4096), i: int64) -> int64 { to_i(get(rg, b, i)) }
+fn to_i(v: uint8) -> int64 { case v of { 200 -> 200; 7 -> 7; _: uint8 -> 99 } }
+fn build() -> { rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64 } {
+    sequence proc[mem(normal)]
+        L: lifetime <- fresh_lifetime();
+        rg: region(L, normal) <- alloc_region(normal);
+        b: buf(L, normal, uint8, 4096) <- alloc_buf(rg, 4096);
+        p0: int64 <- put(rg, b, 0, 200);
+        p1: int64 <- put(rg, b, p0, 7)
+    produces pure { rg: rg, b: b, len: p1 } end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, mem(normal), device_io]
+        _: atom <- bees_reporter@start();
+        r: actor_ref <- spawn(0, rx, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        m: { rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64 } <- build();
+        _: boolean <- cast(r, m impl ActorMessage {});
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

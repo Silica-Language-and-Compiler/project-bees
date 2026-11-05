@@ -118,7 +118,7 @@ nodes:
     soft: []
     note: "S-5 is filed with S8's shapes before M0 closes; the S-5 node below is the item landing in Silica."
   - id: "S-5"
-    title: "Re-creation (Recreatable trait) \u2014 THE CRITICAL PATH"
+    title: "Re-creation (derived recreate/decode calls; the marker traits are dropped) \u2014 THE CRITICAL PATH"
     owner: "Silica"
     area: "silica"
     start: ["S8"]

@@ -1,0 +1,21 @@
+// ---- the service: a plain actor registered under the name inbox. A remote cast to inbox arrives here.
+// The failure reporter is this program's own: it prints one deterministic line for a proxy that ended.
+fn inbox(msg: { op: atom, n: int64 }, st: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- say(concat(concat("inbox got op=", bees_atoms@spelling(msg.op)), concat(" n=", num_text(msg.n))))
+    produces pure (:no_reply, st + 1) end
+}
+fn num_text(n: int64) -> string {
+    case n of {
+        0 -> "0"; 1 -> "1"; 5 -> "5"; 41 -> "41"; 42 -> "42";
+        _: int64 -> "?"
+    }
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- start_reporter();
+        i: actor_ref <- spawn_registered(0, inbox, bees_atoms@a_inbox(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        n: actor_ref <- node_start(open_ms(), io_ms(), tick_ms());
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

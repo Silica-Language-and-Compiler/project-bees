@@ -1,0 +1,4 @@
+[bees] TEST ONLY: no authentication, no encryption on this transport (127.0.0.1); TRUST's TLS is not built yet
+[bees audit] handshake complete with a@127.0.0.1 0
+client: cast to inbox sent
+exit=0

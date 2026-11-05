@@ -5,14 +5,16 @@
 // It speaks Silica's planned carrier actor contract (transport design 6.2) for one TCP link on
 // 127.0.0.1. Silica's tagged tuples are written here as flat records, because a tag is an atom and
 // D30 keeps atom literals in bees_atoms:
-//   in  Cmd = { tag, peer, text, n }    (:open, owner, address)  tag open,   peer owner, text address
-//                                      (:tx, segment, from)     tag tx,     n segment, peer from
-//                                      (:credit, n)             tag credit, n
+//   in  Cmd = { tag, peer, text, n, k } (:open, owner, address)  tag open,   peer owner, text address
+//                                      (:tx, segment, from)     tag tx,     n segment, k its length in bytes, peer from
+//                                      (:credit, n)             tag credit, n requests of k bytes each
 //                                      (:close)                 tag close
 //   out Evt = { tag, n, reason, info } (:link_up, info) (:rx, segment: n) (:tx_credit, n)
 //                                      (:tx_failed, reason) (:link_down, reason)
-// A segment is ONE 8-byte word (an int64), not a string: a string cannot be built from foreign bytes
-// without Recreatable (M0). The address is "listen:127.0.0.1:PORT" or "connect:127.0.0.1:PORT".
+// A segment is ONE part of 1 to 8 bytes (an int64 holding the low k bytes; M2 used k = 8, a word; M3 needs
+// shorter parts because the distribution protocol's frames are byte-exact and not a multiple of 8). It is not a
+// string: a string cannot be built from foreign bytes (no recreate/decode in the linked compiler, M3 note).
+// A receive credit is one request for exactly k bytes (k is the part the owner wants next). The address is "listen:127.0.0.1:PORT" or "connect:127.0.0.1:PORT".
 //
 // Shape. The carrier is a front actor. On (:open) it spawns three dangerous workers whose designated
 // receiver is the OWNER (raw results go to the owner, never through the carrier: a handler may not
@@ -24,9 +26,11 @@
 // garbage (the receiver reads zero fields and a null string). Every message here is bound to a local
 // first, then cast.
 
-fn cmd(tag: atom, peer: actor_ref, text: string, n: int64) -> { tag: atom, peer: actor_ref, text: string, n: int64 } {
-    { tag: tag, peer: peer, text: text, n: n }
+fn cmd(tag: atom, peer: actor_ref, text: string, n: int64, k: int64) -> { tag: atom, peer: actor_ref, text: string, n: int64, k: int64 } {
+    { tag: tag, peer: peer, text: text, n: n, k: k }
 }
+
+fn wpart(w: int64, k: int64) -> { w: int64, k: int64 } { { w: w, k: k } }
 
 fn ev_link_up() -> { tag: atom, n: int64, reason: atom, info: string } {
     { tag: bees_atoms@a_link_up(), n: 0, reason: :ok, info: "127.0.0.1" }
@@ -107,14 +111,14 @@ fn ctl_worker(
     produces pure (:no_reply, st) end
 }
 
-// rd: each request is one receive credit; it reads one word and casts it to the owner as :rx. Status 4
+// rd: each request is one receive credit, the number of bytes (1 to 8) to read; it reads that part and casts it to the owner as :rx. Status 4
 // (the link already ended and was reported) is silent.
 fn rd_worker(
     msg: int64,
     st: { owner: actor_ref, slot: int64, open_ms: int64, io_ms: int64 }
 ) -> (:no_reply, { owner: actor_ref, slot: int64, open_ms: int64, io_ms: int64 }) {
     sequence proc[external_danger, concurrency]
-        r: int64 <- dangerous_bees_tcp@read_word(st.slot, st.io_ms);
+        r: int64 <- dangerous_bees_tcp@read_part(st.slot, st.io_ms, msg);
         w: int64 <- dangerous_bees_tcp@last_word(st.slot);
         e: { tag: atom, n: int64, reason: atom, info: string } <- ev_rx(r, w);
         _: boolean <- case r == 4 of {
@@ -124,35 +128,42 @@ fn rd_worker(
     produces pure (:no_reply, st) end
 }
 
-// wr: each request is one word to write; the result is :tx_credit 1 or :tx_failed.
+// wr: each request is one part to write ({ w, k }: the low k bytes of w); the result is :tx_credit 1 or :tx_failed.
 fn wr_worker(
-    msg: int64,
+    msg: { w: int64, k: int64 },
     st: { owner: actor_ref, slot: int64, open_ms: int64, io_ms: int64 }
 ) -> (:no_reply, { owner: actor_ref, slot: int64, open_ms: int64, io_ms: int64 }) {
     sequence proc[external_danger, concurrency]
-        r: int64 <- dangerous_bees_tcp@write_word(st.slot, st.io_ms, msg);
+        r: int64 <- dangerous_bees_tcp@write_part(st.slot, st.io_ms, msg.w, msg.k);
         e: { tag: atom, n: int64, reason: atom, info: string } <- ev_tx(r);
         _: boolean <- cast(st.owner, e impl ActorMessage {})
     produces pure (:no_reply, st) end
 }
 
-fn grant_one(rd: dangerous_actor_ref, n: int64) -> boolean {
+fn grant_one(rd: dangerous_actor_ref, n: int64, k: int64) -> boolean {
     sequence proc[concurrency]
-        _: boolean <- cast(rd, 1 impl ActorMessage {});
-        ok: boolean <- grant(rd, n - 1)
+        _: boolean <- cast(rd, k impl ActorMessage {});
+        ok: boolean <- grant(rd, n - 1, k)
     produces pure ok end
 }
 
-fn grant(rd: dangerous_actor_ref, n: int64) -> boolean {
+fn grant(rd: dangerous_actor_ref, n: int64, k: int64) -> boolean {
     case n <= 0 of {
         true -> true;
-        false -> grant_one(rd, n)
+        false -> grant_one(rd, n, k)
     }
+}
+
+fn send_part(wr: dangerous_actor_ref, w: int64, k: int64) -> boolean {
+    sequence proc[concurrency]
+        m: { w: int64, k: int64 } <- wpart(w, k);
+        ok: boolean <- cast(wr, m impl ActorMessage {})
+    produces pure ok end
 }
 
 // The conn actor: forwards each command to the worker that serves it. It never changes state.
 fn conn(
-    msg: { tag: atom, peer: actor_ref, text: string, n: int64 },
+    msg: { tag: atom, peer: actor_ref, text: string, n: int64, k: int64 },
     st: { ctl: dangerous_actor_ref, rd: dangerous_actor_ref, wr: dangerous_actor_ref }
 ) -> (:no_reply, { ctl: dangerous_actor_ref, rd: dangerous_actor_ref, wr: dangerous_actor_ref }) {
     sequence proc[concurrency]
@@ -161,11 +172,11 @@ fn conn(
             false -> true
         };
         _: boolean <- case msg.tag == bees_atoms@a_tx() of {
-            true -> cast(st.wr, msg.n impl ActorMessage {});
+            true -> send_part(st.wr, msg.n, msg.k);
             false -> true
         };
         _: boolean <- case msg.tag == bees_atoms@a_credit() of {
-            true -> grant(st.rd, msg.n);
+            true -> grant(st.rd, msg.n, msg.k);
             false -> true
         };
         _: boolean <- case msg.tag == bees_atoms@a_close() of {
@@ -186,7 +197,7 @@ fn make_conn(owner: actor_ref, slot: int64, open_ms: int64, io_ms: int64) -> act
 
 // The carrier actor. Before (:open) it has no conn actor; a command before it is dropped.
 fn carrier(
-    msg: { tag: atom, peer: actor_ref, text: string, n: int64 },
+    msg: { tag: atom, peer: actor_ref, text: string, n: int64, k: int64 },
     st: { slot: int64, open_ms: int64, io_ms: int64, opened: boolean, conn: actor_ref }
 ) -> (:no_reply, { slot: int64, open_ms: int64, io_ms: int64, opened: boolean, conn: actor_ref }) {
     sequence proc[concurrency]

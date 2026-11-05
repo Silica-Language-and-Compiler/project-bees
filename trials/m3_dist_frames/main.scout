@@ -1,0 +1,22 @@
+n_init 001a4e0000000403070f9400000001000b62403132372e302e302e31
+n_init parse code 0
+n_init parse name b@127.0.0.1
+n_init peer_index -1
+s_ok 0003736f6b
+s_ok accepted 1
+n_acc 001e4e0000000403070f940000000000000007000b61403132372e302e302e31
+n_acc parse code 0
+n_acc parse name a@127.0.0.1
+n_acc as an init message, code 2
+n_init as an acc message, code 2
+payload 83740000000277016e610577026f707703696e63
+reg_send 0000003f70836804610658770b62403132372e302e302e3100000003000000000000000177007707636f756e74657283740000000277016e610577026f707703696e63
+reg_send parse code 0
+reg_send parse name counter
+reg_send parse pstart 43
+reg_send from another node, code 15
+reg_send local_index of counter (a remote name) -1
+payload validates 0
+payload decoded n 5
+payload decoded op inc
+exit=0

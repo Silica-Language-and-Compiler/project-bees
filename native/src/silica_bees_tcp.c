@@ -192,15 +192,20 @@ static int64_t end_link(int64_t slot, int64_t status) {
     return status;
 }
 
-int64_t bees_tcp_read_word(int64_t slot, int64_t timeout_ms) {
+/* Read exactly n bytes (1 to 8), waiting at most timeout_ms for each chunk; on 0 they are in
+ * bees_tcp_last_word(slot), big-endian and right-aligned (the first byte read is the most significant of the n).
+ * M3: a byte-exact stream needs parts shorter than a word (the 2- and 4-byte length headers and the last part of
+ * a frame). A word is a part of 8. */
+int64_t bees_tcp_read_part(int64_t slot, int64_t timeout_ms, int64_t want) {
     int fd;
     if (timeout_ms < 0) timeout_ms = 0;
     if (timeout_ms > 60000) timeout_ms = 60000;
+    if (want < 1 || want > 8) return 5;
     int rc = fd_of(slot, timeout_ms, &fd);
     if (rc != 0) return rc;
     uint8_t buf[8];
-    size_t got = 0;
-    while (got < 8) {
+    size_t got = 0, need = (size_t)want;
+    while (got < need) {
         struct pollfd pf = {fd, POLLIN, 0};
         int pr = poll(&pf, 1, (int)timeout_ms);
         if (pr < 0 && errno == EINTR) continue;
@@ -210,8 +215,8 @@ int64_t bees_tcp_read_word(int64_t slot, int64_t timeout_ms) {
         if (closed) return 4;
         if (pr == 0) return end_link(slot, 3);
         if (pr < 0) return end_link(slot, 2);
-        ssize_t n = recv(fd, buf + got, 8 - got, 0);
-        if (n == 0) return end_link(slot, got == 0 ? 1 : 2); /* clean end between words, or cut in the middle */
+        ssize_t n = recv(fd, buf + got, need - got, 0);
+        if (n == 0) return end_link(slot, got == 0 ? 1 : 2); /* clean end between parts, or cut in the middle */
         if (n < 0) {
             if (errno == EINTR || errno == EAGAIN) continue;
             pthread_mutex_lock(&g_mu);
@@ -222,12 +227,14 @@ int64_t bees_tcp_read_word(int64_t slot, int64_t timeout_ms) {
         got += (size_t)n;
     }
     int64_t w = 0;
-    for (int i = 0; i < 8; i++) w = (int64_t)(((uint64_t)w << 8) | buf[i]);
+    for (size_t i = 0; i < need; i++) w = (int64_t)(((uint64_t)w << 8) | buf[i]);
     pthread_mutex_lock(&g_mu);
     g_slots[slot].last_word = w;
     pthread_mutex_unlock(&g_mu);
     return 0;
 }
+
+int64_t bees_tcp_read_word(int64_t slot, int64_t timeout_ms) { return bees_tcp_read_part(slot, timeout_ms, 8); }
 
 int64_t bees_tcp_last_word(int64_t slot) {
     if (slot < 0 || slot >= SLOTS) return 0;
@@ -237,22 +244,25 @@ int64_t bees_tcp_last_word(int64_t slot) {
     return w;
 }
 
-int64_t bees_tcp_write_word(int64_t slot, int64_t timeout_ms, int64_t word) {
+/* Write the low n bytes (1 to 8) of the word, most significant of the n first. */
+int64_t bees_tcp_write_part(int64_t slot, int64_t timeout_ms, int64_t word, int64_t count) {
     int fd;
     if (timeout_ms < 0) timeout_ms = 0;
     if (timeout_ms > 60000) timeout_ms = 60000;
+    if (count < 1 || count > 8) return 5;
     int rc = fd_of(slot, timeout_ms, &fd);
     if (rc != 0) return rc;
     uint8_t buf[8];
-    for (int i = 0; i < 8; i++) buf[i] = (uint8_t)((uint64_t)word >> (56 - 8 * i));
+    size_t total = (size_t)count;
+    for (size_t i = 0; i < total; i++) buf[i] = (uint8_t)((uint64_t)word >> (8 * (total - 1 - i)));
     size_t sent = 0;
-    while (sent < 8) {
+    while (sent < total) {
         struct pollfd pf = {fd, POLLOUT, 0};
         int pr = poll(&pf, 1, (int)timeout_ms);
         if (pr < 0 && errno == EINTR) continue;
         if (pr == 0) return end_link(slot, 3);
         if (pr < 0) return end_link(slot, 2);
-        ssize_t n = send(fd, buf + sent, 8 - sent, 0);
+        ssize_t n = send(fd, buf + sent, total - sent, 0);
         if (n < 0) {
             if (errno == EINTR || errno == EAGAIN) continue;
             return end_link(slot, 2);
@@ -261,6 +271,8 @@ int64_t bees_tcp_write_word(int64_t slot, int64_t timeout_ms, int64_t word) {
     }
     return 0;
 }
+
+int64_t bees_tcp_write_word(int64_t slot, int64_t timeout_ms, int64_t word) { return bees_tcp_write_part(slot, timeout_ms, word, 8); }
 
 int64_t bees_tcp_close(int64_t slot) {
     if (slot < 0 || slot >= SLOTS) return 5;

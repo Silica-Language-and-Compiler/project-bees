@@ -1,0 +1,244 @@
+// BEES distribution layer, M3: the byte layouts of the Erlang distribution protocol (OTP 28, handshake version 6
+// WITHOUT the digest steps, D34) as pure functions on a frame buffer. Nothing here allocates, sends or reads from
+// the network; bees_net owns the actors and bees_ingress the receive step.
+//
+//   handshake (2-byte big-endian length framing), flags 0x4_0307_0F94 (mvp.md 3.4):
+//     initiator  N  flags(8) creation(4) name_len(2) name                      15 + n bytes
+//     acceptor   s  "ok"                                                         3 bytes
+//     acceptor   N  flags(8) challenge(4) creation(4) name_len(2) name           19 + n bytes (challenge sent as 0, ignored)
+//   after it (4-byte big-endian length framing; a zero length is a net tick):
+//     112 (pass through), control message as ETF, payload as ETF
+//     control REG_SEND = {6, FromPid, '', ToName}:  131 104 4 | 97 6 | 88 node id serial creation | 119 0 | 119 n name
+//     FromPid is a foreign pid, BEES's own typed value (NEW_PID_EXT, tag 88: node atom, 4-byte id, 4-byte serial,
+//     4-byte creation): it is not a term shape and not an Silica actor_ref.
+//
+// Every writer takes a buffer starting at 0 and returns the number of bytes written (the end position), prefix
+// included, or a negative reason (the negated code of bees_wire). Every reader checks bounds before it reads and
+// returns a code (0 accepted, else a bees_wire reason) instead of faulting.
+//
+// A qualified call cannot take an arithmetic argument (E2005), so each bees_wire call that needs one goes through a
+// local wrapper (pi, pu16, pu32, px, ex).
+module bees_dist;
+use bees_wire;
+
+export max_body/0;
+export put_n_init/4;
+export put_n_acc/4;
+export put_s_ok/2;
+export n_init_name/3;
+export n_acc_name/3;
+export is_s_ok/3;
+export reg_send_frame/8;
+export reg_send_target/4;
+export copy_bytes/6;
+export flags_ok/3;
+
+fn max_body() -> int64 { 4096 }
+
+fn pi(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, n: int64) -> int64 { bees_wire@put_i(rg, b, pos, n) }
+fn pu16(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, n: int64) -> int64 { bees_wire@put_u16(rg, b, pos, n) }
+fn pu32(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, n: int64) -> int64 { bees_wire@put_u32(rg, b, pos, n) }
+fn px(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, want: int64, len: int64) -> int64 { bees_wire@expect(rg, b, len, pos, want) }
+fn by(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64) -> int64 { bees_wire@bi(rg, b, pos) }
+fn rd16(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64) -> int64 { by(rg, b, pos) * 256 + by(rg, b, pos + 1) }
+
+// ---- flags: 0x4_0307_0F94 as eight bytes, 00 00 00 04 03 07 0F 94 ----
+fn put_flags(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64) -> int64 {
+    pi(rg, b, pi(rg, b, pi(rg, b, pi(rg, b, pi(rg, b, pi(rg, b, pi(rg, b, pi(rg, b, pos, 0), 0), 0), 4), 3), 7), 15), 148)
+}
+// every bit of r is set in v
+fn has(v: int64, r: int64) -> boolean {
+    case r == 0 of {
+        true -> true;
+        false -> case r % 2 == 1 and v % 2 == 0 of {
+            true -> false;
+            false -> has(v / 2, r / 2)
+        }
+    }
+}
+fn flag_byte(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, want: int64) -> boolean { has(by(rg, b, pos), want) }
+// The peer's flags must contain the mandatory set (a peer may set more: they are ignored, nothing optional is used).
+fn flags_ok(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64) -> boolean {
+    case flag_byte(rg, b, pos + 3, 4) of {
+        false -> false;
+        true -> case flag_byte(rg, b, pos + 4, 3) of {
+            false -> false;
+            true -> case flag_byte(rg, b, pos + 5, 7) of {
+                false -> false;
+                true -> case flag_byte(rg, b, pos + 6, 15) of {
+                    false -> false;
+                    true -> flag_byte(rg, b, pos + 7, 148)
+                }
+            }
+        }
+    }
+}
+
+// ---- handshake writers ----
+fn put_n_init(rg: region(L, normal), b: buf(L, normal, uint8, 4096), name: string, creation: int64) -> int64 {
+    n_init_body(rg, b, name, creation, length_bytes(name))
+}
+fn n_init_body(rg: region(L, normal), b: buf(L, normal, uint8, 4096), name: string, creation: int64, n: int64) -> int64 {
+    case n > 255 or n < 1 of {
+        true -> 0 - 7;
+        false -> bees_wire@put_text(rg, b, pu16(rg, b, pu32(rg, b, put_flags(rg, b, pi(rg, b, pu16(rg, b, 0, 15 + n), 78)), creation), n), name, 0, n)
+    }
+}
+fn put_n_acc(rg: region(L, normal), b: buf(L, normal, uint8, 4096), name: string, creation: int64) -> int64 {
+    n_acc_body(rg, b, name, creation, length_bytes(name))
+}
+fn n_acc_body(rg: region(L, normal), b: buf(L, normal, uint8, 4096), name: string, creation: int64, n: int64) -> int64 {
+    case n > 255 or n < 1 of {
+        true -> 0 - 7;
+        false -> bees_wire@put_text(rg, b, pu16(rg, b, pu32(rg, b, pu32(rg, b, put_flags(rg, b, pi(rg, b, pu16(rg, b, 0, 19 + n), 78)), 0), creation), n), name, 0, n)
+    }
+}
+fn put_s_ok(rg: region(L, normal), b: buf(L, normal, uint8, 4096)) -> int64 {
+    pi(rg, b, pi(rg, b, pi(rg, b, pu16(rg, b, 0, 3), 115), 111), 107)
+}
+
+// ---- handshake readers: the body without its 2-byte prefix, at position 0, `len` bytes ----
+fn name_of(t: { v: string, pos: int64 }) -> { code: int64, v: string } {
+    case t.pos < 0 of {
+        true -> { code: 0 - t.pos, v: "" };
+        false -> { code: 0, v: t.v }
+    }
+}
+fn n_init_name(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64) -> { code: int64, v: string } {
+    case len < 16 of {
+        true -> { code: 2, v: "" };
+        false -> n_init_check(rg, b, len, rd16(rg, b, 13))
+    }
+}
+fn n_init_check(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, n: int64) -> { code: int64, v: string } {
+    case by(rg, b, 0) == 78 of {
+        false -> { code: 4, v: "" };
+        true -> case flags_ok(rg, b, 1) of {
+            false -> { code: 4, v: "" };
+            true -> case n >= 1 and len == 15 + n of {
+                false -> { code: 2, v: "" };
+                true -> name_of(bees_wire@dec_text(rg, b, len, 15, n, false))
+            }
+        }
+    }
+}
+fn n_acc_name(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64) -> { code: int64, v: string } {
+    case len < 20 of {
+        true -> { code: 2, v: "" };
+        false -> n_acc_check(rg, b, len, rd16(rg, b, 17))
+    }
+}
+fn n_acc_check(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, n: int64) -> { code: int64, v: string } {
+    case by(rg, b, 0) == 78 of {
+        false -> { code: 4, v: "" };
+        true -> case flags_ok(rg, b, 1) of {
+            false -> { code: 4, v: "" };
+            true -> case n >= 1 and len == 19 + n of {
+                false -> { code: 2, v: "" };
+                true -> name_of(bees_wire@dec_text(rg, b, len, 19, n, false))
+            }
+        }
+    }
+}
+fn is_s_ok(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64) -> boolean {
+    case len == 3 of {
+        false -> false;
+        true -> case by(rg, b, 0) == 115 of {
+            false -> false;
+            true -> case by(rg, b, 1) == 111 of {
+                false -> false;
+                true -> by(rg, b, 2) == 107
+            }
+        }
+    }
+}
+
+// ---- copy ----
+fn copy_bytes(rg: region(L, normal), src: buf(L, normal, uint8, 4096), dst: buf(L, normal, uint8, 4096), spos: int64, dpos: int64, n: int64) -> int64 {
+    case n <= 0 of {
+        true -> dpos;
+        false -> copy_next(rg, src, dst, spos, n, bees_wire@put_u8(rg, dst, dpos, bees_wire@rb(rg, src, spos)))
+    }
+}
+fn copy_next(rg: region(L, normal), src: buf(L, normal, uint8, 4096), dst: buf(L, normal, uint8, 4096), spos: int64, n: int64, nd: int64) -> int64 {
+    case nd < 0 of {
+        true -> nd;
+        false -> copy_bytes(rg, src, dst, spos + 1, nd, n - 1)
+    }
+}
+
+// ---- REG_SEND ----
+// The whole frame (4-byte length, then body) of {6, FromPid, '', ToName} and a payload that is already ETF in pb[0..plen).
+// id is the foreign pid's 4-byte id (the sending proxy's number), serial 0, creation as given.
+fn reg_send_frame(rg: region(L, normal), out: buf(L, normal, uint8, 4096), pb: buf(L, normal, uint8, 4096), plen: int64, id: int64, node: string, creation: int64, toname: string) -> int64 {
+    case plen < 1 or plen > 4000 of {
+        true -> 0 - 5;
+        false -> reg_send_head(rg, out, pb, plen, id, node, creation, toname)
+    }
+}
+fn reg_send_head(rg: region(L, normal), out: buf(L, normal, uint8, 4096), pb: buf(L, normal, uint8, 4096), plen: int64, id: int64, node: string, creation: int64, toname: string) -> int64 {
+    sequence
+        c0: int64 <- pi(rg, out, pi(rg, out, pi(rg, out, pi(rg, out, pi(rg, out, pi(rg, out, 4, 112), 131), 104), 4), 97), 6);
+        c1: int64 <- pu32(rg, out, pu32(rg, out, bees_wire@put_atom_text(rg, out, pi(rg, out, c0, 88), node), id), 0);
+        c2: int64 <- bees_wire@put_atom_text(rg, out, pi(rg, out, pi(rg, out, pu32(rg, out, c1, creation), 119), 0), toname);
+        c3: int64 <- copy_bytes(rg, pb, out, 0, c2, plen);
+        done: int64 <- patch_len(rg, out, c3)
+    produces pure done end
+}
+// write the body length (everything after the 4-byte prefix) into the prefix; the whole frame length is the result
+fn patch_len(rg: region(L, normal), out: buf(L, normal, uint8, 4096), fin: int64) -> int64 {
+    case fin < 0 of {
+        true -> fin;
+        false -> patch_done(rg, out, fin, pu32(rg, out, 0, fin - 4))
+    }
+}
+fn patch_done(rg: region(L, normal), out: buf(L, normal, uint8, 4096), fin: int64, w: int64) -> int64 {
+    case w < 0 of { true -> w; false -> fin }
+}
+
+// The target of a received frame body: 112, then the control message {6, FromPid, '', ToName}. `code` is 0 or the reason
+// (a control message other than REG_SEND is bad_tag, a pid from another node than `peer` is foreign_actor, a name the
+// program does not hold is unknown_atom); `pstart` is where the payload term (which starts with 131) begins.
+fn reg_send_target(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, peer: string) -> { code: int64, name: atom, pstart: int64 } {
+    sequence
+        p0: int64 <- px(rg, b, 0, 112, len);
+        p1: int64 <- px(rg, b, p0, 131, len);
+        p2: int64 <- px(rg, b, p1, 104, len);
+        p3: int64 <- px(rg, b, p2, 4, len);
+        p4: int64 <- px(rg, b, p3, 97, len);
+        p5: int64 <- px(rg, b, p4, 6, len);
+        p6: int64 <- px(rg, b, p5, 88, len);
+        node: { v: string, pos: int64 } <- bees_wire@dec_atom_text(rg, b, len, p6);
+        out: { code: int64, name: atom, pstart: int64 } <- after_node(rg, b, len, peer, node)
+    produces pure out end
+}
+fn after_node(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, peer: string, node: { v: string, pos: int64 }) -> { code: int64, name: atom, pstart: int64 } {
+    case node.pos < 0 of {
+        true -> { code: 0 - node.pos, name: :ok, pstart: 0 };
+        false -> case node.v == peer of {
+            false -> { code: 15, name: :ok, pstart: 0 };
+            true -> after_pid(rg, b, len, node.pos)
+        }
+    }
+}
+fn after_pid(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, pos: int64) -> { code: int64, name: atom, pstart: int64 } {
+    case bees_wire@have(len, pos, 12) of {
+        false -> { code: 2, name: :ok, pstart: 0 };
+        true -> cookie_and_name(rg, b, len, px(rg, b, px(rg, b, pos + 12, 119, len), 0, len))
+    }
+}
+fn cookie_and_name(rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, p: int64) -> { code: int64, name: atom, pstart: int64 } {
+    case p < 0 of {
+        true -> { code: 0 - p, name: :ok, pstart: 0 };
+        false -> target_done(len, bees_wire@dec_atom(rg, b, len, p))
+    }
+}
+fn target_done(len: int64, t: { v: atom, pos: int64 }) -> { code: int64, name: atom, pstart: int64 } {
+    case t.pos < 0 of {
+        true -> { code: 0 - t.pos, name: :ok, pstart: 0 };
+        false -> case t.pos < len of {
+            true -> { code: 0, name: t.v, pstart: t.pos };
+            false -> { code: 2, name: :ok, pstart: 0 }
+        }
+    }
+}

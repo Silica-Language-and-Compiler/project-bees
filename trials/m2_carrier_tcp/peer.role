@@ -39,13 +39,13 @@ fn show_end(reason: atom, up: boolean, got: int64, txc: int64) -> atom {
 
 fn send_frame(c: actor_ref, me: actor_ref) -> boolean {
     sequence proc[concurrency]
-        m0: { tag: atom, peer: actor_ref, text: string, n: int64 } <- cmd(bees_atoms@a_tx(), me, "", frame_word(0));
+        m0: { tag: atom, peer: actor_ref, text: string, n: int64, k: int64 } <- cmd(bees_atoms@a_tx(), me, "", frame_word(0), 8);
         _: boolean <- cast(c, m0 impl ActorMessage {});
-        m1: { tag: atom, peer: actor_ref, text: string, n: int64 } <- cmd(bees_atoms@a_tx(), me, "", frame_word(1));
+        m1: { tag: atom, peer: actor_ref, text: string, n: int64, k: int64 } <- cmd(bees_atoms@a_tx(), me, "", frame_word(1), 8);
         _: boolean <- cast(c, m1 impl ActorMessage {});
-        m2: { tag: atom, peer: actor_ref, text: string, n: int64 } <- cmd(bees_atoms@a_tx(), me, "", frame_word(2));
+        m2: { tag: atom, peer: actor_ref, text: string, n: int64, k: int64 } <- cmd(bees_atoms@a_tx(), me, "", frame_word(2), 8);
         _: boolean <- cast(c, m2 impl ActorMessage {});
-        m3: { tag: atom, peer: actor_ref, text: string, n: int64 } <- cmd(bees_atoms@a_tx(), me, "", frame_word(3));
+        m3: { tag: atom, peer: actor_ref, text: string, n: int64, k: int64 } <- cmd(bees_atoms@a_tx(), me, "", frame_word(3), 8);
         _: boolean <- cast(c, m3 impl ActorMessage {})
     produces pure true end
 }
@@ -66,7 +66,7 @@ fn owner(
         txc: int64 <- st.txc + b2i(is_credit);
         _: atom <- case is_rx of { true -> show_word(msg.n); false -> :ok };
         finish: boolean <- got == 4 and txc == 5 and (is_rx or is_credit);
-        mc: { tag: atom, peer: actor_ref, text: string, n: int64 } <- cmd(bees_atoms@a_close(), me, "", 0);
+        mc: { tag: atom, peer: actor_ref, text: string, n: int64, k: int64 } <- cmd(bees_atoms@a_close(), me, "", 0, 8);
         _: boolean <- case finish of {
             true -> cast(st.c, mc impl ActorMessage {});
             false -> true
@@ -80,9 +80,9 @@ fn main() -> int64 {
         _: atom <- bees_reporter@start();
         c: actor_ref <- carrier_new(0, 10000, 4000);
         o: actor_ref <- spawn({ c: c, got: 0, txc: 0, up: false, sent: false }, owner, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
-        mo: { tag: atom, peer: actor_ref, text: string, n: int64 } <- cmd(bees_atoms@a_open(), o, address(), 0);
+        mo: { tag: atom, peer: actor_ref, text: string, n: int64, k: int64 } <- cmd(bees_atoms@a_open(), o, address(), 0, 8);
         _: boolean <- cast(c, mo impl ActorMessage {});
-        mk: { tag: atom, peer: actor_ref, text: string, n: int64 } <- cmd(bees_atoms@a_credit(), o, "", 4);
+        mk: { tag: atom, peer: actor_ref, text: string, n: int64, k: int64 } <- cmd(bees_atoms@a_credit(), o, "", 4, 8);
         _: boolean <- cast(c, mk impl ActorMessage {});
         _: int64 <- wait_for_exit()
     produces pure 0 end
