@@ -71,7 +71,7 @@ Every node prints a test-only banner at start (section 6, item 9).
 | Silica warnings | W2300 (state release not proven) is reported for the `conn` and `tx` behaviours; the programs run, nothing here is deep enough to show SD-27/SD-28 cost |
 
 **Stock Erlang node (stretch goal): not done.** A stock node cannot complete this handshake anyway (it sends the digest `r`/`a`
-steps, which BEES does not speak, D34). An attempt to capture a stock node's `N` message with a fake EPMD on a high port did not get
+steps, which BEES does not speak, D34; **planned as BEAM mode's cookie digest, N2, D36**). An attempt to capture a stock node's `N` message with a fake EPMD on a high port did not get
 a connection out of `erl -name` (distribution started, `net_kernel:connect_node` returned false); not pursued. The only live checks
 against OTP are the byte layouts above.
 

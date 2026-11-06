@@ -1,0 +1,158 @@
+// Derived by the compiler (transport_serialization_design.md §4.4, §4.5). Not for editing.
+
+fn __tr_encode_etf__atom__x_int64_y_int64_z_int64___32_512960244(v: (atom,{x:int64,y:int64,z:int64})) -> string {
+    sequence proc[mem(normal)]
+        tail0: List[string, mem(normal)] <- empty[string, mem(normal)]();
+        parts: List[string, mem(normal)] <- __tr_enc_etf__atom__x_int64_y_int64_z_int64___32_512960244_0(v, tail0);
+        whole: List[string, mem(normal)] <- prepend[string, mem(normal)](wire_etf@term_prefix(), parts);
+        out: string <- join_bytes(whole)
+    produces
+        pure out
+    end
+}
+fn __tr_enc_etf__atom__x_int64_y_int64_z_int64___32_512960244_0(v: (atom,{x:int64,y:int64,z:int64}), acc: List[string, mem(normal)]) -> List[string, mem(normal)] {
+    case v of {
+        (x1: atom, x2: {x:int64,y:int64,z:int64}) -> {
+            sequence proc[mem(normal)]
+        a2: List[string, mem(normal)] <- __tr_enc_etf__atom__x_int64_y_int64_z_int64___32_512960244_2(x2, acc);
+        a1: List[string, mem(normal)] <- __tr_enc_etf__atom__x_int64_y_int64_z_int64___32_512960244_1(x1, a2);
+        out: List[string, mem(normal)] <- prepend[string, mem(normal)](wire_etf@tuple_header(2), a1)
+            produces
+                pure out
+            end
+        }
+    }
+}
+fn __tr_enc_etf__atom__x_int64_y_int64_z_int64___32_512960244_1(v: atom, acc: List[string, mem(normal)]) -> List[string, mem(normal)] {
+    sequence proc[mem(normal)]
+        out: List[string, mem(normal)] <- prepend[string, mem(normal)](wire_etf@enc_atom(v), acc)
+    produces
+        pure out
+    end
+}
+fn __tr_enc_etf__atom__x_int64_y_int64_z_int64___32_512960244_2(v: {x:int64,y:int64,z:int64}, acc: List[string, mem(normal)]) -> List[string, mem(normal)] {
+    sequence proc[mem(normal)]
+        a6: List[string, mem(normal)] <- __tr_enc_etf__atom__x_int64_y_int64_z_int64___32_512960244_3(v.z, acc);
+        a5: List[string, mem(normal)] <- prepend[string, mem(normal)](wire_etf@enc_key("z"), a6);
+        a4: List[string, mem(normal)] <- __tr_enc_etf__atom__x_int64_y_int64_z_int64___32_512960244_3(v.y, a5);
+        a3: List[string, mem(normal)] <- prepend[string, mem(normal)](wire_etf@enc_key("y"), a4);
+        a2: List[string, mem(normal)] <- __tr_enc_etf__atom__x_int64_y_int64_z_int64___32_512960244_3(v.x, a3);
+        a1: List[string, mem(normal)] <- prepend[string, mem(normal)](wire_etf@enc_key("x"), a2);
+        out: List[string, mem(normal)] <- prepend[string, mem(normal)](wire_etf@map_header(3), a1)
+    produces
+        pure out
+    end
+}
+fn __tr_enc_etf__atom__x_int64_y_int64_z_int64___32_512960244_3(v: int64, acc: List[string, mem(normal)]) -> List[string, mem(normal)] {
+    sequence proc[mem(normal)]
+        out: List[string, mem(normal)] <- prepend[string, mem(normal)](wire_etf@enc_int64(v), acc)
+    produces
+        pure out
+    end
+}
+
+fn __tr_decode_etf___accel__x_int16_y_int16_z_int16___34_690890439_l1048576_64_1048576_0(bs: string) -> (:ok, (:accel,{x:int16,y:int16,z:int16})) | (:rejected, atom) {
+    case length_bytes(bs) > 1048576 of {
+        true -> (:rejected, :too_large);
+        false -> case wire_etf@dec_prefix(bs, 0) of {
+            (:rejected, r0: atom) -> (:rejected, r0);
+            (:ok, p0: int64) -> case __tr_dec_etf___accel__x_int16_y_int16_z_int16___34_690890439_l1048576_64_1048576_0_0(bs, p0, 64) of {
+                (:rejected, r1: atom) -> (:rejected, r1);
+                (:ok, v: (:accel,{x:int16,y:int16,z:int16}), p1: int64) -> case wire_etf@dec_end(bs, p1) of {
+                    (:rejected, r2: atom) -> (:rejected, r2);
+                    (:ok, _p2: int64) -> (:ok, v)
+                }
+            }
+        }
+    }
+}
+fn __tr_dec_etf___accel__x_int16_y_int16_z_int16___34_690890439_l1048576_64_1048576_0_0(bs: string, pos: int64, depth: int64) -> (:ok, (:accel,{x:int16,y:int16,z:int16}), int64) | (:rejected, atom) {
+    case depth <= 0 of {
+        true -> (:rejected, :too_deep);
+        false -> case wire_etf@dec_tuple_arity(bs, pos) of {
+            (:rejected, r0: atom) -> (:rejected, r0);
+            (:ok, ar: int64, p0: int64) -> case ar == 2 of {
+                false -> (:rejected, :bad_tag);
+                true -> case wire_etf@dec_tag(bs, p0, "accel") of {
+                    (:rejected, rt: atom) -> (:rejected, rt);
+                    (:ok, pt: int64) -> __tr_decp_etf___accel__x_int16_y_int16_z_int16___34_690890439_l1048576_64_1048576_0_0(bs, pt, depth - 1)
+                }
+            }
+        }
+    }
+}
+fn __tr_decp_etf___accel__x_int16_y_int16_z_int16___34_690890439_l1048576_64_1048576_0_0(bs: string, p0: int64, depth: int64) -> (:ok, (:accel,{x:int16,y:int16,z:int16}), int64) | (:rejected, atom) {
+    case __tr_dec_etf___accel__x_int16_y_int16_z_int16___34_690890439_l1048576_64_1048576_0_1(bs, p0, depth) of {
+        (:rejected, r1: atom) -> (:rejected, r1);
+        (:ok, x1: {x:int16,y:int16,z:int16}, p1: int64) ->
+        (:ok, (:accel, x1), p1)
+    }
+}
+fn __tr_dec_etf___accel__x_int16_y_int16_z_int16___34_690890439_l1048576_64_1048576_0_1(bs: string, pos: int64, depth: int64) -> (:ok, {x:int16,y:int16,z:int16}, int64) | (:rejected, atom) {
+    case depth <= 0 of {
+        true -> (:rejected, :too_deep);
+        false -> case wire_etf@dec_map_size(bs, pos) of {
+            (:rejected, r0: atom) -> (:rejected, r0);
+            (:ok, ms: int64, p0: int64) -> case ms > 3 of {
+                true -> (:rejected, :unknown_field);
+                false -> __tr_decm_etf___accel__x_int16_y_int16_z_int16___34_690890439_l1048576_64_1048576_0_1(bs, p0, depth - 1, ms, :none, :none, :none)
+            }
+        }
+    }
+}
+fn __tr_decm_etf___accel__x_int16_y_int16_z_int16___34_690890439_l1048576_64_1048576_0_1(bs: string, pos: int64, depth: int64, n: int64, s_x: (:some, int16) | :none, s_y: (:some, int16) | :none, s_z: (:some, int16) | :none) -> (:ok, {x:int16,y:int16,z:int16}, int64) | (:rejected, atom) {
+    case n == 0 of {
+        true ->
+            case s_x of {
+                :none -> (:rejected, :missing_field);
+                (:some, x_x: int16) ->
+                case s_y of {
+                    :none -> (:rejected, :missing_field);
+                    (:some, x_y: int16) ->
+                    case s_z of {
+                        :none -> (:rejected, :missing_field);
+                        (:some, x_z: int16) ->
+                        (:ok, { x: x_x, y: x_y, z: x_z }, pos)
+                    }
+                }
+            }
+        ;
+        false -> case wire_etf@dec_atom_name(bs, pos) of {
+            (:rejected, rk: atom) -> (:rejected, rk);
+            (:ok, key: string, pk: int64) -> case key of {
+                "x" -> case s_x of {
+                    (:some, _d: int16) -> (:rejected, :duplicate_field);
+                    :none -> case __tr_dec_etf___accel__x_int16_y_int16_z_int16___34_690890439_l1048576_64_1048576_0_2(bs, pk, depth) of {
+                        (:rejected, r: atom) -> (:rejected, r);
+                        (:ok, x: int16, p: int64) -> __tr_decm_etf___accel__x_int16_y_int16_z_int16___34_690890439_l1048576_64_1048576_0_1(bs, p, depth, n - 1, (:some, x), s_y, s_z)
+                    }
+                };
+                "y" -> case s_y of {
+                    (:some, _d: int16) -> (:rejected, :duplicate_field);
+                    :none -> case __tr_dec_etf___accel__x_int16_y_int16_z_int16___34_690890439_l1048576_64_1048576_0_2(bs, pk, depth) of {
+                        (:rejected, r: atom) -> (:rejected, r);
+                        (:ok, x: int16, p: int64) -> __tr_decm_etf___accel__x_int16_y_int16_z_int16___34_690890439_l1048576_64_1048576_0_1(bs, p, depth, n - 1, s_x, (:some, x), s_z)
+                    }
+                };
+                "z" -> case s_z of {
+                    (:some, _d: int16) -> (:rejected, :duplicate_field);
+                    :none -> case __tr_dec_etf___accel__x_int16_y_int16_z_int16___34_690890439_l1048576_64_1048576_0_2(bs, pk, depth) of {
+                        (:rejected, r: atom) -> (:rejected, r);
+                        (:ok, x: int16, p: int64) -> __tr_decm_etf___accel__x_int16_y_int16_z_int16___34_690890439_l1048576_64_1048576_0_1(bs, p, depth, n - 1, s_x, s_y, (:some, x))
+                    }
+                };
+                _: string -> (:rejected, :unknown_field)
+            }
+        }
+    }
+}
+fn __tr_dec_etf___accel__x_int16_y_int16_z_int16___34_690890439_l1048576_64_1048576_0_2(bs: string, pos: int64, depth: int64) -> (:ok, int16, int64) | (:rejected, atom) {
+    case wire_etf@dec_int64(bs, pos) of {
+        (:rejected, r0: atom) -> (:rejected, r0);
+        (:ok, w: int64, p0: int64) -> case w < -32768 or w > 32767 of {
+            true -> (:rejected, :out_of_range);
+            false -> (:ok, to_int16(w), p0)
+        }
+    }
+}
+

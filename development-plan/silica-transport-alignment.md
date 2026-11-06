@@ -5,6 +5,8 @@ Source: `../silica`, branch `binary-transport-support`, `compiler/design_documen
 trials.** BEES cannot build on it yet. This note says what BEES should leave to it when it lands, what BEES keeps, and
 how to write the interim code so the swap is small. Decision D35 in the roadmap records the ruling.
 
+> **Update 2026-11-06 (verified read-only against `silica-999935`, now pinned):** the design below is **implemented in the newest binary**: `encode((:etf), value) -> string`, `decode((:etf), frame) -> (:ok, T) | (:rejected, atom)` (replacing `recreate`), `wireframe@frame`/`unframe` (4-byte framing, no 2-byte form), the hosted `(:tcp)` carrier (`dangerous_tcp_carrier`, the carrier's host-wrapper module (named in the Silica tree), `carrier@mtu(:tcp)`), usage in the Silica tree's `programmer_tools/transport_beam_demo`. BEES's interim pieces (typed codec, M2 carrier, the receive stub) are to be replaced by these in N0.0 and N1 ([mvp.md](mvp.md) section 5); BEES keeps what the table below says it keeps. **Also (D36, same date): TRUST is not layered around the distribution stream; the row below that says BEES layers TLS between the carrier and the framing for TRUST is corrected: TRUST is its own implementation with SEMP's wire (a 4-byte length and one ETF map per frame, mutual TLS 1.3), which can use the language's `wireframe` and `encode`/`decode` for its frames.** The conversion rule (user ruling): encode and decode each in the `sequence` of a `sequence ... produces pure` block, in a connection's separate send and receive actors; unproven for carrier bytes until N0.1.
+
 > **Update 2026-11-05 (user, from Silica):** both marker traits (`Transportable`, `Recreatable`) are being dropped. What stays is derived calls: `encode`, `decode`, and a future `recreate`, with the limits passed **as arguments** instead of declared per type. §4.1 of the transport design and §7.7 of the FFI wrapper specification are being amended together so decoding and re-creation remain one mechanism. Silica's branch also now has an implementation commit (9f103d161f: transport builtins, derived `encode`/`decode`, the ETF protocol on Apple Silicon); its design file has uncommitted edits. BEES has not tried either with a compiler binary, so the text below that says "design only" or `impl Transportable` describes the earlier design, and the exact call forms must be re-read when the amended design is committed. Nothing in /Users/yenrab/silica was changed from here.
 
 ## 1. What Silica plans to provide
@@ -32,7 +34,7 @@ distribution protocol is explicitly left to a later design built above this one*
 | Distribution: handshake v6, flags, ticks, control messages, `REG_SEND`, name table, proxies, atom-cache refusal, remote references, the node table | **BEES.** Their §7 lists exactly what this layer needs and says the transport provides it | M3 as planned |
 | Remote PIDs | the language decodes an `actor_ref` only for its own node (`:foreign_actor`) and encodes one as `NEW_PID_EXT`. Control messages carry **foreign** PIDs, so BEES needs a pid form of its own | BEES reads and writes `NEW_PID_EXT` itself (4-byte id, 4-byte serial, 4-byte creation, node atom); see section 4 |
 | Receiving untrusted bytes (M0: blocked on `Recreatable`) | `decode` is the language's re-creation of bytes; BEES writes none by hand (it could not pass the checker, M0). Still blocked until chunk 13's derivation exists, but there is now one named thing to wait for | the receive step stays behind one function |
-| TRUST security (mTLS 1.3, ALPN `trust/1`) | not in Silica's design: no carrier is encrypted. BEES layers it between the carrier and the framing (a carrier owner that passes bytes through a TLS engine; section 4), still blocked on a TLS engine (S12) | none |
+| TRUST security (mTLS 1.3, ALPN `trust/1`) | not in Silica's design: no carrier is encrypted. **corrected 2026-11-06 (D36): TRUST is a separate implementation with SEMP's wire, not a layer around the distribution stream**; its TLS engine sits between the carrier and TRUST's own framing (a carrier owner that passes bytes through a TLS engine; section 4), still blocked on a TLS engine chosen with the user's explicit approval (S12, D38) | none |
 | Timers, balancer, exit hub, supervision duty | unchanged | |
 
 ## 3. Interim rules, so the swap is cheap
@@ -58,7 +60,7 @@ Ruled 2026-11-05: these are BEES implementation details and stay out of the lang
    `NEW_PID_EXT` itself; the language's `actor_ref` encoding is used only for local actors.
 2. ~~Terms of any shape.~~ **Withdrawn 2026-11-05:** any-type is not supported by Silica; the language transpiler handles it, not BEES and not Silica.
 3. **The handshake's 2-byte framing.** BEES's own framing in `bees_net`, beside the language's 4-byte `WireFrame`.
-4. **TLS for TRUST.** BEES puts the TLS engine between the carrier and the framing (still waiting on a TLS engine, S12).
+4. **TLS for TRUST.** BEES puts the TLS engine between the carrier and TRUST's own framing (TRUST is not layered around the distribution stream, D36; still waiting on a TLS engine chosen with the user's explicit approval, S12, D38).
 5. **Remote-node bookkeeping:** the node table, creation numbers and atom-cache refusal, as in M3.
 
 Silica's open point 12 (a frame and its decoded value in a small heap) does not touch BEES, which is hosted.

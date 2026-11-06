@@ -86,14 +86,22 @@ nodes:
     start: ["R0.1"]
     close: []
     soft: []
+  - id: "ND"
+    title: "User decision: which TLS library and engine, and explicit approval to fetch or build it (D38; the no-downloads rule blocks it until then)"
+    owner: "user"
+    area: "plan"
+    start: []
+    close: []
+    soft: []
+    note: "Runs from the start, in parallel with N2 and N3. Nothing that downloads or builds a TLS engine starts without it."
   - id: "S12"
     title: "Spike: TLS engine (rustls hosted; C library on ESP32-S3; both profiles)"
     owner: "BEES"
     area: "native"
-    start: []
+    start: ["ND"]
     close: []
     soft: []
-    note: "Needs only the Rust and ESP-IDF toolchains; no Silica."
+    note: "Needs only the Rust and ESP-IDF toolchains; no Silica. Blocked on the user's approval (ND)."
   - id: "S13"
     title: "Spike: lifecycle cost (supervised spawn, message copies, yield vs mailbox depth, exit through the hub)"
     owner: "BEES"
@@ -118,13 +126,13 @@ nodes:
     soft: []
     note: "S-5 is filed with S8's shapes before M0 closes; the S-5 node below is the item landing in Silica."
   - id: "S-5"
-    title: "Re-creation (derived recreate/decode calls; the marker traits are dropped) \u2014 THE CRITICAL PATH"
+    title: "Re-creation (the derived decode((:etf), ...) replaced recreate; callable on silica-999935 since 2026-11-06, taint use with carrier bytes untested by BEES: N0.1) \u2014 THE CRITICAL PATH"
     owner: "Silica"
     area: "silica"
     start: ["S8"]
     close: []
     soft: []
-    note: "Filed first, before any other Track S item."
+    note: "Filed first, before any other Track S item. Delivered in the language as decode; BEES still has to port (N0.0) and test (N0.1)."
   - id: "S-26"
     title: "64-bit actor identity"
     owner: "Silica"
@@ -266,7 +274,7 @@ nodes:
     close: []
     soft: []
   - id: "M1.N"
-    title: "PoC on real sockets: TRUST over mTLS between two BEES nodes; cleartext to an erl -sname node"
+    title: "PoC on real transports: TRUST over mTLS between two BEES nodes; cleartext to an erl -sname node"
     owner: "BEES"
     area: "inter_nodal"
     start: ["M1.B", "S-5", "S12", "S4"]
@@ -314,7 +322,7 @@ nodes:
     area: "shim"
     start: ["A3"]
     close: ["S-5", "S-8"]
-    soft: [["S-22", "native-edge sockets"]]
+    soft: [["S-22", "native-edge transports"]]
   - id: "A6"
     title: "Balancing and placement (bees_place, spawn supervisors, dispatch budget, watchdog, statistics)"
     owner: "BEES"
@@ -336,26 +344,70 @@ nodes:
     start: ["T1"]
     close: ["T1"]
     soft: []
+  - id: "N0"
+    title: "Groundwork 1: N0.0 port the receive path to the language's decode/wireframe on 999935 and re-run M3/M4; N0.1 taint trial with carrier bytes; N0.2 bees.config and its reader"
+    owner: "BEES"
+    area: "shim"
+    start: []
+    close: []
+    soft: []
+    note: "First tasks are N0.0 and N0.1; both modes and the send/receive actors depend on the answer."
+  - id: "N1"
+    title: "Groundwork 2: adopt the language's (:tcp) carrier; configured addresses and DNS; frame limits from bees.config, default and ceiling the same as BEAM (4294967295 bytes, ruling R1; lifts the 4 KiB / depth 16 / 256 / 1024 limits of the typed codec toward BEAM's); listen_address has no built-in default (R6)"
+    owner: "BEES"
+    area: "inter_nodal"
+    start: ["N0"]
+    close: []
+    soft: []
+    note: "Exit criterion: each limit of bees-config-file.md section 5.4 tested at and above the implemented limit."
+  - id: "N2"
+    title: "BEAM mode against a stock node: cookie digest, EPMD, SEND to a pid, ticks, links as far as feasible; live test against erl -sname; then the M3 to M5 trials move from auth none (loopback-only test setting) to cookies (R4)"
+    owner: "BEES"
+    area: "inter_nodal"
+    start: ["N0", "N1"]
+    close: []
+    soft: [["S-5", "digest and random bytes held in the edge if N0.1 fails"]]
+  - id: "N3"
+    title: "TRUST logic over plaintext loopback: whitelist, guard, tokens, suspicion, state machine, ETF map frames, CALL/CAST, trpc client; trials similar to M3/M4 over plaintext loopback with the test-only fingerprint stand-in (R4, R5); missing whitelist file is a boot error (R2); args/value typing open with the user"
+    owner: "BEES"
+    area: "inter_nodal"
+    start: ["N0", "N1"]
+    close: []
+    soft: [["S-17", "FSM as a plain behaviour with a phase field"]]
+  - id: "N4"
+    title: "TRUST over mutual TLS 1.3 (ALPN trust/1, SHA-512 fingerprints, pins) after the engine decision; the N3 TRUST trials repeat over TLS with the real fingerprint (R4)"
+    owner: "BEES"
+    area: "inter_nodal"
+    start: ["N3", "ND", "S12"]
+    close: []
+    soft: []
+  - id: "N5"
+    title: "TRUST windowed multiplexing (B2): windows, GOAWAY, max_inflight backpressure, cancel-by-close, telemetry"
+    owner: "BEES"
+    area: "inter_nodal"
+    start: ["N4"]
+    close: ["A5"]
+    soft: []
   - id: "B1"
-    title: "TRUST 1.0 single request (trust/1 spec and codec, FSM, whitelist, tokens, suspicion, pins, audit)"
+    title: "TRUST 1.0 single request (SEMP wire: ETF map frames, FSM, whitelist, tokens, suspicion, pins, audit; built as N3 and N4)"
     owner: "BEES"
     area: "inter_nodal"
     start: ["M1"]
-    close: ["A2", "S-5", "S12"]
+    close: ["A2", "S-5", "S12", "N3", "N4"]
     soft: [["S-17", "FSM as a plain behaviour with a phase field"]]
   - id: "B2"
     title: "TRUST windowed multiplexing"
     owner: "BEES"
     area: "inter_nodal"
     start: ["B1"]
-    close: ["B1", "A5"]
+    close: ["B1", "A5", "N5"]
     soft: []
   - id: "B3"
-    title: "BEAM mode L1\u2013L2 (EPMD, handshake, ETF, links, bees_gen, tls transport, node-down by send)"
+    title: "BEAM mode L1\u2013L2 (EPMD, handshake with cookie digest, ETF, links, bees_gen, tls transport, node-down by send; first part built as N2)"
     owner: "BEES"
     area: "inter_nodal"
     start: ["M1"]
-    close: ["A2", "S-2", "S-5", "S-22", "S12"]
+    close: ["A2", "S-2", "S-5", "S-22", "S12", "N2"]
     soft: []
   - id: "B4"
     title: "BEAM mode L3\u2013L4 (remote spawn; BEES's erpc, rpc, net_kernel, global, pg) \u2014 after 1.0"

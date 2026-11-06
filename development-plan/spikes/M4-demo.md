@@ -100,7 +100,7 @@ The first complete run of this milestone worked and was unusable: 480 MB residen
 3. **A service dies when it answers a client that is gone** (not exercised, section 2). The alternative is a send that does not fail (a Silica feature request, like SD-33's `whereis`), or having each service answer through a short-lived deliverer the way BEES delivers (so the failure is the deliverer's). Open.
 4. **The payload is seven groups, not one flat record**, because of the compile cost (SD-36). A real program with a 20-field message type should expect to hit the same wall until the compiler changes.
 5. **The numbers printed are looked up, not converted** (`num_text`: 0 to 6, 900, 1000 to 4000 and `?`), because Silica has no integer-to-text conversion; the output lines are each one `println` so that another actor's output cannot split them. The audit lines of `bees_ingress@audit` are still several prints (a rare split is possible; none was seen in the stable runs).
-6. **SIGKILL is the stop.** A graceful stop (the program ends, the OS closes the socket) is the same to the peer, since the closing is the kernel's; the orderly shutdown of the program's own actors is not tested.
+6. **SIGKILL is the stop.** A graceful stop (the program ends, the OS closes the transport) is the same to the peer, since the closing is the kernel's; the orderly shutdown of the program's own actors is not tested.
 7. **Timing roles in the scenarios**: 1 s tick, 3 s silence limit (`timing_kill.role`); the rate run uses OTP's 15 s and 60 s.
 8. **Process-level test controls**: the `ticker` starts at 3 s and the kill happens about 0.5 s after the third answer, so the first cast of the ticker is always after the link is down (the goldens do not depend on a race), at the cost of not showing a cast that races the close.
 
@@ -120,7 +120,7 @@ SD-35 (state with a heap value: about 1 MiB of committed memory per dispatch, ne
 - **Hostile input:** five crafted content cases and one framing case; no fuzzing; no slow-sender test (a peer that stalls with a frame half sent holds the link until the silence limit, M3 section 3); no oversized payload within the limit (4,000 bytes).
 - **Rate and memory:** two runs of one scenario (full payload, window 8) on one machine under variable load; no small-message rate; no multi-node, no window sweep, no comparison with an Erlang node; no profile of where each 50 ms goes beyond the SD-35 finding.
 - **A node stopped mid-run:** the service's node only (SIGKILL); node b stopped while a answers is argued from the rule and not run; no restart of the stopped node, no reconnect (the link and the proxies do not come back).
-- **Stock Erlang node:** none connected (D34: a stock node authenticates with the cookie digest that BEES does not use).
+- **Stock Erlang node:** none connected (D34: a stock node authenticates with the cookie digest that BEES does not use; **planned: N2, D36**).
 - **One live link per node**, one frame in flight per direction, frames up to 4096 bytes, control messages other than REG_SEND dropped and audited, `FromPid` a proxy index.
 - **Any-type terms** are not BEES's (ruled); the payload is the typed subset. `float16`, tagged tuples, non-ASCII text, maps and sets as message types: not covered (M1b).
 - **`make measure` is not part of `make integrate`**: its numbers vary and the run takes minutes.

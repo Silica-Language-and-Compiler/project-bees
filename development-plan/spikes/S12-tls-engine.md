@@ -1,6 +1,7 @@
 # Spike S12: The TLS Engine
 
 **Status:** planned, not run. This document specifies the spike. Nothing has been built yet.
+**Update 2026-11-06 (roadmap D36, D38).** (1) **Running this spike needs the user's explicit approval** (milestone N4.0): the no-downloads rule blocks fetching or building any TLS engine, and the choice of engine is a user decision that runs in parallel with N2 and N3. (2) TRUST's TLS carries **TRUST's own frames** (a 4-byte length and one ETF map each); it is not wrapped around the Erlang distribution stream, which is how earlier text read. (3) BEAM mode's cookie authentication (N2) needs no TLS; its optional `inet_tls_dist`-compatible profile (D25) is a later use of the same engine. (4) Whatever the engine returns (plaintext, random bytes, digests) follows the conversion rule: handled in the `sequence` of a `sequence ... produces pure` block (mvp.md section 4).
 **Decision it confirms:** D6, revised 2026-09-17: rustls on the hosted targets, the board's Mbed TLS on the ESP32-S3, behind one C
 interface ([roadmap §6](../roadmap.md#6-decisions)).
 **What it settles first:** which C TLS library the ESP32-S3 uses. The board's Mbed TLS if it offers X25519MLKEM768, which

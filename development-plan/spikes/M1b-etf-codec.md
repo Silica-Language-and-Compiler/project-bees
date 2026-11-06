@@ -5,7 +5,7 @@
 **Status:** run 2026-11-05 on `silica-999936-macos-applesilicon` with Erlang/OTP 28 (erts-15.0) as the byte oracle. **Done, with the
 limits in section 8.** Nothing here touches a transport, the network or a foreign call. Plan: [`mvp.md`](../mvp.md) section 3.4 and
 milestone M1b; the design it follows: [`silica-transport-alignment.md`](../silica-transport-alignment.md) (D35). It supersedes
-[M1-wire-codec.md](M1-wire-codec.md) and the layout in [`contract/wire-v1.md`](../../contract/wire-v1.md).
+[M1-wire-codec.md](M1-wire-codec.md) and the layout that [`contract/wire-v1.md`](../../contract/wire-v1.md) described before M5 (that file is now the Erlang distribution profile and describes this codec's ETF layout in its section 5).
 
 ## 1. What was built
 
@@ -134,6 +134,13 @@ by hand (and checked by the unsupported-tag rule, not by erl).
   The 256-arm `case` tables of M1 are 128 arms now.
 
 ## 8. Not done, and what it would take
+
+> **Added 2026-11-06 (user ruling R1: "The frame and argument caps are to be the same as BEAM").** The limits this codec enforces
+> (frame 4096 bytes, depth 16, 256 list elements, string 1024 bytes, atom 255 bytes) are **current implementation limits of the typed
+> codec and the memory model, below BEAM's**: BEAM allows frames up to 4294967295 bytes, tuples to 16777215 elements, lists, maps and
+> nesting depth bounded only by memory, and binaries to the packet size (bees-config-file.md section 5.4 has each figure and how it was
+> verified). It is a known gap, to be closed toward BEAM's limits in milestone N1 (the limits become arguments of the language's `decode`
+> and `wireframe@unframe`). Atoms are 255 characters in BEAM and 255 bytes here, equal for the ASCII text this codec accepts.
 
 - **Tagged tuples** (`(:ok, int64)` as a message type) are still a build error: a generated unit may not contain a BEAM atom literal (D30)
   and the type is written with one. `(atom, T)` and an `atom` field are the supported form. The manifest could grow a `tag(name)` pseudo-type

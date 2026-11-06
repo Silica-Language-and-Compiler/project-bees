@@ -9,7 +9,7 @@ there and re-run it.
 ## 1. How to read it
 
 Every node is a piece of work with an ID from the roadmap: a spike (S1–S13), a Stage 0 deliverable (R0.x), a
-stage or milestone (M0, M1, A1–A6, T1–T2, B1–B4), an integration point (I1–I3, X1–X2), a Track S item in the
+stage or milestone (M0, M1, A1–A6, T1–T2, B1–B4), a next-stage milestone (N0–N5, D38), the user decision ND about the TLS engine, an integration point (I1–I3, X1–X2), a Track S item in the
 Silica repository (S-n), or an external event (EXT, SEC).
 
 Each node has three kinds of dependency:
@@ -24,7 +24,7 @@ Each node has three kinds of dependency:
 
 1. Any set of nodes whose *start after* lists are all closed may run at the same time.
 2. Two concurrent nodes in the same `area` must have one owner, or agree on file ownership first. The areas are
-   `contract/` (R0.3, T1, T2, S9, M1.T), `src/shim/` (M1.A, A1–A6), `src/inter_nodal/` (M1.B, M1.N, B1–B4),
+   `contract/` (R0.3, T1, T2, S9, M1.T), `src/shim/` (M1.A, A1–A6), `src/inter_nodal/` (M1.B, M1.N, B1–B4, N1–N5; N0 is in `src/shim/`),
    `native/` (S4, S12), `trials/` (the other spikes, S13) and `tools/` (R0.1).
 3. **Track S nodes are in the Silica repository and follow Silica's `AI_POLICY.md`: human-vetted, no AI
    co-authors, smallest reasonable PRs.** A sub-agent may draft the proposal text and the failing trial in the
@@ -36,7 +36,7 @@ Each node has three kinds of dependency:
 
 ## 2. Stage 0
 
-Everything here can start now except R0.3 and M0. The thirteen spikes are independent of each other and of the
+Everything here can start now except R0.3, M0 and S12 (S12 waits for the user's explicit approval of a TLS engine, node ND, D38, and so does M0 through it). The thirteen spikes are independent of each other and of the
 Silica prerequisites; the one soft edge is S13's exit measurement, which is better with S7's prototype.
 
 ```mermaid
@@ -114,6 +114,7 @@ graph LR
   S9[S9]
   S10[S10]
   S11[S11]
+  ND{{ND}}
   S12[S12]
   S13[S13]
   R0_3[R0.3]
@@ -146,6 +147,12 @@ graph LR
   A6[A6]
   T1[T1]
   T2[T2]
+  N0[N0]
+  N1[N1]
+  N2[N2]
+  N3[N3]
+  N4[N4]
+  N5[N5]
   B1[B1]
   B2[B2]
   B3[B3]
@@ -220,19 +227,33 @@ graph LR
   A4 -.closes.-> T1
   T1 --> T2
   T1 -.closes.-> T2
+  N0 --> N1
+  N0 --> N2
+  N1 --> N2
+  N0 --> N3
+  N1 --> N3
+  N3 --> N4
+  ND --> N4
+  S12 --> N4
+  N4 --> N5
+  A5 -.closes.-> N5
   M1 --> B1
   A2 -.closes.-> B1
   S_5 -.closes.-> B1
   S12 -.closes.-> B1
+  N3 -.closes.-> B1
+  N4 -.closes.-> B1
   B1 --> B2
   B1 -.closes.-> B2
   A5 -.closes.-> B2
+  N5 -.closes.-> B2
   M1 --> B3
   A2 -.closes.-> B3
   S_2 -.closes.-> B3
   S_5 -.closes.-> B3
   S_22 -.closes.-> B3
   S12 -.closes.-> B3
+  N2 -.closes.-> B3
   B3 --> B4
   A2 --> I1
   B3 --> I1
@@ -267,11 +288,11 @@ where that is later than its start). A wave says only what *may* run together. T
 repository on Silica's schedule, so their wave is when they can be filed, and the waves after them assume they
 land in time; if one slips, everything that closes after it slips with it.
 
-- **Wave 0:** R0.1, S12, S-26, S-2, S-29, S-3, S-11, S-8, S-22, S-31, S-32, EXT
-- **Wave 1:** S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11, S13
-- **Wave 2:** R0.3, S-5, S-28, S-9, S-15, S-17, S-6, S-23, S-24, S-21
-- **Wave 3:** M0, T1 (closes in wave 8)
-- **Wave 4:** M1.A
+- **Wave 0:** R0.1, ND, S-26, S-2, S-29, S-3, S-11, S-8, S-22, S-31, S-32, N0, EXT
+- **Wave 1:** S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11, S12, S13, N1
+- **Wave 2:** R0.3, S-5, S-28, S-9, S-15, S-17, S-6, S-23, S-24, S-21, N2, N3
+- **Wave 3:** M0, T1 (closes in wave 8), N4
+- **Wave 4:** M1.A, N5 (closes in wave 9)
 - **Wave 5:** M1.T, M1.B
 - **Wave 6:** M1.N, M1
 - **Wave 7:** A1, A2, B1, B3
@@ -297,11 +318,12 @@ land in time; if one slips, everything that closes after it slips with it.
 | **S9** | Spike: four reference lowerings | BEES | `contract` | R0.1 | — | — | R0.3, M0 |
 | **S10** | Spike: BIF failure paths and the crash report | BEES | `trials` | R0.1 | — | — | R0.3, M0, S-9 |
 | **S11** | Spike: balancing through migrate_actor() | BEES | `trials` | R0.1 | — | — | M0, S-23, A6 |
-| **S12** | Spike: TLS engine (rustls hosted; C library on ESP32-S3; both profiles) | BEES | `native` | — | — | — | M0, M1.N |
+| **ND** | User decision: which TLS library and engine, and explicit approval to fetch or build it (D38; the no-downloads rule blocks it until then) | user | `plan` | — | — | — | S12, N4 |
+| **S12** | Spike: TLS engine (rustls hosted; C library on ESP32-S3; both profiles) | BEES | `native` | ND | — | — | M0, M1.N, N4 |
 | **S13** | Spike: lifecycle cost (supervised spawn, message copies, yield vs mailbox depth, exit through the hub) | BEES | `trials` | R0.1 | — | S7 (exit part measured without S7's report prototype) | M0 |
 | **R0.3** | Contract v0 (contract/target-contract.md) | BEES | `contract` | S1, S2, S5, S6, S9, S10 | — | — | M0, T1 |
 | **M0** | Stage 0 exit: all thirteen spike notes merged, S-5 filed, contract v0 reviewed | BEES | `plan` | R0.1, S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11, S12, S13, R0.3 | — | — | M1.A |
-| **S-5** | Re-creation (derived recreate/decode calls; the marker traits are dropped) — THE CRITICAL PATH | Silica | `silica` | S8 | — | — | M1.N |
+| **S-5** | Re-creation (the derived decode((:etf), ...) replaced recreate; callable on silica-999935 since 2026-11-06, taint use with carrier bytes untested by BEES: N0.1) — THE CRITICAL PATH | Silica | `silica` | S8 | — | — | M1.N |
 | **S-26** | 64-bit actor identity | Silica | `silica` | — | — | — | — |
 | **S-28** | Supervisor exit reports to a report sink | Silica | `silica` | S7 | — | — | — |
 | **S-2** | Runtime link | Silica | `silica` | — | — | — | — |
@@ -322,19 +344,25 @@ land in time; if one slips, everything that closes after it slips with it.
 | **M1.A** | PoC shim v0: bees_term subset, evacuation, receive helpers, PoC BIFs, one Supervisor mapping | BEES | `shim` | M0 | — | — | M1.T, M1.B, M1 |
 | **M1.T** | PoC contract slice: reference lowerings end to end; bees_config generating module table and atom lookup | BEES | `contract` | M1.A | — | — | M1 |
 | **M1.B** | PoC protocol layers over an in-process loopback transport (TRUST call path; EPMD, handshake, delivery) | BEES | `inter_nodal` | M1.A | — | — | M1.N, M1 |
-| **M1.N** | PoC on real sockets: TRUST over mTLS between two BEES nodes; cleartext to an erl -sname node | BEES | `inter_nodal` | M1.B, S-5, S12, S4 | — | — | — |
+| **M1.N** | PoC on real transports: TRUST over mTLS between two BEES nodes; cleartext to an erl -sname node | BEES | `inter_nodal` | M1.B, S-5, S12, S4 | — | — | — |
 | **M1** | Stage 1 exit: three programs match the BEAM; latency and memory measured; ledger updated | BEES | `plan` | M1.A, M1.T, M1.B | — | M1.N (deferred to B1 and B3) | A1, A2, B1, B3 |
 | **A1** | Terms and memory | BEES | `shim` | M1 | S-11, S-15 | — | A3 |
 | **A2** | Processes and signals (save queue, pdict, exit hub, child-id pools, names) | BEES | `shim` | M1 | A1, S-2, S-26, S-28 | S-9 (shutdown: 0, no terminate/2); S-29 (BEES name table, hub removes names) | A3, A4, A6, I1 |
 | **A3** | ERTS modules and BIFs (tiers, result-returning variants, ets, persistent_term, code, bees_log, crypto) | BEES | `shim` | A1, A2 | S-5, S-8 | — | A5 |
 | **A4** | OTP behaviours on Silica constructs (Supervisor, split gen_server, state machine; proc_lib/sys support) | BEES | `shim` | A2 | S-17, S-2 | — | X2 |
-| **A5** | Host I/O and observability (bees_io, bees_inet, bees_file, I/O server, telemetry) | BEES | `shim` | A3 | S-5, S-8 | S-22 (native-edge sockets) | I2, SEC |
+| **A5** | Host I/O and observability (bees_io, bees_inet, bees_file, I/O server, telemetry) | BEES | `shim` | A3 | S-5, S-8 | S-22 (native-edge transports) | I2, SEC |
 | **A6** | Balancing and placement (bees_place, spawn supervisors, dispatch budget, watchdog, statistics) | BEES | `shim` | A2, S11 | S-6, S-23, S-24 | — | X2 |
 | **T1** | Contract 1.0 (all eight items, cross-language rules, versioning) | BEES | `contract` | R0.3 | A1, A2, A4 | — | T2 |
 | **T2** | Conformance kit (reference lowerings + self-check suite, packaged for compiler CI) | BEES | `contract` | T1 | T1 | — | I3, R1 |
-| **B1** | TRUST 1.0 single request (trust/1 spec and codec, FSM, whitelist, tokens, suspicion, pins, audit) | BEES | `inter_nodal` | M1 | A2, S-5, S12 | S-17 (FSM as a plain behaviour with a phase field) | B2, I2, SEC |
-| **B2** | TRUST windowed multiplexing | BEES | `inter_nodal` | B1 | B1, A5 | — | R1 |
-| **B3** | BEAM mode L1–L2 (EPMD, handshake, ETF, links, bees_gen, tls transport, node-down by send) | BEES | `inter_nodal` | M1 | A2, S-2, S-5, S-22, S12 | — | B4, I1, SEC, R1 |
+| **N0** | Groundwork 1: N0.0 port the receive path to the language's decode/wireframe on 999935 and re-run M3/M4; N0.1 taint trial with carrier bytes; N0.2 bees.config and its reader | BEES | `shim` | — | — | — | N1, N2, N3 |
+| **N1** | Groundwork 2: adopt the language's (:tcp) carrier; configured addresses and DNS; frame limits from bees.config, default and ceiling the same as BEAM (4294967295 bytes, ruling R1; lifts the 4 KiB / depth 16 / 256 / 1024 limits of the typed codec toward BEAM's); listen_address has no built-in default (R6) | BEES | `inter_nodal` | N0 | — | — | N2, N3 |
+| **N2** | BEAM mode against a stock node: cookie digest, EPMD, SEND to a pid, ticks, links as far as feasible; live test against erl -sname; then the M3 to M5 trials move from auth none (loopback-only test setting) to cookies (R4) | BEES | `inter_nodal` | N0, N1 | — | S-5 (digest and random bytes held in the edge if N0.1 fails) | — |
+| **N3** | TRUST logic over plaintext loopback: whitelist, guard, tokens, suspicion, state machine, ETF map frames, CALL/CAST, trpc client; trials similar to M3/M4 over plaintext loopback with the test-only fingerprint stand-in (R4, R5); missing whitelist file is a boot error (R2); args/value typing open with the user | BEES | `inter_nodal` | N0, N1 | — | S-17 (FSM as a plain behaviour with a phase field) | N4 |
+| **N4** | TRUST over mutual TLS 1.3 (ALPN trust/1, SHA-512 fingerprints, pins) after the engine decision; the N3 TRUST trials repeat over TLS with the real fingerprint (R4) | BEES | `inter_nodal` | N3, ND, S12 | — | — | N5 |
+| **N5** | TRUST windowed multiplexing (B2): windows, GOAWAY, max_inflight backpressure, cancel-by-close, telemetry | BEES | `inter_nodal` | N4 | A5 | — | — |
+| **B1** | TRUST 1.0 single request (SEMP wire: ETF map frames, FSM, whitelist, tokens, suspicion, pins, audit; built as N3 and N4) | BEES | `inter_nodal` | M1 | A2, S-5, S12, N3, N4 | S-17 (FSM as a plain behaviour with a phase field) | B2, I2, SEC |
+| **B2** | TRUST windowed multiplexing | BEES | `inter_nodal` | B1 | B1, A5, N5 | — | R1 |
+| **B3** | BEAM mode L1–L2 (EPMD, handshake with cookie digest, ETF, links, bees_gen, tls transport, node-down by send; first part built as N2) | BEES | `inter_nodal` | M1 | A2, S-2, S-5, S-22, S12, N2 | — | B4, I1, SEC, R1 |
 | **B4** | BEAM mode L3–L4 (remote spawn; BEES's erpc, rpc, net_kernel, global, pg) — after 1.0 | BEES | `inter_nodal` | B3 | — | — | — |
 | **I1** | Remote lifecycle: A2 exits × B3 control messages | BEES | `plan` | A2, B3 | — | — | X1 |
 | **I2** | Network I/O: A5 bees_io × B1 transport | BEES | `plan` | A5, B1 | — | — | X1 |

@@ -28,8 +28,10 @@ for sid, title, extra in [
     ("S11", "Spike: balancing through migrate_actor()", {}),
 ]:
     node(sid, title, extra.get("owner", "BEES"), extra.get("area", "trials"), start=["R0.1"])
-node("S12", "Spike: TLS engine (rustls hosted; C library on ESP32-S3; both profiles)", "BEES", "native",
-     note="Needs only the Rust and ESP-IDF toolchains; no Silica.")
+node("ND", "User decision: which TLS library and engine, and explicit approval to fetch or build it (D38; the no-downloads rule blocks it until then)",
+     "user", "plan", note="Runs from the start, in parallel with N2 and N3. Nothing that downloads or builds a TLS engine starts without it.")
+node("S12", "Spike: TLS engine (rustls hosted; C library on ESP32-S3; both profiles)", "BEES", "native", start=["ND"],
+     note="Needs only the Rust and ESP-IDF toolchains; no Silica. Blocked on the user's approval (ND).")
 node("S13", "Spike: lifecycle cost (supervised spawn, message copies, yield vs mailbox depth, exit through the hub)",
      "BEES", "trials", start=["R0.1"], soft=[["S7", "exit part measured without S7's report prototype"]])
 node("R0.3", "Contract v0 (contract/target-contract.md)", "BEES", "contract",
@@ -42,7 +44,7 @@ node("M0", "Stage 0 exit: all thirteen spike notes merged, S-5 filed, contract v
 # Silica's AI_POLICY: human-vetted, no AI co-authors. A sub-agent may draft the proposal and the failing trial;
 # a person files and lands it.
 TS = [
-    ("S-5",  "Re-creation (derived recreate/decode calls; the marker traits are dropped) — THE CRITICAL PATH", ["S8"], "Filed first, before any other Track S item."),
+    ("S-5",  "Re-creation (the derived decode((:etf), ...) replaced recreate; callable on silica-999935 since 2026-11-06, taint use with carrier bytes untested by BEES: N0.1) — THE CRITICAL PATH", ["S8"], "Filed first, before any other Track S item. Delivered in the language as decode; BEES still has to port (N0.0) and test (N0.1)."),
     ("S-26", "64-bit actor identity", [], ""),
     ("S-28", "Supervisor exit reports to a report sink", ["S7"], ""),
     ("S-2",  "Runtime link", [], ""),
@@ -71,7 +73,7 @@ node("M1.T", "PoC contract slice: reference lowerings end to end; bees_config ge
      "BEES", "contract", start=["M1.A"])
 node("M1.B", "PoC protocol layers over an in-process loopback transport (TRUST call path; EPMD, handshake, delivery)",
      "BEES", "inter_nodal", start=["M1.A"])
-node("M1.N", "PoC on real sockets: TRUST over mTLS between two BEES nodes; cleartext to an erl -sname node",
+node("M1.N", "PoC on real transports: TRUST over mTLS between two BEES nodes; cleartext to an erl -sname node",
      "BEES", "inter_nodal", start=["M1.B", "S-5", "S12", "S4"],
      note="If S-5 has not landed when the rest of M1 is done, this moves into B1 and B3.")
 node("M1", "Stage 1 exit: three programs match the BEAM; latency and memory measured; ledger updated", "BEES", "plan",
@@ -87,7 +89,7 @@ node("A3", "ERTS modules and BIFs (tiers, result-returning variants, ets, persis
 node("A4", "OTP behaviours on Silica constructs (Supervisor, split gen_server, state machine; proc_lib/sys support)",
      "BEES", "shim", start=["A2"], close=["S-17", "S-2"])
 node("A5", "Host I/O and observability (bees_io, bees_inet, bees_file, I/O server, telemetry)",
-     "BEES", "shim", start=["A3"], close=["S-5", "S-8"], soft=[["S-22", "native-edge sockets"]])
+     "BEES", "shim", start=["A3"], close=["S-5", "S-8"], soft=[["S-22", "native-edge transports"]])
 node("A6", "Balancing and placement (bees_place, spawn supervisors, dispatch budget, watchdog, statistics)",
      "BEES", "shim", start=["A2", "S11"], close=["S-6", "S-23", "S-24"])
 
@@ -97,13 +99,27 @@ node("T1", "Contract 1.0 (all eight items, cross-language rules, versioning)", "
 node("T2", "Conformance kit (reference lowerings + self-check suite, packaged for compiler CI)", "BEES", "contract",
      start=["T1"], close=["T1"])
 
+# ---------------- Next stage (D36 to D38, 2026-11-06): N0 to N5 of mvp.md section 5; M0 to M5 of the MVP are done and are not graph nodes ----------------
+node("N0", "Groundwork 1: N0.0 port the receive path to the language's decode/wireframe on 999935 and re-run M3/M4; N0.1 taint trial with carrier bytes; N0.2 bees.config and its reader",
+     "BEES", "shim", note="First tasks are N0.0 and N0.1; both modes and the send/receive actors depend on the answer.")
+node("N1", "Groundwork 2: adopt the language's (:tcp) carrier; configured addresses and DNS; frame limits from bees.config, default and ceiling the same as BEAM (4294967295 bytes, ruling R1; lifts the 4 KiB / depth 16 / 256 / 1024 limits of the typed codec toward BEAM's); listen_address has no built-in default (R6)",
+     "BEES", "inter_nodal", start=["N0"], note="Exit criterion: each limit of bees-config-file.md section 5.4 tested at and above the implemented limit.")
+node("N2", "BEAM mode against a stock node: cookie digest, EPMD, SEND to a pid, ticks, links as far as feasible; live test against erl -sname; then the M3 to M5 trials move from auth none (loopback-only test setting) to cookies (R4)",
+     "BEES", "inter_nodal", start=["N0", "N1"], soft=[["S-5", "digest and random bytes held in the edge if N0.1 fails"]])
+node("N3", "TRUST logic over plaintext loopback: whitelist, guard, tokens, suspicion, state machine, ETF map frames, CALL/CAST, trpc client; trials similar to M3/M4 over plaintext loopback with the test-only fingerprint stand-in (R4, R5); missing whitelist file is a boot error (R2); args/value typing open with the user",
+     "BEES", "inter_nodal", start=["N0", "N1"], soft=[["S-17", "FSM as a plain behaviour with a phase field"]])
+node("N4", "TRUST over mutual TLS 1.3 (ALPN trust/1, SHA-512 fingerprints, pins) after the engine decision; the N3 TRUST trials repeat over TLS with the real fingerprint (R4)",
+     "BEES", "inter_nodal", start=["N3", "ND", "S12"])
+node("N5", "TRUST windowed multiplexing (B2): windows, GOAWAY, max_inflight backpressure, cancel-by-close, telemetry",
+     "BEES", "inter_nodal", start=["N4"], close=["A5"])
+
 # ---------------- Track B ----------------
-node("B1", "TRUST 1.0 single request (trust/1 spec and codec, FSM, whitelist, tokens, suspicion, pins, audit)",
-     "BEES", "inter_nodal", start=["M1"], close=["A2", "S-5", "S12"],
+node("B1", "TRUST 1.0 single request (SEMP wire: ETF map frames, FSM, whitelist, tokens, suspicion, pins, audit; built as N3 and N4)",
+     "BEES", "inter_nodal", start=["M1"], close=["A2", "S-5", "S12", "N3", "N4"],
      soft=[["S-17", "FSM as a plain behaviour with a phase field"]])
-node("B2", "TRUST windowed multiplexing", "BEES", "inter_nodal", start=["B1"], close=["B1", "A5"])
-node("B3", "BEAM mode L1–L2 (EPMD, handshake, ETF, links, bees_gen, tls transport, node-down by send)",
-     "BEES", "inter_nodal", start=["M1"], close=["A2", "S-2", "S-5", "S-22", "S12"])
+node("B2", "TRUST windowed multiplexing", "BEES", "inter_nodal", start=["B1"], close=["B1", "A5", "N5"])
+node("B3", "BEAM mode L1–L2 (EPMD, handshake with cookie digest, ETF, links, bees_gen, tls transport, node-down by send; first part built as N2)",
+     "BEES", "inter_nodal", start=["M1"], close=["A2", "S-2", "S-5", "S-22", "S12", "N2"])
 node("B4", "BEAM mode L3–L4 (remote spawn; BEES's erpc, rpc, net_kernel, global, pg) — after 1.0",
      "BEES", "inter_nodal", start=["B3"])
 
@@ -219,7 +235,7 @@ there and re-run it.
 ## 1. How to read it
 
 Every node is a piece of work with an ID from the roadmap: a spike (S1–S13), a Stage 0 deliverable (R0.x), a
-stage or milestone (M0, M1, A1–A6, T1–T2, B1–B4), an integration point (I1–I3, X1–X2), a Track S item in the
+stage or milestone (M0, M1, A1–A6, T1–T2, B1–B4), a next-stage milestone (N0–N5, D38), the user decision ND about the TLS engine, an integration point (I1–I3, X1–X2), a Track S item in the
 Silica repository (S-n), or an external event (EXT, SEC).
 
 Each node has three kinds of dependency:
@@ -234,7 +250,7 @@ Each node has three kinds of dependency:
 
 1. Any set of nodes whose *start after* lists are all closed may run at the same time.
 2. Two concurrent nodes in the same `area` must have one owner, or agree on file ownership first. The areas are
-   `contract/` (R0.3, T1, T2, S9, M1.T), `src/shim/` (M1.A, A1–A6), `src/inter_nodal/` (M1.B, M1.N, B1–B4),
+   `contract/` (R0.3, T1, T2, S9, M1.T), `src/shim/` (M1.A, A1–A6), `src/inter_nodal/` (M1.B, M1.N, B1–B4, N1–N5; N0 is in `src/shim/`),
    `native/` (S4, S12), `trials/` (the other spikes, S13) and `tools/` (R0.1).
 3. **Track S nodes are in the Silica repository and follow Silica's `AI_POLICY.md`: human-vetted, no AI
    co-authors, smallest reasonable PRs.** A sub-agent may draft the proposal text and the failing trial in the
@@ -246,7 +262,7 @@ Each node has three kinds of dependency:
 
 ## 2. Stage 0
 
-Everything here can start now except R0.3 and M0. The thirteen spikes are independent of each other and of the
+Everything here can start now except R0.3, M0 and S12 (S12 waits for the user's explicit approval of a TLS engine, node ND, D38, and so does M0 through it). The thirteen spikes are independent of each other and of the
 Silica prerequisites; the one soft edge is S13's exit measurement, which is better with S7's prototype.
 
 ```mermaid

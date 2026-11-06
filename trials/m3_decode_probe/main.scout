@@ -1,2 +1,3 @@
-probe
+first byte: 131
+round trip ok
 exit=0

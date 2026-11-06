@@ -31,8 +31,8 @@ fn main() -> int64 {
         size: int64 <- bees_term@int_of(bin.c);
         // the match: Len:8 at byte 0, Tag:16/big at bytes 1-2, Rest/binary from byte 3
         ok: boolean <- bees_term@tag(bin.c) == 7 and size >= 3;
-        len: int64 <- byte_at(bin.c, 0);
-        tg: int64 <- byte_at(bin.c, 1) * 256 + byte_at(bin.c, 2);
+        len: int64 <- binary_matching@byte_at(bin.c, 0);
+        tg: int64 <- binary_matching@byte_at(bin.c, 1) * 256 + binary_matching@byte_at(bin.c, 2);
         rest_size: int64 <- size - 3;
         _: atom <- case ok of {
             true -> { _: atom <- print_int64(len); print_string(" "); _: atom <- print_int64(tg); print_string(" "); _: atom <- print_int64(rest_size); :ok };

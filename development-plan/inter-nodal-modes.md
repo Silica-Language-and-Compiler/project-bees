@@ -1,8 +1,30 @@
 # BEES Inter-Nodal Modes: SEMP/TRUST and Standard BEAM Distribution
 
-> **Revised 2026-11-04 (roadmap D34).** The underlying protocol matches the BEAM and Erlang in every mode. TRUST no longer has its
-> own `trust/1` term encoding (D8 is withdrawn): it uses the Erlang distribution protocol and ETF, with its security properties
-> layered on top. Where this document describes the `trust/1` term encoding (section 3.6, §1.2), it is superseded.
+> **Revised 2026-11-06 (roadmap D36, D37, D38).** The two modes are **two separate implementations, both presented.** **BEAM
+> mode** speaks the Erlang distribution protocol (handshake version 6, ETF) with Erlang's own cookie authentication, so stock
+> nodes can connect. **TRUST mode** is SEMP's: its wire is a 4-byte length and one ETF map per frame, one CALL or CAST of an
+> MFA per connection (a bounded session under B2), over mutual TLS 1.3 with ALPN `trust/1` and the certificate whitelist. TRUST is
+> **not layered around the Erlang distribution protocol, does not "ride" it, and cannot talk to a regular BEAM node.** Both wrap
+> ETF, though TRUST may not use all of it. The earlier (2026-11-04, D34) wording in this file that TRUST uses the distribution
+> protocol with its security layered on top is **withdrawn**; D8 (a TRUST-specific term encoding) stays withdrawn only in the
+> sense that TRUST's frames are ETF maps. Configuration is the BEES file **`bees.config`**
+> ([bees-config-file.md](bees-config-file.md), D37), which replaces the `sys.config` this file used to describe; **a node runs one
+> mode, chosen there, and the default is TRUST.** Where this document still says `trust/1` term encoding it means SEMP's ETF map frames.
+>
+> **Status, exactly (2026-11-06).** Built (milestones M0 to M5, BEES to BEES on `127.0.0.1`): BEAM mode's wire **without** the
+> cookie digest, framing, ticks and `REG_SEND`. **Not built:** the cookie digest, EPMD, links and pids on the wire, any TRUST
+> code, TLS, the configuration reader. The plan is the milestones N0 to N5 of [mvp.md](mvp.md) section 5.
+>
+> **Two design rules, required and not yet shown to work (user rulings 2026-11-06).** (1) In both modes every encode (value to
+> ETF bytes) and decode (bytes to value) is written in the `sequence` of a `sequence ... produces pure ... end` block whose
+> result is pure, so that no tainted value is sent or received across an actor boundary or by a cast. (2) A connection has
+> exactly one **send actor** (owns the outgoing buffer, encodes in its block, hands bytes to the carrier) and one separate
+> **receive actor** (owns the incoming buffer, takes bytes from the carrier, decodes in its block, delivers typed values
+> onward); BEAM mode's link and TRUST's one-request connection or session each use the same two. See mvp.md 3.3 and 4. **Update 2026-11-06 (checked
+> read-only on `silica-999935`):** the language now has `encode((:etf), value)` and `decode((:etf), frame)`, which replaced `recreate`
+> (SD-32 resolved), plus `wireframe` and a hosted `(:tcp)` carrier, and its own demo calls them in this form. M0 had rejected only a
+> *hand-written* rebuild (E2100). **Unproven, untested by BEES:** that `decode` on bytes that came from a carrier passes the taint checker end to end
+> in BEES's receive-actor shape (N0.1); N0.0 ports BEES's M3 code to the language's calls. BEES's own code is still the stub until then.
 
 BEAM-language programs compiled to Silica through BEES reach other nodes in one of two modes:
 
@@ -10,8 +32,10 @@ BEAM-language programs compiled to Silica through BEES reach other nodes in one 
 | --- | --- | --- |
 | Purpose | Secure-by-default service-to-service RPC between nodes | Interoperability with existing Erlang/OTP clusters, and BEAM-equivalent behaviour on trusted networks |
 | Programming interface for compiled code | `trpc:call/4,5`, `trpc:cast/4,5`: the BEAM_SEMP API | The standard one: `!` to remote pids and `{Name, Node}`, links, `spawn/4`, `erpc`, `rpc`, `global`, `pg` |
+| Wire | SEMP's: 4-byte length, one ETF map per frame; **not** the distribution protocol | The Erlang distribution protocol (handshake version 6, 4-byte framing, control messages) and ETF |
 | Transport | TLS 1.3 only, mTLS required, ALPN `trust/1` | TCP, optionally TLS compatible with `inet_tls_dist` |
-| Peer identity | SHA-512 fingerprint of the peer certificate | `name@host` plus creation, and a shared cookie |
+| Peer identity and authentication | SHA-512 fingerprint of the peer certificate; whitelist | `name@host` plus creation, and Erlang's cookie challenge and MD5 digest (N2) |
+| Talks to a regular BEAM node | **No** | **Yes** (after N2) |
 | Discovery | Explicit `host:port`; DNS A/AAAA only; no EPMD | EPMD (port 4369) |
 | Connection model | Short-lived: one request (B1), or a bounded session window (B2) | Long-lived, full mesh, with net ticks |
 | What a peer may do | Call or cast MFAs that the whitelist allows for its fingerprint and that the forbidden guard does not block. Nothing else. | What an OTP peer may do (send, link, exit), with remote spawn off unless enabled (§4.5) |
@@ -19,7 +43,7 @@ BEAM-language programs compiled to Silica through BEES reach other nodes in one 
 | Remote pids and links | No; not for 1.0 (roadmap decision D9) | Yes |
 
 Both modes are part of Track B ([parallel-tracks.md](parallel-tracks.md)). They are milestones B1 and B2 (TRUST) and
-B3 and B4 (BEAM mode) in the [roadmap](roadmap.md). SEMP/TRUST has no implementation today: the Erlang code in
+B3 and B4 (BEAM mode) in the [roadmap](roadmap.md); the next stage builds them as N0 to N5 (mvp.md section 5: N2 is BEAM mode's first part, N3 to N5 are TRUST). SEMP/TRUST has no implementation today: the Erlang code in
 `BEAM_SEMP` is the **design starting point**, and BEES is the implementation. Where that code disagrees with its own
 documentation, this document follows the documentation. §3.12 lists every such discrepancy.
 
@@ -43,7 +67,7 @@ graph TD
   end
   TRPC --> TR[bees_trust]
   DBIF --> DI[bees_dist]
-  TR --> TCODEC[trust/1 codec]
+  TR --> TCODEC[TRUST frame codec: ETF maps]
   DI --> CODEC[ETF codec: Silica's Transportable]
   TCODEC --> IO[bees_io ports<br/>over the S-22 transport wrappers]
   CODEC --> IO
@@ -87,10 +111,21 @@ BEES keeps Silica's FFI spec as written.
 TLS and secure random bytes come through the native edge (D17), so remote input takes one of two paths:
 
 - **FFI-derived data** (TLS plaintext, random bytes, digests, peer-certificate data) is first **re-created** (S-5).
-  - The compiler-derived `recreate` checks the declared limits, rebuilds the value in a fresh region, and rejects
-    anything that does not fit its type.
+  - The language's derived `decode((:etf), ...)` (which replaced `recreate`) checks the declared limits, rebuilds the value, and rejects
+    anything that does not fit its type, **in the `sequence` of a `sequence ... produces pure` block** (see the conversion rule below).
   - Only the re-created value leaves the handler. TLS ciphertext bound for a transport is re-created the same way.
 - **Cleartext bytes from Silica's own transports** are untainted but untrusted.
+
+**The conversion rule (user ruling 2026-11-06; required, not shown to work).** Re-creation and every other conversion between
+typed values and ETF bytes, in BEAM mode and in TRUST mode, happens in the `sequence` portion of a `sequence ... produces pure ...
+end` block: the **decode** in the connection's **receive actor**, the **encode** in its **send actor**, each block's result being
+`produces pure`, so that no tainted value is sent or received across an actor boundary or by a cast, in either direction. What is
+known: M0 (spikes/S8) found that a hand-written rebuild inside a worker's `produces pure` is rejected with E2100 (every value derived
+from a tainted one is tainted, a `case` over literals included), SD-25 says the handler of an FFI-result cast is unchecked, and SD-32
+said `decode`, `encode` and `recreate` were not callable in `silica-999936`; **on `silica-999935` they are callable** (`encode`, `decode`, replacing `recreate`; SD-32 resolved), and the
+language's own demo uses them in this form. What is **unproven and untested by BEES**: that the form passes the taint checker for `decode` applied to bytes
+that came from a carrier or foreign call, and for `encode` output handed to a carrier, in BEES's actor shapes. Milestone N0.1 (mvp.md section 5)
+tests both and records the result in silica-defects.md with what must change if it fails; N0.0 first ports BEES's M3 receive path to the language's calls.
 
 Both then pass **`bees_ingress`**, the single path for remote input into processes. It does the protocol-level
 validation that the compiler cannot do:
@@ -103,7 +138,7 @@ validation that the compiler cannot do:
    table of its own, so the gate never creates an atom. In both modes it looks each spelling up in the program's
    atom lookup (roadmap §4.6), accepts only atoms found there, and rejects a frame carrying any other atom under
    item 6 (D16).
-   - In TRUST, atoms travel as spellings in the `trust/1` encoding (D8), and only spellings the atom lookup holds are accepted.
+   - In TRUST, atoms in the ETF map frames are accepted only if the atom lookup holds the spelling (SEMP's `binary_to_term` with `safe` does the same; D8 stays withdrawn).
    - In BEAM mode it is a difference from OTP, which creates new atoms. An OTP peer that sends an atom the program's
      compiled code never mentions has its frame rejected.
    - Because every pid carries its node's name as an atom, **every node allowed to connect in BEAM mode must be
@@ -120,62 +155,55 @@ The gate is small, has no bypass, and is fuzzed per validator. The external secu
 
 ### 1.3 Configuration
 
-Configuration is a standard `sys.config`. It is read at boot into the application environment that compiled code
-reads with `application:get_env`, so the BEAM_SEMP README's configuration example stays valid. Validation is
-fail-fast: an invalid value aborts boot with a clear error, and values are never clamped, as the multiplexing design
-requires.
+> **Replaced 2026-11-06 (D37).** This section used to describe a standard `sys.config`. BEES reads **no `sys.config`**. Its
+> configuration is the BEES file **`bees.config`**, specified in [bees-config-file.md](bees-config-file.md) (a design: nothing
+> is implemented, milestone N0 builds it).
 
-BEES reads `sys.config` at boot with its own small reader for Erlang term text (roadmap D26), whatever language the
-program is written in. The reader is BEES's own, so configuration is available before any compiled code runs, and
-BEES depends on no converted OTP code to read it. On the ESP32-S3, which has no filesystem, the language compiler
-compiles the configuration and every file it names (certificates, keys, whitelist, server pins, cookie) into the
-application as a generated Silica module, and BEES reads that module instead (D26).
+The essentials, for this document:
 
-```erlang
-[
-  {trust, [                                   %% on by default
-    {port, 6464},
-    {tls_opts, [{certfile,   "certs/node.pem"},
-                {keyfile,    "certs/node-key.pem"},
-                {cacertfile, "certs/ca.pem"}]},
-    {whitelist_file, "trust_whitelist.config"},   %% server side: cert file => permission spec
-    {server_pins_file, "trust_servers.config"},   %% client side (§3.3), new relative to the reference
-    {whitelist_default_spec, none},
-    {call_timeout_ms, 5000},
-    {suspicion_limit, 3},
-    {token_ttl_sec, 300},
-    {session, #{max_inflight => 8, max_age_ms => 60000, idle_ms => 5000,
-                max_calls => 100, drain_ms => 1000}}   %% B2; all 1 reproduces B1
-  ]},
-  {bees_dist, [                               %% standard BEAM mode; off by default
-    {enabled, false},
-    {sname, "orders"},
-    {cookie_file, "secrets/erlang.cookie"},
-    {transport, tls},                         %% tcp | tls
-    {spawn, none},                            %% none | allowlist | any
-    {spawn_allowlist, []}
-  ]}
-].
-```
+- `bees.config` is Erlang term text, read at boot by BEES's own small reader (D26), whatever language the program is written in,
+  so configuration is available before any compiled code runs and BEES depends on no converted OTP code to read it. On the
+  ESP32-S3, which has no filesystem, the language compiler compiles `bees.config` and every file it names (certificates, keys,
+  whitelist, server pins, cookie) into the application as a generated Silica module that the reader reads through the same
+  interface (D26).
+- A top-level `mode` chooses `beam` or `trust` (one per node, default `trust`, ruled by the user 2026-11-06); `node`, `beam` and `trust` sections carry every
+  option. The `trust` section carries **every** SEMP option with SEMP's name, default and bounds (port, `tls_opts`, whitelist
+  settings, `call_timeout_ms`, `suspicion_limit`, token settings, the DNS, connect, handshake and first-frame timeouts, frame
+  and argument size caps, the `session` map, `acceptors`, `session_slots_max`) plus BEES's `server_pins_file`. The `beam` section carries
+  what the earlier `bees_dist` entry carried (`transport`, `cookie_file`, `spawn`, `spawn_allowlist`; `enabled` became `mode`, `sname`
+  became `node.name`) plus the cookie source, EPMD port, tick time, transport addresses and peers.
+- Validation is fail-fast: an invalid value aborts boot with `bees.config:LINE: PATH: MESSAGE`; values are never clamped, as the
+  multiplexing design requires.
+- The build-time manifest lines (`node`, `creation`, `timing`, `peer`, `remote`, `local`) stay the schema; `bees.config` overrides
+  values that change no generated code (bees-config-file.md section 2).
+- The `trust` options of section 3.8 below are the same options with the defaults BEES chose where SEMP's sources disagree.
+- **Rulings of 2026-11-06 (D39).** `listen_address` has no built-in default and must be written in the selected mode's section (trials
+  write `127.0.0.1`); in `trust` mode a configured whitelist file that is missing or unreadable is a boot error with a clear message,
+  never SEMP's silent standalone run (an unset one is an explicit, bannered standalone node); the frame and argument caps are BEAM's
+  (section 3.8); `beam.auth none` is a loopback-only test setting until cookies exist (N2), and TRUST gets trials similar to M3 and M4,
+  first over plaintext loopback with a test-only stand-in for the peer's certificate fingerprint (marked test-only everywhere), later
+  over TLS. **Open: under discussion with the user:** how TRUST's `args` and result, any-type terms in SEMP, are handled.
 
 ---
 
 ## 2. Mode selection
 
-- **TRUST is on by default.** A node with no whitelist file accepts no inbound TRUST connections, but can still act
-  as a client. The reference calls this "standalone."
-- **BEAM mode is off by default** (roadmap D7). Enabling it:
-  - starts a separate listener;
-  - prints a downgrade banner at boot and then periodically;
-  - tags every BEAM-mode log line and telemetry event with `mode=beam`.
+*Rewritten 2026-11-06 (D36, D37). The earlier text said both modes may run on one node at once; that is amended.*
 
-  While it is off, the distribution BIFs behave as they do on a non-distributed Erlang node: `node()` is
-  `nonode@nohost`, and remote sends fail as they do there. Nothing is killed at run time, unlike `semp_kill_it_all`
-  in the reference, because the listener was never started.
-- **Both modes may run on one node at once.** They share the module table, but each mode has its own guard: TRUST
-  has its whitelist and forbidden guard, BEAM mode its `spawn` option.
+- **The mode is chosen in `bees.config`** (`{mode, beam}` or `{mode, trust}`; [bees-config-file.md](bees-config-file.md) section 3.1).
+  **One mode per node, for now.** The two are separate implementations; running both on one node (two listeners, separate
+  guards, one module table) is reserved, not designed, and is revisited after N5.
+- **The default is TRUST** (roadmap D7, D37; ruled by the user 2026-11-06, D39): it is the secure-by-default mode, and BEAM mode is a downgrade that must be written
+  down. With no `bees.config`, a node is a TRUST **standalone** node: no whitelist, so it accepts no inbound TRUST connections, but it
+  can still act as a client (the reference calls this "standalone"). A node whose manifest has `remote` or `local` lines (they are
+  BEAM-mode `REG_SEND` names) needs a file that says `{mode, beam}`.
+- **BEAM mode** (explicit): starts its own listener; prints a downgrade banner at boot and then periodically; tags every log line
+  and telemetry event with `mode=beam`. While the node is in TRUST mode, the distribution BIFs behave as on a non-distributed
+  Erlang node: `node()` is `nonode@nohost`, and remote sends fail as they do there. Nothing is killed at run time, unlike
+  `semp_kill_it_all` in the reference, because the BEAM listener was never started.
 - **Downgrades are scoped.** BEAM mode's options (§4.5) each relax one property. TRUST has no downgrade options: it is
-  either on or off.
+  either the mode or it is not (its only test setting, `plaintext_test_only`, binds loopback and prints a banner).
+- **Status:** the mode choice and the file are a design; today's node layer is BEAM-mode wire without the digest and has no mode setting.
 
 ---
 
@@ -249,9 +277,7 @@ fingerprint, and still no 0-RTT.
 
 ### 3.6 The `trust/1` wire protocol
 
-Each frame is a 4-byte big-endian length followed by a payload in the **`trust/1` term encoding** (D8). That is a
-compact format made for TRUST, not ETF. It carries integers, floats, binaries, atoms by spelling (existing atoms only,
-D16), lists, tuples and maps, and nothing else: no pids, references, ports or funs. B1 defines its exact bytes. Every payload is a map with a `t` key. The top-level keys `t` and `ver` (currently `1`)
+*Corrected 2026-11-06 (D36).* TRUST's wire is **SEMP's**, and it is **not the Erlang distribution protocol**: no handshake, no control messages, no EPMD. Each frame is a 4-byte big-endian length followed by one **ETF map** (what the reference writes with `term_to_binary` and reads with `binary_to_term` in safe mode: atoms only if they exist, D16). TRUST may not use all of ETF: it carries integers, floats, binaries, atoms (existing atoms only), lists, tuples and maps, and nothing else: no pids, references, ports or funs. BEES's own `trust/1` term encoding (D8) stays withdrawn. B1 (N3) defines which ETF subset is accepted. Every payload is a map with a `t` key. **In BEES the frame is converted in the `sequence` of a `sequence ... produces pure` block, in the connection's receive actor (decode) and send actor (encode), as in BEAM mode; a one-request connection and a B2 session each use that same pair, with the per-request workers behind the receive actor.** The top-level keys `t` and `ver` (currently `1`)
 are required. Unknown top-level keys are ignored. An unknown `t` is a protocol error.
 
 | `t` | Direction | Fields | Notes |
@@ -302,8 +328,8 @@ requirement R-6 of the multiplexing design specifies.
 
 ### 3.8 Limits and timeouts
 
-Where the SEMP README and the multiplexing design disagree, BEES uses the multiplexing design's values, which are
-newer and more conservative. All values are validated at boot.
+**Amended 2026-11-06 (user ruling R1, D39): "The frame and argument caps are to be the same as BEAM."** The two size rows below (`frame_size_max`, `args_len_max`) no longer follow SEMP's README or the multiplexing design: their default and ceiling are BEAM's own limit, 4294967295 bytes (bees-config-file.md section 5.4 has the verified figures), and the 1 MiB, 64 KiB, 8 MiB and 4 MiB values are not BEES's. BEES's current limits (4 KiB frame and the typed codec's) are below BEAM's, a known gap closed in N1. For the other rows, where the SEMP README and the multiplexing design disagree, BEES uses the multiplexing design's values, which are
+newer and more conservative. All values are validated at boot. **The full list of options, with names, types, defaults, bounds and SEMP sources, is [bees-config-file.md](bees-config-file.md) section 5; this table is its summary.**
 
 | Setting | Default | Bounds |
 | --- | --- | --- |
@@ -312,8 +338,8 @@ newer and more conservative. All values are validated at boot.
 | TLS handshake | 5 s | 1–30 s |
 | First frame after TLS | 2 s | 0.1–10 s |
 | `call_timeout_ms` | 5000 | 1–600,000 |
-| `frame_size_max` | 1 MiB | 64 KiB–8 MiB |
-| `args_len_max` | 64 KiB | 0–`frame_size_max` |
+| `frame_size_max` | 4294967295 B (BEAM's packet limit; R1) | 512 B–4294967295 B |
+| `args_len_max` | equal to `frame_size_max` (R1) | 0–`frame_size_max` |
 | Term nesting depth | 32 | 1–128 (new: a `bees_ingress` limit) |
 | Token size, TTL | 48 B, 300 s | 32–64 B, 10–3600 s |
 | Session: `max_inflight`, `max_age_ms`, `idle_ms`, `max_calls`, `drain_ms` | 8, 60,000, 5,000, 100, 1,000 | As in the multiplexing design doc; `idle_ms ≤ max_age_ms`; effective drain = `min(drain_ms, idle_ms)` |
@@ -382,7 +408,7 @@ are defects. BEES implements what the documentation intends.
 4. **The client does not verify the server's identity beyond the CA.** BEES adds client-side pins (§3.3).
 5. **Configuration defaults are inconsistent.**
    - Token TTL: 1200 s in `semp.hrl`, 120 s in `trust_token`, and 300 s in the README example.
-   - Frame limit: 8 MiB in the README, 1 MiB in the multiplexing doc.
+   - Frame limit: 8 MiB in the README, 1 MiB in the multiplexing doc. **Ruled 2026-11-06 (R1): BEES uses BEAM's, 4294967295 bytes.**
    - `suspicion_limit` is read from the `semp` application; everything else is read from `trust`.
 
    BEES uses the values in §3.8 and reads everything from the `trust` application.
@@ -391,13 +417,11 @@ are defects. BEES implements what the documentation intends.
 7. **The whitelist key is described two ways** (TBSCertificate versus full DER). D11 settles it: the full DER.
 8. **Standard distribution is disabled by tracing.** `semp_kill_it_all` stops standard distribution by tracing `rpc`
    and `erpc` and killing the callers. BEES never starts BEAM mode unless it is configured (§2).
+9. **More disagreements about options and frames (2026-11-06; the option ones are settled in [bees-config-file.md](bees-config-file.md) section 8).** `port` (README 6464, `semp.hrl` 6469, required by the listener code); the token-TTL key (`token_ttl_ms` in the README, `token_ttl_sec` in the code); `whitelist_autoload` (code default false, read from `semp`; `app.src` true) and the fact that it scans the whitelist *file* path as a directory; the permission-spec form (README: a map; code: a list); a missing whitelist file (code: silently standalone); connect stagger (README: 250 ms; code: none); `req_id` (12 random bytes in README and code, at most 16 bytes above, a small integer in the multiplexing doc); `result` (no `req_id` in the README and code, correlated by `req_id` in the multiplexing doc); `opts` (`timeout` in the client code, `deadline_ms` in the multiplexing doc); the application name for options (`trust`, `semp`, `beam_semp`, `beam_trust`); `ver` is absent from `token_present` and `token_issue`. BEES follows the documentation where it intends something and says so in each row.
 
 ### 3.13 Clients
 
-There will be no Erlang clients (D8), so `trust/1` makes no attempt to stay readable by Erlang SEMP nodes, and BEES
-does not reproduce the reference implementation's wire. A language-neutral `trust/1` specification, covering the
-frames, the term encoding and the TLS profile in §3.2, is a B1 deliverable. Any client, in any language, can then be
-built from it.
+*Corrected 2026-11-06 (D36).* TRUST's frames are SEMP's (a 4-byte length and one ETF map), so BEES's TRUST is wire-shaped like the Erlang reference, but BEES adds frames and fields (§3.12: `hello`, `ver` in token frames, `req_id` in `result`, `goaway`), so **interoperating with the Erlang reference is not promised**, and TRUST cannot talk to a regular BEAM node at all. A language-neutral `trust/1` specification, covering the frames, the ETF subset and the TLS profile in §3.2, is a B1 deliverable (N3 and N4). Any client, in any language, can then be built from it.
 
 ---
 
@@ -413,7 +437,7 @@ posture when an operator deliberately wants it. It is a **downgrade**, as parall
 
 | Level | Capability | Milestone |
 | --- | --- | --- |
-| **L1 Messaging** | EPMD registration and lookup; the handshake; ticks; sending to remote pids and to `{Name, Node}`, in both directions; `gen_server` and `gen_statem` calls and casts in both directions over the OTP `gen` protocol (§4.7); both transports, `tcp` and `tls` (§4.5, D25) | Stage 1 (partial), B3 |
+| **L1 Messaging** | EPMD registration and lookup; the handshake with the cookie digest; ticks; sending to remote pids and to `{Name, Node}`, in both directions; `gen_server` and `gen_statem` calls and casts in both directions over the OTP `gen` protocol (§4.7); both transports, `tcp` and `tls` (§4.5, D25) | **N2 builds the first part** (digest, EPMD, `REG_SEND` and SEND to a pid, ticks, live test against `erl -sname`); the rest B3 |
 | **L2 Lifecycle** | LINK, UNLINK_ID and its acknowledgement, EXIT and EXIT2. `noconnection` is delivered to every link that crosses a lost connection. **A lost node is discovered by sending to it** (D28): there is no `nodedown` notification and no `monitor_node`; a send to a pid or name on a node that cannot be reached, after the reconnection attempt OTP would also make, fails the sender with `noconnection`, or returns it from the result-returning variant (D2). Monitor requests from OTP peers (`MONITOR_P`, `DEMONITOR_P`) are dropped silently, and `MONITOR_P_EXIT` is never sent (D21). A `gen_server:call` from an Erlang node still gets its reply, but if the BEES process dies mid-call, the caller waits for its timeout. Compiled code has no monitors (D20). | B3, I1 |
 | **L3 Remote execution** | SPAWN_REQUEST and SPAWN_REPLY, so BEES's own `erpc` and `rpc` work in both directions, subject to the `spawn` option | B4 (after 1.0) |
 | **L4 Cluster services** | BEES's own `net_kernel`, `global` and `pg`, in Silica (D24), interoperating with their OTP counterparts | B4 (after 1.0) |
@@ -433,7 +457,7 @@ Exit signals crossing a node boundary follow D18.
     handshake message. If the program's atom lookup does not hold that name as an atom, BEES answers with the
     `not_allowed` status and closes the connection. Adding a peer means rebuilding the program. The BEES node's own
     name must also be in the code.
-  - The challenge is random bytes from the native edge. The digest is MD5 over the cookie followed by the challenge. Both are re-created (S-5) before they are written to the transport, which is Silica's own (S-22).
+  - **BEAM mode uses Erlang's own cookie authentication (D36), because stock nodes require it; TRUST's mutual TLS is not used here.** The challenge is random bytes from the native edge (system libraries only). The digest is MD5 over the cookie followed by the decimal challenge. Milestone N2 builds it; today's node layer (M3 to M5) has none. The random bytes and digests are foreign-call results and follow the conversion rule (§1.2): produced and checked inside the `sequence` of a `sequence ... produces pure` block where the checker allows it, otherwise held in the edge, which returns only accept or reject (N0.1 decides).
   - The cookie is read from `cookie_file`. It is never read implicitly from `~/.erlang.cookie`, and it is never
     logged.
   - Capability flags: advertise exactly what BEES implements, plus the flags the targeted OTP releases make mandatory
@@ -472,7 +496,7 @@ so they cannot be reached from BEAM mode unless an application wraps them in a c
 | --- | --- | --- |
 | `transport` | `tcp` (cleartext, full BEAM parity) or `tls` (compatible with `inet_tls_dist`) | `tls` |
 | `spawn` | `none`, `allowlist` (only MFAs in `spawn_allowlist`), or `any` (BEAM parity) | `none` |
-| `auth` | `cookie` only; there is nothing weaker | `cookie` |
+| `auth` | `cookie` (Erlang's, N2); `none` exists only as a test setting for the M3 to M5 wire, loopback only, banner printed ([bees-config-file.md](bees-config-file.md) 5.2) | `cookie` |
 
 BEAM-mode TLS uses a **compatibility profile** (TLS 1.3, X25519, ECDSA or RSA certificates) so that stock OTP
 `inet_tls_dist` can connect. It is weaker than the TRUST profile in §3.2, and is documented as part of the downgrade.

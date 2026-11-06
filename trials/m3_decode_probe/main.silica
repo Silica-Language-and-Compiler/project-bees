@@ -1,6 +1,31 @@
+// Is the language's derived encode/decode callable, and does the conversion work inside the sequence of a
+// `sequence ... produces pure ... end` block? (Silica's transport_beam_demo uses the same calls.)
+use wire_etf;
+
+fn round_trip() -> int64 {
+    sequence proc[mem(normal), device_io]
+        frame: string <- encode((:etf), (:accel, { x: 1, y: 0 - 2, z: 512 }));
+        n: int64 <- byte_at(frame, 0);
+        _: atom <- print("first byte: ");
+        _: atom <- print_int64(n);
+        _: atom <- println("");
+        decoded: (:ok, (:accel, { x: int16, y: int16, z: int16 })) | (:rejected, atom) <- decode((:etf), frame);
+        _: atom <- case decoded of {
+            (:ok, (:accel, v: { x: int16, y: int16, z: int16 })) -> case v.z == 512 and v.y == 0 - 2 of {
+                true -> print("round trip ok");
+                false -> print("round trip WRONG")
+            };
+            (:rejected, why: atom) -> print_atom(why)
+        };
+        _: atom <- println("")
+    produces
+        pure n
+    end
+}
+
 fn main() -> int64 {
-    sequence proc[device_io]
-        out: atom <- println("probe")
+    sequence
+        n: int64 <- round_trip()
     produces
         pure 0
     end
