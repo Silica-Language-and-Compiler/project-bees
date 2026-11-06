@@ -1,0 +1,43 @@
+// ---- the node's startup (what a compiler's generated startup does): the carrier for the one link, then the node.
+fn node_launch(open_ms: int64, io_ms: int64, tick_ms: uint64) -> { conn: actor_ref, tx: actor_ref } {
+    sequence
+        c: actor_ref <- carrier_new(0, open_ms, io_ms);
+        p: { conn: actor_ref, tx: actor_ref } <- bees_net@launch(c, tick_ms)
+    produces pure p end
+}
+fn node_start(open_ms: int64, io_ms: int64, tick_ms: uint64) -> actor_ref {
+    sequence
+        p: { conn: actor_ref, tx: actor_ref } <- node_launch(open_ms, io_ms, tick_ms)
+    produces pure p.conn end
+}
+fn say(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+// The program's failure reporter: one deterministic line per failure that matters to the demo (the full report is not stable
+// text: actor ids and the order of reports vary). A report of the program's own senders is shown as the reason Silica gives.
+fn region_dump_limit() -> int64 { 0 }
+fn report_line(report: string) -> string {
+    case contains(report, "bees_peers_proxy_") and contains(report, "killed") of {
+        true -> "proxy ended (killed)";
+        false -> case contains(report, "ticker") of {
+            true -> case contains(report, "actor_not_found") of {
+                true -> "ticker failed: actor_not_found";
+                false -> "ticker failed: OTHER"
+            };
+            false -> ""
+        }
+    }
+}
+fn reporter(report: string, st: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- case length_bytes(report_line(report)) > 0 of { true -> say(report_line(report)); false -> :ok }
+    produces pure (:no_reply, st) end
+}
+fn start_reporter() -> atom {
+    sequence proc[concurrency]
+        r: actor_ref <- spawn(0, reporter, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        ok: atom <- register_failure_reporter(r)
+    produces pure ok end
+}

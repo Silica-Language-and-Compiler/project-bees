@@ -13,3 +13,4 @@ reset
 timeout
 fault
 no_credit
+frame_result

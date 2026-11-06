@@ -1,0 +1,6 @@
+[bees] TEST ONLY: no authentication, no encryption on this transport (127.0.0.1); TRUST's TLS is not built yet
+[bees audit] handshake complete with b@127.0.0.1 0
+service: request seq=1 reply_to=answers intact=true payload ints=true floats=true scalars=true lists=true
+service: request seq=2 reply_to=answers intact=true payload ints=true floats=true scalars=true lists=true
+service: request seq=3 reply_to=answers intact=true payload ints=true floats=true scalars=true lists=true
+exit=0

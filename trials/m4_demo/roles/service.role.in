@@ -1,0 +1,20 @@
+// ---- the service: a plain actor registered under svc. It checks the request, then casts its answer to the name the request
+// carries in reply_to; on this node that name is a proxy for an actor of node b. Nothing in it mentions the network.
+fn svc(msg: REQ_T, st: int64) -> (:no_reply, int64) {
+    sequence
+        ok: boolean <- m4_payload@req_intact(msg);
+        _: atom <- case verbose(msg.seq) of {
+            true -> m4_payload@report_request(msg, ok);
+            false -> :ok
+        };
+        _: boolean <- m4_payload@answer(msg, st + 1)
+    produces pure (:no_reply, st + 1) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- start_reporter();
+        i: actor_ref <- spawn_registered(0, svc, bees_atoms@a_svc(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        n: actor_ref <- node_start(open_ms(), io_ms(), tick_ms());
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

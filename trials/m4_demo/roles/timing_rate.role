@@ -1,0 +1,4 @@
+// timing for the rate run: OTP's own defaults (a tick after 15 s of idleness, a peer silent for 60 s is lost)
+fn open_ms() -> int64 { 15000 }
+fn io_ms() -> int64 { 60000 }
+fn tick_ms() -> uint64 { 15000 }

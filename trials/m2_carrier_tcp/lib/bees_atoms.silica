@@ -5,6 +5,7 @@ export a_close/0;
 export a_closed/0;
 export a_credit/0;
 export a_fault/0;
+export a_frame_result/0;
 export a_link_down/0;
 export a_link_up/0;
 export a_no_credit/0;
@@ -24,6 +25,7 @@ fn a_close() -> atom { :close }
 fn a_closed() -> atom { :closed }
 fn a_credit() -> atom { :credit }
 fn a_fault() -> atom { :fault }
+fn a_frame_result() -> atom { :frame_result }
 fn a_link_down() -> atom { :link_down }
 fn a_link_up() -> atom { :link_up }
 fn a_no_credit() -> atom { :no_credit }
@@ -41,6 +43,7 @@ fn spelling(a: atom) -> string {
         :closed -> "closed";
         :credit -> "credit";
         :fault -> "fault";
+        :frame_result -> "frame_result";
         :link_down -> "link_down";
         :link_up -> "link_up";
         :no_credit -> "no_credit";
@@ -61,26 +64,27 @@ fn index(a: atom) -> int64 {
         :closed -> 1;
         :credit -> 2;
         :fault -> 3;
-        :link_down -> 4;
-        :link_up -> 5;
-        :no_credit -> 6;
-        :open -> 7;
-        :reset -> 8;
-        :rx -> 9;
-        :timeout -> 10;
-        :tx -> 11;
-        :tx_credit -> 12;
-        :tx_failed -> 13;
+        :frame_result -> 4;
+        :link_down -> 5;
+        :link_up -> 6;
+        :no_credit -> 7;
+        :open -> 8;
+        :reset -> 9;
+        :rx -> 10;
+        :timeout -> 11;
+        :tx -> 12;
+        :tx_credit -> 13;
+        :tx_failed -> 14;
         _: atom -> -1
     }
 }
 
 fn from_spelling_0(s: string) -> { found: boolean, value: atom } {
-    case s == "close" of { true -> { found: true, value: :close }; false -> case s == "closed" of { true -> { found: true, value: :closed }; false -> case s == "credit" of { true -> { found: true, value: :credit }; false -> case s == "fault" of { true -> { found: true, value: :fault }; false -> case s == "link_down" of { true -> { found: true, value: :link_down }; false -> case s == "link_up" of { true -> { found: true, value: :link_up }; false -> case s == "no_credit" of { true -> { found: true, value: :no_credit }; false -> case s == "open" of { true -> { found: true, value: :open }; false -> case s == "reset" of { true -> { found: true, value: :reset }; false -> case s == "rx" of { true -> { found: true, value: :rx }; false -> case s == "timeout" of { true -> { found: true, value: :timeout }; false -> case s == "tx" of { true -> { found: true, value: :tx }; false -> case s == "tx_credit" of { true -> { found: true, value: :tx_credit }; false -> case s == "tx_failed" of { true -> { found: true, value: :tx_failed }; false -> { found: false, value: :unknown } } } } } } } } } } } } } } }
+    case s == "close" of { true -> { found: true, value: :close }; false -> case s == "closed" of { true -> { found: true, value: :closed }; false -> case s == "credit" of { true -> { found: true, value: :credit }; false -> case s == "fault" of { true -> { found: true, value: :fault }; false -> case s == "frame_result" of { true -> { found: true, value: :frame_result }; false -> case s == "link_down" of { true -> { found: true, value: :link_down }; false -> case s == "link_up" of { true -> { found: true, value: :link_up }; false -> case s == "no_credit" of { true -> { found: true, value: :no_credit }; false -> case s == "open" of { true -> { found: true, value: :open }; false -> case s == "reset" of { true -> { found: true, value: :reset }; false -> case s == "rx" of { true -> { found: true, value: :rx }; false -> case s == "timeout" of { true -> { found: true, value: :timeout }; false -> case s == "tx" of { true -> { found: true, value: :tx }; false -> case s == "tx_credit" of { true -> { found: true, value: :tx_credit }; false -> case s == "tx_failed" of { true -> { found: true, value: :tx_failed }; false -> { found: false, value: :unknown } } } } } } } } } } } } } } } }
 }
 
 fn from_spelling(s: string) -> { found: boolean, value: atom } {
     from_spelling_0(s)
 }
 
-fn count() -> int64 { 14 }
+fn count() -> int64 { 15 }

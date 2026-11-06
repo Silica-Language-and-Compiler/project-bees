@@ -1,0 +1,28 @@
+// GENERATED from roles/extras_usage.role.in by roles/gen_types.py: do not edit.
+// ---- (diagnostic) after 9 s prints the memory usage Silica reports for the connection actor, the writer and the answers actor
+fn show_usage(name: string, who: actor_ref) -> atom {
+    sequence proc[concurrency, device_io]
+        u: { reserved: int64, committed: int64, retained: int64, high_water: int64 } <- get_actor_memory_usage(who);
+        _: atom <- print_string(name);
+        _: atom <- print_string(" committed=");
+        _: atom <- print_int64(u.committed);
+        _: atom <- print_string(" retained=");
+        _: atom <- print_int64(u.retained);
+        _: atom <- print_string(" high_water=");
+        _: atom <- print_int64(u.high_water);
+        _: atom <- println("")
+    produces pure :ok end
+}
+fn usage(msg: int64, st: { c: actor_ref, t: actor_ref, a: actor_ref }) -> (:no_reply, { c: actor_ref, t: actor_ref, a: actor_ref }) {
+    sequence
+        _: atom <- show_usage("conn", st.c);
+        _: atom <- show_usage("tx", st.t);
+        _: atom <- show_usage("answers", st.a)
+    produces pure (:no_reply, st) end
+}
+fn start_extras(conn: actor_ref, tx: actor_ref, ans: actor_ref) -> atom {
+    sequence proc[concurrency]
+        k: actor_ref <- spawn({ c: conn, t: tx, a: ans }, usage, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        t: timer_ref <- send_after(9000, k, 0 impl ActorMessage {})
+    produces pure :ok end
+}

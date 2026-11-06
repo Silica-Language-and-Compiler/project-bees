@@ -1,0 +1,5 @@
+// the demo: three requests one after another, every one printed
+fn total() -> int64 { 3 }
+fn window() -> int64 { 1 }
+fn delay_ms() -> uint64 { 1500 }
+fn verbose(seq: int64) -> boolean { true }

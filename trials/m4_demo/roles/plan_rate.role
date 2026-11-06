@@ -1,0 +1,5 @@
+// the rate run: 4000 requests, 8 in flight; only every 1000th is printed
+fn total() -> int64 { 4000 }
+fn window() -> int64 { 8 }
+fn delay_ms() -> uint64 { 1500 }
+fn verbose(seq: int64) -> boolean { seq % 1000 == 0 }

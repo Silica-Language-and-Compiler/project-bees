@@ -1,0 +1,41 @@
+// ---- injects hostile frames into the live link, one every 200 ms from 2.5 s on, through the node's writer (bees_net@send_raw): 1 a
+// payload that is not ETF (bad version byte), 2 a payload whose first map key is not a field of the type, 3 a payload cut
+// short, 4 a pid of another node, 5 a target name nobody serves. Then final_kind(): 0 a good request (seq 900), 6 a frame whose
+// length is 65536 (over the limit).
+fn inject(tx: actor_ref, which: int64) -> boolean {
+    sequence proc[concurrency, mem(normal)]
+        L: lifetime <- fresh_lifetime();
+        rg: region(L, normal) <- alloc_region(normal);
+        pb: buf(L, normal, uint8, 4096) <- alloc_buf(rg, 4096);
+        ob: buf(L, normal, uint8, 4096) <- alloc_buf(rg, 4096);
+        plen: int64 <- m4_payload@probe_payload(rg, pb);
+        _: int64 <- case which == 1 of { true -> bees_wire@put_i(rg, pb, 0, 130); false -> 0 };
+        _: int64 <- case which == 2 of { true -> bees_wire@put_i(rg, pb, 8, 120); false -> 0 };
+        flen: int64 <- bees_dist@reg_send_frame(rg, ob, pb, case which == 3 of { true -> plen - 5; false -> plen }, 1, case which == 4 of { true -> "x@127.0.0.1"; false -> "b@127.0.0.1" }, 1, case which == 5 of { true -> "no_such_name"; false -> "svc" });
+        _: int64 <- case which == 6 of { true -> bees_wire@put_u32(rg, ob, 0, 65536); false -> 0 };
+        me: actor_ref <- self();
+        ok: boolean <- bees_net@send_raw(tx, rg, ob, case which == 6 of { true -> 4; false -> flen }, me)
+    produces pure ok end
+}
+fn hostile(msg: int64, st: { tx: actor_ref, i: int64 }) -> (:no_reply, { tx: actor_ref, i: int64 }) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        _: atom <- say(concat("hostile: step=", m4_payload@num_text(st.i + 1)));
+        _: boolean <- case st.i < 5 of {
+            true -> inject(st.tx, st.i + 1);
+            false -> case final_kind() == 0 of { true -> m4_payload@send_req(900); false -> inject(st.tx, 6) }
+        };
+        _: boolean <- case st.i < 5 of { true -> arm_hostile(me); false -> true }
+    produces pure (:no_reply, { tx: st.tx, i: st.i + 1 }) end
+}
+fn arm_hostile(me: actor_ref) -> boolean {
+    sequence proc[concurrency]
+        t: timer_ref <- send_after(200, me, 0 impl ActorMessage {})
+    produces pure true end
+}
+fn start_extras(conn: actor_ref, tx: actor_ref, ans: actor_ref) -> atom {
+    sequence proc[concurrency]
+        k: actor_ref <- spawn({ tx: tx, i: 0 }, hostile, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        t: timer_ref <- send_after(2500, k, 0 impl ActorMessage {})
+    produces pure :ok end
+}

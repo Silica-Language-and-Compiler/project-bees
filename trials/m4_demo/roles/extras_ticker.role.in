@@ -1,0 +1,15 @@
+// ---- a plain sender that keeps casting to svc every 300 ms, from 3 s on. When the other node is gone, the proxy for svc has ended
+// and this actor's cast fails it the way any cast to a dead actor does (Silica's rule): the reporter prints the reason.
+fn ticker(msg: int64, st: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        _: boolean <- m4_payload@send_req(1000 + st);
+        me: actor_ref <- self();
+        t: timer_ref <- send_after(300, me, 0 impl ActorMessage {})
+    produces pure (:no_reply, st + 1) end
+}
+fn start_extras(conn: actor_ref, tx: actor_ref, ans: actor_ref) -> atom {
+    sequence proc[concurrency]
+        k: actor_ref <- spawn(0, ticker, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        t: timer_ref <- send_after(3000, k, 0 impl ActorMessage {})
+    produces pure :ok end
+}

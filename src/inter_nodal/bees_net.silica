@@ -20,6 +20,7 @@ use bees_ingress;
 use bees_peers;
 
 export start/2;
+export launch/2;
 export raw_writer/1;
 export send_raw/5;
 
@@ -171,7 +172,7 @@ fn send_accept(tx: actor_ref, me: actor_ref) -> boolean {
     produces pure ok end
 }
 
-fn on_up(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
+fn on_up(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
     sequence
         _: boolean <- case bees_peers@link_dials() of { true -> send_name(st.tx, me); false -> true };
         _: boolean <- want(st.c, me, 2);
@@ -180,7 +181,7 @@ fn on_up(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: 
 }
 
 // a violation of the protocol: audit it, close the link, wait for the link_down
-fn violation(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, kind: string, who: string, n: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
+fn violation(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, kind: string, who: string, n: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
     sequence
         _: atom <- bees_ingress@audit(kind, who, n);
         _: boolean <- close_link(st.c, me);
@@ -190,7 +191,7 @@ fn violation(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mo
 fn in_handshake(mode: int64) -> boolean { mode == 1 or mode == 2 }
 fn kind_for(mode: int64) -> string { case in_handshake(mode) of { true -> "frame before handshake dropped, link closed"; false -> "bad frame length, link closed" } }
 
-fn rx_len(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, w: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
+fn rx_len(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, w: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
     case is_tick(st.mode, w) of {
         true -> tick_in(st, me);
         false -> case bad_len(st.mode, w) of {
@@ -207,31 +208,36 @@ fn bad_len(mode: int64, w: int64) -> boolean {
         false -> case mode == 1 of { true -> w > 512; false -> w > 4096 }
     }
 }
-fn tick_in(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
+fn tick_in(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
     sequence
         _: boolean <- want(st.c, me, 4);
         s: { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } <- step(3, st.step, 0, 0, st.peer, st.ok, st.dropped, st.ticks + 1)
     produces pure s end
 }
-fn body_next(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, w: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
+fn body_next(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, w: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
     sequence
         _: boolean <- want(st.c, me, min8(w));
         s: { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } <- step(st.mode + 1, st.step, w, 0, st.peer, st.ok, st.dropped, st.ticks)
     produces pure s end
 }
 
-// A part has been added to the list of words (newest first) held in the state, by conn before it calls handle: a buffer is never part of a spawn's initial state
-// (E4038), so the frame is assembled into a buffer only when it is complete (complete, which calls the stub bees_ingress@recreate).
-fn rx_body(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, w: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
-    body_stored(st, me, st.ws, st.got + min8(st.need - st.got))
+// A part of a frame body goes to the frame's assembler (an actor of its own, spawned when the length is known, see conn): the connection
+// actor keeps no list in its state, because an actor whose state holds a heap value copies it at every dispatch end and its committed memory
+// grows about 1 MiB per dispatch for as long as it lives (M4, silica-defects SD-35); the assembler lives for one frame. When the last
+// part has gone to it, this actor waits (mode 5) for the assembler's result (a frame_result event, see apply_result).
+fn rx_body(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, w: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
+    sequence proc[concurrency]
+        _: boolean <- cast(st.asm, w impl ActorMessage {});
+        s: { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } <- after_part(st, me, st.got + min8(st.need - st.got))
+    produces pure s end
 }
-fn body_stored(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, ws2: List[int64, mem(normal)], got: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
+fn after_part(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, got: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
     case got < st.need of {
         true -> more_body(st, me, got);
-        false -> complete(st, me, ws2)
+        false -> step(5, st.step, st.need, got, st.peer, st.ok, st.dropped, st.ticks)
     }
 }
-fn more_body(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, got: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
+fn more_body(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, got: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
     sequence
         _: boolean <- want(st.c, me, min8(st.need - got));
         s: { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } <- step(st.mode, st.step, st.need, got, st.peer, st.ok, st.dropped, st.ticks)
@@ -239,7 +245,7 @@ fn more_body(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mo
 }
 // the frame is complete: build it in a fresh region (the receive step), then handle it. The words list is dropped from the
 // state by the caller (conn) when the step it returns has got == 0.
-fn complete(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, ws2: List[int64, mem(normal)]) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
+fn complete(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, ws2: List[int64, mem(normal)]) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
     sequence proc[mem(normal)]
         L: lifetime <- fresh_lifetime();
         rg: region(L, normal) <- alloc_region(normal);
@@ -253,7 +259,7 @@ fn complete(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mod
 fn frame(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pb: buf(L, normal, uint8, 4096), code: int64) -> { rg: region(L, normal), b: buf(L, normal, uint8, 4096), pb: buf(L, normal, uint8, 4096), code: int64 } {
     { rg: rg, b: b, pb: pb, code: code }
 }
-fn complete_with(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, f: { rg: region(L, normal), b: buf(L, normal, uint8, 4096), pb: buf(L, normal, uint8, 4096), code: int64 }) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
+fn complete_with(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, f: { rg: region(L, normal), b: buf(L, normal, uint8, 4096), pb: buf(L, normal, uint8, 4096), code: int64 }) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
     case f.code < 0 of {
         true -> violation(st, me, "frame does not fit, link closed", "code", 0 - f.code);
         false -> case st.mode == 2 of {
@@ -264,7 +270,7 @@ fn complete_with(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref
 }
 
 // the link is established: the proxies may write
-fn established(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, peer: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
+fn established(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, peer: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
     sequence
         _: boolean <- ctl(st.tx, 2, me);
         _: atom <- bees_ingress@audit("handshake complete with", bees_peers@peer_name(peer), peer);
@@ -273,7 +279,7 @@ fn established(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, 
     produces pure s end
 }
 
-fn hs_done(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, f: { rg: region(L, normal), b: buf(L, normal, uint8, 4096), pb: buf(L, normal, uint8, 4096), code: int64 }) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
+fn hs_done(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, f: { rg: region(L, normal), b: buf(L, normal, uint8, 4096), pb: buf(L, normal, uint8, 4096), code: int64 }) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
     case bees_peers@link_dials() of {
         false -> hs_listener(st, me, bees_dist@n_init_name(f.rg, f.b, st.need));
         true -> case st.step == 0 of {
@@ -282,43 +288,43 @@ fn hs_done(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode
         }
     }
 }
-fn hs_listener(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, r: { code: int64, v: string }) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
+fn hs_listener(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, r: { code: int64, v: string }) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
     case r.code == 0 of {
         false -> violation(st, me, "bad name message, link closed", "code", r.code);
         true -> hs_listed(st, me, r.v, bees_peers@peer_index(r.v))
     }
 }
-fn hs_listed(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, name: string, idx: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
+fn hs_listed(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, name: string, idx: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
     case idx < 0 of {
         true -> violation(st, me, "unlisted node, link closed", name, 0 - 1);
         false -> hs_accept(st, me, idx)
     }
 }
-fn hs_accept(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, idx: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
+fn hs_accept(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, idx: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
     sequence
         _: boolean <- send_accept(st.tx, me);
         s: { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } <- established(st, me, idx)
     produces pure s end
 }
-fn hs_dial_status(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, f: { rg: region(L, normal), b: buf(L, normal, uint8, 4096), pb: buf(L, normal, uint8, 4096), code: int64 }) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
+fn hs_dial_status(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, f: { rg: region(L, normal), b: buf(L, normal, uint8, 4096), pb: buf(L, normal, uint8, 4096), code: int64 }) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
     case bees_dist@is_s_ok(f.rg, f.b, st.need) of {
         false -> violation(st, me, "status is not ok, link closed", "status", st.need);
         true -> more_hs(st, me)
     }
 }
-fn more_hs(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
+fn more_hs(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
     sequence
         _: boolean <- want(st.c, me, 2);
         s: { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } <- step(1, 1, 0, 0, st.peer, st.ok, st.dropped, st.ticks)
     produces pure s end
 }
-fn hs_dial_name(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, r: { code: int64, v: string }) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
+fn hs_dial_name(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, r: { code: int64, v: string }) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
     case r.code == 0 of {
         false -> violation(st, me, "bad name message, link closed", "code", r.code);
         true -> hs_expected(st, me, r.v, bees_peers@peer_index(r.v))
     }
 }
-fn hs_expected(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, name: string, idx: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
+fn hs_expected(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, name: string, idx: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
     case idx == bees_peers@link_peer() of {
         false -> violation(st, me, "not the node dialed, link closed", name, idx);
         true -> established(st, me, idx)
@@ -327,38 +333,38 @@ fn hs_expected(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, 
 
 // a complete frame body: 112, REG_SEND, payload. Anything wrong with the content drops the frame (counted, audited) and
 // keeps the link: the framing was intact. Anything but REG_SEND is dropped and counted.
-fn frame_done(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, f: { rg: region(L, normal), b: buf(L, normal, uint8, 4096), pb: buf(L, normal, uint8, 4096), code: int64 }) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
+fn frame_done(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, f: { rg: region(L, normal), b: buf(L, normal, uint8, 4096), pb: buf(L, normal, uint8, 4096), code: int64 }) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
     frame_target(st, me, f, bees_dist@reg_send_target(f.rg, f.b, st.need, bees_peers@peer_name(st.peer)))
 }
-fn dropped_frame(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, kind: string, who: string, n: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
+fn dropped_frame(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, kind: string, who: string, n: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
     sequence
         _: atom <- bees_ingress@audit(kind, who, n);
         _: boolean <- want(st.c, me, 4);
         s: { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } <- step(3, st.step, 0, 0, st.peer, st.ok, st.dropped + 1, st.ticks)
     produces pure s end
 }
-fn frame_target(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, f: { rg: region(L, normal), b: buf(L, normal, uint8, 4096), pb: buf(L, normal, uint8, 4096), code: int64 }, t: { code: int64, name: atom, pstart: int64 }) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
+fn frame_target(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, f: { rg: region(L, normal), b: buf(L, normal, uint8, 4096), pb: buf(L, normal, uint8, 4096), code: int64 }, t: { code: int64, name: atom, pstart: int64 }) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
     case t.code == 0 of {
         false -> dropped_frame(st, me, "frame dropped", bees_ingress@reason_text(t.code), t.code);
         true -> frame_name(st, me, f, t, bees_peers@local_index(t.name))
     }
 }
-fn frame_name(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, f: { rg: region(L, normal), b: buf(L, normal, uint8, 4096), pb: buf(L, normal, uint8, 4096), code: int64 }, t: { code: int64, name: atom, pstart: int64 }, li: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
+fn frame_name(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, f: { rg: region(L, normal), b: buf(L, normal, uint8, 4096), pb: buf(L, normal, uint8, 4096), code: int64 }, t: { code: int64, name: atom, pstart: int64 }, li: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
     case li < 0 of {
         true -> dropped_frame(st, me, "frame dropped, not a name this node serves", bees_atoms@spelling(t.name), 0 - 1);
         false -> frame_payload(st, me, f, t, li, bees_dist@copy_bytes(f.rg, f.b, f.pb, t.pstart, 0, st.need - t.pstart))
     }
 }
-fn frame_payload(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, f: { rg: region(L, normal), b: buf(L, normal, uint8, 4096), pb: buf(L, normal, uint8, 4096), code: int64 }, t: { code: int64, name: atom, pstart: int64 }, li: int64, plen: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
+fn frame_payload(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, f: { rg: region(L, normal), b: buf(L, normal, uint8, 4096), pb: buf(L, normal, uint8, 4096), code: int64 }, t: { code: int64, name: atom, pstart: int64 }, li: int64, plen: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
     frame_valid(st, me, f, li, plen, bees_wire_msgs@validate_named(f.rg, f.pb, plen, t.name))
 }
-fn frame_valid(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, f: { rg: region(L, normal), b: buf(L, normal, uint8, 4096), pb: buf(L, normal, uint8, 4096), code: int64 }, li: int64, plen: int64, code: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
+fn frame_valid(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, f: { rg: region(L, normal), b: buf(L, normal, uint8, 4096), pb: buf(L, normal, uint8, 4096), code: int64 }, li: int64, plen: int64, code: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
     case code == 0 of {
         false -> dropped_frame(st, me, "payload refused", bees_ingress@reason_text(code), code);
         true -> deliver(st, me, f, li, plen)
     }
 }
-fn deliver(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, f: { rg: region(L, normal), b: buf(L, normal, uint8, 4096), pb: buf(L, normal, uint8, 4096), code: int64 }, li: int64, plen: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
+fn deliver(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, f: { rg: region(L, normal), b: buf(L, normal, uint8, 4096), pb: buf(L, normal, uint8, 4096), code: int64 }, li: int64, plen: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
     sequence proc[concurrency]
         d: actor_ref <- bees_peers@start_deliverer(li);
         dm: { rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64 } <- dmsg(f.rg, f.pb, plen);
@@ -368,7 +374,7 @@ fn deliver(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode
     produces pure s end
 }
 
-fn on_down(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, reason: atom) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
+fn on_down(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, reason: atom) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
     sequence
         _: atom <- bees_ingress@audit("link down, proxies ended; reason", bees_atoms@spelling(reason), st.ok);
         _: atom <- bees_ingress@audit("frames delivered", "-", st.ok);
@@ -379,11 +385,11 @@ fn on_down(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode
     produces pure s end
 }
 
-fn keep(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
+fn keep(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
     step(st.mode, st.step, st.need, st.got, st.peer, st.ok, st.dropped, st.ticks)
 }
 
-fn on_rx(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, w: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
+fn on_rx(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, w: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
     case st.mode of {
         1 -> rx_len(st, me, w);
         3 -> rx_len(st, me, w);
@@ -397,7 +403,7 @@ fn on_rx(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: 
 // it ends the link here too; the reason of a tx_failed is link_down
 fn ends_link(tag: atom) -> boolean { tag == bees_atoms@a_link_down() or tag == bees_atoms@a_tx_failed() }
 
-fn handle(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, msg: { tag: atom, n: int64, reason: atom, info: string }) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
+fn handle(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref, msg: { tag: atom, n: int64, reason: atom, info: string }) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
     case msg.tag == bees_atoms@a_link_up() of {
         true -> on_up(st, me);
         false -> case msg.tag == bees_atoms@a_rx() of {
@@ -410,30 +416,69 @@ fn handle(st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode:
     }
 }
 
-// the words of a frame are kept while its body is being read (still in a body mode, some bytes in) and dropped otherwise
-fn in_body(mode: int64) -> boolean { mode == 2 or mode == 4 }
-fn ws_final(ws: List[int64, mem(normal)], s: { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }) -> List[int64, mem(normal)] {
-    case in_body(s.mode) and s.got > 0 of {
-        true -> ws;
-        false -> fresh_ws()
+fn in_body(mode: int64) -> boolean { (mode == 2) or (mode == 4) }
+
+// ---- the frame assembler: one actor per frame body. It keeps the parts as a list of words, newest first, in its state, builds the frame
+// when the last part is in (complete: the stub bees_ingress@recreate, then the same handling as before), and reports the new state of the
+// connection actor in one frame_result event, packed in n (pack_result); then it ends and its memory goes with it.
+fn pack_result(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, s: { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }) -> int64 {
+    s.mode + 16 * s.step + 256 * (s.peer + 1) + 65536 * (s.ok - st.ok) + 262144 * (s.dropped - st.dropped)
+}
+fn result_event(n: int64) -> { tag: atom, n: int64, reason: atom, info: string } { { tag: bees_atoms@a_frame_result(), n: n, reason: :ok, info: "" } }
+fn report_result(core: actor_ref, st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, s: { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }) -> boolean {
+    sequence proc[concurrency]
+        ev: { tag: atom, n: int64, reason: atom, info: string } <- result_event(pack_result(st, s));
+        ok: boolean <- cast(core, ev impl ActorMessage {})
+    produces pure ok end
+}
+fn finish(core: actor_ref, st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, ws2: List[int64, mem(normal)]) -> boolean {
+    sequence
+        s: { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } <- complete(st, core, ws2);
+        ok: boolean <- report_result(core, st, s)
+    produces pure ok end
+}
+fn asm(
+    msg: int64,
+    a: { ws: List[int64, mem(normal)], core: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }
+) -> (:no_reply, { ws: List[int64, mem(normal)], core: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }) {
+    sequence proc[concurrency, mem(normal)]
+        ws2: List[int64, mem(normal)] <- prepend[int64, mem(normal)](msg, a.ws);
+        got2: int64 <- a.got + min8(a.need - a.got);
+        _: boolean <- case got2 < a.need of {
+            true -> true;
+            false -> finish(a.core, { asm: a.core, c: a.c, tx: a.tx, mode: a.mode, step: a.step, need: a.need, got: got2, peer: a.peer, ok: a.ok, dropped: a.dropped, ticks: a.ticks }, ws2)
+        };
+        _: atom <- case got2 < a.need of { true -> :ok; false -> stop_self(:normal) }
+    produces pure (:no_reply, { ws: ws2, core: a.core, c: a.c, tx: a.tx, mode: a.mode, step: a.step, need: a.need, got: got2, peer: a.peer, ok: a.ok, dropped: a.dropped, ticks: a.ticks }) end
+}
+fn spawn_asm(core: actor_ref, st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, s: { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }) -> actor_ref {
+    sequence proc[concurrency, mem(normal)]
+        e: List[int64, mem(normal)] <- empty[int64, mem(normal)]();
+        a: actor_ref <- spawn({ ws: e, core: core, c: st.c, tx: st.tx, mode: s.mode, step: s.step, need: s.need, got: 0, peer: s.peer, ok: s.ok, dropped: s.dropped, ticks: s.ticks }, asm, stack_policy(0, :keep_last_message), state_policy(:keep_state_area))
+    produces pure a end
+}
+// the assembler of a frame is spawned when this event made the connection start reading a body
+fn asm_for(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, s: { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, me: actor_ref) -> actor_ref {
+    case in_body(s.mode) and (in_body(st.mode) == false) of {
+        true -> spawn_asm(me, st, s);
+        false -> st.asm
     }
 }
-fn fresh_ws() -> List[int64, mem(normal)] {
-    sequence proc[mem(normal)]
-        e: List[int64, mem(normal)] <- empty[int64, mem(normal)]()
-    produces pure e end
+
+// the assembler's result: the state of the connection as complete_with left it (the changes are packed in n)
+fn apply_result(st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }, n: int64) -> { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } {
+    step(n % 16, (n / 16) % 16, 0, 0, (n / 256) % 256 - 1, st.ok + (n / 65536) % 4, st.dropped + (n / 262144) % 4, st.ticks)
 }
 
 fn conn(
     msg: { tag: atom, n: int64, reason: atom, info: string },
-    st: { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }
-) -> (:no_reply, { ws: List[int64, mem(normal)], c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }) {
-    sequence proc[concurrency, mem(normal)]
+    st: { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }
+) -> (:no_reply, { asm: actor_ref, c: actor_ref, tx: actor_ref, mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 }) {
+    sequence proc[concurrency]
         me: actor_ref <- self();
-        grow: boolean <- msg.tag == bees_atoms@a_rx() and in_body(st.mode);
-        ws2: List[int64, mem(normal)] <- case grow of { true -> prepend[int64, mem(normal)](msg.n, st.ws); false -> st.ws };
-        s: { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } <- handle({ ws: ws2, c: st.c, tx: st.tx, mode: st.mode, step: st.step, need: st.need, got: st.got, peer: st.peer, ok: st.ok, dropped: st.dropped, ticks: st.ticks }, me, msg)
-    produces pure (:no_reply, { ws: ws_final(ws2, s), c: st.c, tx: st.tx, mode: s.mode, step: s.step, need: s.need, got: s.got, peer: s.peer, ok: s.ok, dropped: s.dropped, ticks: s.ticks }) end
+        s: { mode: int64, step: int64, need: int64, got: int64, peer: int64, ok: int64, dropped: int64, ticks: int64 } <- case msg.tag == bees_atoms@a_frame_result() of { true -> apply_result(st, msg.n); false -> handle(st, me, msg) };
+        a: actor_ref <- asm_for(st, s, me)
+    produces pure (:no_reply, { asm: a, c: st.c, tx: st.tx, mode: s.mode, step: s.step, need: s.need, got: s.got, peer: s.peer, ok: s.ok, dropped: s.dropped, ticks: s.ticks }) end
 }
 
 // raw_writer(c): a writer for the carrier c that is never "up" and sends only raw frames. For a test program that speaks
@@ -445,18 +490,27 @@ fn raw_writer(c: actor_ref) -> actor_ref {
     produces pure t end
 }
 
-// start(c, tick_ms): the node's side of the link over the carrier actor c (the root unit's carrier_new); tick_ms is the idle
-// interval after which a net tick is written (0: never, a test setting). Returns the connection actor.
-fn start(c: actor_ref, tick_ms: uint64) -> actor_ref {
-    sequence proc[concurrency, mem(normal)]
+// launch(c, tick_ms): the node's side of the link over the carrier actor c (the root unit's carrier_new); tick_ms is the idle
+// interval after which a net tick is written (0: never, a test setting). Returns the connection actor and the writer (tx): the
+// writer is returned so that a test program can inject a raw frame into a live link (M4); a node program uses start.
+fn pair(n: actor_ref, t: actor_ref) -> { conn: actor_ref, tx: actor_ref } { { conn: n, tx: t } }
+fn launch(c: actor_ref, tick_ms: uint64) -> { conn: actor_ref, tx: actor_ref } {
+    sequence proc[concurrency]
         _: atom <- bees_ingress@banner();
         me: actor_ref <- self();
         t: actor_ref <- spawn({ c: c, up: false, sent: 0, reaper: me, tick_ms: tick_ms }, tx, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
         r: actor_ref <- bees_peers@start_proxies(t);
         _: boolean <- ctl(t, 5, r);
-        e: List[int64, mem(normal)] <- empty[int64, mem(normal)]();
-        n: actor_ref <- spawn({ ws: e, c: c, tx: t, mode: 0, step: 0, need: 0, got: 0, peer: bees_peers@link_peer(), ok: 0, dropped: 0, ticks: 0 }, conn, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        n: actor_ref <- spawn({ asm: t, c: c, tx: t, mode: 0, step: 0, need: 0, got: 0, peer: bees_peers@link_peer(), ok: 0, dropped: 0, ticks: 0 }, conn, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
         m: { tag: atom, peer: actor_ref, text: string, n: int64, k: int64 } <- cmd(bees_atoms@a_open(), n, bees_peers@link_address(), 0, 8);
-        _: boolean <- cast(c, m impl ActorMessage {})
-    produces pure n end
+        _: boolean <- cast(c, m impl ActorMessage {});
+        p: { conn: actor_ref, tx: actor_ref } <- pair(n, t)
+    produces pure p end
+}
+
+// start(c, tick_ms): launch, returning the connection actor only.
+fn start(c: actor_ref, tick_ms: uint64) -> actor_ref {
+    sequence
+        p: { conn: actor_ref, tx: actor_ref } <- launch(c, tick_ms)
+    produces pure p.conn end
 }

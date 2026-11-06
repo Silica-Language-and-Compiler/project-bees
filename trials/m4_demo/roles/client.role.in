@@ -1,0 +1,58 @@
+// ---- the client: plain actors. `starter` casts the first `window()` requests to the registered name svc, which lives on the other
+// node; `answers` is registered under the name the requests carry in reply_to, receives the answers (decoded by a BEES deliverer),
+// compares each with the payload that was sent, and casts the next request. Nothing in it mentions the network.
+fn send_first(seq: int64, last: int64) -> boolean {
+    case seq > last of {
+        true -> true;
+        false -> {
+            sequence
+                _: boolean <- m4_payload@send_req(seq);
+                ok: boolean <- send_first(seq + 1, last)
+            produces pure ok end
+        }
+    }
+}
+fn starter(msg: int64, st: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- say("client: sending");
+        _: boolean <- send_first(1, window())
+    produces pure (:no_reply, st + 1) end
+}
+fn n_of(seq: int64) -> int64 { case seq <= total() of { true -> 1; false -> 0 } }
+fn b2i(b: boolean) -> int64 { case b of { true -> 1; false -> 0 } }
+fn answers(msg: RESP_T, st: { got: int64, bad: int64 }) -> (:no_reply, { got: int64, bad: int64 }) {
+    sequence
+        ok: boolean <- m4_payload@resp_intact(msg);
+        counted: int64 <- n_of(msg.seq);
+        got: int64 <- st.got + counted;
+        bad: int64 <- st.bad + counted * (1 - b2i(ok));
+        _: atom <- case (verbose(msg.seq)) and (counted == 1) of { true -> m4_payload@report_answer(msg, ok); false -> :ok };
+        _: boolean <- case msg.seq + window() <= total() of { true -> m4_payload@send_req(msg.seq + window()); false -> true };
+        _: atom <- case (got == total()) and (counted == 1) of {
+            true -> say(concat("client: negative control, a changed value is detected: ", yes_text(m4_payload@control(msg))));
+            false -> :ok
+        };
+        _: atom <- case (got == total()) and (counted == 1) of {
+            true -> say(concat(concat("client: all answered, ", num_text(total())), concat(" requests, payload not intact in ", num_text(bad))));
+            false -> :ok
+        }
+    produces pure (:no_reply, { got: got, bad: bad }) end
+}
+fn yes_text(b: boolean) -> string { case b of { true -> "true"; false -> "FALSE" } }
+fn num_text(n: int64) -> string {
+    case n of {
+        0 -> "0"; 3 -> "3"; 4000 -> "4000";
+        _: int64 -> "?"
+    }
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- start_reporter();
+        a: actor_ref <- spawn_registered({ got: 0, bad: 0 }, answers, bees_atoms@a_answers(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        p: { conn: actor_ref, tx: actor_ref } <- node_launch(open_ms(), io_ms(), tick_ms());
+        s: actor_ref <- spawn(0, starter, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        t: timer_ref <- send_after(delay_ms(), s, 0 impl ActorMessage {});
+        _: atom <- start_extras(p.conn, p.tx, a);
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}
