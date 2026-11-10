@@ -32,6 +32,7 @@ trials/m4_demo/nodes/*/lib/bees_atoms.silica
 trials/m4_demo/nodes/*/lib/bees_atoms.index
 trials/m4_demo/nodes/*/lib/bees_wire_*.silica
 trials/m4_demo/nodes/*/lib/bees_peers.silica
+trials/m4_demo/nodes/*/lib/bees_msgs.silica
 trials/m4_demo/nodes/*/lib/m4_payload.silica
 !trials/m4_demo/nodes/*/lib/bees_wire.silica
 trials/m4_demo/*.sout
@@ -58,6 +59,9 @@ trials/*/lib/bees_wire_tables.silica
 trials/*/lib/bees_wire_ints.silica
 trials/*/lib/bees_wire_msgs.silica
 trials/*/lib/bees_peers.silica
+trials/*/lib/bees_msgs.silica
+trials/m3_dist/nodes/*/lib/bees_msgs.silica
+trials/m3_dist/nodes/*/lib/bees_peers.silica
 trials/m3_dist/nodes/*/lib/bees_atoms.silica
 trials/m3_dist/nodes/*/lib/bees_atoms.index
 trials/m3_dist/nodes/*/lib/bees_wire_*.silica
@@ -81,4 +85,6 @@ __silica_runtime.*
 *.dylib
 *.dSYM/
 silica.compile.*
+# the compiler's derived transport code (encode/decode), written beside each unit that uses it
+*.silica.derived
 .DS_Store

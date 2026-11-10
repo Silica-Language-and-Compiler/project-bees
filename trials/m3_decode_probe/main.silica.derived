@@ -1,7 +1,7 @@
 // Derived by the compiler (transport_serialization_design.md §4.4, §4.5). Not for editing.
 
 fn __tr_encode_etf__atom__x_int64_y_int64_z_int64___32_512960244(v: (atom,{x:int64,y:int64,z:int64})) -> string {
-    sequence proc[mem(normal)]
+    sequence proc[mem(normal), transport]
         tail0: List[string, mem(normal)] <- empty[string, mem(normal)]();
         parts: List[string, mem(normal)] <- __tr_enc_etf__atom__x_int64_y_int64_z_int64___32_512960244_0(v, tail0);
         whole: List[string, mem(normal)] <- prepend[string, mem(normal)](wire_etf@term_prefix(), parts);

@@ -33,6 +33,10 @@ The name nods to **Bogdan and Björn’s Erlang Abstract Machine (BEAM)**. BEES 
 
 Silica provides the **language and toolchain** including actors and supervisors; Project BEES defines the **runtime-facing contract** and **infrastructure** for a BEAM-execution surface: scheduling, distribution hooks, and the glue between generated code and the machine. **Versioning** between Silica and BEES; The are no common version numbers between Silica and BEES. Each has its own release schedule.
 
+## What you need to install
+
+BEES ships no TLS library; see [contract/what-is-required-to-use.md](contract/what-is-required-to-use.md).
+
 ## Status
 
 Currently BEES is in its inception phase.

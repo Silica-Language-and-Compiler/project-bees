@@ -1,5 +1,9 @@
 # M4: the demo and the measurements
 
+> **Verified 2026-11-10 on `silica-999926` (the port of 2026-11-09 built and run).** All four scenarios pass with re-recorded goldens; the only output change is the predicted one, `hostile_close` auditing `bad frame length, link closed too_large 5` (the five content refusals keep `bad_version 1`, `unknown_field 14`, `truncated 2`, `foreign_actor 15`, `unknown_atom 10`). Three changes were needed to get there: the payload's seven groups are now two halves of at most four fields (`body = { num: {...}, rest: {...} }`, SD-37: the language's decoder cannot decode a record of five fields on Apple Silicon), the received `char` is compared by code (SD-38), and `dangerous_bees_net` keeps one carrier per actor and gates each receive credit on the assembler (SD-39 and a lost-segment race; see the 2026-11-10 section of [silica-defects.md](../silica-defects.md)). **Re-measured (`make measure`, one run): 4,000 requests in 12.86 s, 311.0 round trips per second (621.9 messages per second), peak resident set 6.3 MiB on each node** (section 3's 19.1 per second and 90/95 MiB are the pre-port numbers). The hostile frames are injected through `net_send_raw` (the node edge), not `dangerous_bees_net@send_raw`.
+
+> **Amended 2026-11-09 (the port to the language's transport; written by reading only, built and run 2026-11-10: see the note above).** The receive step is no longer a stub (section 7): the per-frame assembler now holds the language's `wireframe` reassembly record and the deliverer decodes with the language's `decode`; the hostile frames are built as strings (`bees_dist@reg_send_body`, `bees_dist@frame4`) and the payload comparison is `encode` of both values compared as strings (`m4_payload`). Expected golden changes: `hostile_close` audits `bad frame length, link closed too_large 5` (the language's `wireframe` reports the atom, not the length). The rate and memory of section 3 are to be re-measured on the language's carrier (segments instead of 75 parts per frame). See [../silica-transport-alignment.md](../silica-transport-alignment.md).
+
 **Status:** run 2026-11-05 on `silica-999936-macos-applesilicon` (macOS, Apple Silicon only), `127.0.0.1`, Erlang/OTP 28 only as the oracle of earlier milestones. A plain Silica service (node a) and a plain Silica client (node b), two separate operating-system processes, exchange casts over the M3 distribution layer. The payload uses every type the typed ETF codec supports; the service answers through a `reply_to` name; a node is stopped mid-run; hostile frames are injected; rate and peak memory are measured. **The receive step is still a stub** (section 7). Plan: [`mvp.md`](../mvp.md) section 5, milestone M4. Findings for the compiler: [`silica-defects.md`](../silica-defects.md) (SD-35, SD-36 and notes).
 
 ## 1. What was built
@@ -11,7 +15,7 @@
 | The programs' code (plain Silica: an actor `svc` registered under its name, an actor `answers`, a `starter` and a `ticker`; nothing mentions the network) | `roles/service.role.in`, `client.role.in`, `extras_*.role(.in)`, `node.role`, `plan_*.role`, `timing_*.role`; `tools/bees_edge_gen.py` joins them with the carrier edge into each program's `dangerous_` root unit (SD-17) |
 | Two-process driver: starts the two programs, can stop the first with SIGKILL once a text appears in the second's output (a node stopped mid-run), runs each under `/usr/bin/time -l`, stamps each output line | `tools/run_demo.py` |
 | Summary of the rate run | `tools/m4_measure.py` |
-| **M3 fixes** (section 5) | `src/inter_nodal/bees_net.silica`, `src/shim/bees_tcp.atoms` (one new atom, `frame_result`) |
+| **M3 fixes** (section 5) | `src/inter_nodal/dangerous_bees_net.silica`, `src/shim/bees_tcp.atoms` (one new atom, `frame_result`) |
 
 ### The messages
 
@@ -53,7 +57,7 @@ Not exercised: node **b** stopped while node a is answering. The same rule says 
 
 ### Hostile frames: refused and audited, the link stays unless the framing is broken
 
-`hostile` injects, through the node's writer (`bees_net@launch` returns it; `bees_net@send_raw` writes a built frame as it is), after the handshake, over the live link. Node a prints, in order:
+`hostile` injects, through the node's writer (`dangerous_bees_net@launch` returns it; `dangerous_bees_net@send_raw` writes a built frame as it is), after the handshake, over the live link. Node a prints, in order:
 
 | # | Frame | Audit line at node a | Link |
 | --- | --- | --- | --- |
@@ -89,7 +93,7 @@ The first complete run of this milestone worked and was unusable: 480 MB residen
 ## 5. M3 layer changes (smallest fixes, and what each cost)
 
 1. **The connection actor no longer holds a list** (the fix for the memory above). `conn` kept the parts of the frame body as a `List` in its state. Now the state is scalars and actor references only. When a length is read, `conn` spawns an assembler actor `asm` for that frame (`asm_for`), forwards each part of the body to it (`rx_body`), and waits (mode 5). `asm` keeps the list, and when the last part is in it builds the frame (`complete`: the stub `bees_ingress@recreate` and the same handling as before), reports the connection's new state in one `frame_result` event (the changes packed in the event's `n`: mode, step, peer, and how many frames were delivered or dropped) and ends. The wire behaviour is unchanged: M3's goldens are identical (section 8). The frame handling code is unchanged except for the type of `st` (`asm: actor_ref` where `ws: List` was).
-2. **`bees_net@launch(c, tick_ms)`** returns `{ conn, tx }` (`start` is `launch` returning `conn`): the hostile-frame program needs the writer to inject a raw frame into a live link after the handshake. M3 had `raw_writer` for a program that never completes the handshake.
+2. **`dangerous_bees_net@launch(c, tick_ms)`** returns `{ conn, tx }` (`start` is `launch` returning `conn`): the hostile-frame program needs the writer to inject a raw frame into a live link after the handshake. M3 had `raw_writer` for a program that never completes the handshake.
 3. One new atom, `frame_result`, in `src/shim/bees_tcp.atoms`.
 4. Not needed in the end, and left alone: the 4096-byte frame limit (the payload is 547 bytes), the one-link-per-node limit, the missing reconnect, the `FromPid` index (it is the proxy's index, 0 for the one proxy of each node).
 

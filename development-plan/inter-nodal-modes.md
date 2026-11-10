@@ -25,6 +25,9 @@
 > (SD-32 resolved), plus `wireframe` and a hosted `(:tcp)` carrier, and its own demo calls them in this form. M0 had rejected only a
 > *hand-written* rebuild (E2100). **Unproven, untested by BEES:** that `decode` on bytes that came from a carrier passes the taint checker end to end
 > in BEES's receive-actor shape (N0.1); N0.0 ports BEES's M3 code to the language's calls. BEES's own code is still the stub until then.
+> **Checked 2026-11-10 on `silica-999926`:** the port is built and run, the stub is gone, and the checker raises nothing on `decode` of
+> carrier bytes or on `encode` output handed to the carrier (`trials/m3_dist`, `trials/m4_demo`); SD-25 (the FFI result handler is not
+> checked) is why this is not yet a proof of de-tainting.
 
 BEAM-language programs compiled to Silica through BEES reach other nodes in one of two modes:
 
@@ -126,6 +129,9 @@ said `decode`, `encode` and `recreate` were not callable in `silica-999936`; **o
 language's own demo uses them in this form. What is **unproven and untested by BEES**: that the form passes the taint checker for `decode` applied to bytes
 that came from a carrier or foreign call, and for `encode` output handed to a carrier, in BEES's actor shapes. Milestone N0.1 (mvp.md section 5)
 tests both and records the result in silica-defects.md with what must change if it fails; N0.0 first ports BEES's M3 receive path to the language's calls.
+**Result (2026-11-10, silica-999926):** both pass the checker in BEES's actor shapes (the connection actor and per-frame assembler on the
+receive side, the deliverer's decode, the proxies' encode and the writer's handoff to the carrier), with SD-25's caveat; recorded in
+silica-defects.md, 2026-11-10 section.
 
 Both then pass **`bees_ingress`**, the single path for remote input into processes. It does the protocol-level
 validation that the compiler cannot do:
@@ -227,7 +233,7 @@ replaced by Silica TLS intrinsics (S-13) without a wire change.
 
 - TLS 1.3 only.
 - ALPN must be `trust/1`; anything else closes the connection.
-- Key exchange: hybrid X25519MLKEM768. Classical-only groups are refused.
+- Key exchange: hybrid X25519MLKEM768. Classical-only groups are refused. **Relaxed 2026-11-10 (D41) for the NUCLEO-L476RG and ESP32-S3 only**: Mbed TLS has no X25519MLKEM768, so those boards use classical X25519 (TLS 1.3). Hosted nodes keep the rule for hosted peers; whether a hosted node accepts a classical-only board peer is an open decision (D41).
 - Ciphers: AES-256-GCM or ChaCha20-Poly1305.
 - Certificates: Ed25519 or ECDSA P-256. Client certificates are required.
 - No 0-RTT, no renegotiation, no compression.

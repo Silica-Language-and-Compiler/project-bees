@@ -1,11 +1,13 @@
-// ---- the node's startup (what a compiler's generated startup does): the carrier for the one link, then the node.
-fn node_launch(open_ms: int64, io_ms: int64, tick_ms: uint64) -> { conn: actor_ref, tx: actor_ref } {
+// ---- the node's startup (what a compiler's generated startup does): the language's (:tcp) carrier for the one link
+// (carrier_new, the edge section), then the node. open_ms is unused since the language's carrier replaced the native edge;
+// it stays for the roles' shape.
+fn node_launch(open_ms: int64, io_ms: uint64, tick_ms: uint64) -> { conn: actor_ref, tx: actor_ref } {
     sequence
-        c: actor_ref <- carrier_new(0, open_ms, io_ms);
-        p: { conn: actor_ref, tx: actor_ref } <- bees_net@launch(c, tick_ms)
+        c: dangerous_actor_ref <- carrier_new();
+        p: { conn: actor_ref, tx: actor_ref } <- net_launch(c, io_ms, tick_ms)
     produces pure p end
 }
-fn node_start(open_ms: int64, io_ms: int64, tick_ms: uint64) -> actor_ref {
+fn node_start(open_ms: int64, io_ms: uint64, tick_ms: uint64) -> actor_ref {
     sequence
         p: { conn: actor_ref, tx: actor_ref } <- node_launch(open_ms, io_ms, tick_ms)
     produces pure p.conn end

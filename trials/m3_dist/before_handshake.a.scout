@@ -1,5 +1,5 @@
 [bees] TEST ONLY: no authentication, no encryption on this transport (127.0.0.1); TRUST's TLS is not built yet
-[bees audit] frame before handshake dropped, link closed length 0
+[bees audit] frame before handshake dropped, link closed bad_tag 4
 [bees audit] link down, proxies ended; reason closed 0
 [bees audit] frames delivered - 0
 [bees audit] frames dropped - 1

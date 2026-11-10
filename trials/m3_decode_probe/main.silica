@@ -3,7 +3,7 @@
 use wire_etf;
 
 fn round_trip() -> int64 {
-    sequence proc[mem(normal), device_io]
+    sequence proc[mem(normal), device_io, transport]
         frame: string <- encode((:etf), (:accel, { x: 1, y: 0 - 2, z: 512 }));
         n: int64 <- byte_at(frame, 0);
         _: atom <- print("first byte: ");

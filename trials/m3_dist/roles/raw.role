@@ -1,41 +1,44 @@
 // ---- a peer that breaks the protocol on purpose: it dials, and as its first bytes sends a data frame (REG_SEND to inbox)
-// instead of the handshake. The carrier is used directly; no node, no handshake.
+// instead of the handshake. The language's carrier is used directly, with the carrier contract's own messages; no node, no
+// handshake. The frame is written through dangerous_bees_net's raw writer (a writer that is never "up").
 fn owner(
-    msg: { tag: atom, n: int64, reason: atom, info: string },
-    st: { c: actor_ref, w: actor_ref, sent: boolean }
-) -> (:no_reply, { c: actor_ref, w: actor_ref, sent: boolean }) {
-    sequence proc[concurrency]
-        me: actor_ref <- self();
-        is_up: boolean <- msg.tag == bees_atoms@a_link_up();
-        is_down: boolean <- msg.tag == bees_atoms@a_link_down() or msg.tag == bees_atoms@a_tx_failed();
-        _: boolean <- case is_up of { true -> send_data_frame(st.w, me); false -> true };
-        mk: { tag: atom, peer: actor_ref, text: string, n: int64, k: int64 } <- cmd(bees_atoms@a_credit(), me, "", 1, 8);
-        _: boolean <- case is_up of { true -> cast(st.c, mk impl ActorMessage {}); false -> true };
-        _: atom <- case is_up of { true -> say("raw: data frame sent before any handshake"); false -> :ok };
-        _: atom <- case is_down and st.sent == false of { true -> say("raw: link down"); false -> :ok }
-    produces pure (:no_reply, { c: st.c, w: st.w, sent: st.sent or is_down }) end
+    msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom),
+    st: { c: dangerous_actor_ref, w: actor_ref, down: boolean }
+) -> (:no_reply, { c: dangerous_actor_ref, w: actor_ref, down: boolean }) {
+    case msg of {
+        (:link_up, _info: string) -> {
+            sequence proc[concurrency]
+                _: boolean <- send_data_frame(st.w);
+                _: boolean <- cast(st.c, (:credit, 1) impl ActorMessage {});
+                _: atom <- say("raw: data frame sent before any handshake")
+            produces pure (:no_reply, { c: st.c, w: st.w, down: st.down }) end
+        };
+        (:rx, _seg: string) -> (:no_reply, { c: st.c, w: st.w, down: st.down });
+        (:tx_credit, _n: int64) -> (:no_reply, { c: st.c, w: st.w, down: st.down });
+        (:tx_failed, _why: atom) -> link_ended(st);
+        (:link_down, _why2: atom) -> link_ended(st)
+    }
 }
-fn send_data_frame(w: actor_ref, me: actor_ref) -> boolean {
-    sequence proc[mem(normal)]
-        L: lifetime <- fresh_lifetime();
-        rg: region(L, normal) <- alloc_region(normal);
-        pb: buf(L, normal, uint8, 4096) <- alloc_buf(rg, 4096);
-        ob: buf(L, normal, uint8, 4096) <- alloc_buf(rg, 4096);
+fn link_ended(st: { c: dangerous_actor_ref, w: actor_ref, down: boolean }) -> (:no_reply, { c: dangerous_actor_ref, w: actor_ref, down: boolean }) {
+    sequence
+        _: atom <- case st.down of { true -> :ok; false -> say("raw: link down") }
+    produces pure (:no_reply, { c: st.c, w: st.w, down: true }) end
+}
+fn send_data_frame(w: actor_ref) -> boolean {
+    sequence
         m: { op: atom, n: int64 } <- { op: bees_atoms@a_inc(), n: 41 };
-        plen: int64 <- bees_wire_msgs@enc_inbox(rg, pb, m);
-        flen: int64 <- bees_dist@reg_send_frame(rg, ob, pb, plen, 1, "b@127.0.0.1", 1, "inbox");
-        ok: boolean <- bees_net@send_raw(w, rg, ob, flen, me)
+        payload: string <- bees_msgs@enc_inbox(m);
+        body: string <- bees_dist@reg_send_body(payload, 1, "b@127.0.0.1", 1, "inbox");
+        ok: boolean <- net_send_raw(w, bees_dist@frame4(body))
     produces pure ok end
 }
 fn main() -> int64 {
     sequence proc[concurrency, device_io]
         _: atom <- start_reporter();
-        c: actor_ref <- carrier_new(0, open_ms(), io_ms());
-        w: actor_ref <- bees_net@raw_writer(c);
-        me: actor_ref <- self();
-        o: actor_ref <- spawn({ c: c, w: w, sent: false }, owner, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
-        mo: { tag: atom, peer: actor_ref, text: string, n: int64, k: int64 } <- cmd(bees_atoms@a_open(), o, bees_peers@link_address(), 0, 8);
-        _: boolean <- cast(c, mo impl ActorMessage {});
+        c: dangerous_actor_ref <- carrier_new();
+        w: actor_ref <- net_raw_writer(c);
+        o: actor_ref <- spawn({ c: c, w: w, down: false }, owner, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: boolean <- cast(c, (:open, o, bees_peers@link_address()) impl ActorMessage {});
         _: int64 <- wait_for_exit()
     produces pure 0 end
 }

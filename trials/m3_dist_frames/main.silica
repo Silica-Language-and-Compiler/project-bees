@@ -1,10 +1,11 @@
-// M3: the byte layouts of the distribution layer, with no network: the handshake messages, a REG_SEND frame built by
-// the generated proxy path (bees_dist@reg_send_frame) and parsed back (bees_dist@reg_send_target, then the typed decoder).
-// Each frame is printed as hex; tools/test_bees_dist.py compares them with the bytes `erl` writes (term_to_binary).
+// M3 (ported to the language's transport): the byte layouts of the distribution layer, with no network: the handshake
+// messages, a REG_SEND frame built by the generated proxy path (bees_msgs@enc_counter, the language's encode; bees_dist@reg_send_body
+// and frame4) and parsed back (bees_dist@reg_send_target, then the language's decode through bees_msgs). Each frame is printed as
+// hex; tools/test_bees_dist.py compares them with the bytes `erl` writes (term_to_binary).
 use bees_atoms;
-use bees_wire;
-use bees_wire_msgs;
+use bees_msgs;
 use bees_dist;
+use bees_ingress;
 use bees_peers;
 
 fn hexd(v: int64) -> string { substring("0123456789abcdef", v, v + 1) }
@@ -23,61 +24,75 @@ fn num(label: string, n: int64) -> atom {
         _: atom <- println("")
     produces pure :ok end
 }
-fn hex_of(rg: region(L, normal), b: buf(L, normal, uint8, 4096), i: int64, n: int64) -> string {
+// byte_at is a transport operation (E3013): in a sequence that declares transport
+fn at(s: string, i: int64) -> int64 {
+    sequence proc[transport]
+        b: int64 <- byte_at(s, i)
+    produces pure b end
+}
+fn hex_of(s: string, i: int64, n: int64) -> string {
     case i >= n of {
         true -> "";
-        false -> concat(concat(hexd(bees_wire@bi(rg, b, i) / 16), hexd(bees_wire@bi(rg, b, i) % 16)), hex_of(rg, b, i + 1, n))
+        false -> concat(concat(hexd(at(s, i) / 16), hexd(at(s, i) % 16)), hex_of(s, i + 1, n))
     }
 }
-fn dump(label: string, rg: region(L, normal), b: buf(L, normal, uint8, 4096), n: int64) -> atom { show(label, hex_of(rg, b, 0, n)) }
-
-// a copy of b[from..len) at 0 of c, for the body of a frame without its prefix
-fn body_of(rg: region(L, normal), b: buf(L, normal, uint8, 4096), c: buf(L, normal, uint8, 4096), from: int64, len: int64) -> int64 {
-    bees_dist@copy_bytes(rg, b, c, from, 0, len - from)
+fn dump(label: string, s: string) -> atom { show(label, hex_of(s, 0, length_bytes(s))) }
+// the body of a framed message: after its 2- or 4-byte length prefix
+fn body_of(s: string, from: int64) -> string {
+    sequence proc[mem(normal), transport]
+        out: string <- byte_slice(s, from, length_bytes(s))
+    produces pure out end
+}
+fn b2i(b: boolean) -> int64 { case b of { true -> 1; false -> 0 } }
+fn decoded_n(r: (:ok, { op: atom, n: int64 }) | (:rejected, atom)) -> int64 {
+    case r of {
+        (:ok, v: { op: atom, n: int64 }) -> v.n;
+        (:rejected, _w: atom) -> 0 - 1
+    }
+}
+fn decoded_op(r: (:ok, { op: atom, n: int64 }) | (:rejected, atom)) -> string {
+    case r of {
+        (:ok, v: { op: atom, n: int64 }) -> bees_atoms@spelling(v.op);
+        (:rejected, w: atom) -> bees_atoms@spelling(w)
+    }
 }
 
 fn main() -> int64 {
-    sequence proc[mem(normal)]
-        L: lifetime <- fresh_lifetime();
-        rg: region(L, normal) <- alloc_region(normal);
-        b: buf(L, normal, uint8, 4096) <- alloc_buf(rg, 4096);
-        c: buf(L, normal, uint8, 4096) <- alloc_buf(rg, 4096);
-        pb: buf(L, normal, uint8, 4096) <- alloc_buf(rg, 4096);
-        n1: int64 <- bees_dist@put_n_init(rg, b, bees_peers@node_name(), bees_peers@node_creation());
-        _: atom <- dump("n_init", rg, b, n1);
-        s1: int64 <- body_of(rg, b, c, 2, n1);
-        r1: { code: int64, v: string } <- bees_dist@n_init_name(rg, c, s1);
+    sequence
+        f1: string <- bees_dist@put_n_init(bees_peers@node_name(), bees_peers@node_creation());
+        _: atom <- dump("n_init", f1);
+        s1: string <- body_of(f1, 2);
+        r1: { code: int64, v: string } <- bees_dist@n_init_name(s1);
         _: atom <- num("n_init parse code", r1.code);
         _: atom <- show("n_init parse name", r1.v);
         _: atom <- num("n_init peer_index", bees_peers@peer_index(r1.v));
-        n2: int64 <- bees_dist@put_s_ok(rg, b);
-        _: atom <- dump("s_ok", rg, b, n2);
-        s2: int64 <- body_of(rg, b, c, 2, n2);
-        _: atom <- num("s_ok accepted", case bees_dist@is_s_ok(rg, c, s2) of { true -> 1; false -> 0 });
-        n3: int64 <- bees_dist@put_n_acc(rg, b, "a@127.0.0.1", 7);
-        _: atom <- dump("n_acc", rg, b, n3);
-        s3: int64 <- body_of(rg, b, c, 2, n3);
-        r3: { code: int64, v: string } <- bees_dist@n_acc_name(rg, c, s3);
+        f2: string <- bees_dist@put_s_ok();
+        _: atom <- dump("s_ok", f2);
+        _: atom <- num("s_ok accepted", b2i(bees_dist@is_s_ok(body_of(f2, 2))));
+        f3: string <- bees_dist@put_n_acc("a@127.0.0.1", 7);
+        _: atom <- dump("n_acc", f3);
+        s3: string <- body_of(f3, 2);
+        r3: { code: int64, v: string } <- bees_dist@n_acc_name(s3);
         _: atom <- num("n_acc parse code", r3.code);
         _: atom <- show("n_acc parse name", r3.v);
-        _: atom <- num("n_acc as an init message, code", bees_dist@n_init_name(rg, c, s3).code);
-        _: atom <- num("n_init as an acc message, code", bees_dist@n_acc_name(rg, c, s1).code);
+        _: atom <- num("n_acc as an init message, code", bees_dist@n_init_name(s3).code);
+        _: atom <- num("n_init as an acc message, code", bees_dist@n_acc_name(s1).code);
         m: { op: atom, n: int64 } <- { op: bees_atoms@a_inc(), n: 5 };
-        plen: int64 <- bees_wire_msgs@enc_counter(rg, pb, m);
-        _: atom <- dump("payload", rg, pb, plen);
-        n4: int64 <- bees_dist@reg_send_frame(rg, b, pb, plen, 3, bees_peers@node_name(), bees_peers@node_creation(), bees_atoms@spelling(bees_atoms@a_counter()));
-        _: atom <- dump("reg_send", rg, b, n4);
-        s4: int64 <- body_of(rg, b, c, 4, n4);
-        t4: { code: int64, name: atom, pstart: int64 } <- bees_dist@reg_send_target(rg, c, s4, "b@127.0.0.1");
+        payload: string <- bees_msgs@enc_counter(m);
+        _: atom <- dump("payload", payload);
+        body: string <- bees_dist@reg_send_body(payload, 3, bees_peers@node_name(), bees_peers@node_creation(), bees_atoms@spelling(bees_atoms@a_counter()));
+        f4: string <- bees_dist@frame4(body);
+        _: atom <- dump("reg_send", f4);
+        t4: { code: int64, name: atom, pstart: int64 } <- bees_dist@reg_send_target(body, "b@127.0.0.1");
         _: atom <- num("reg_send parse code", t4.code);
         _: atom <- show("reg_send parse name", bees_atoms@spelling(t4.name));
         _: atom <- num("reg_send parse pstart", t4.pstart);
-        _: atom <- num("reg_send from another node, code", bees_dist@reg_send_target(rg, c, s4, "x@127.0.0.1").code);
+        _: atom <- num("reg_send from another node, code", bees_dist@reg_send_target(body, "x@127.0.0.1").code);
         _: atom <- num("reg_send local_index of counter (a remote name)", bees_peers@local_index(t4.name));
-        p4: int64 <- bees_dist@copy_bytes(rg, c, pb, t4.pstart, 0, s4 - t4.pstart);
-        _: atom <- num("payload validates", bees_wire_msgs@validate_named(rg, pb, p4, t4.name));
-        d4: { code: int64, v: { op: atom, n: int64 } } <- bees_wire_msgs@dec_counter(rg, pb, p4);
-        _: atom <- num("payload decoded n", d4.v.n);
-        _: atom <- show("payload decoded op", bees_atoms@spelling(d4.v.op))
+        p4: string <- bees_dist@payload_of(body, t4.pstart);
+        _: atom <- num("payload validates", bees_ingress@reason_code(bees_msgs@validate_named(p4, t4.name)));
+        d4: (:ok, { op: atom, n: int64 }) | (:rejected, atom) <- bees_msgs@dec_counter(p4);
+        _: atom <- num("payload decoded n", decoded_n(d4));
+        _: atom <- show("payload decoded op", decoded_op(d4))
     produces pure 0 end
 }

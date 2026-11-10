@@ -1,0 +1,465 @@
+// BEES node: one link between two nodes over the language's (:tcp) carrier (transport design 6.2, 6.3; the hosted
+// dangerous_tcp_carrier of the Silica stdlib), spoken as the design writes it: tagged tuples, string segments, credits.
+//
+//   conn  the RECEIVE ACTOR and the connection carrier's owner: it receives the carrier's events (:link_up, :rx, :tx_credit,
+//         :tx_failed, :link_down), runs the distribution handshake (bees_dist) and then the data phase, and delivers REG_SEND
+//         payloads by registered name through short-lived deliverers (bees_peers), where the language's decode runs.
+//         Its state holds no heap value (SD-35): each frame's bytes are reassembled by a short-lived assembler `asm`, one per
+//         frame, which keeps the wireframe state { mode, expected, pending } and ends when its frame is complete. The
+//         carrier is granted ONE receive credit at a time, and only when the assembler has said it needs more bytes
+//         ((:bees, 4, ...)): so at most one segment is ever on its way to an assembler, and no segment can reach an assembler
+//         that has already ended with its frame (it did, with four credits outstanding, and the stream stalled under load:
+//         the m4_demo rate run, 2026-11-10). The
+//         assembler of the handshake messages uses BEES's 2-byte framing (bees_dist@unframe2); after the handshake the
+//         language's wireframe@unframe (4-byte framing) does the work.
+//   tx    the SEND ACTOR, the one writer of the link: it takes framed segments (strings) and casts each to the carrier as
+//         (:tx, segment, self()), so frames of several proxies never interleave. It also sends the net tick when the link has
+//         been idle for a tick interval, and, when the link is lost, ends every proxy through the reaper.
+//   lsn   the LISTEN ACTOR of a listening node: the owner of the listening carrier. The carrier is opened with "listen:PORT" and
+//         answers (:link_up, "port:N") once bound; for the first peer it accepts it sends (:accepted, connection_carrier, info),
+//         and lsn starts the link on that connection (tx, the proxies, conn) and adopts it for conn with (:open, conn, ""): the
+//         connection then answers its own :link_up and the handshake starts. One live link per node (M3): later accepted
+//         connections are left unopened. tx and conn are spawned only once their carrier is known, so neither ever changes
+//         its carrier (SD-39: a replaced dangerous_actor_ref in state makes the compiler fall back to a whole-state copy per
+//         dispatch, which grew both actors by hundreds of MB in the m4_demo rate run). A dialing node needs no lsn: the root
+//         unit starts the link on its carrier at once (bees_node_edge.part).
+// The language's carrier has no idle timeout, so conn keeps its own (io_ms): a peer silent for io_ms ends the link
+// with reason timeout, as the native edge did.
+//
+// A link is "up" once the handshake is complete: data frames of proxies are written only then (a frame earlier is dropped), and
+// a frame received before the handshake completes is dropped with an audit entry and the link is closed.
+// Failure maps onto Silica's own rules (mvp.md 3.3): the proxies are ended with kill_abnormal, which is what a sender sees.
+//
+// BEES-internal messages are tagged tuples with the tag :bees (conn: (:bees, kind, body, rest, why); tx: (:bees, kind, seg)),
+// and :who (tx learns the reaper); these tags are Silica-level actor-protocol atoms
+// that never reach the wire, allowed by tools/bees_config.py check beside the carrier contract's own.
+//
+// Why the dangerous_ prefix, and why this unit exports only the two behaviours (checked on silica-999926, 2026-11-10): a unit
+// that holds a dangerous_actor_ref (the carrier) must be named dangerous_* (E4026), and a call to any function of a
+// dangerous_* unit is allowed only inside an FFI worker's external_danger sequence (E4042), even when the function does no
+// foreign work. So nothing here is called from outside: the node is started by the program's dangerous_ root unit, which
+// spawns `tx` and `conn` (a dialer) or `lsn` (a listener) by reference and casts to them (net_launch, net_start, net_raw_writer, net_send_raw in
+// src/shim/bees_node_edge.part, pasted into every node program by tools/bees_edge_gen.py).
+module dangerous_bees_net;
+use bees_atoms;
+use bees_dist;
+use bees_ingress;
+use bees_msgs;
+use bees_peers;
+use wireframe;
+use carrier;
+
+export tx/2;
+export conn/2;
+export lsn/2;
+
+// ======================================================================== tx
+// tx message kinds (:bees, kind, seg): 0 a data segment (written only while the link is up), 1 a raw segment (always),
+// 2 the link is up, 3 the link is lost, 4 the idle timer. (:who, r) names the reaper. The carrier c is fixed for the actor's
+// life: the new state's c is always st.c, because the compiler proves a state release only when each pointer-carrying slot is
+// passed through, and it counts a dangerous_actor_ref as pointer-carrying (SD-39); an unproven tx grew by hundreds of MB.
+fn ctl(tx: actor_ref, kind: int64) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(tx, (:bees, kind, "") impl ActorMessage {})
+    produces pure ok end
+}
+// a framed segment, written whether or not the link is up (the handshake, and test programs that break the protocol)
+fn send_raw(tx: actor_ref, seg: string) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(tx, (:bees, 1, seg) impl ActorMessage {})
+    produces pure ok end
+}
+fn arm(me: actor_ref, ms: uint64) -> boolean {
+    sequence proc[concurrency]
+        t: timer_ref <- send_after(ms, me, (:bees, 4, "") impl ActorMessage {})
+    produces pure true end
+}
+fn msg_kind(msg: (:bees, int64, string) | (:who, actor_ref)) -> int64 {
+    case msg of {
+        (:bees, k: int64, _s: string) -> k;
+        (:who, _w: actor_ref) -> 5
+    }
+}
+fn msg_seg(msg: (:bees, int64, string) | (:who, actor_ref)) -> string {
+    case msg of {
+        (:bees, _k: int64, s: string) -> s;
+        (:who, _w: actor_ref) -> ""
+    }
+}
+fn msg_who(msg: (:bees, int64, string) | (:who, actor_ref), old: actor_ref) -> actor_ref {
+    case msg of {
+        (:bees, _k: int64, _s: string) -> old;
+        (:who, w: actor_ref) -> w
+    }
+}
+fn is_write(kind: int64, up: boolean) -> boolean { kind == 1 or (kind == 0 and up) }
+fn up_after(kind: int64, up: boolean) -> boolean {
+    case kind == 2 of { true -> true; false -> case kind == 3 of { true -> false; false -> up } }
+}
+fn sent_after(kind: int64, up: boolean, sent: int64) -> int64 {
+    case kind == 4 of {
+        true -> 0;
+        false -> case is_write(kind, up) of { true -> sent + 1; false -> sent }
+    }
+}
+fn b2i(b: boolean) -> int64 { case b of { true -> 1; false -> 0 } }
+
+fn tx(
+    msg: (:bees, int64, string) | (:who, actor_ref),
+    st: { c: dangerous_actor_ref, up: boolean, sent: int64, reaper: actor_ref, tick_ms: uint64 }
+) -> (:no_reply, { c: dangerous_actor_ref, up: boolean, sent: int64, reaper: actor_ref, tick_ms: uint64 }) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        kind: int64 <- msg_kind(msg);
+        seg: string <- msg_seg(msg);
+        _: boolean <- case is_write(kind, st.up) of { true -> cast(st.c, (:tx, seg, me) impl ActorMessage {}); false -> true };
+        idle: boolean <- kind == 4 and st.up and st.sent == 0 and st.tick_ms > 0;
+        tk: string <- bees_dist@tick();
+        _: boolean <- case idle of { true -> cast(st.c, (:tx, tk, me) impl ActorMessage {}); false -> true };
+        arm_first: boolean <- kind == 2 and st.tick_ms > 0;
+        arm_again: boolean <- kind == 4 and st.up and st.tick_ms > 0;
+        _: boolean <- case arm_first or arm_again of { true -> arm(me, st.tick_ms); false -> true };
+        _: boolean <- case kind == 3 of { true -> cast(st.reaper, 1 impl ActorMessage {}); false -> true }
+    produces pure (:no_reply, { c: st.c, up: up_after(kind, st.up), sent: sent_after(kind, st.up, st.sent), reaper: msg_who(msg, st.reaper), tick_ms: st.tick_ms }) end
+}
+
+// ======================================================================== asm
+// The assembler of one frame: it holds the reassembly state and nothing else lives long with a heap value in its state
+// (SD-35). hs chooses the framing: BEES's 2-byte handshake framing, or the language's 4-byte wireframe. When a frame is
+// complete it hands the body and the bytes that followed it (the start of the next frame) to conn as (:bees, 1, body, rest, :ok)
+// and ends; a framing rejection is (:bees, 2, "", "", reason); when it has used every byte and needs more it says so,
+// (:bees, 4, "", "", :ok), and conn grants the carrier one receive credit.
+fn asm(
+    seg: string,
+    a: { core: actor_ref, hs: boolean, rx: { mode: atom, expected: int64, pending: string } }
+) -> (:no_reply, { core: actor_ref, hs: boolean, rx: { mode: atom, expected: int64, pending: string } }) {
+    sequence
+        un: (:more, { mode: atom, expected: int64, pending: string }) | (:frame, string, { mode: atom, expected: int64, pending: string }) | (:rejected, atom) <- case a.hs of {
+            true -> bees_dist@unframe2(a.rx, seg, bees_dist@max_handshake());
+            false -> wireframe@unframe(a.rx, seg, bees_dist@max_body())
+        };
+        rx2: { mode: atom, expected: int64, pending: string } <- case un of {
+            (:more, r1: { mode: atom, expected: int64, pending: string }) -> {
+                sequence proc[concurrency]
+                    _: boolean <- cast(a.core, (:bees, 4, "", "", :ok) impl ActorMessage {})
+                produces pure r1 end
+            };
+            (:frame, body: string, r2: { mode: atom, expected: int64, pending: string }) -> {
+                sequence proc[concurrency]
+                    _: boolean <- cast(a.core, (:bees, 1, body, r2.pending, :ok) impl ActorMessage {});
+                    _: atom <- stop_self(:normal)
+                produces pure r2 end
+            };
+            (:rejected, why: atom) -> {
+                sequence proc[concurrency]
+                    _: boolean <- cast(a.core, (:bees, 2, "", "", why) impl ActorMessage {});
+                    _: atom <- stop_self(:normal)
+                produces pure a.rx end
+            }
+        }
+    produces pure (:no_reply, { core: a.core, hs: a.hs, rx: rx2 }) end
+}
+// a new assembler for the next frame, started with the bytes already received (it drains them at once: an empty segment)
+fn spawn_asm(core: actor_ref, hs: boolean, pending: string) -> actor_ref {
+    sequence proc[concurrency]
+        a: actor_ref <- spawn({ core: core, hs: hs, rx: { mode: :stream, expected: 0, pending: pending } }, asm, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: boolean <- cast(a, "" impl ActorMessage {})
+    produces pure a end
+}
+
+// ======================================================================== conn
+// mode: 0 waiting for the link, 1 the handshake (2-byte framing), 3 data (4-byte framing), 9 closing (a violation: waiting for
+// the link_down our close causes), 10 over. step: the dialer's handshake step (0 expecting s, 1 expecting N). seen: frames
+// (ticks included) since the last idle check.
+fn step(a: actor_ref, mode: int64, stp: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } {
+    { asm: a, mode: mode, step: stp, peer: peer, ok: ok, dropped: dropped, ticks: ticks, seen: seen }
+}
+fn keep(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64 }) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } {
+    step(st.asm, st.mode, st.step, st.peer, st.ok, st.dropped, st.ticks, st.seen)
+}
+fn in_link(mode: int64) -> boolean { mode == 1 or mode == 3 }
+
+fn credit(c: dangerous_actor_ref, n: int64) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(c, (:credit, n) impl ActorMessage {})
+    produces pure ok end
+}
+fn close_link(c: dangerous_actor_ref) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(c, :close impl ActorMessage {})
+    produces pure ok end
+}
+fn arm_idle(me: actor_ref, ms: uint64) -> boolean {
+    case ms > 0 of {
+        false -> true;
+        true -> {
+            sequence proc[concurrency]
+                t: timer_ref <- send_after(ms, me, (:bees, 3, "", "", :ok) impl ActorMessage {})
+            produces pure true end
+        }
+    }
+}
+
+// the handshake messages, as raw (always written) segments
+fn send_name(tx: actor_ref) -> boolean { send_raw(tx, bees_dist@put_n_init(bees_peers@node_name(), bees_peers@node_creation())) }
+fn send_accept(tx: actor_ref) -> boolean {
+    sequence
+        _: boolean <- send_raw(tx, bees_dist@put_s_ok());
+        ok: boolean <- send_raw(tx, bees_dist@put_n_acc(bees_peers@node_name(), bees_peers@node_creation()))
+    produces pure ok end
+}
+
+// the connection is up (a dialer's carrier connected, or an accepted connection was opened): start the handshake
+fn on_up(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64 }, me: actor_ref, info: string) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } {
+    case starts_with(info, "port:") or st.mode != 0 of {
+        true -> keep(st);
+        false -> link_up(st, me)
+    }
+}
+fn link_up(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64 }, me: actor_ref) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } {
+    sequence
+        _: boolean <- case bees_peers@link_dials() of { true -> send_name(st.tx); false -> true };
+        _: boolean <- arm_idle(me, st.io_ms);
+        a: actor_ref <- spawn_asm(me, true, "");
+        s: { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } <- step(a, 1, 0, st.peer, st.ok, st.dropped, st.ticks, 0)
+    produces pure s end
+}
+// a received segment goes to the frame's assembler; the next receive credit waits for the assembler's (:bees, 4, ...)
+fn on_rx(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64 }, seg: string) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } {
+    sequence proc[concurrency]
+        _: boolean <- case in_link(st.mode) of { true -> cast(st.asm, seg impl ActorMessage {}); false -> true };
+        s: { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } <- keep(st)
+    produces pure s end
+}
+
+// a violation of the protocol: audit it, close the link, wait for the link_down
+fn violation(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64 }, kind: string, who: string, n: int64) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } {
+    sequence
+        _: atom <- bees_ingress@audit(kind, who, n);
+        _: boolean <- close_link(st.c);
+        s: { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } <- step(st.asm, 9, st.step, st.peer, st.ok, st.dropped + 1, st.ticks, st.seen)
+    produces pure s end
+}
+fn kind_for(mode: int64) -> string { case mode == 1 of { true -> "frame before handshake dropped, link closed"; false -> "bad frame length, link closed" } }
+
+// the link is established: the proxies may write
+fn established(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64 }, peer: int64) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } {
+    sequence
+        _: boolean <- ctl(st.tx, 2);
+        _: atom <- bees_ingress@audit("handshake complete with", bees_peers@peer_name(peer), peer);
+        s: { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } <- step(st.asm, 3, 2, peer, st.ok, st.dropped, st.ticks, st.seen + 1)
+    produces pure s end
+}
+
+// a complete handshake message (its body, without the 2-byte prefix)
+fn hs_done(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64 }, body: string) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } {
+    case bees_peers@link_dials() of {
+        false -> hs_listener(st, bees_dist@n_init_name(body));
+        true -> case st.step == 0 of {
+            true -> hs_dial_status(st, body);
+            false -> hs_dial_name(st, bees_dist@n_acc_name(body))
+        }
+    }
+}
+fn hs_listener(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64 }, r: { code: int64, v: string }) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } {
+    case r.code == 0 of {
+        false -> violation(st, "bad name message, link closed", "code", r.code);
+        true -> hs_listed(st, r.v, bees_peers@peer_index(r.v))
+    }
+}
+fn hs_listed(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64 }, name: string, idx: int64) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } {
+    case idx < 0 of {
+        true -> violation(st, "unlisted node, link closed", name, 0 - 1);
+        false -> hs_accept(st, idx)
+    }
+}
+fn hs_accept(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64 }, idx: int64) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } {
+    sequence
+        _: boolean <- send_accept(st.tx);
+        s: { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } <- established(st, idx)
+    produces pure s end
+}
+fn hs_dial_status(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64 }, body: string) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } {
+    case bees_dist@is_s_ok(body) of {
+        false -> violation(st, "status is not ok, link closed", "status", length_bytes(body));
+        true -> step(st.asm, 1, 1, st.peer, st.ok, st.dropped, st.ticks, st.seen + 1)
+    }
+}
+fn hs_dial_name(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64 }, r: { code: int64, v: string }) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } {
+    case r.code == 0 of {
+        false -> violation(st, "bad name message, link closed", "code", r.code);
+        true -> hs_expected(st, r.v, bees_peers@peer_index(r.v))
+    }
+}
+fn hs_expected(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64 }, name: string, idx: int64) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } {
+    case idx == bees_peers@link_peer() of {
+        false -> violation(st, "not the node dialed, link closed", name, idx);
+        true -> established(st, idx)
+    }
+}
+
+// a complete frame body in the data phase: empty is a net tick; else 112, REG_SEND, payload. Anything wrong with the content
+// drops the frame (counted, audited) and keeps the link: the framing was intact. Anything but REG_SEND is dropped and counted.
+fn frame_done(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64 }, body: string) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } {
+    case length_bytes(body) == 0 of {
+        true -> step(st.asm, 3, st.step, st.peer, st.ok, st.dropped, st.ticks + 1, st.seen + 1);
+        false -> frame_target(st, body, bees_dist@reg_send_target(body, bees_peers@peer_name(st.peer)))
+    }
+}
+fn dropped_frame(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64 }, kind: string, who: string, n: int64) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } {
+    sequence
+        _: atom <- bees_ingress@audit(kind, who, n);
+        s: { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } <- step(st.asm, 3, st.step, st.peer, st.ok, st.dropped + 1, st.ticks, st.seen + 1)
+    produces pure s end
+}
+fn frame_target(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64 }, body: string, t: { code: int64, name: atom, pstart: int64 }) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } {
+    case t.code == 0 of {
+        false -> dropped_frame(st, "frame dropped", bees_ingress@reason_text(t.code), t.code);
+        true -> frame_name(st, bees_dist@payload_of(body, t.pstart), t.name, bees_peers@local_index(t.name))
+    }
+}
+fn frame_name(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64 }, payload: string, name: atom, li: int64) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } {
+    case li < 0 of {
+        true -> dropped_frame(st, "frame dropped, not a name this node serves", bees_atoms@spelling(name), 0 - 1);
+        false -> frame_valid(st, payload, li, bees_msgs@validate_named(payload, name))
+    }
+}
+// the payload is validated against the name's declared type (the language's decode, in bees_msgs) before it is delivered
+fn frame_valid(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64 }, payload: string, li: int64, why: atom) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } {
+    case why == :ok of {
+        false -> dropped_frame(st, "payload refused", bees_atoms@spelling(why), bees_ingress@reason_code(why));
+        true -> deliver(st, payload, li)
+    }
+}
+fn deliver(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64 }, payload: string, li: int64) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } {
+    sequence proc[concurrency]
+        d: actor_ref <- bees_peers@start_deliverer(li);
+        _: boolean <- cast(d, payload impl ActorMessage {});
+        s: { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } <- step(st.asm, 3, st.step, st.peer, st.ok + 1, st.dropped, st.ticks, st.seen + 1)
+    produces pure s end
+}
+
+fn on_down(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64 }, reason: atom) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } {
+    sequence
+        _: atom <- bees_ingress@audit("link down, proxies ended; reason", bees_atoms@spelling(reason), st.ok);
+        _: atom <- bees_ingress@audit("frames delivered", "-", st.ok);
+        _: atom <- bees_ingress@audit("frames dropped", "-", st.dropped);
+        _: atom <- bees_ingress@audit("net ticks seen (1 yes, 0 no)", "-", b2i(st.ticks > 0));
+        _: boolean <- ctl(st.tx, 3);
+        s: { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } <- step(st.asm, 10, st.step, st.peer, st.ok, st.dropped, st.ticks, st.seen)
+    produces pure s end
+}
+// a failed write ends the link in the carrier but is reported only as tx_failed, so it ends the link here too
+fn on_down_if(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64 }, reason: atom) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } {
+    case st.mode == 10 of {
+        true -> keep(st);
+        false -> on_down(st, reason)
+    }
+}
+// the idle check: a peer silent for io_ms (no frame, no tick) is lost; the link is closed with reason timeout
+fn on_idle(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64 }, me: actor_ref) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } {
+    case in_link(st.mode) of {
+        false -> keep(st);
+        true -> case st.seen > 0 of {
+            true -> {
+                sequence
+                    _: boolean <- arm_idle(me, st.io_ms);
+                    s: { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } <- step(st.asm, st.mode, st.step, st.peer, st.ok, st.dropped, st.ticks, 0)
+                produces pure s end
+            };
+            false -> {
+                sequence
+                    _: boolean <- close_link(st.c);
+                    s: { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } <- on_down(st, bees_atoms@a_timeout())
+                produces pure s end
+            }
+        }
+    }
+}
+
+// a frame from the assembler: handled by phase, then the next assembler is started with the bytes that followed it
+fn on_frame(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64 }, me: actor_ref, body: string, rest: string) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } {
+    sequence
+        s: { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } <- case st.mode of {
+            1 -> hs_done(st, body);
+            3 -> frame_done(st, body);
+            _: int64 -> keep(st)
+        };
+        a: actor_ref <- case in_link(s.mode) of {
+            true -> spawn_asm(me, s.mode == 1, rest);
+            false -> s.asm
+        };
+        out: { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } <- step(a, s.mode, s.step, s.peer, s.ok, s.dropped, s.ticks, s.seen)
+    produces pure out end
+}
+// the assembler has used every byte it was given: one more receive credit
+fn on_more(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64 }) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } {
+    sequence
+        _: boolean <- case in_link(st.mode) of { true -> credit(st.c, 1); false -> true };
+        s: { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } <- keep(st)
+    produces pure s end
+}
+fn on_bees(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64 }, me: actor_ref, k: int64, body: string, rest: string, why: atom) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } {
+    case k of {
+        1 -> on_frame(st, me, body, rest);
+        2 -> case in_link(st.mode) of { true -> violation(st, kind_for(st.mode), bees_atoms@spelling(why), bees_ingress@reason_code(why)); false -> keep(st) };
+        3 -> on_idle(st, me);
+        4 -> on_more(st);
+        _: int64 -> keep(st)
+    }
+}
+
+fn handle(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64 }, me: actor_ref, msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | (:bees, int64, string, string, atom)) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } {
+    case msg of {
+        (:link_up, info: string) -> on_up(st, me, info);
+        (:rx, seg: string) -> on_rx(st, seg);
+        (:tx_credit, _n: int64) -> keep(st);
+        (:tx_failed, _why: atom) -> on_down_if(st, bees_atoms@a_link_down());
+        (:link_down, why2: atom) -> on_down_if(st, why2);
+        (:bees, k: int64, body: string, rest: string, why3: atom) -> on_bees(st, me, k, body, rest, why3)
+    }
+}
+fn conn(
+    msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | (:bees, int64, string, string, atom),
+    st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64 }
+) -> (:no_reply, { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64 }) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        s: { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64 } <- handle(st, me, msg)
+    produces pure (:no_reply, { asm: s.asm, c: st.c, tx: st.tx, mode: s.mode, step: s.step, peer: s.peer, ok: s.ok, dropped: s.dropped, ticks: s.ticks, seen: s.seen, io_ms: st.io_ms }) end
+}
+
+// ======================================================================== lsn
+// The owner of a listening carrier. On the first (:accepted, car, info) it starts the link on car exactly as the root unit's
+// net_launch does on a dialer's carrier (the same state literals), and opens car with conn as its owner. Everything else the
+// listener says ((:link_up, "port:N"), a later :accepted, its :link_down) changes nothing.
+fn link_on(car: dangerous_actor_ref, st: { reaper: actor_ref, io_ms: uint64, tick_ms: uint64, started: boolean }) -> boolean {
+    sequence proc[concurrency]
+        t: actor_ref <- spawn({ c: car, up: false, sent: 0, reaper: st.reaper, tick_ms: st.tick_ms }, tx, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        r: actor_ref <- bees_peers@start_proxies(t);
+        _: boolean <- cast(t, (:who, r) impl ActorMessage {});
+        n: actor_ref <- spawn({ asm: t, c: car, tx: t, mode: 0, step: 0, peer: bees_peers@link_peer(), ok: 0, dropped: 0, ticks: 0, seen: 0, io_ms: st.io_ms }, conn, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        ok: boolean <- cast(car, (:open, n, "") impl ActorMessage {})
+    produces pure ok end
+}
+fn first_accept(msg: (:link_up, string) | (:accepted, dangerous_actor_ref, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom), st: { reaper: actor_ref, io_ms: uint64, tick_ms: uint64, started: boolean }) -> boolean {
+    case msg of {
+        (:accepted, car: dangerous_actor_ref, _info: string) -> case st.started of {
+            true -> false;
+            false -> link_on(car, st)
+        };
+        (:link_up, _i: string) -> false;
+        (:rx, _s: string) -> false;
+        (:tx_credit, _n: int64) -> false;
+        (:tx_failed, _w: atom) -> false;
+        (:link_down, _w2: atom) -> false
+    }
+}
+fn lsn(
+    msg: (:link_up, string) | (:accepted, dangerous_actor_ref, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom),
+    st: { reaper: actor_ref, io_ms: uint64, tick_ms: uint64, started: boolean }
+) -> (:no_reply, { reaper: actor_ref, io_ms: uint64, tick_ms: uint64, started: boolean }) {
+    sequence
+        now: boolean <- first_accept(msg, st)
+    produces pure (:no_reply, { reaper: st.reaper, io_ms: st.io_ms, tick_ms: st.tick_ms, started: st.started or now }) end
+}

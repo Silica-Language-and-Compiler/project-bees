@@ -1,20 +1,42 @@
-// ---- injects hostile frames into the live link, one every 200 ms from 2.5 s on, through the node's writer (bees_net@send_raw): 1 a
+// ---- injects hostile frames into the live link, one every 200 ms from 2.5 s on, through the node's writer (net_send_raw, the node edge): 1 a
 // payload that is not ETF (bad version byte), 2 a payload whose first map key is not a field of the type, 3 a payload cut
-// short, 4 a pid of another node, 5 a target name nobody serves. Then final_kind(): 0 a good request (seq 900), 6 a frame whose
-// length is 65536 (over the limit).
+// short, 4 a pid of another node, 5 a target name nobody serves. Then final_kind(): 0 a good request (seq 900), 6 a segment that is
+// a 4-byte length prefix of 65536 (over the receiver's limit: the language's wireframe answers :too_large).
+fn one_byte(v: int64) -> string {
+    sequence proc[mem(normal), transport]
+        xs: List[int64, mem(normal)] <- [v];
+        s: string <- bytes_of(xs)
+    produces pure s end
+}
+// byte_slice is a transport operation (E3013): in a sequence that declares transport
+fn cut(p: string, from: int64, to: int64) -> string {
+    sequence proc[mem(normal), transport]
+        s: string <- byte_slice(p, from, to)
+    produces pure s end
+}
+// the payload with byte `at` replaced by v
+fn patch(p: string, at: int64, v: int64) -> string {
+    sequence proc[mem(normal), transport]
+        parts: List[string, mem(normal)] <- [cut(p, 0, at), one_byte(v), cut(p, at + 1, length_bytes(p))];
+        s: string <- join_bytes(parts)
+    produces pure s end
+}
+fn big_prefix() -> string {
+    sequence proc[mem(normal), transport]
+        xs: List[int64, mem(normal)] <- [0, 1, 0, 0];
+        s: string <- bytes_of(xs)
+    produces pure s end
+}
 fn inject(tx: actor_ref, which: int64) -> boolean {
-    sequence proc[concurrency, mem(normal)]
-        L: lifetime <- fresh_lifetime();
-        rg: region(L, normal) <- alloc_region(normal);
-        pb: buf(L, normal, uint8, 4096) <- alloc_buf(rg, 4096);
-        ob: buf(L, normal, uint8, 4096) <- alloc_buf(rg, 4096);
-        plen: int64 <- m4_payload@probe_payload(rg, pb);
-        _: int64 <- case which == 1 of { true -> bees_wire@put_i(rg, pb, 0, 130); false -> 0 };
-        _: int64 <- case which == 2 of { true -> bees_wire@put_i(rg, pb, 8, 120); false -> 0 };
-        flen: int64 <- bees_dist@reg_send_frame(rg, ob, pb, case which == 3 of { true -> plen - 5; false -> plen }, 1, case which == 4 of { true -> "x@127.0.0.1"; false -> "b@127.0.0.1" }, 1, case which == 5 of { true -> "no_such_name"; false -> "svc" });
-        _: int64 <- case which == 6 of { true -> bees_wire@put_u32(rg, ob, 0, 65536); false -> 0 };
-        me: actor_ref <- self();
-        ok: boolean <- bees_net@send_raw(tx, rg, ob, case which == 6 of { true -> 4; false -> flen }, me)
+    sequence
+        p0: string <- m4_payload@probe_payload();
+        n: int64 <- length_bytes(p0);
+        p1: string <- case which == 1 of { true -> patch(p0, 0, 130); false -> p0 };
+        p2: string <- case which == 2 of { true -> patch(p1, 8, 120); false -> p1 };
+        p3: string <- case which == 3 of { true -> cut(p2, 0, n - 5); false -> p2 };
+        body: string <- bees_dist@reg_send_body(p3, 1, case which == 4 of { true -> "x@127.0.0.1"; false -> "b@127.0.0.1" }, 1, case which == 5 of { true -> "no_such_name"; false -> "svc" });
+        seg: string <- case which == 6 of { true -> big_prefix(); false -> bees_dist@frame4(body) };
+        ok: boolean <- net_send_raw(tx, seg)
     produces pure ok end
 }
 fn hostile(msg: int64, st: { tx: actor_ref, i: int64 }) -> (:no_reply, { tx: actor_ref, i: int64 }) {

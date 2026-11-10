@@ -1,17 +1,4 @@
-// ---- node b: connects to 127.0.0.1:47311 and sends frame B.
+// ---- node b: connects to 127.0.0.1:47311 (the language's "host:port" address) and sends frame B.
 fn label() -> string { "b" }
-fn address() -> string { "connect:127.0.0.1:47311" }
-
-// Frame B: a count, a larger integer, the bytes "world!!!" as one word, and the largest int64.
-fn frame_word(i: int64) -> int64 {
-    case i == 0 of {
-        true -> 3;
-        false -> case i == 1 of {
-            true -> 4242;
-            false -> case i == 2 of {
-                true -> 8606223222790234401;
-                false -> 9223372036854775807
-            }
-        }
-    }
-}
+fn address() -> string { "127.0.0.1:47311" }
+fn frame_text() -> string { "frame B: 3 4242 world!!! 9223372036854775807" }

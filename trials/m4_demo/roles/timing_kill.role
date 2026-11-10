@@ -1,4 +1,4 @@
 // timing for the node-stopped scenario: a peer silent for 3 s is lost (the stopped process also closes its connection, which is seen at once)
 fn open_ms() -> int64 { 15000 }
-fn io_ms() -> int64 { 3000 }
+fn io_ms() -> uint64 { 3000 }
 fn tick_ms() -> uint64 { 1000 }

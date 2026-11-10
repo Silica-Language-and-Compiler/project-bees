@@ -1,9 +1,14 @@
-# The atoms of Silica's planned carrier actor contract (transport design 6.2), M2.
+# The atoms of the language's carrier actor contract (transport design 6.2) that BEES spells or prints: the reasons a
+# link ends with (spelled in audit lines through bees_atoms@spelling) and the tags of dangerous_bees_net's own actor messages.
+# The contract's message tags themselves (:open, :tx, :credit, :close, :link_up, :accepted, :rx, :tx_credit, :tx_failed,
+# :link_down) are written as literals where the carrier is spoken, as the language's own programs write them; they are
+# listed here so that every node program holds them in its atom table.
 open
 tx
 credit
 close
 link_up
+accepted
 rx
 tx_credit
 tx_failed
@@ -13,4 +18,6 @@ reset
 timeout
 fault
 no_credit
-frame_result
+bees
+car
+who

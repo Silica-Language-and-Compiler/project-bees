@@ -1,32 +1,42 @@
 #!/usr/bin/env python3
-"""bees_dist_gen: the distribution half of tools/bees_config.py (MVP milestone M3).
+"""bees_dist_gen: the distribution half of tools/bees_config.py (MVP milestone M3; ported to the language's transport, N0.0/N1).
 
 Not run directly; `bees_config.py generate` calls it when a `.wire` manifest has any node, peer, remote or local line. The same manifest
-carries the message types (tools/bees_wire_gen.py reads the `remote` and `local` lines as messages); the lines read
-here are:
+carries the message types (tools/bees_wire_gen.py reads the `remote` and `local` lines as messages and checks the typed subset); the
+lines read here are:
 
     node     <name>                                  this node's name, e.g. b@127.0.0.1 (ASCII, at most 255 bytes)
     creation <n>                                     optional, 0 .. 2^32-1, default 1 (the creation of the handshake)
-    timing   <open_ms> <io_ms> <tick_ms>             optional; defaults 10000 60000 15000. open_ms bounds listen/accept
-                                                     and connect, io_ms is the longest a read may see nothing (a peer
-                                                     silent for that long is lost), tick_ms the interval of the idle
-                                                     check that sends a net tick; tick_ms 0 sends no ticks (a test
-                                                     setting: the peer will drop this node after its io_ms)
+    timing   <open_ms> <io_ms> <tick_ms>             optional; defaults 10000 60000 15000. io_ms is the longest the peer may be
+                                                     silent (a peer silent for that long is lost: dangerous_bees_net's idle check), tick_ms
+                                                     the interval of the idle check that sends a net tick; tick_ms 0 sends no
+                                                     ticks (a test setting: the peer will drop this node after its io_ms).
+                                                     open_ms is kept for the manifest's shape; the language's (:tcp) carrier
+                                                     connects or fails at once and has no accept timeout (N1 note)
     peer     <name> <host> <port> <listen|dial>      a node this program may talk to; host is 127.0.0.1 (the MVP)
     remote   <name> @ <peer name> cast <type>        a registered name on that peer: a proxy is registered here
     local    <name> cast <type>                      a registered name here that a peer may send to: a deliverer
 
-The first `peer` line gives the program's one link (M3: one live link per node, as the M2 transport holds one peer
-per listener): `dial` connects to it, `listen` binds its port and accepts one connection, which must name a node of
-the table. Every other `peer` line is a table entry (a node that may dial in).
+The first `peer` line gives the program's one link (M3: one live link per node): `dial` connects to it ("host:port", the
+language's carrier address), `listen` binds its port on 127.0.0.1 ("listen:port") and the first accepted connection becomes the
+link; it must name a node of the table. Every other `peer` line is a table entry (a node that may dial in).
 
-Generated: bees_peers.silica, with no BEAM atom literal (the registered names come from bees_atoms, D30):
+Generated, with no BEAM atom literal (the registered names come from bees_atoms, D30; the language's transport tags are
+Silica-level atoms, allowed by `bees_config check`):
 
-    node_name, node_creation, open_ms, io_ms, tick_ms, link_address, link_dials, link_peer, peer_count, peer_index,
-    peer_name, local_index (a registered name -> its index, -1 when no peer may send to it), start_deliverer (a
-    short-lived actor that decodes a validated payload and delivers it with cast_registered, then ends), start_proxies
-    (one proxy per remote name, registered under it, and a reaper that ends them: kill_abnormal), the proxies and
-    the deliverers themselves.
+    bees_msgs.silica    per message type: enc_<name>(value) -> string (the language's encode((:etf), value)),
+                        dec_<name>(frame) -> (:ok, T) | (:rejected, atom) (the language's decode((:etf), frame, { limits })),
+                        and validate_named(frame, name) -> atom (:ok or the rejection reason) for the connection actor.
+                        Both calls run in the sequence of a `sequence proc[mem(normal), transport] ... produces pure` block (user ruling
+                        2026-11-06). Limits (max_bytes, max_depth, max_length) are the module constants below until bees.config
+                        carries them (N1, D39 R1).
+    bees_peers.silica   node_name, node_creation, open_ms, io_ms, tick_ms, link_address, link_dials, link_peer, peer_count,
+                        peer_index, peer_name, local_index (a registered name -> its index, -1 when no peer may send to it),
+                        start_deliverer (a short-lived actor that decodes a payload with bees_msgs@dec_<name> and delivers it with
+                        cast_registered, then ends), start_proxies (one proxy per remote name, registered under it, and a reaper
+                        that ends them: kill_abnormal), the proxies and the deliverers themselves. A proxy encodes with
+                        bees_msgs@enc_<name>, builds the REG_SEND body (bees_dist@reg_send_body), frames it (bees_dist@frame4)
+                        and casts the segment to the writer as (:bees, 0, segment).
 """
 import os
 import re
@@ -36,6 +46,13 @@ import bees_wire_gen as W
 
 NAME_RE = re.compile(r"[a-z][a-z0-9_]*")
 NODE_RE = re.compile(r"[A-Za-z0-9_.@\-]+")
+
+# The decode limits handed to the language's decode for every message type (transport design 4.1). M3's frame cap and the
+# typed codec's depth and element limits; the string limit is the larger of M1b's list (256) and binary (1024) limits because
+# the language has one max_length for both. bees.config will carry them (N1).
+MAX_BYTES = 4096
+MAX_DEPTH = 16
+MAX_LENGTH = 1024
 
 
 class DistError(Exception):
@@ -123,8 +140,6 @@ def check(d, msgs):
 
 
 STATE = "{ tx: actor_ref, id: int64 }"
-TXMSG = "{ kind: int64, rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, who: actor_ref }"
-DMSG = "{ rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64 }"
 POL = "stack_policy(0, :keep_last_message), state_policy(:keep_state_area)"
 
 
@@ -139,12 +154,70 @@ def chain(items, expr_of, default):
     return e
 
 
+def variable_sized(ty):
+    """A type with a string or a list needs decode limits (transport design 4.1); a fixed-size type needs none."""
+    kind = ty[0]
+    if kind == "prim":
+        return ty[1] == "string"
+    if kind in ("tuple",):
+        return any(variable_sized(t) for t in ty[1])
+    if kind == "record":
+        return any(variable_sized(t) for _, t in ty[1])
+    return True
+
+
+def limits_arg(ty):
+    return f", {{ max_bytes: {MAX_BYTES}, max_depth: {MAX_DEPTH}, max_length: {MAX_LENGTH} }}" if variable_sized(ty) else ""
+
+
+def result_type(st):
+    return f"(:ok, {st}) | (:rejected, atom)"
+
+
+def generate_msgs(out_dir, msgs):
+    """bees_msgs.silica: the two-function shape per message over the language's derived encode and decode."""
+    ln = ["// Generated by tools/bees_dist_gen.py (bees_config generate). Do not edit. The message codecs of this program's manifest:",
+          "// the language's derived encode((:etf), value) and decode((:etf), frame, { limits }) behind enc_<name> / dec_<name>",
+          "// (transport design 4.1, 4.3), each in the sequence of a `sequence proc[mem(normal), transport] ... produces pure` block, so that",
+          "// what leaves is a pure typed value or a pure string. validate_named(frame, name) is the connection actor's check of a",
+          "// payload against its target name's declared type: :ok, or the language's rejection atom.",
+          "module bees_msgs;", "use wire_etf;", "use bees_atoms;", ""]
+    ex = ["validate_named/2"]
+    for name, _ in msgs:
+        ex += [f"enc_{name}/1", f"dec_{name}/1"]
+    ln += [f"export {e};" for e in ex] + [""]
+    for name, ty in msgs:
+        st = W.silica(ty)
+        rt = result_type(st)
+        ln += [f"fn enc_{name}(msg: {st}) -> string {{",
+               "    sequence proc[mem(normal), transport]",
+               "        s: string <- encode((:etf), msg)",
+               "    produces pure s end", "}", "",
+               f"fn dec_{name}(frame: string) -> {rt} {{",
+               "    sequence proc[mem(normal), transport]",
+               f"        r: {rt} <- decode((:etf), frame{limits_arg(ty)})",
+               "    produces pure r end", "}", "",
+               f"fn check_{name}(frame: string) -> atom {{",
+               "    sequence",
+               f"        r: {rt} <- dec_{name}(frame);",
+               f"        why: atom <- case r of {{ (:ok, _v: {st}) -> :ok; (:rejected, w: atom) -> w }}",
+               "    produces pure why end", "}", ""]
+    names = [n for n, _ in msgs]
+    ln += ["fn validate_named(frame: string, name: atom) -> atom { " +
+           chain(names, lambda k, n, e: f"case name == bees_atoms@a_{n}() of {{ true -> check_{n}(frame); false -> {e} }}",
+                 "bees_atoms@a_unknown_atom()") + " }", ""]
+    with open(os.path.join(out_dir, "bees_msgs.silica"), "w") as out:
+        out.write("\n".join(ln))
+
+
 def generate(out_dir, paths):
     d = parse(paths)
     msgs = check(d, W.collect(paths, warn=False))
+    generate_msgs(out_dir, [(n, msgs[n]) for n in sorted(msgs)])
     ln = ["// Generated by tools/bees_dist_gen.py (bees_config generate). Do not edit. The peer table, the proxies and the deliverers",
-          "// of this program's manifest (M3). No BEAM atom literal: every registered name comes from bees_atoms (D30).",
-          "module bees_peers;", "use bees_atoms;", "use bees_wire;", "use bees_wire_msgs;", "use bees_dist;", ""]
+          "// of this program's manifest (M3, over the language's transport). No BEAM atom literal: every registered name comes from",
+          "// bees_atoms (D30); the :bees tag is dangerous_bees_net's actor-protocol tag.",
+          "module bees_peers;", "use bees_atoms;", "use bees_msgs;", "use bees_dist;", ""]
     ex = ["node_name/0", "node_creation/0", "open_ms/0", "io_ms/0", "tick_ms/0", "link_address/0", "link_dials/0",
           "link_peer/0", "peer_count/0", "peer_index/1", "peer_name/1", "local_index/1", "start_deliverer/1", "start_proxies/1"]
     ln += [f"export {e};" for e in ex] + [""]
@@ -152,10 +225,11 @@ def generate(out_dir, paths):
     o, i, t = d["timing"]
     ln += [f"fn node_name() -> string {{ {lit(d['node'])} }}",
            f"fn node_creation() -> int64 {{ {d['creation']} }}",
-           f"fn open_ms() -> int64 {{ {o} }}", f"fn io_ms() -> int64 {{ {i} }}", f"fn tick_ms() -> uint64 {{ {t} }}"]
+           f"fn open_ms() -> int64 {{ {o} }}", f"fn io_ms() -> uint64 {{ {i} }}", f"fn tick_ms() -> uint64 {{ {t} }}"]
     first = peers[0]
-    mode = "listen" if first[3] == "listen" else "connect"
-    ln += [f"fn link_address() -> string {{ {lit(mode + ':' + first[1] + ':' + str(first[2]))} }}",
+    # the language's carrier addresses (transport design 6.2, 6.3): "host:port" connects, "listen:port" listens on 127.0.0.1
+    address = f"listen:{first[2]}" if first[3] == "listen" else f"{first[1]}:{first[2]}"
+    ln += [f"fn link_address() -> string {{ {lit(address)} }}",
            f"fn link_dials() -> boolean {{ {'true' if first[3] == 'dial' else 'false'} }}",
            f"fn link_peer() -> int64 {{ {0 if first[3] == 'dial' else -1} }}",
            f"fn peer_count() -> int64 {{ {len(peers)} }}"]
@@ -168,13 +242,14 @@ def generate(out_dir, paths):
     ln += [f"fn local_index(name: atom) -> int64 {{ " +
            chain(locs, lambda k, n, e: f"case name == bees_atoms@a_{n}() of {{ true -> {k}; false -> {e} }}", "-1") + " }", ""]
     # deliverers: one short-lived actor per delivery (cast_registered to a name nobody holds fails the caller, so the
-    # failure must not be the connection actor's)
+    # failure must not be the connection actor's). The decode is the language's, inside the sequence of a produces-pure block.
     for n in locs:
         st = W.silica(msgs[n])
-        ln += [f"fn dlv_{n}(msg: {DMSG}, st: int64) -> (:no_reply, int64) {{",
+        rt = result_type(st)
+        ln += [f"fn dlv_{n}(msg: string, st: int64) -> (:no_reply, int64) {{",
                "    sequence proc[concurrency]",
-               f"        r: {{ code: int64, v: {st} }} <- bees_wire_msgs@dec_{n}(msg.rg, msg.b, msg.len);",
-               f"        _: boolean <- case r.code == 0 of {{ true -> cast_registered(bees_atoms@a_{n}(), r.v impl ActorMessage {{}}); false -> true }};",
+               f"        r: {rt} <- bees_msgs@dec_{n}(msg);",
+               f"        _: boolean <- case r of {{ (:ok, v: {st}) -> cast_registered(bees_atoms@a_{n}(), v impl ActorMessage {{}}); (:rejected, _w: atom) -> true }};",
                "        _: atom <- stop_self(:normal)",
                "    produces pure (:no_reply, st) end", "}", "",
                f"fn start_dlv_{n}() -> actor_ref {{",
@@ -189,22 +264,15 @@ def generate(out_dir, paths):
     else:
         ln += ["fn start_deliverer(idx: int64) -> actor_ref {", "    sequence proc[concurrency]", "        me: actor_ref <- self()",
                "    produces pure me end", "}", ""]
-    # proxies
-    ln += [f"fn tx_msg(kind: int64, rg: region(L, normal), b: buf(L, normal, uint8, 4096), len: int64, who: actor_ref) -> {TXMSG} {{",
-           "    { kind: kind, rg: rg, b: b, len: len, who: who }", "}", ""]
+    # proxies: encode (the language's), the REG_SEND body, the 4-byte framing, one segment to the writer
     for k, (n, _) in enumerate(rems):
         st = W.silica(msgs[n])
         ln += [f"fn proxy_{n}(msg: {st}, st: {STATE}) -> (:no_reply, {STATE}) {{",
-               "    sequence proc[concurrency, mem(normal)]",
-               "        L: lifetime <- fresh_lifetime();",
-               "        rg: region(L, normal) <- alloc_region(normal);",
-               "        pb: buf(L, normal, uint8, 4096) <- alloc_buf(rg, 4096);",
-               "        ob: buf(L, normal, uint8, 4096) <- alloc_buf(rg, 4096);",
-               f"        plen: int64 <- bees_wire_msgs@enc_{n}(rg, pb, msg);",
-               f"        flen: int64 <- bees_dist@reg_send_frame(rg, ob, pb, plen, st.id, node_name(), node_creation(), bees_atoms@spelling(bees_atoms@a_{n}()));",
-               "        me: actor_ref <- self();",
-               "        m: " + TXMSG + " <- tx_msg(0, rg, ob, flen, me);",
-               "        _: boolean <- case flen > 0 of { true -> cast(st.tx, m impl ActorMessage {}); false -> true }",
+               "    sequence proc[concurrency]",
+               f"        payload: string <- bees_msgs@enc_{n}(msg);",
+               f"        body: string <- bees_dist@reg_send_body(payload, st.id, node_name(), node_creation(), bees_atoms@spelling(bees_atoms@a_{n}()));",
+               "        seg: string <- bees_dist@frame4(body);",
+               "        _: boolean <- case length_bytes(body) > 0 of { true -> cast(st.tx, (:bees, 0, seg) impl ActorMessage {}); false -> true }",
                "    produces pure (:no_reply, st) end", "}", ""]
     fields = ", ".join(["n: int64"] + [f"p{k}: actor_ref" for k in range(len(rems))])
     kills = "".join(f"        _: atom <- kill_abnormal(st.p{k});\n" for k in range(len(rems)))

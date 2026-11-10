@@ -1,113 +1,83 @@
-// BEES ingress, M3: the one place where bytes that came from the network enter the program, and the audit trail.
+// BEES ingress: the audit trail and the numbering of the language's rejection reasons.
 //
-// THE RECEIVE STEP IS A STUB (mvp.md section 4, M3 note): `recreate` is the single function that will become Silica's
-// derived decode/recreate. The linked compiler (silica-999936) has neither (E2007 on `decode` and `recreate`, trial
-// m3_decode_probe), so today it copies the bytes of a part into the frame buffer and that is all it does. It does NOT
-// clear taint: the checker does not see the copy, because the handler that receives a foreign-function result is not
-// checked (SD-25) and the worker's result reaches it as a plain cast. What protects the program from hostile bytes
-// is BEES's own validation after the copy, never this function:
-//   - the frame length is bounded before a byte is stored (max_body) and the buffer holds at most 4096 bytes;
-//   - every later read is bounds-checked and rejects instead of faulting (bees_wire, bees_dist);
-//   - a frame is accepted only if its pid is from the connected peer, its target is a name this program lists (D16),
-//     and its payload validates against that name's declared type (limits: depth 16, 256 elements, atoms the
-//     program holds, ASCII text) before anything is decoded or allocated for it.
-// What it does not give: the language's own guarantee that foreign data is clean. A compiler that checks handlers
-// (SD-25) will reject this code, and that is the signal to replace `recreate` with the derived call.
+// The receive step is no longer here. Bytes that came from the network become typed values only through the language's
+// derived `decode((:etf), frame, { limits })`, called in the `sequence` of a `sequence ... produces pure` block in the
+// deliverer that dangerous_bees_net starts for a frame (generated bees_peers, dlv_<name>; the validation copy of the same call is
+// bees_msgs@validate_named). The stub `recreate` of M3 to M5, which copied parts into a buffer without clearing taint, is
+// gone (mvp.md section 4, N0.0). The 4-byte framing is the language's wireframe; the handshake's 2-byte framing and the
+// REG_SEND control message are read by bees_dist over strings, every read bounds-checked.
 module bees_ingress;
 use bees_atoms;
-use bees_wire;
 
-export recreate/4;
 export audit/3;
 export banner/0;
 export reason_text/1;
+export reason_atom/1;
+export reason_code/1;
 
-// Store the parts of a frame in a buffer. `ws` holds the parts as the transport read them, newest first (the conn actor keeps
-// them in its state, because a buffer cannot be part of an actor's state); `need` is the frame's byte count. Part j (in order of
-// arrival) is the 8 bytes at 8j, or the last k = need - 8j (< 8) bytes, big-endian and right-aligned in its word. Returns 0, or
-// a negative reason when it does not fit.
-fn recreate(rg: region(L, normal), b: buf(L, normal, uint8, 4096), ws: List[int64, mem(normal)], need: int64) -> int64 {
-    case need < 1 or need > 4096 of {
-        true -> 0 - 5;
-        false -> parts(rg, b, ws, (need + 7) / 8, need, 0)
+// The language's rejection atoms (transport design 4.3) numbered 1 to 16, in the design's order; 0 is accepted (:ok).
+// The numbers appear in audit lines and goldens; they are BEES's, not the language's.
+fn reason_atom(code: int64) -> atom {
+    case code of {
+        0 -> :ok;
+        1 -> bees_atoms@a_bad_version();
+        2 -> bees_atoms@a_truncated();
+        3 -> bees_atoms@a_trailing_bytes();
+        4 -> bees_atoms@a_bad_tag();
+        5 -> bees_atoms@a_too_large();
+        6 -> bees_atoms@a_too_deep();
+        7 -> bees_atoms@a_too_long();
+        8 -> bees_atoms@a_out_of_range();
+        9 -> bees_atoms@a_bad_utf8();
+        10 -> bees_atoms@a_unknown_atom();
+        11 -> bees_atoms@a_bad_variant();
+        12 -> bees_atoms@a_missing_field();
+        13 -> bees_atoms@a_duplicate_field();
+        14 -> bees_atoms@a_unknown_field();
+        15 -> bees_atoms@a_foreign_actor();
+        16 -> bees_atoms@a_unsupported();
+        _: int64 -> bees_atoms@a_unsupported()
     }
 }
-fn parts(rg: region(L, normal), b: buf(L, normal, uint8, 4096), ws: List[int64, mem(normal)], np: int64, need: int64, j: int64) -> int64 {
-    case j >= np of {
-        true -> 0;
-        false -> part_done(rg, b, ws, np, need, j, store(rg, b, j * 8, min8(need - j * 8), word_at(ws, np - 1 - j)))
-    }
+fn reason_code(a: atom) -> int64 {
+    case a == :ok of { true -> 0; false ->
+    case a == bees_atoms@a_bad_version() of { true -> 1; false ->
+    case a == bees_atoms@a_truncated() of { true -> 2; false ->
+    case a == bees_atoms@a_trailing_bytes() of { true -> 3; false ->
+    case a == bees_atoms@a_bad_tag() of { true -> 4; false ->
+    case a == bees_atoms@a_too_large() of { true -> 5; false ->
+    case a == bees_atoms@a_too_deep() of { true -> 6; false ->
+    case a == bees_atoms@a_too_long() of { true -> 7; false ->
+    case a == bees_atoms@a_out_of_range() of { true -> 8; false ->
+    case a == bees_atoms@a_bad_utf8() of { true -> 9; false ->
+    case a == bees_atoms@a_unknown_atom() of { true -> 10; false ->
+    case a == bees_atoms@a_bad_variant() of { true -> 11; false ->
+    case a == bees_atoms@a_missing_field() of { true -> 12; false ->
+    case a == bees_atoms@a_duplicate_field() of { true -> 13; false ->
+    case a == bees_atoms@a_unknown_field() of { true -> 14; false ->
+    case a == bees_atoms@a_foreign_actor() of { true -> 15; false -> 16 } } } } } } } } } } } } } } } }
 }
-fn word_at(ws: List[int64, mem(normal)], i: int64) -> int64 {
-    sequence proc[mem(normal)]
-        w: int64 <- list_at[int64, mem(normal)](ws, i)
-    produces pure w end
-}
-fn min8(n: int64) -> int64 { case n >= 8 of { true -> 8; false -> n } }
-fn part_done(rg: region(L, normal), b: buf(L, normal, uint8, 4096), ws: List[int64, mem(normal)], np: int64, need: int64, j: int64, r: int64) -> int64 {
-    case r < 0 of {
-        true -> r;
-        false -> parts(rg, b, ws, np, need, j + 1)
-    }
-}
-// the low `k` bytes (1 to 8) of w at pos..pos+k-1; returns the next position or a negative reason
-fn store(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, k: int64, w: int64) -> int64 {
-    case pos < 0 or k < 1 or k > 8 of {
-        true -> 0 - 5;
-        false -> case pos + k > 4096 of {
-            true -> 0 - 5;
-            false -> case k == 8 of {
-                true -> whole_word(rg, b, pos, w);
-                false -> short_part(rg, b, pos, k, w, 0)
-            }
-        }
-    }
-}
-// a full part lands on a multiple of 8 (every part before the last of a frame has 8 bytes)
-fn whole_word(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, w: int64) -> int64 {
-    case pos % 8 == 0 of {
-        true -> bees_wire@put_word(rg, b, pos / 8, w);
-        false -> 0 - 4
-    }
-}
-fn pow256(m: int64) -> int64 {
-    case m of {
-        0 -> 1;
-        1 -> 256;
-        2 -> 65536;
-        3 -> 16777216;
-        4 -> 4294967296;
-        5 -> 1099511627776;
-        _: int64 -> 281474976710656
-    }
-}
-fn put_at(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, n: int64) -> int64 { bees_wire@put_i(rg, b, pos, n) }
-fn short_part(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, k: int64, w: int64, j: int64) -> int64 {
-    case j >= k of {
-        true -> pos + k;
-        false -> short_next(rg, b, pos, k, w, j, put_at(rg, b, pos + j, w / pow256(k - 1 - j)))
-    }
-}
-fn short_next(rg: region(L, normal), b: buf(L, normal, uint8, 4096), pos: int64, k: int64, w: int64, j: int64, r: int64) -> int64 {
-    case r < 0 of {
-        true -> r;
-        false -> short_part(rg, b, pos, k, w, j + 1)
-    }
-}
-
-fn reason_text(code: int64) -> string { bees_atoms@spelling(bees_wire@reason_atom(code)) }
+fn reason_text(code: int64) -> string { bees_atoms@spelling(reason_atom(code)) }
 
 // One audit line per refused or dropped thing, to the program's standard output (the program's own sink for it is the
 // compiler's job; BEES only counts and names). kind says what, who names the peer or the reason, n is a count or a code.
+// The line is written by one println, so that another thread's output (the runtime's own lines included) cannot land inside
+// it, as it did when each part was printed on its own (m4_demo kill, 2026-11-10).
+fn digits(n: int64, acc: string) -> string {
+    case n < 10 of {
+        true -> concat(substring("0123456789", n, n + 1), acc);
+        false -> digits(n / 10, concat(substring("0123456789", n % 10, n % 10 + 1), acc))
+    }
+}
+fn int_text(n: int64) -> string {
+    case n < 0 of {
+        true -> concat("-", digits(0 - n, ""));
+        false -> digits(n, "")
+    }
+}
 fn audit(kind: string, who: string, n: int64) -> atom {
     sequence proc[device_io]
-        _: atom <- print_string("[bees audit] ");
-        _: atom <- print_string(kind);
-        _: atom <- print_string(" ");
-        _: atom <- print_string(who);
-        _: atom <- print_string(" ");
-        _: atom <- print_int64(n);
-        _: atom <- println("")
+        _: atom <- println(concat(concat(concat("[bees audit] ", kind), concat(" ", who)), concat(" ", int_text(n))))
     produces pure :ok end
 }
 

@@ -25,12 +25,16 @@ A compiler writes manifests next to its units. Three kinds, told apart by extens
   bees_modules.silica    when a `.module` file exists: dispatch by module, function and arity
                    (apply/3 style) and by fun id.
   bees_ids.silica        when a `.pools` file exists: child-id pools.
-  bees_peers.silica   when a `.wire` manifest has a `node` line (M3: node, peer, remote and local lines; the peer table,
-                   the proxies and the deliverers; format in tools/bees_dist_gen.py).
+  bees_peers.silica, bees_msgs.silica
+                   when a `.wire` manifest has a `node` line (M3: node, peer, remote and local lines; the peer table,
+                   the proxies and the deliverers, and the message codecs over the language's derived
+                   encode((:etf), value) / decode((:etf), frame, { limits }) as enc_<name> / dec_<name>; format in
+                   tools/bees_dist_gen.py).
   bees_wire_tables.silica, bees_wire_ints.silica, bees_wire_msgs.silica
-                   when a `.wire` file exists: the byte tables, the integer codecs and the per-message ETF
-                   encoders and decoders (enc_<name> / dec_<name>), the lookup of a message by target name and the
-                   dispatcher (hand-written core: src/inter_nodal/bees_wire.silica).
+                   when a `.wire` file exists WITHOUT node lines (the m1_wire_* trials): the hand-written typed ETF
+                   codec's byte tables, integer codecs and per-message encoders and decoders (enc_<name> / dec_<name>),
+                   the lookup of a message by target name and the dispatcher (core: src/inter_nodal/bees_wire.silica).
+                   Superseded for node programs by the language's calls (D35, N0.0); kept as the oracle-checked codec.
                    A message type with a field the wire does not carry is a build error (exit 1).
 
 Everything generated is sorted, so the same manifests give byte-identical units, and none of it
@@ -128,6 +132,18 @@ FIXED_ATOMS = {
     "release_on_return", "keep_last_message", "track_recent_peak", "release_when_idle",
     "keep_high_water", "keep_state_area", "shrink_after_compaction", "compact_on_request",
     "set_report_sink", "sink_set", "terminate_actor",
+    # the language's transport vocabulary (transport_serialization_design.md): the carrier actor contract (6.2) spoken as
+    # tagged tuples, the carrier and format tags (6.1, 4.7), wireframe's results (5) and decode's results and rejection
+    # atoms (4.3). The compiler's own carrier, wireframe and derived decode speak these, so a BEES unit writes them as
+    # the language's programs do.
+    "open", "tx", "credit", "close", "poll", "link_up", "accepted", "rx", "tx_credit", "tx_failed", "link_down",
+    "closed", "reset", "timeout", "fault", "no_credit", "tcp", "udp", "serial", "etf", "stream", "datagram",
+    "more", "frame", "rejected",
+    "bad_version", "truncated", "trailing_bytes", "bad_tag", "too_large", "too_deep", "too_long", "out_of_range",
+    "bad_utf8", "unknown_atom", "bad_variant", "missing_field", "duplicate_field", "unknown_field", "foreign_actor",
+    "unsupported",
+    # dangerous_bees_net's own actor-protocol tags (never on the wire): (:bees, ...) between its actors, (:car, c) and (:who, r) to its writer
+    "bees", "car", "who",
 }
 
 # Arms per generated `case` (Silica rejects 512). BEES_TIER lowers it so a trial can cross the tier boundary with few entries.
@@ -572,10 +588,16 @@ def generate(out_dir, manifests):
         rc = gen_modules(out_dir, atoms, modules)
     if rc == 0 and pools:
         rc = gen_ids(out_dir, atoms, pools)
-    if rc == 0 and any(p.endswith(".wire") for p in manifests):
-        rc = gen_wire(out_dir, manifests)
+    # A node manifest (node, peer, remote, local lines) encodes its messages with the language's derived encode/decode
+    # (bees_msgs, written by bees_dist_gen); the hand-written typed codec (bees_wire_*) is generated only for manifests
+    # without node lines (the m1_wire_* trials and the oracle).
+    wires = [p for p in manifests if p.endswith(".wire")]
+    if rc == 0 and wires:
+        import bees_dist_gen
+        if not bees_dist_gen.has_dist(wires):
+            rc = gen_wire(out_dir, manifests)
     if rc == 0:
-        rc = gen_peers(out_dir, [p for p in manifests if p.endswith(".wire")])
+        rc = gen_peers(out_dir, wires)
     return rc
 
 
@@ -590,6 +612,10 @@ def check(units):
     rc = 0
     for u in units:
         if os.path.basename(u) == "bees_atoms.silica":
+            continue
+        # the language's own units (links into the Silica tree's compiler/stdlib: carrier, wireframe, wire_etf, the
+        # (:tcp) carrier and its host wrappers) are the compiler's, not BEES's; D30 governs only what BEES writes
+        if "/compiler/stdlib/" in os.path.realpath(u):
             continue
         with open(u) as fh:
             src = strip_comments_and_strings(fh.read())

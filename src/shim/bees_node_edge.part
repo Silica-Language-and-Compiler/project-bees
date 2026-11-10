@@ -1,0 +1,64 @@
+
+// ---- BEES node edge: pasted by tools/bees_edge_gen.py into the dangerous_ root unit of every node program (one that uses
+// dangerous_bees_net). dangerous_bees_net holds the carrier as a dangerous_actor_ref, so it is a dangerous_ unit (E4026), and
+// a call to a dangerous_ unit's function is allowed only inside an FFI worker (E4042); its two behaviours, the writer `tx` and
+// the connection actor `conn` (and, on a listening node, the listen actor `lsn`, which spawns the other two when a peer is
+// accepted), are therefore spawned here by reference, and the messages to them are cast from here. The
+// state literals below are the behaviours' state types, written out (the SD-31 rule: no record-returning call inline).
+//
+// net_launch(c, io_ms, tick_ms): the node's side of the link over the carrier actor c (carrier_new(): the language's (:tcp)
+// carrier, not yet opened). io_ms is the longest the peer may be silent; tick_ms the idle interval after which a net tick is
+// written (0: never, a test setting). Returns the connection actor and the writer (tx) on a dialing node: the writer is
+// returned so that a test program can inject a raw frame into a live link (M4); a node program uses net_start.
+fn net_pair(n: actor_ref, t: actor_ref) -> { conn: actor_ref, tx: actor_ref } { { conn: n, tx: t } }
+fn net_launch(c: dangerous_actor_ref, io_ms: uint64, tick_ms: uint64) -> { conn: actor_ref, tx: actor_ref } {
+    sequence proc[concurrency]
+        _: atom <- bees_ingress@banner();
+        me: actor_ref <- self();
+        p: { conn: actor_ref, tx: actor_ref } <- case bees_peers@link_dials() of {
+            true -> net_dial(c, me, io_ms, tick_ms);
+            false -> net_listen(c, me, io_ms, tick_ms)
+        }
+    produces pure p end
+}
+// a dialer: the link is started on its carrier at once and the carrier is opened with conn as owner
+fn net_dial(c: dangerous_actor_ref, me: actor_ref, io_ms: uint64, tick_ms: uint64) -> { conn: actor_ref, tx: actor_ref } {
+    sequence proc[concurrency]
+        t: actor_ref <- spawn({ c: c, up: false, sent: 0, reaper: me, tick_ms: tick_ms }, dangerous_bees_net@tx, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        r: actor_ref <- bees_peers@start_proxies(t);
+        _: boolean <- cast(t, (:who, r) impl ActorMessage {});
+        n: actor_ref <- spawn({ asm: t, c: c, tx: t, mode: 0, step: 0, peer: bees_peers@link_peer(), ok: 0, dropped: 0, ticks: 0, seen: 0, io_ms: io_ms }, dangerous_bees_net@conn, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: boolean <- cast(c, (:open, n, bees_peers@link_address()) impl ActorMessage {});
+        p: { conn: actor_ref, tx: actor_ref } <- net_pair(n, t)
+    produces pure p end
+}
+// a listener: the listening carrier's owner is dangerous_bees_net's lsn, which starts the link on the first accepted
+// connection (tx and conn are spawned only once their carrier is known: SD-39). Until then there is no writer, so both fields
+// of the result are the listen actor; a program that needs the writer (to inject raw frames) must be the dialing node.
+fn net_listen(c: dangerous_actor_ref, me: actor_ref, io_ms: uint64, tick_ms: uint64) -> { conn: actor_ref, tx: actor_ref } {
+    sequence proc[concurrency]
+        l: actor_ref <- spawn({ reaper: me, io_ms: io_ms, tick_ms: tick_ms, started: false }, dangerous_bees_net@lsn, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: boolean <- cast(c, (:open, l, bees_peers@link_address()) impl ActorMessage {});
+        p: { conn: actor_ref, tx: actor_ref } <- net_pair(l, l)
+    produces pure p end
+}
+// net_start(c, io_ms, tick_ms): net_launch, returning the connection actor only.
+fn net_start(c: dangerous_actor_ref, io_ms: uint64, tick_ms: uint64) -> actor_ref {
+    sequence
+        p: { conn: actor_ref, tx: actor_ref } <- net_launch(c, io_ms, tick_ms)
+    produces pure p.conn end
+}
+// net_raw_writer(c): a writer for the carrier c that is never "up" and writes only raw segments. For a test program that
+// speaks the carrier directly (a peer that breaks the protocol on purpose); a node never uses it.
+fn net_raw_writer(c: dangerous_actor_ref) -> actor_ref {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        t: actor_ref <- spawn({ c: c, up: false, sent: 0, reaper: me, tick_ms: 0 }, dangerous_bees_net@tx, stack_policy(0, :keep_last_message), state_policy(:keep_state_area))
+    produces pure t end
+}
+// net_send_raw(tx, seg): a framed segment through the writer tx, written whether or not the link is up (tx's message kind 1)
+fn net_send_raw(tx: actor_ref, seg: string) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(tx, (:bees, 1, seg) impl ActorMessage {})
+    produces pure ok end
+}

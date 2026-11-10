@@ -1,4 +1,4 @@
 // fast timing: a peer silent for 1.5 s is lost; a tick after 0.5 s of idleness
 fn open_ms() -> int64 { 15000 }
-fn io_ms() -> int64 { 1500 }
+fn io_ms() -> uint64 { 1500 }
 fn tick_ms() -> uint64 { 500 }

@@ -1,5 +1,9 @@
 # M2: the transport carrier of the native edge
 
+> **Verified 2026-11-10 on `silica-999926`.** `trials/m2_carrier_tcp` (the language's carrier between two BEES programs) builds and passes: each side prints the other's frame as sent (`a rx frame B: 3 4242 world!!! 9223372036854775807`, `b rx frame A: 3 42 hello!!! -1`), `link_down closed`, `link_up seen true`, `frames received 1, tx credit grants 2`; the goldens were recorded after reading that output.
+
+> **Superseded 2026-11-09.** The carrier this note built (the C archive's TCP entries, `dangerous_bees_tcp.silica`, the worker edge section, parts of 1 to 8 bytes as `int64`, the refusal cases) is deleted: BEES now uses the language's `(:tcp)` carrier (`dangerous_tcp_carrier` of the Silica stdlib) behind a one-function edge section, and `trials/m2_carrier_tcp` exercises that carrier between two BEES programs (string frames through `wireframe`, the listener's `(:accepted, conn, info)` form). The note stays as the record of what was built and found (SD-30, SD-31 and the decisions). See [../silica-transport-alignment.md](../silica-transport-alignment.md).
+
 **Status:** done 2026-11-05 on `silica-999936-macos-applesilicon` (macOS, Apple Silicon only). Two separate operating-system
 processes exchange one frame of four 8-byte words over TCP on `127.0.0.1`, both directions, through an actor that speaks Silica's
 planned carrier contract. The listener refuses every non-local address. Two new Silica findings (SD-30, SD-31); SD-15, SD-17

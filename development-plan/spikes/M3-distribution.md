@@ -1,5 +1,9 @@
 # M3: the distribution layer (handshake, ticks, REG_SEND, peer table, proxies, deliverers)
 
+> **Verified 2026-11-10 on `silica-999926` (the port of 2026-11-09 built and run).** The five scenarios and `m3_dist_frames` pass; the only output change is `before_handshake` on node a, which audits `frame before handshake dropped, link closed bad_tag 4` instead of `... length 0` (the reason is now the rejection atom; the event and the closed link are the same). `m3_dist_frames` writes the same bytes as before (checked against live `erl` by `tools/test_bees_dist.py`). The node's startup moved into the root unit (`src/shim/bees_node_edge.part`: `net_start`, `net_raw_writer`, `net_send_raw`) because `dangerous_bees_net` may not be called outside an FFI worker (E4042), and a listening node starts its link from a listen actor on the accepted connection (SD-39). Details: the 2026-11-10 section of [silica-defects.md](../silica-defects.md).
+
+> **Amended 2026-11-09 (the port to the language's transport; written by reading only, built and run 2026-11-10: see the note above).** The receive step described in section 3 (the stub `bees_ingress@recreate`) is deleted; `bees_dist` works over strings with the language's byte builtins; `dangerous_bees_net` speaks the language's carrier contract (tagged tuples, string segments, the listener's `(:accepted, conn, info)`), uses `wireframe` for the 4-byte framing and its own `unframe2` for the handshake's 2-byte framing, and keeps its own idle timer (`io_ms`); the payload is validated and decoded by the language's `decode` through the generated `bees_msgs`. The byte layouts, the handshake steps, the flags, `REG_SEND` and the trial scenarios are unchanged; the goldens must be re-recorded (`ticks_absent` keeps reason `timeout`). See [../silica-transport-alignment.md](../silica-transport-alignment.md).
+
 **Status:** run 2026-11-05 on `silica-999936-macos-applesilicon` (macOS, Apple Silicon only) with Erlang/OTP 28 as the byte oracle.
 Two plain Silica programs, in two operating-system processes, complete the Erlang distribution handshake (version 6, no digest)
 over the M2 carrier transport actor on `127.0.0.1`, and a cast to a registered name on the other node arrives. The receive step is
@@ -29,7 +33,7 @@ Re-run the probe on each new generation; when `decode` compiles, replace `bees_i
 | --- | --- |
 | Byte layouts of the protocol as pure functions on a frame buffer: handshake `N` / `s` / `N` with 2-byte framing and the mandatory flags `0x4_0307_0F94`, REG_SEND `{6, FromPid, '', ToName}` with `FromPid` a NEW_PID_EXT (tag 88: node atom, 4-byte id, 4-byte serial, 4-byte creation: a BEES-own typed value, not a term shape), 4-byte framing, the payload as ETF from M1b | `src/inter_nodal/bees_dist.silica` |
 | The receive step (stub) and the audit trail | `src/inter_nodal/bees_ingress.silica` |
-| The node: `conn` (the carrier's owner and the receive state machine), `tx` (the one writer, the idle timer and the net tick, and the reaper call), `start` | `src/inter_nodal/bees_net.silica` |
+| The node: `conn` (the carrier's owner and the receive state machine), `tx` (the one writer, the idle timer and the net tick, and the reaper call), `start` | `src/inter_nodal/dangerous_bees_net.silica` |
 | Generator: manifest lines `node`, `creation`, `timing`, `peer`, `remote name @ peer cast type`, `local name cast type`; writes `bees_peers` (the peer table, one proxy per remote name, one deliverer per local name, a reaper) | `tools/bees_dist_gen.py`; `remote` and `local` lines also declare the message types for `bees_wire_gen.py`; hooked into `bees_config.py generate` |
 | Carrier change: parts of 1 to 8 bytes instead of whole words (`bees_tcp_read_part`, `bees_tcp_write_part`; a credit is one request for exactly k bytes). The distribution frames are byte-exact and not multiples of 8; the M2 trial is unchanged in behaviour (its golden did not move) | `native/src/silica_bees_tcp.c`, `src/shim/dangerous_bees_tcp.silica`, `src/shim/bees_tcp_edge.part` |
 | `bees_edge_gen.py --use UNIT` for a node program's root unit | `tools/bees_edge_gen.py` |
@@ -94,7 +98,7 @@ unit (SD-29 family, gone on the retry; the node leaves build twice). Details in 
 6. **A data frame before the link is up is dropped** by `tx` (no queue); there is no reconnect.
 7. **Ticks**: `tx` sends a net tick when a whole interval (`tick_ms`) passed with no frame written; a peer silent for `io_ms` (the carrier's read timeout) is lost. Defaults 15 s and 60 s as in OTP; the trials use 0.5 s and 1.5 s. `tick_ms` 0 sends none (a test setting).
 8. **Proxies are ended with `kill_abnormal`** by a generated reaper (reason `(:explicit, :killed)`), not `fail_self` and not `link` (SD-34). A cast to a dead proxy then fails the sender, Silica's own rule.
-9. **The test-only banner** is printed once by `bees_net@start` (`[bees] TEST ONLY: no authentication, no encryption ...`), so it heads every program's output and golden.
+9. **The test-only banner** is printed once by `dangerous_bees_net@start` (`[bees] TEST ONLY: no authentication, no encryption ...`), so it heads every program's output and golden.
 10. **No `bees_ingress` count of "name held by nobody"** (SD-33).
 11. **Roles are generated into the root unit** (SD-17), including a `node_start` that a compiler's startup would write; a "plain" program source calls `node_start` in `main`.
 

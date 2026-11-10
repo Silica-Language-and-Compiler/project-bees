@@ -53,9 +53,10 @@ units:
 
 # bees_atoms (D30): when the leaf or its lib has manifests (.atoms, .module, .pools), bees_config
 # generates lib/bees_atoms.silica, and lib/bees_modules.silica and lib/bees_ids.silica where there
-# are .module and .pools manifests, and lib/bees_wire_tables.silica + lib/bees_wire_ints.silica + lib/bees_wire_msgs.silica where
-# there are .wire manifests, before anything is compiled, and checks that no other unit
-# writes a BEAM atom literal.
+# are .module and .pools manifests, lib/bees_peers.silica + lib/bees_msgs.silica where a .wire manifest has node lines
+# (the language's encode/decode behind enc_/dec_), and lib/bees_wire_tables.silica + lib/bees_wire_ints.silica +
+# lib/bees_wire_msgs.silica where a .wire manifest has none (the typed codec of the m1 trials), before anything is
+# compiled, and checks that no other unit writes a BEAM atom literal.
 bees_atoms:
 	@cd "$(LEAF)" && if [ -n "$(MANIFESTS)" ]; then \
 		mkdir -p lib && "$(BEES_CONFIG)" generate -o lib $(MANIFESTS) && \
@@ -131,9 +132,9 @@ record-golden: run
 	echo "[$(LEAF_NAME)] goldens recorded"
 
 clean:
-	@cd "$(LEAF)" && rm -rf *.sams *.iface *.o *.sout *.cur_fail lib/*.sams lib/*.iface lib/*.o .fail \
+	@cd "$(LEAF)" && rm -rf *.sams *.iface *.o *.sout *.cur_fail lib/*.sams lib/*.iface lib/*.o .fail *.silica.derived lib/*.silica.derived \
 		lib/bees_atoms.silica lib/bees_atoms.index lib/bees_modules.silica lib/bees_ids.silica \
-		lib/bees_wire_tables.silica lib/bees_wire_ints.silica lib/bees_wire_msgs.silica \
+		lib/bees_wire_tables.silica lib/bees_wire_ints.silica lib/bees_wire_msgs.silica lib/bees_msgs.silica lib/bees_peers.silica \
 		silica.config silica.compile.order silica.needs_runtime silica.link .integrate_counts $(ENTRIES)
 
 help:

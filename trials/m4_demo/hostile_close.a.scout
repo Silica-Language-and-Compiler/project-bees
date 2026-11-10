@@ -8,7 +8,7 @@ service: request seq=3 reply_to=answers intact=true payload ints=true floats=tru
 [bees audit] payload refused truncated 2
 [bees audit] frame dropped foreign_actor 15
 [bees audit] frame dropped unknown_atom 10
-[bees audit] bad frame length, link closed length 65536
+[bees audit] bad frame length, link closed too_large 5
 [bees audit] link down, proxies ended; reason closed 3
 [bees audit] frames delivered - 3
 [bees audit] frames dropped - 6

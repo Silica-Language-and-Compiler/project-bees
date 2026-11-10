@@ -1,0 +1,19 @@
+// SD-38 (silica-999926): a char built by char_of_code does not match a char literal pattern. char_of_code(113) has
+// char_code 113, like 'q', but `case c of { 'q' -> ... }` takes the default arm. (`c == 'q'` is E2003, so no equality test
+// either.) The language's derived decode builds every char with char_of_code, so a decoded char never matches a literal.
+// The golden records today's wrong output: false (should be true), then true for the literal itself, then 113 113.
+fn is_q(c: char) -> boolean { case c of { 'q' -> true; _: char -> false } }
+fn code() -> int64 { 113 }
+fn main() -> int64 {
+    sequence proc[device_io]
+        c: char <- char_of_code(code());
+        _: atom <- print_boolean(is_q(c));
+        _: atom <- println("");
+        _: atom <- print_boolean(is_q('q'));
+        _: atom <- println("");
+        _: atom <- print_int64(char_code(c));
+        _: atom <- print_string(" ");
+        _: atom <- print_int64(char_code('q'));
+        _: atom <- println("")
+    produces pure 0 end
+}

@@ -1,8 +1,10 @@
-// ---- the node's startup (what a compiler's generated startup does): the carrier for the one link, then the node.
-fn node_start(open_ms: int64, io_ms: int64, tick_ms: uint64) -> actor_ref {
+// ---- the node's startup (what a compiler's generated startup does): the language's (:tcp) carrier for the one link
+// (carrier_new, the edge section), then the node. open_ms is unused since the language's carrier replaced the native edge
+// (it connects or fails at once; the listener is bound before the dialer starts); it stays for the roles' shape.
+fn node_start(open_ms: int64, io_ms: uint64, tick_ms: uint64) -> actor_ref {
     sequence
-        c: actor_ref <- carrier_new(0, open_ms, io_ms);
-        n: actor_ref <- bees_net@start(c, tick_ms)
+        c: dangerous_actor_ref <- carrier_new();
+        n: actor_ref <- net_start(c, io_ms, tick_ms)
     produces pure n end
 }
 fn say(s: string) -> atom {

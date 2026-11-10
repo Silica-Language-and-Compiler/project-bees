@@ -67,9 +67,9 @@ of the 2-byte framing is `u16 length, body`; of the 4-byte framing `u32 length, 
 
 ### 3.1 Framing and sizes
 
-Handshake messages use **2-byte length framing** [code: `bees_dist.silica`, `bees_net.silica`]. The length of a
+Handshake messages use **2-byte length framing** [code: `bees_dist.silica`, `dangerous_bees_net.silica`]. The length of a
 received handshake message MUST be 1 to 512; anything else is a framing violation and closes the link (`bad_len` in
-`bees_net.silica`; the trial `before_handshake` shows a zero length closing the link, section 8). A handshake message is
+`dangerous_bees_net.silica`; the trial `before_handshake` shows a zero length closing the link, section 8). A handshake message is
 at most 270 bytes in practice (a node name is 1 to 255 bytes).
 
 ### 3.2 The three messages
@@ -140,7 +140,7 @@ Where the table says "refused", the matching term is refused by the codec (secti
 
 ### 3.4 Sequence and checks
 
-Dialer (`bees_net.silica`, `hs_*`, and `bees_dist.silica`) [code, exercised end to end by the trial `handshake_cast`]:
+Dialer (`dangerous_bees_net.silica`, `hs_*`, and `bees_dist.silica`) [code, exercised end to end by the trial `handshake_cast`]:
 
 1. Connect (retry until `open_ms`). Send step 1.
 2. Read a 2-byte length (1 to 512), then the body. It MUST be `s o k`.
@@ -169,9 +169,10 @@ bad name message have **no trial**: they are **[code]**.
 
 Every frame is `u32 length, body`. A length of **0 is a net tick** (section 4.2). A body length of 1 to **4096** is a data
 frame; any other length (above 4096) closes the link ("bad frame length, link closed"). The reference implementation
-reads the length, then exactly that many body bytes [code: `bees_net.silica`, `bad_len`, `rx_len`]. The hostile-frame
+reads the length, then exactly that many body bytes [code: `dangerous_bees_net.silica`, `bad_len`, `rx_len`]. The hostile-frame
 scenario `hostile_close` of `trials/m4_demo` sends a length prefix of 65,536 and shows the audit line `bad frame length,
-link closed length 65536` and both sides seeing the link go down **[test]**.
+link closed too_large 5` (the language's `wireframe` names the reason; before the port it was `length 65536`) and both sides
+seeing the link go down **[test]**.
 
 **What BEES sends.** A data frame of at most 4096 bytes **including its 4-byte prefix** (so a body of at most 4092 bytes),
 and a payload (the ETF term after the control message) of at most 4000 bytes [code: `bees_dist@reg_send_frame`]. **What
@@ -180,10 +181,10 @@ BEES accepts:** a body of up to 4096 bytes **[code]**; a body of exactly 4096 by
 
 ### 4.2 Net ticks
 
-- **A tick is the frame `00 00 00 00`** (a 4-byte zero length, no body) [code: `bees_net@write_tick`]. OTP's tick is a
+- **A tick is the frame `00 00 00 00`** (a 4-byte zero length, no body) [code: `dangerous_bees_net@write_tick`]. OTP's tick is a
   zero-length packet in the same framing [argued].
 - **Each side ticks when it has been idle.** The writer arms a timer of `tick_ms` when the link comes up; each time it
-  fires, the writer sends a tick **if it has written no frame during that interval**, then re-arms [code: `bees_net@tx`,
+  fires, the writer sends a tick **if it has written no frame during that interval**, then re-arms [code: `dangerous_bees_net@tx`,
   `sent`]. `tick_ms` 0 sends no ticks (a test setting). Default `tick_ms` 15,000 ms (the build accepts 0 to 60,000).
 - **A received tick is counted and is not answered.** The connection keeps a count and prints `net ticks seen (1 yes, 0
   no)` when the link goes down [code]. **Not echoed:** an echo of every tick would ping-pong for ever (M3 spike, section
@@ -266,7 +267,7 @@ audited; the link stays up. **Tested on a live link:** the pid from another node
 (`hostile` #4 and #5, section 8); a name that is held but not served is checked in memory by `m3_dist_frames`. The drop
 of the other control messages, of tag-103 pids and of a wrong arity is **[code]** only.
 
-**Receive checks, in order** [code: `bees_net@frame_done` and the functions it calls; each refusal that has a trial is
+**Receive checks, in order** [code: `dangerous_bees_net@frame_done` and the functions it calls; each refusal that has a trial is
 marked]:
 
 1. The control message parses as above (else `bad_tag`/`truncated`/`unsupported`, or `bad_utf8` and `unsupported` for the
@@ -286,7 +287,7 @@ marked]:
 above with `FromPid` id = the proxy's index, and gives it to the one writer, which writes it only while the link is up. A
 frame whose encoding fails, or whose payload exceeds 4000 bytes, is **dropped silently** by the proxy (no audit entry)
 [code: `bees_dist_gen.py`, `proxy_<name>`: the cast to the writer is made only when the frame length is positive], and a
-frame submitted before the link is up is dropped (no queue) [code: `bees_net@is_write`].
+frame submitted before the link is up is dropped (no queue) [code: `dangerous_bees_net@is_write`].
 
 ## 5. The payload: ETF, a subset, typed by the target name
 
@@ -453,7 +454,7 @@ started first, each program's output compared with its committed golden) unless 
 
 | Rule | What happens | Evidence |
 | --- | --- | --- |
-| **One live link per node** | the first `peer` line is the link; a `listen` node accepts one connection and closes its listening endpoint; there is no second link | [code] (`bees_dist_gen.py`, `link_*`; the carrier holds one peer per listener) |
+| **One live link per node** | the first `peer` line is the link; a `listen` node accepts one connection and closes its listening endpoint; there is no second link | [code] (`bees_dist_gen.py`, `link_*`; the carrier holds one peer per listener) **Code ported 2026-11-09, built and run 2026-11-10 on silica-999926 (see [silica-transport-alignment.md](silica-transport-alignment.md) and the 2026-11-09 and 2026-11-10 sections of [silica-defects.md](silica-defects.md)):** with the language's listener (transport design 6.2, 2026-11-09) the listening carrier keeps listening; `dangerous_bees_net` adopts the first accepted connection and leaves later ones unopened. |
 | **No reconnect** | a lost link ends every proxy (`kill_abnormal`, reason `(:explicit, :killed)`) and the node does not redial; a sender that casts to the ended proxy fails with `(:explicit, :actor_not_found)` (Silica's own rule for a dead actor) | [test] `m4_demo` `kill` (node a SIGKILLed: b prints `link down, proxies ended; reason closed`, `proxy ended (killed)`, `ticker failed: actor_not_found`) |
 | **Unlisted node closed** | a listener whose peer's `N` names a node not in its table audits `unlisted node, link closed`, closes, sends nothing | [test] `unlisted` (a: `unlisted node, link closed x@127.0.0.1 -1`, `frames dropped - 1`) |
 | **Frame before handshake dropped** | a first length of 0 or above 512 in the handshake framing: `frame before handshake dropped, link closed` | [test] `before_handshake` (a raw peer whose first bytes are a data frame: audit line with `length 0`, link closed, nothing delivered) |
@@ -495,7 +496,7 @@ OTP 28 (kernel-10.0) is the reference. "Stock" means an unmodified Erlang node.
 | **Floats** | `NEW_FLOAT_EXT` | the same; infinity and NaN refused | [oracle] |
 | **Map key order on write** | atom-table order by default | **name order** (equal to erl's `[deterministic]`); any order accepted on read | [oracle] |
 | **Links, monitors, remote spawn, `net_kernel`, `nodedown`** | yes | none (D20, D28); a lost node is seen as the proxy ending | [code] |
-| **Receive step** | the emulator's decoder | **a stub (`bees_ingress@recreate`) in BEES's M3 to M5 code**: it copies the parts into a buffer and does not clear taint. What protects the program is BEES's own bounds-checked validation, **not the language's taint guarantee** (section 10). The language's `decode` is callable on 999935 (SD-32 resolved) and replaces the stub when ported (N0.0) | [code] |
+| **Receive step** | the emulator's decoder | **the language's `decode((:etf), frame, { limits })`** since the port (built and run 2026-11-10 on silica-999926; the M3 to M5 code had a stub, `bees_ingress@recreate`, which copied the parts and did not clear taint). The checker raises nothing on carrier bytes, but the FFI result handler is not yet checked (SD-25), so the taint guarantee is the language's to complete (section 10) | [test] **Code ported 2026-11-09, built and run 2026-11-10 on silica-999926 (see [silica-transport-alignment.md](silica-transport-alignment.md) and the 2026-11-09 and 2026-11-10 sections of [silica-defects.md](silica-defects.md)):** ported: the stub is deleted; the deliverer decodes with the language's `decode((:etf), frame, { limits })` inside `produces pure` and the connection actor validates with the same call first (section 10). |
 
 ## 10. The receive step and what this profile does not guarantee
 
@@ -519,6 +520,26 @@ inside such a sequence (first byte 131). **Unproven:** that `decode` applied to 
 end to end in BEES's own receive-actor shape; milestone N0.1 tests it and N0.0 ports the code. When that is done the stub is gone,
 the limits become the arguments of `decode` and `wireframe@unframe`, and the bytes of this profile do not change.
 
+**Update 2026-11-10: the port below is built and run on silica-999926** (`m2_carrier_tcp`, `m3_dist`, `m3_dist_frames`, `m4_demo`
+pass; the checker raises no taint diagnostic on `decode` of carrier bytes, with SD-25's caveat). Changes from the text below: the
+carrier is granted one receive credit at a time, when the per-frame assembler asks for more bytes; a listening node's link is
+started by a listen actor on the accepted connection; the audit line of a frame received before the handshake now reads
+`bad_tag 4` (the 2-byte length read from a 4-byte frame is 0). Details in the 2026-11-10 section of
+`development-plan/silica-defects.md`.
+
+**Update 2026-11-09 (the port, by reading only; built and run 2026-11-10, see the update above).** The stub is gone from the code. The receive path is now:
+the language's `(:tcp)` carrier delivers string segments as `(:rx, segment)` to the connection actor (`dangerous_bees_net@conn`), which hands
+each to a short-lived per-frame assembler; the assembler reassembles with `wireframe@unframe` (4-byte framing, `max_frame` 4096) or,
+during the handshake, with BEES's own 2-byte `bees_dist@unframe2` (`max_frame` 512), and returns the frame body; the connection
+actor parses the control message with `bees_dist@reg_send_target` (bounds-checked reads over the string), validates the payload
+against the target name's declared type with the language's `decode` (generated `bees_msgs@validate_named`, limits
+`{ max_bytes: 4096, max_depth: 16, max_length: 1024 }` for variable-sized types), and a short-lived deliverer decodes it again in the
+`sequence` of its `produces pure` block and `cast_registered`s the value. The sending path is `encode((:etf), value)` in the proxy,
+`bees_dist@reg_send_body`, `bees_dist@frame4` (`wireframe@frame`) and one `(:tx, segment, self())` from the writer. The bytes of this
+profile are unchanged. Two things this profile described that changed with the carrier: a bad frame length is now reported by the
+language's `wireframe` as the atom `too_large` (the audit line no longer carries the length), and a silent peer is detected by
+`dangerous_bees_net`'s own idle timer (the language's carrier has no read timeout), still with reason `timeout`.
+
 ## 11. Not covered, and not tested
 
 - **A stock Erlang node was never connected** to a BEES node, in either direction. The byte layouts equal OTP's
@@ -530,12 +551,14 @@ the limits become the arguments of `decode` and `wireframe@unframe`, and the byt
 - **Records over 32 fields**, tagged tuples, `unit`, `float16`, text beyond ASCII, big integers, maps and sets as message
   types: not carried.
 - **Compile cost limits a message type** to a few fields per record (a flat record of 22 fields did not compile in 300 s:
-  SD-36); a real message type should be grouped into records of two to four fields.
+  SD-36); a real message type should be grouped into records of two to four fields. **Since the port, four is a hard limit:**
+  the language's derived decoder cannot decode a record of five or more fields on Apple Silicon (SD-37, 2026-11-10).
 - **Hostile input** is five crafted content classes and one framing class in the live link (`m4_demo`), the M1 rejection
   cases and 232 vectors; **no fuzzing**, no slow-sender test (a peer that claims a 4096-byte frame and sends it slowly
   holds the link until `io_ms`), no frame of exactly 4096 bytes at the link level.
-- **Rate and memory** are measured once (`m4_demo` `measure`: 19.1 round trips per second with a 547-byte payload, 8 in
-  flight; about 90 MiB peak per node; the layer is slow by design of the part-at-a-time carrier, SD-35). Not a benchmark.
+- **Rate and memory** are measured once per version (`m4_demo` `measure`, 8 in flight): before the port 19.1 round trips per
+  second with a 547-byte payload and about 90 MiB peak per node (the part-at-a-time carrier, SD-35); **after the port
+  (2026-11-10, silica-999926) 311.0 round trips per second and 6.3 MiB peak per node**. Not a benchmark.
 - **The OTP columns of section 9** that are marked [argued] describe OTP from its documentation and source layout; nothing
   here ran them.
 
@@ -543,14 +566,15 @@ the limits become the arguments of `decode` and `wireframe@unframe`, and the byt
 
 | Piece | Where |
 | --- | --- |
-| Handshake and `REG_SEND` byte layouts (pure functions on a buffer) | `src/inter_nodal/bees_dist.silica` |
-| The node: the connection actor (handshake and receive state machine), the writer (ticks), per-frame assembler | `src/inter_nodal/bees_net.silica` |
-| The receive step (stub, to be replaced by the language's `decode`, N0.0) and the audit | `src/inter_nodal/bees_ingress.silica` |
-| The ETF codec core, the limits and the sixteen reasons | `src/inter_nodal/bees_wire.silica`, `bees_wire.atoms` |
-| Generators: codec per message, peer table, proxies and deliverers | `tools/bees_wire_gen.py`, `tools/bees_dist_gen.py` (via `tools/bees_config.py generate`) |
-| The carrier (TCP, parts of 1 to 8 bytes, `127.0.0.1`) | `native/src/silica_bees_tcp.c`, `src/shim/dangerous_bees_tcp.silica`, `src/shim/bees_tcp_edge.part` |
+| Handshake and `REG_SEND` byte layouts (pure functions over strings), the 2-byte handshake framing (`unframe2`), the 4-byte framing through the language's `wireframe` (`frame4`) | `src/inter_nodal/bees_dist.silica` |
+| The node: the receive actor `conn` (the carrier's owner: handshake and data phases, the idle timer), the per-frame assembler `asm` (`wireframe@unframe`), the send actor `tx` (ticks) | `src/inter_nodal/dangerous_bees_net.silica` |
+| The audit trail and the numbering of the language's rejection atoms | `src/inter_nodal/bees_ingress.silica`, `bees_wire.atoms` |
+| The message codecs over the language's `encode`/`decode` (generated per manifest: `enc_<name>`, `dec_<name>`, `validate_named`) | generated `bees_msgs` (`tools/bees_dist_gen.py`) |
+| The typed ETF codec core of M1b (the `m1_wire_*` trials and the oracle only; not on the node path) | `src/inter_nodal/bees_wire.silica`, `tools/bees_wire_gen.py` |
+| Generators: peer table, proxies and deliverers, message codecs | `tools/bees_dist_gen.py` (via `tools/bees_config.py generate`) |
+| The carrier: the language's `(:tcp)` carrier (Silica stdlib `dangerous_tcp_carrier` over `dangerous_sockets`), spawned by the root unit's edge | `src/shim/bees_tcp_edge.part` (`carrier_new`), `tools/bees_edge_gen.py`; the socket wrappers' archive and sidecar: `native/Makefile`, `native/dangerous_exposure_source/sockets` |
 | Oracle, vectors and trial generator | `tools/etf_cases.py`, `tools/etf_oracle/typed.vectors` |
-| Tests | `tools/test_bees_dist.py` (17), `tools/test_bees_wire_gen.py` (18); trials `m1_wire_*`, `m2_carrier_tcp`, `m3_dist`, `m3_dist_frames`, `m3_decode_probe`, `m4_demo` |
+| Tests | `tools/test_bees_dist.py` (17), `tools/test_bees_wire_gen.py` (18); trials `m1_wire_*`, `m2_carrier_tcp`, `m3_dist`, `m3_dist_frames`, `m3_decode_probe`, `m4_demo` (goldens of the last four to be re-recorded after the 2026-11-09 port) |
 
 The first version of this document (a tag-free typed frame with kind ids, a schema digest and a hello frame, FNV-1a
 over a canonical schema text, and a packing into 8-byte words) is in git history before this rewrite. Nothing in it is

@@ -1,5 +1,6 @@
 # Spike S12: The TLS Engine
 
+**Update 2026-11-10 (D40, user decision): the engines are OpenSSL (Apple platforms, Linux) and Mbed TLS (NUCLEO-L476RG and ESP32-S3), so this spike's rustls track is superseded: rerun its questions against OpenSSL and Mbed TLS, X25519MLKEM768 first. Fetching or building either still needs the user's explicit approval.**
 **Status:** planned, not run. This document specifies the spike. Nothing has been built yet.
 **Update 2026-11-06 (roadmap D36, D38).** (1) **Running this spike needs the user's explicit approval** (milestone N4.0): the no-downloads rule blocks fetching or building any TLS engine, and the choice of engine is a user decision that runs in parallel with N2 and N3. (2) TRUST's TLS carries **TRUST's own frames** (a 4-byte length and one ETF map each); it is not wrapped around the Erlang distribution stream, which is how earlier text read. (3) BEAM mode's cookie authentication (N2) needs no TLS; its optional `inet_tls_dist`-compatible profile (D25) is a later use of the same engine. (4) Whatever the engine returns (plaintext, random bytes, digests) follows the conversion rule: handled in the `sequence` of a `sequence ... produces pure` block (mvp.md section 4).
 **Decision it confirms:** D6, revised 2026-09-17: rustls on the hosted targets, the board's Mbed TLS on the ESP32-S3, behind one C
@@ -32,7 +33,7 @@ and the native-edge rules (gap ledger §4).
 | --- | --- | --- |
 | R1 | TLS 1.3 only; TLS 1.2 refused | A client that offers only TLS 1.2 fails the handshake |
 | R2 | Both sides present certificates (mTLS); the server requires a client certificate | A client with no certificate is refused; a client certificate from another CA is refused |
-| R3 | Key exchange **X25519MLKEM768** only; classical-only peers refused | The negotiated group is reported as `0x11EC`; a client offering only X25519 is refused |
+| R3 | Key exchange **X25519MLKEM768** only; classical-only peers refused. **Relaxed 2026-11-10 (D41) on the NUCLEO-L476RG and ESP32-S3: classical X25519.** | The negotiated group is reported as `0x11EC`; a client offering only X25519 is refused |
 | R4 | Ciphers AES-256-GCM or ChaCha20-Poly1305 only | The negotiated suite is reported; the configuration allows no others |
 | R5 | Certificates Ed25519 or ECDSA P-256 | Both kinds of certificate complete the handshake |
 | R6 | No 0-RTT, renegotiation or compression | Configuration review (rustls doesn't implement renegotiation or compression) |
@@ -109,7 +110,7 @@ are built only in the test harness. They are never part of the edge's release bu
 | Linux x86_64 | As above | Needs a Linux x86_64 machine. The Silica side waits on S-32, but the edge can be built and tested on its own. |
 | ESP32-S3 | A C TLS library: the board's Mbed TLS under ESP-IDF if it offers X25519MLKEM768, otherwise one that does (D6) | No Rust toolchain. The C interface in §3 is implemented twice, once over rustls and once over the board's library, and the same harness runs against both. |
 
-**The ESP32-S3's key exchange is the main risk.** TRUST's profile requires X25519MLKEM768 (R3) and is not relaxed.
+**The ESP32-S3's key exchange is the main risk.** TRUST's profile requires X25519MLKEM768 (R3). **Relaxed for the two boards 2026-11-10 (D41):** they use classical X25519 with Mbed TLS.
 The spike checks the Mbed TLS version ESP-IDF ships and whether it negotiates that group. If it does not, the spike
 tries the candidates in order and reports the first that passes R1–R15 and fits (R13): a newer Mbed TLS built into
 the edge, then wolfSSL, which has an ESP32 port and ML-KEM hybrid groups. D6 names the library the spike settles on.

@@ -1,10 +1,10 @@
 # M3 node a: one manifest (node.wire), one generated bees_peers, and the entries below. Each entry's root unit is generated
-# at parse time from the carrier edge and roles (SD-17: a worker and its spawn site share a unit).
+# at parse time from the carrier edge (the language's (:tcp) carrier) and roles.
 BEES_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../../../..)
 LEAF_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 ROLES := $(BEES_ROOT)/trials/m3_dist/roles
 EDGE_GEN := $(BEES_ROOT)/tools/bees_edge_gen.py
-USES := --use bees_wire_msgs --use bees_dist --use bees_net --use bees_peers
+USES := --use bees_msgs --use bees_dist --use dangerous_bees_net --use bees_peers
 _ := $(shell cd "$(LEAF_DIR)" && \
 	"$(EDGE_GEN)" dangerous_a_slow dangerous_a_slow.silica $(USES) $(ROLES)/node.role $(ROLES)/timing_slow.role $(ROLES)/svc.role && \
 	"$(EDGE_GEN)" dangerous_a_fast dangerous_a_fast.silica $(USES) $(ROLES)/node.role $(ROLES)/timing_fast.role $(ROLES)/svc.role)

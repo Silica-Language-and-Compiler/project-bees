@@ -3,7 +3,7 @@ BEES_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../../../..)
 LEAF_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 ROLES := $(BEES_ROOT)/trials/m4_demo/roles
 EDGE_GEN := $(BEES_ROOT)/tools/bees_edge_gen.py
-USES := --use bees_wire --use bees_wire_msgs --use bees_dist --use bees_net --use bees_peers --use m4_payload
+USES := --use bees_dist --use dangerous_bees_net --use bees_peers --use m4_payload
 BASE := $(ROLES)/node.role $(ROLES)/client.role
 _ := $(shell python3 "$(ROLES)/gen_types.py" && cd "$(LEAF_DIR)" && \
 	"$(EDGE_GEN)" dangerous_b_demo dangerous_b_demo.silica $(USES) $(BASE) $(ROLES)/timing_kill.role $(ROLES)/plan_demo.role $(ROLES)/extras_none.role && \
