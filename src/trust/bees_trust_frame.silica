@@ -1,0 +1,633 @@
+// BEES TRUST mode (N3): the trust/1 frame, SEMP's wire (inter-nodal-modes 3.6): a 4-byte big-endian length and ONE ETF map
+// per frame, keys among t, ver, req_id, m, f, a, args, opts, value, token. TRUST's own codec: it shares nothing with BEAM
+// mode's distribution layer (D36). Pure functions over strings; nothing here touches a carrier.
+//
+// Why the map is walked by BEES and every value is decoded by the language. The language's decode((:etf), ...) reads a map
+// into a record only when the record has exactly the map's keys (unknown keys are :unknown_field, but SEMP ignores unknown
+// top-level keys) and, on this compiler, only up to four fields (SD-37: a call frame has eight). So:
+//   check(body, depth_max, args_max)  walks the frame STRUCTURALLY, bounds-checked, before anything is decoded: the 131 version
+//                    byte, a map at the top, at most 16 keys, atom keys, no key twice, every value a term of the ETF subset
+//                    TRUST carries (integers, floats, atoms, binaries, lists, tuples, maps; no pids, references, ports, funs,
+//                    bit binaries, compressed terms: :unsupported), nesting at most depth_max, every atom one the program
+//                    holds (D16: :unknown_atom; SEMP's binary_to_term(.., [safe])), the args value at most args_max bytes
+//                    (:too_large, refused before any value is decoded), no trailing bytes. Returns 0 or a reason code.
+//   span(body, key)  the bytes of one value (empty when the key is absent)
+//   dec_atom, dec_int, dec_str  the language's decode((:etf), 131 ++ span) with the declared type, in the sequence of a
+//                    `sequence proc[mem(normal), transport] ... produces pure` block (mvp.md section 4): this is where a
+//                    received value becomes a typed, pure value. `args` and a result's `value` are terms of any shape in
+//                    SEMP and stay ETF spans here; the generated MFA table (bees_trust_mfa) decodes args with the types its
+//                    manifest declares for each function (the open question of mvp.md N3, answered provisionally there).
+//   enc_*            the frames BEES writes, each value made by the language's encode((:etf), ...) and the map written
+//                    around them, keys in name order as the language writes a record (so the bytes are canonical).
+// Reason codes are the language's rejection atoms, numbered as bees_ingress numbers them (1 bad_version ... 16 unsupported).
+module bees_trust_frame;
+use bees_atoms;
+use wire_etf;
+use wireframe;
+use carrier;
+
+export check/3;
+export span/2;
+export list_len/1;
+export is_map/1;
+export dec_atom/1;
+export dec_int/1;
+export dec_str/1;
+export reason/1;
+export enc_hello/0;
+export enc_token_present/1;
+export enc_token_issue/1;
+export enc_result/2;
+export enc_request/6;
+export enc_value_int/1;
+export enc_value_str/1;
+export enc_args_ints/1;
+export frame4/1;
+export hex/1;
+export short/1;
+export int_text/1;
+export audit/4;
+export word7/2;
+export bytes7/2;
+export cat2/2;
+export cut/3;
+export dec_token_term/1;
+export parse_first/3;
+export parse_req/3;
+export parse_reply/3;
+export b1/1;
+
+// ---- byte strings (transport operations: each in a sequence that declares transport, E3013) ----
+fn at(s: string, i: int64) -> int64 {
+    sequence proc[transport]
+        b: int64 <- byte_at(s, i)
+    produces pure b end
+}
+fn slice(s: string, start: int64, stop: int64) -> string {
+    sequence proc[mem(normal), transport]
+        out: string <- byte_slice(s, start, stop)
+    produces pure out end
+}
+fn b1(a: int64) -> string {
+    sequence proc[mem(normal), transport]
+        xs: List[int64, mem(normal)] <- [a];
+        s: string <- bytes_of(xs)
+    produces pure s end
+}
+fn be32(n: int64) -> string {
+    sequence proc[mem(normal), transport]
+        xs: List[int64, mem(normal)] <- [(n / 16777216) % 256, (n / 65536) % 256, (n / 256) % 256, n % 256];
+        s: string <- bytes_of(xs)
+    produces pure s end
+}
+fn cat2(a: string, b: string) -> string {
+    sequence proc[mem(normal), transport]
+        parts: List[string, mem(normal)] <- [a, b];
+        s: string <- join_bytes(parts)
+    produces pure s end
+}
+fn cat4(a: string, b: string, c: string, d: string) -> string {
+    sequence proc[mem(normal), transport]
+        parts: List[string, mem(normal)] <- [a, b, c, d];
+        s: string <- join_bytes(parts)
+    produces pure s end
+}
+fn rd16(s: string, p: int64) -> int64 { at(s, p) * 256 + at(s, p + 1) }
+fn rd32(s: string, p: int64) -> int64 { ((at(s, p) * 256 + at(s, p + 1)) * 256 + at(s, p + 2)) * 256 + at(s, p + 3) }
+
+// ---- the structural walk: a position (>= 0) or minus a reason code ----
+fn need(stop: int64, n: int64) -> int64 { case stop > n of { true -> 0 - 2; false -> stop } }
+fn atom_held(s: string, start: int64, len: int64) -> boolean { bees_atoms@from_spelling(slice(s, start, start + len)).found }
+// an atom of header hdr (2: a one-byte length, 3: a two-byte length) at pos
+fn skip_atom(s: string, pos: int64, hdr: int64, n: int64) -> int64 {
+    case pos + hdr > n of {
+        true -> 0 - 2;
+        false -> skip_atom_len(s, pos, hdr, case hdr == 2 of { true -> at(s, pos + 1); false -> rd16(s, pos + 1) }, n)
+    }
+}
+fn skip_atom_len(s: string, pos: int64, hdr: int64, len: int64, n: int64) -> int64 {
+    case pos + hdr + len > n of {
+        true -> 0 - 2;
+        false -> case atom_held(s, pos + hdr, len) of { true -> pos + hdr + len; false -> 0 - 10 }
+    }
+}
+// a span whose length field is hdr - 1 bytes wide after the tag (2: one byte, 3: two, 5: four), plus extra bytes
+fn skip_sized(s: string, pos: int64, hdr: int64, extra: int64, n: int64) -> int64 {
+    case pos + hdr > n of {
+        true -> 0 - 2;
+        false -> need(pos + hdr + extra + size_field(s, pos, hdr), n)
+    }
+}
+fn size_field(s: string, pos: int64, hdr: int64) -> int64 {
+    case hdr of { 2 -> at(s, pos + 1); 3 -> rd16(s, pos + 1); _: int64 -> rd32(s, pos + 1) }
+}
+// count elements (each at least one byte) starting at pos; refused before any is read if they cannot fit
+fn skip_count(s: string, pos: int64, count: int64, depth: int64, dmax: int64, n: int64) -> int64 {
+    case count > n - pos of {
+        true -> 0 - 2;
+        false -> skip_n(s, pos, count, depth, dmax, n)
+    }
+}
+fn skip_n(s: string, pos: int64, count: int64, depth: int64, dmax: int64, n: int64) -> int64 {
+    case count == 0 of {
+        true -> pos;
+        false -> skip_n_next(s, skip(s, pos, depth, dmax, n), count, depth, dmax, n)
+    }
+}
+fn skip_n_next(s: string, e: int64, count: int64, depth: int64, dmax: int64, n: int64) -> int64 {
+    case e < 0 of { true -> e; false -> skip_n(s, e, count - 1, depth, dmax, n) }
+}
+fn list_tail(s: string, e: int64, n: int64) -> int64 {
+    case e < 0 of {
+        true -> e;
+        false -> case e >= n of { true -> 0 - 2; false -> case at(s, e) == 106 of { true -> e + 1; false -> 0 - 4 } }
+    }
+}
+fn skip_list(s: string, pos: int64, depth: int64, dmax: int64, n: int64) -> int64 {
+    case pos + 5 > n of {
+        true -> 0 - 2;
+        false -> list_tail(s, skip_count(s, pos + 5, rd32(s, pos + 1), depth + 1, dmax, n), n)
+    }
+}
+fn skip_tuple(s: string, pos: int64, hdr: int64, depth: int64, dmax: int64, n: int64) -> int64 {
+    case pos + hdr > n of {
+        true -> 0 - 2;
+        false -> skip_count(s, pos + hdr, size_field(s, pos, hdr), depth + 1, dmax, n)
+    }
+}
+fn skip_map(s: string, pos: int64, depth: int64, dmax: int64, n: int64) -> int64 {
+    case pos + 5 > n of {
+        true -> 0 - 2;
+        false -> skip_count(s, pos + 5, 2 * rd32(s, pos + 1), depth + 1, dmax, n)
+    }
+}
+fn skip(s: string, pos: int64, depth: int64, dmax: int64, n: int64) -> int64 {
+    case depth > dmax of {
+        true -> 0 - 6;
+        false -> case pos >= n of { true -> 0 - 2; false -> skip_tag(s, pos, at(s, pos), depth, dmax, n) }
+    }
+}
+fn skip_tag(s: string, pos: int64, tag: int64, depth: int64, dmax: int64, n: int64) -> int64 {
+    case tag of {
+        97 -> need(pos + 2, n);
+        98 -> need(pos + 5, n);
+        70 -> need(pos + 9, n);
+        106 -> pos + 1;
+        110 -> skip_sized(s, pos, 2, 1, n);
+        119 -> skip_atom(s, pos, 2, n);
+        115 -> skip_atom(s, pos, 2, n);
+        118 -> skip_atom(s, pos, 3, n);
+        100 -> skip_atom(s, pos, 3, n);
+        109 -> skip_sized(s, pos, 5, 0, n);
+        107 -> skip_sized(s, pos, 3, 0, n);
+        108 -> skip_list(s, pos, depth, dmax, n);
+        104 -> skip_tuple(s, pos, 2, depth, dmax, n);
+        105 -> skip_tuple(s, pos, 5, depth, dmax, n);
+        116 -> skip_map(s, pos, depth, dmax, n);
+        _: int64 -> 0 - 16
+    }
+}
+
+// ---- the top-level map ----
+fn key_hdr(tag: int64) -> int64 {
+    case tag of { 119 -> 2; 115 -> 2; 118 -> 3; 100 -> 3; _: int64 -> 0 }
+}
+fn key_text(s: string, pos: int64) -> string {
+    case key_hdr(at(s, pos)) == 2 of {
+        true -> slice(s, pos + 2, pos + 2 + at(s, pos + 1));
+        false -> slice(s, pos + 3, pos + 3 + rd16(s, pos + 1))
+    }
+}
+fn key_bit(k: string) -> int64 {
+    case k == "t" of { true -> 1; false ->
+    case k == "ver" of { true -> 2; false ->
+    case k == "req_id" of { true -> 4; false ->
+    case k == "m" of { true -> 8; false ->
+    case k == "f" of { true -> 16; false ->
+    case k == "a" of { true -> 32; false ->
+    case k == "args" of { true -> 64; false ->
+    case k == "opts" of { true -> 128; false ->
+    case k == "value" of { true -> 256; false ->
+    case k == "token" of { true -> 512; false -> 0 } } } } } } } } } }
+}
+fn has_bit(mask: int64, bit: int64) -> boolean { bit > 0 and (mask / bit) % 2 == 1 }
+// (no function here takes more than eight arguments: the AArch64 emitter refuses more, the SD-37 limit)
+fn pairs(s: string, pos: int64, left: int64, mask: int64, dmax: int64, args_max: int64) -> int64 {
+    case left == 0 of {
+        true -> pos;
+        false -> case pos >= length_bytes(s) of {
+            true -> 0 - 2;
+            false -> case key_hdr(at(s, pos)) == 0 of {
+                true -> 0 - 4;
+                false -> pair_key(s, pos, skip(s, pos, 1, dmax, length_bytes(s)), left, mask, dmax, args_max)
+            }
+        }
+    }
+}
+fn pair_key(s: string, pos: int64, ke: int64, left: int64, mask: int64, dmax: int64, args_max: int64) -> int64 {
+    case ke < 0 of {
+        true -> ke;
+        false -> pair_value(s, skip(s, ke, 1, dmax, length_bytes(s)), ke, key_text(s, pos), left, mask, dmax, args_max)
+    }
+}
+fn pair_value(s: string, ve: int64, ke: int64, k: string, left: int64, mask: int64, dmax: int64, args_max: int64) -> int64 {
+    case ve < 0 of {
+        true -> ve;
+        false -> case has_bit(mask, key_bit(k)) of {
+            true -> 0 - 13;
+            false -> case k == "args" and ve - ke > args_max of {
+                true -> 0 - 5;
+                false -> pairs(s, ve, left - 1, mask + key_bit(k), dmax, args_max)
+            }
+        }
+    }
+}
+fn check_end(e: int64, n: int64) -> int64 {
+    case e < 0 of { true -> 0 - e; false -> case e == n of { true -> 0; false -> 3 } }
+}
+fn check(body: string, dmax: int64, args_max: int64) -> int64 {
+    n: int64 <- length_bytes(body);
+    case n < 6 of {
+        true -> case n >= 1 and at(body, 0) != 131 of { true -> 1; false -> 2 };
+        false -> case at(body, 0) != 131 of {
+            true -> 1;
+            false -> case at(body, 1) != 116 of {
+                true -> 4;
+                false -> case rd32(body, 2) > 16 of {
+                    true -> 7;
+                    false -> check_end(pairs(body, 6, rd32(body, 2), 0, dmax, args_max), n)
+                }
+            }
+        }
+    }
+}
+// the value of key k, after check said 0
+fn find(s: string, pos: int64, left: int64, k: string, n: int64) -> string {
+    case left == 0 or pos >= n of {
+        true -> "";
+        false -> find_at(s, skip(s, pos, 1, 1000, n), key_text(s, pos), left, k, n)
+    }
+}
+fn find_at(s: string, ke: int64, kt: string, left: int64, k: string, n: int64) -> string {
+    case ke < 0 of {
+        true -> "";
+        false -> find_value(s, ke, skip(s, ke, 1, 1000, n), kt == k, left, k, n)
+    }
+}
+fn find_value(s: string, ke: int64, ve: int64, hit: boolean, left: int64, k: string, n: int64) -> string {
+    case ve < 0 of {
+        true -> "";
+        false -> case hit of { true -> slice(s, ke, ve); false -> find(s, ve, left - 1, k, n) }
+    }
+}
+fn span(body: string, k: string) -> string {
+    case length_bytes(body) < 6 of {
+        true -> "";
+        false -> find(body, 6, rd32(body, 2), k, length_bytes(body))
+    }
+}
+// the element count of a list span (nil, a list, or a string ext, which is a list of small integers); -1 if not a list
+fn list_len(sp: string) -> int64 {
+    case length_bytes(sp) == 0 of {
+        true -> 0 - 1;
+        false -> case at(sp, 0) of {
+            106 -> 0;
+            108 -> rd32(sp, 1);
+            107 -> rd16(sp, 1);
+            _: int64 -> 0 - 1
+        }
+    }
+}
+fn is_map(sp: string) -> boolean { length_bytes(sp) > 0 and at(sp, 0) == 116 }
+
+// ---- the language's decode of one value: where a received value becomes a pure, typed value ----
+fn term(sp: string) -> string { cat2(b1(131), sp) }
+fn dec_atom(sp: string) -> (:ok, atom) | (:rejected, atom) {
+    sequence proc[mem(normal), transport]
+        r: (:ok, atom) | (:rejected, atom) <- decode((:etf), term(sp))
+    produces pure r end
+}
+fn dec_int(sp: string) -> (:ok, int64) | (:rejected, atom) {
+    sequence proc[mem(normal), transport]
+        r: (:ok, int64) | (:rejected, atom) <- decode((:etf), term(sp))
+    produces pure r end
+}
+fn dec_str(sp: string) -> (:ok, string) | (:rejected, atom) {
+    sequence proc[mem(normal), transport]
+        r: (:ok, string) | (:rejected, atom) <- decode((:etf), term(sp), { max_bytes: 4096, max_depth: 2, max_length: 4096 })
+    produces pure r end
+}
+fn reason(code: int64) -> atom {
+    case code of {
+        1 -> bees_atoms@a_bad_version();
+        2 -> bees_atoms@a_truncated();
+        3 -> bees_atoms@a_trailing_bytes();
+        4 -> bees_atoms@a_bad_tag();
+        5 -> bees_atoms@a_too_large();
+        6 -> bees_atoms@a_too_deep();
+        7 -> bees_atoms@a_too_long();
+        10 -> bees_atoms@a_unknown_atom();
+        13 -> bees_atoms@a_duplicate_field();
+        _: int64 -> bees_atoms@a_unsupported()
+    }
+}
+
+// ---- the frames BEES writes: values by the language's encode, the map around them by BEES, keys in name order ----
+fn strip(s: string) -> string { slice(s, 1, length_bytes(s)) }
+fn e_atom(a: atom) -> string {
+    sequence proc[mem(normal), transport]
+        s: string <- encode((:etf), a)
+    produces pure strip(s) end
+}
+fn e_int(n: int64) -> string {
+    sequence proc[mem(normal), transport]
+        s: string <- encode((:etf), n)
+    produces pure strip(s) end
+}
+fn e_str(v: string) -> string {
+    sequence proc[mem(normal), transport]
+        s: string <- encode((:etf), v)
+    produces pure strip(s) end
+}
+fn kv(k: atom, v: string) -> string { cat2(e_atom(k), v) }
+fn map_of(n: int64, body: string) -> string { cat4(b1(131), b1(116), be32(n), body) }
+fn ver1() -> string { kv(bees_atoms@a_ver(), e_int(1)) }
+fn enc_hello() -> string { map_of(2, cat2(kv(bees_atoms@a_t(), e_atom(bees_atoms@a_hello())), ver1())) }
+fn enc_token_present(tok: string) -> string {
+    map_of(3, cat4(kv(bees_atoms@a_t(), e_atom(bees_atoms@a_token_present())), kv(bees_atoms@a_token(), e_str(tok)), ver1(), ""))
+}
+fn enc_token_issue(tok: string) -> string {
+    map_of(3, cat4(kv(bees_atoms@a_t(), e_atom(bees_atoms@a_token_issue())), kv(bees_atoms@a_token(), e_str(tok)), ver1(), ""))
+}
+// value: an ETF span (a term without the 131), as the MFA's result was encoded
+fn enc_result(req_id: string, value: string) -> string {
+    map_of(4, cat4(kv(bees_atoms@a_req_id(), e_str(req_id)), kv(bees_atoms@a_t(), e_atom(bees_atoms@a_result())), kv(bees_atoms@a_value(), value), ver1()))
+}
+// a call or a cast (kind is the atom call or cast); args: an ETF span of a list; opts is the empty map (deadline_ms is not
+// sent: the server bounds a call by its own call_timeout_ms, N3)
+fn enc_request(kind: atom, req_id: string, m: atom, f: atom, arity: int64, args: string) -> string {
+    map_of(8, cat4(
+        cat4(kv(bees_atoms@a_a(), e_int(arity)), kv(bees_atoms@a_args(), args), kv(bees_atoms@a_f(), e_atom(f)), kv(bees_atoms@a_m(), e_atom(m))),
+        kv(bees_atoms@a_opts(), cat2(b1(116), be32(0))),
+        kv(bees_atoms@a_req_id(), e_str(req_id)),
+        cat2(kv(bees_atoms@a_t(), e_atom(kind)), ver1())))
+}
+// values and argument lists as spans, for the generated MFA table and test programs
+fn enc_value_int(n: int64) -> string { e_int(n) }
+fn enc_value_str(v: string) -> string { e_str(v) }
+fn enc_args_ints(xs: List[int64, mem(normal)]) -> string {
+    sequence proc[mem(normal), transport]
+        s: string <- encode((:etf), xs)
+    produces pure strip(s) end
+}
+// the 4-byte length prefix of a :stream carrier (one segment)
+fn first_segment(xs: List[string, mem(normal)]) -> string {
+    case xs of {
+        []: List[string, mem(normal)] -> "";
+        [h: string, _t: List[string, mem(normal)]] -> h
+    }
+}
+fn frame4(body: string) -> string {
+    sequence
+        segs: List[string, mem(normal)] <- wireframe@frame(body, carrier@mtu((:tcp)), carrier@boundaries((:tcp)));
+        s: string <- first_segment(segs)
+    produces pure s end
+}
+
+// ---- fingerprints, tokens as words, audit lines ----
+fn hex_digit(d: int64) -> string { substring("0123456789abcdef", d, d + 1) }
+fn hex_from(s: string, i: int64, acc: string) -> string {
+    case i < 0 of {
+        true -> acc;
+        false -> hex_from(s, i - 1, concat(concat(hex_digit(at(s, i) / 16), hex_digit(at(s, i) % 16)), acc))
+    }
+}
+fn hex(s: string) -> string { hex_from(s, length_bytes(s) - 1, "") }
+// the first 16 hex digits, for ordinary log lines (inter-nodal-modes 3.11: truncated in normal logs, full in audit logs)
+fn short(h: string) -> string { case length_bytes(h) > 16 of { true -> substring(h, 0, 16); false -> h } }
+// word i of a token: bytes 7i .. 7i+6, big-endian (seven bytes keep it inside int64); bytes past the end read as 0
+fn byte_or0(s: string, i: int64) -> int64 { case i < length_bytes(s) of { true -> at(s, i); false -> 0 } }
+fn w7(s: string, base: int64, k: int64, acc: int64) -> int64 {
+    case k == 7 of { true -> acc; false -> w7(s, base, k + 1, acc * 256 + byte_or0(s, base + k)) }
+}
+fn word7(s: string, i: int64) -> int64 { w7(s, 7 * i, 0, 0) }
+fn pow256(k: int64) -> int64 { case k == 0 of { true -> 1; false -> 256 * pow256(k - 1) } }
+fn word_at(ws: { w0: int64, w1: int64, w2: int64, w3: int64, w4: int64, w5: int64, w6: int64, w7: int64, w8: int64, w9: int64 }, i: int64) -> int64 {
+    case i of { 0 -> ws.w0; 1 -> ws.w1; 2 -> ws.w2; 3 -> ws.w3; 4 -> ws.w4; 5 -> ws.w5; 6 -> ws.w6; 7 -> ws.w7; 8 -> ws.w8; _: int64 -> ws.w9 }
+}
+fn byte_of(ws: { w0: int64, w1: int64, w2: int64, w3: int64, w4: int64, w5: int64, w6: int64, w7: int64, w8: int64, w9: int64 }, j: int64) -> int64 {
+    (word_at(ws, j / 7) / pow256(6 - j % 7)) % 256
+}
+fn bytes_list(ws: { w0: int64, w1: int64, w2: int64, w3: int64, w4: int64, w5: int64, w6: int64, w7: int64, w8: int64, w9: int64 }, j: int64, acc: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    case j < 0 of {
+        true -> acc;
+        false -> {
+            sequence proc[mem(normal)]
+                b: int64 <- byte_of(ws, j);
+                nxt: List[int64, mem(normal)] <- prepend[int64, mem(normal)](b, acc)
+            produces pure bytes_list(ws, j - 1, nxt) end
+        }
+    }
+}
+// the token back from its words (len bytes); the words travel as one record (no function may take more than eight
+// register arguments on this target, the SD-37 limit)
+fn bytes7(ws: { w0: int64, w1: int64, w2: int64, w3: int64, w4: int64, w5: int64, w6: int64, w7: int64, w8: int64, w9: int64 }, len: int64) -> string {
+    sequence proc[mem(normal), transport]
+        e: List[int64, mem(normal)] <- empty[int64, mem(normal)]();
+        xs: List[int64, mem(normal)] <- bytes_list(ws, len - 1, e);
+        s: string <- bytes_of(xs)
+    produces pure s end
+}
+fn digits(n: int64, acc: string) -> string {
+    case n < 10 of {
+        true -> concat(substring("0123456789", n, n + 1), acc);
+        false -> digits(n / 10, concat(substring("0123456789", n % 10, n % 10 + 1), acc))
+    }
+}
+fn int_text(n: int64) -> string {
+    case n < 0 of { true -> concat("-", digits(0 - n, "")); false -> digits(n, "") }
+}
+// one TRUST audit line, written by one println: event, the peer fingerprint (full hex in audit lines), what, a number.
+// Never arguments or tokens (inter-nodal-modes 3.11).
+fn audit(event: string, fp: string, what: string, n: int64) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(concat(concat(concat("[trust audit] ", event), concat(" fp=", fp)), concat(concat(" ", what), concat(" ", int_text(n)))))
+    produces pure :ok end
+}
+
+fn cut(s: string, start: int64, stop: int64) -> string { slice(s, start, stop) }
+
+// the random bytes of the edge arrive as one whole ETF term (a binary): the language's decode makes them a pure string
+fn dec_token_term(etf: string) -> (:ok, string) | (:rejected, atom) {
+    sequence proc[mem(normal), transport]
+        r: (:ok, string) | (:rejected, atom) <- decode((:etf), etf, { max_bytes: 80, max_depth: 1, max_length: 64 })
+    produces pure r end
+}
+
+// (every value a call returns as a tagged tuple is bound in a sequence before it is passed on: written inline as an argument,
+// such a value reached the derived atom decoder corrupted and faulted it, the SD-31 family; SD-40 in silica-defects.md)
+// ---- whole frames, as the connection actors read them: { code (0 ok, else a reason code or 20 a protocol error), what
+// (the reason, for the audit line), kind, and the decoded fields }. Every value goes through dec_* (the language's decode).
+fn atom_or(r: (:ok, atom) | (:rejected, atom)) -> atom { case r of { (:ok, a: atom) -> a; (:rejected, _w: atom) -> bees_atoms@a_error() } }
+fn atom_ok(r: (:ok, atom) | (:rejected, atom)) -> boolean { case r of { (:ok, _a: atom) -> true; (:rejected, _w: atom) -> false } }
+fn int_or(r: (:ok, int64) | (:rejected, atom)) -> int64 { case r of { (:ok, n: int64) -> n; (:rejected, _w: atom) -> 0 - 1 } }
+fn str_or(r: (:ok, string) | (:rejected, atom)) -> string { case r of { (:ok, v: string) -> v; (:rejected, _w: atom) -> "" } }
+fn str_ok(r: (:ok, string) | (:rejected, atom)) -> boolean { case r of { (:ok, _v: string) -> true; (:rejected, _w: atom) -> false } }
+fn ver_ok(body: string) -> boolean {
+    sequence
+        r: (:ok, int64) | (:rejected, atom) <- dec_int(span(body, "ver"))
+    produces pure int_or(r) == 1 end
+}
+
+// the first frame after the fingerprint: kind 1 hello, 2 token_present (token set), 3 anything else (t names a known kind)
+fn first(code: int64, what: string, kind: int64, token: string) -> { code: int64, what: string, kind: int64, token: string } {
+    { code: code, what: what, kind: kind, token: token }
+}
+fn parse_first(body: string, dmax: int64, args_max: int64) -> { code: int64, what: string, kind: int64, token: string } {
+    c: int64 <- check(body, dmax, args_max);
+    case c != 0 of {
+        true -> first(c, bees_atoms@spelling(reason(c)), 0, "");
+        false -> {
+            sequence
+                t: (:ok, atom) | (:rejected, atom) <- dec_atom(span(body, "t"));
+                out: { code: int64, what: string, kind: int64, token: string } <- first_t(body, t)
+            produces pure out end
+        }
+    }
+}
+fn first_t(body: string, t: (:ok, atom) | (:rejected, atom)) -> { code: int64, what: string, kind: int64, token: string } {
+    case atom_ok(t) and ver_ok(body) of {
+        false -> first(20, "t or ver missing or wrong", 0, "");
+        true -> case atom_or(t) == bees_atoms@a_hello() of {
+            true -> first(0, "hello", 1, "");
+            false -> case atom_or(t) == bees_atoms@a_token_present() of {
+                true -> {
+                    sequence
+                        r: (:ok, string) | (:rejected, atom) <- dec_str(span(body, "token"));
+                        out: { code: int64, what: string, kind: int64, token: string } <- first_token(r)
+                    produces pure out end
+                };
+                false -> first(0, bees_atoms@spelling(atom_or(t)), 3, "")
+            }
+        }
+    }
+}
+fn first_token(r: (:ok, string) | (:rejected, atom)) -> { code: int64, what: string, kind: int64, token: string } {
+    case str_ok(r) and length_bytes(str_or(r)) >= 32 and length_bytes(str_or(r)) <= 64 of {
+        true -> first(0, "token_present", 2, str_or(r));
+        false -> first(20, "token missing or of a wrong size", 0, "")
+    }
+}
+
+// a request: kind 1 call, 2 cast; the args span is still an ETF span (bees_trust_mfa decodes it with the declared types)
+fn rq(code: int64, what: string, kind: int64, req_id: string, m: atom, f: atom, a: int64, args: string) -> { code: int64, what: string, kind: int64, req_id: string, m: atom, f: atom, a: int64, args: string } {
+    { code: code, what: what, kind: kind, req_id: req_id, m: m, f: f, a: a, args: args }
+}
+fn rq_bad(code: int64, what: string) -> { code: int64, what: string, kind: int64, req_id: string, m: atom, f: atom, a: int64, args: string } {
+    rq(code, what, 0, "", bees_atoms@a_error(), bees_atoms@a_error(), 0, "")
+}
+fn kind_of(t: (:ok, atom) | (:rejected, atom)) -> int64 {
+    case atom_or(t) == bees_atoms@a_call() of { true -> 1; false -> case atom_or(t) == bees_atoms@a_cast() of { true -> 2; false -> 0 } }
+}
+fn parse_req(body: string, dmax: int64, args_max: int64) -> { code: int64, what: string, kind: int64, req_id: string, m: atom, f: atom, a: int64, args: string } {
+    c: int64 <- check(body, dmax, args_max);
+    case c != 0 of {
+        true -> rq_bad(c, bees_atoms@spelling(reason(c)));
+        false -> {
+            sequence
+                t: (:ok, atom) | (:rejected, atom) <- dec_atom(span(body, "t"));
+                k: int64 <- kind_of(t);
+                out: { code: int64, what: string, kind: int64, req_id: string, m: atom, f: atom, a: int64, args: string } <- case k == 0 or ver_ok(body) == false of {
+                    true -> rq_bad(20, "t is not call or cast, or ver is not 1");
+                    false -> req_decoded(body, k)
+                }
+            produces pure out end
+        }
+    }
+}
+fn req_decoded(body: string, kind: int64) -> { code: int64, what: string, kind: int64, req_id: string, m: atom, f: atom, a: int64, args: string } {
+    sequence
+        rid: (:ok, string) | (:rejected, atom) <- dec_str(span(body, "req_id"));
+        m: (:ok, atom) | (:rejected, atom) <- dec_atom(span(body, "m"));
+        f: (:ok, atom) | (:rejected, atom) <- dec_atom(span(body, "f"));
+        out: { code: int64, what: string, kind: int64, req_id: string, m: atom, f: atom, a: int64, args: string } <- req_fields(body, kind, rid, m, f)
+    produces pure out end
+}
+fn req_fields(body: string, kind: int64, rid: (:ok, string) | (:rejected, atom), m: (:ok, atom) | (:rejected, atom), f: (:ok, atom) | (:rejected, atom)) -> { code: int64, what: string, kind: int64, req_id: string, m: atom, f: atom, a: int64, args: string } {
+    case str_ok(rid) and length_bytes(str_or(rid)) >= 1 and length_bytes(str_or(rid)) <= 16 of {
+        false -> rq_bad(20, "req_id missing or not 1 to 16 bytes");
+        true -> case atom_ok(m) and atom_ok(f) of {
+            false -> rq_bad(20, "m or f is not an atom");
+            true -> {
+                sequence
+                    ar: (:ok, int64) | (:rejected, atom) <- dec_int(span(body, "a"));
+                    out: { code: int64, what: string, kind: int64, req_id: string, m: atom, f: atom, a: int64, args: string } <- req_arity(body, kind, str_or(rid), atom_or(m), atom_or(f), int_or(ar))
+                produces pure out end
+            }
+        }
+    }
+}
+fn req_arity(body: string, kind: int64, rid: string, m: atom, f: atom, a: int64) -> { code: int64, what: string, kind: int64, req_id: string, m: atom, f: atom, a: int64, args: string } {
+    case a < 0 or a > 255 of {
+        true -> rq_bad(20, "a is not an arity");
+        false -> case list_len(span(body, "args")) != a of {
+            true -> rq_bad(20, "args is not a list of a elements");
+            false -> case length_bytes(span(body, "opts")) > 0 and is_map(span(body, "opts")) == false of {
+                true -> rq_bad(20, "opts is not a map");
+                false -> rq(0, "request", kind, rid, m, f, a, span(body, "args"))
+            }
+        }
+    }
+}
+
+// what a client reads: kind 1 token_issue (token), 2 result (req_id, value span), 3 anything else
+fn rp(code: int64, what: string, kind: int64, a: string, b: string) -> { code: int64, what: string, kind: int64, a: string, b: string } {
+    { code: code, what: what, kind: kind, a: a, b: b }
+}
+fn parse_reply(body: string, dmax: int64, args_max: int64) -> { code: int64, what: string, kind: int64, a: string, b: string } {
+    c: int64 <- check(body, dmax, args_max);
+    case c != 0 of {
+        true -> rp(c, bees_atoms@spelling(reason(c)), 0, "", "");
+        false -> {
+            sequence
+                t: (:ok, atom) | (:rejected, atom) <- dec_atom(span(body, "t"));
+                out: { code: int64, what: string, kind: int64, a: string, b: string } <- reply_t(body, t)
+            produces pure out end
+        }
+    }
+}
+fn reply_t(body: string, t: (:ok, atom) | (:rejected, atom)) -> { code: int64, what: string, kind: int64, a: string, b: string } {
+    case atom_ok(t) and ver_ok(body) of {
+        false -> rp(20, "t or ver missing or wrong", 0, "", "");
+        true -> case atom_or(t) == bees_atoms@a_token_issue() of {
+            true -> {
+                sequence
+                    r: (:ok, string) | (:rejected, atom) <- dec_str(span(body, "token"));
+                    out: { code: int64, what: string, kind: int64, a: string, b: string } <- reply_token(r)
+                produces pure out end
+            };
+            false -> case atom_or(t) == bees_atoms@a_result() of {
+                true -> {
+                    sequence
+                        rid: (:ok, string) | (:rejected, atom) <- dec_str(span(body, "req_id"));
+                        v: string <- span(body, "value");
+                        out: { code: int64, what: string, kind: int64, a: string, b: string } <- reply_result(rid, v)
+                    produces pure out end
+                };
+                false -> rp(0, bees_atoms@spelling(atom_or(t)), 3, "", "")
+            }
+        }
+    }
+}
+fn reply_token(r: (:ok, string) | (:rejected, atom)) -> { code: int64, what: string, kind: int64, a: string, b: string } {
+    case str_ok(r) and length_bytes(str_or(r)) >= 32 and length_bytes(str_or(r)) <= 64 of {
+        true -> rp(0, "token_issue", 1, str_or(r), "");
+        false -> rp(20, "token missing or of a wrong size", 0, "", "")
+    }
+}
+fn reply_result(rid: (:ok, string) | (:rejected, atom), value: string) -> { code: int64, what: string, kind: int64, a: string, b: string } {
+    case str_ok(rid) and length_bytes(value) > 0 of {
+        true -> rp(0, "result", 2, str_or(rid), value);
+        false -> rp(20, "result without req_id or value", 0, "", "")
+    }
+}

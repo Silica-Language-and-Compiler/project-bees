@@ -1,0 +1,22 @@
+// BEES TRUST mode (N3): the per-request worker (inter-nodal-modes 3.4: the module-table call runs in a per-request process, so
+// its garbage dies with it, and the multiplexing design's worker-per-request shape). The receive actor (dangerous_bees_trust@
+// tconn) spawns one per admitted request and casts it (slot, args span, req_id, conn). The worker runs the MFA table's
+// function (bees_trust_mfa@run: the language's decode of args with the declared types, the call, the language's encode of the
+// result), answers conn with (:bees, 9, value span or the failure's reason, req_id, code), and ends: normally when the user code
+// returned (:ok, value), with fail_self(Reason) when it returned (:error, Reason) (D2: the user code failed; nothing is sent to
+// the peer, 3.4 and 3.12 item 1). A worker that faults outright never answers; conn's call timeout covers it.
+module bees_trust_work;
+use bees_atoms;
+use bees_trust_mfa;
+
+export twork/2;
+
+fn twork(msg: (int64, string, string, actor_ref), st: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        (slot: int64, args: string, rid: string, conn: actor_ref) <- msg;
+        r: { code: int64, why: atom, value: string } <- bees_trust_mfa@run(slot, args);
+        s1: string <- case r.code == 0 of { true -> r.value; false -> bees_atoms@spelling(r.why) };
+        _: boolean <- cast(conn, (:bees, 9, s1, rid, r.code) impl ActorMessage {});
+        _: atom <- case r.code == 0 of { true -> stop_self(:normal); false -> fail_self(r.why) }
+    produces pure (:no_reply, st + 1) end
+}

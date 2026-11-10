@@ -88,3 +88,53 @@ silica.compile.*
 # the compiler's derived transport code (encode/decode), written beside each unit that uses it
 *.silica.derived
 .DS_Store
+# N3 (TRUST): node leaves; their generated units and root units, run outputs and the measure files are ignored again
+!trials/n3_trust/roles/
+!trials/n3_trust/nodes/
+!trials/n3_trust/certs/
+trials/n3_trust/nodes/*/*
+!trials/n3_trust/nodes/*/Makefile
+!trials/n3_trust/nodes/*/*.config
+!trials/n3_trust/nodes/*/*.atoms
+!trials/n3_trust/nodes/*/*.trust
+!trials/n3_trust/nodes/*/lib/
+!trials/n3_trust/nodes/*/dangerous_exposure_source
+trials/n3_trust/nodes/g2/unreadable_whitelist.config
+trials/n3_trust/nodes/*/lib/bees_trust_conf.*
+trials/n3_trust/nodes/*/lib/bees_trust_mfa.silica
+trials/n3_trust/rate.*.out*
+trials/n3_trust/measure.txt
+trials/n3_trust/nodes/*/silica.config
+trials/n3_trust/nodes/*/silica.atoms
+trials/n3_trust/nodes/*/lib/bees_atoms.*
+trials/n3_trust_frames/lib/bees_atoms.*
+# N2 (BEAM mode): the roles and node leaves of n2_dist and n2_live; generated root units, beam_conf/beam_peers, cookie files,
+# the live trial's raw logs and its compiled stock driver
+!trials/n2_dist/roles/
+!trials/n2_dist/nodes/
+!trials/n2_live/roles/
+!trials/n2_live/nodes/
+trials/n2_dist/nodes/*/*
+trials/n2_live/nodes/*/*
+!trials/n2_dist/nodes/*/Makefile
+!trials/n2_live/nodes/*/Makefile
+!trials/n2_dist/nodes/*/node.wire
+!trials/n2_live/nodes/*/node.wire
+!trials/n2_dist/nodes/*/node.atoms
+!trials/n2_live/nodes/*/node.atoms
+!trials/n2_live/nodes/*/node.beam
+!trials/n2_dist/nodes/*/bees.config
+!trials/n2_live/nodes/*/bees.config
+!trials/n2_dist/nodes/*/lib/
+!trials/n2_live/nodes/*/lib/
+!trials/n2_dist/nodes/*/dangerous_exposure_source
+!trials/n2_live/nodes/*/dangerous_exposure_source
+trials/*/nodes/*/lib/beam_conf.silica
+trials/*/nodes/*/lib/beam_peers.silica
+trials/*/nodes/*/lib/bees_peers.silica
+trials/*/nodes/*/lib/bees_msgs.silica
+trials/*/nodes/*/lib/bees_atoms.silica
+trials/*/nodes/*/lib/bees_atoms.index
+trials/n2_auth/cookie.txt
+trials/n2_live/*.raw
+trials/n2_live/erl_crash.dump

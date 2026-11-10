@@ -1,0 +1,6 @@
+op3 ok b2d05e0066c892393ace6a5fb10f193957e705b0
+op3 ok 0000000003fb5e470510708d288ea5ce1ccd5d9b
+op3 ok ffffffff88db1a454115c119107d2c10574a14ea
+op1 ok true
+op1 digest equals op3 of its challenge true
+exit=0

@@ -1,0 +1,44 @@
+// BEES TRUST mode (N3): the forbidden guard (inter-nodal-modes 1.1, 3.4), applied to every CALL and CAST before the
+// permission gate. It is SEMP's default deny map (BEAM_SEMP src/semp_policy.erl, default_map/0 and default_prefixes/0, read
+// 2026-11-10: whole modules, and erlang functions of every arity) plus BEES's own internal namespaces: every bees_* module
+// (the shim, the generated module-table, atom-lookup, dispatch and TRUST units, the local-only TRUST administration
+// included), and the trpc, trust_, semp_ and tempus_ prefixes. The arity is not consulted: SEMP bans these for all arities.
+// A module or function name is compared by its spelling; nothing here is generated, so the guard is the same in every
+// program. A function that was not compiled into the program does not exist at all (the MFA table), so what this list
+// cannot name is still unreachable.
+module bees_trust_guard;
+use bees_atoms;
+
+export forbidden/2;
+
+fn prefixed(ms: string) -> boolean { starts_with(ms, "trust_") or starts_with(ms, "semp_") or starts_with(ms, "tempus_") or starts_with(ms, "bees_") or starts_with(ms, "trpc") }
+fn module_banned_0(ms: string) -> boolean {
+    case ms == "unicode" of { true -> true; false -> case ms == "erl_parse" of { true -> true; false -> case ms == "erl_scan" of { true -> true; false -> case ms == "erl_eval" of { true -> true; false -> case ms == "epp" of { true -> true; false -> case ms == "compile" of { true -> true; false -> case ms == "code" of { true -> true; false -> case ms == "rpc" of { true -> true; false -> case ms == "erpc" of { true -> true; false -> case ms == "trpc" of { true -> true; false -> case ms == "erl_ddll" of { true -> true; false -> case ms == "os" of { true -> true; false -> case ms == "file" of { true -> true; false -> case ms == "filelib" of { true -> true; false -> case ms == "filename" of { true -> true; false -> case ms == "disk_log" of { true -> true; false -> false } } } } } } } } } } } } } } } }
+}
+fn module_banned_1(ms: string) -> boolean {
+    case ms == "dets" of { true -> true; false -> case ms == "mnesia" of { true -> true; false -> case ms == "gen_tcp" of { true -> true; false -> case ms == "gen_udp" of { true -> true; false -> case ms == "ssl" of { true -> true; false -> case ms == "inet" of { true -> true; false -> case ms == "inet_tcp" of { true -> true; false -> case ms == "inet_udp" of { true -> true; false -> case ms == "ssh" of { true -> true; false -> case ms == "inets" of { true -> true; false -> case ms == "httpd" of { true -> true; false -> case ms == "httpc" of { true -> true; false -> case ms == "socket" of { true -> true; false -> case ms == "http_uri" of { true -> true; false -> case ms == "init" of { true -> true; false -> case ms == "persistent_term" of { true -> true; false -> false } } } } } } } } } } } } } } } }
+}
+fn module_banned_2(ms: string) -> boolean {
+    case ms == "global" of { true -> true; false -> case ms == "net_adm" of { true -> true; false -> case ms == "net_kernel" of { true -> true; false -> case ms == "pg" of { true -> true; false -> case ms == "sys" of { true -> true; false -> case ms == "dbg" of { true -> true; false -> case ms == "logger" of { true -> true; false -> case ms == "gen_server" of { true -> true; false -> case ms == "gen_statem" of { true -> true; false -> case ms == "gen_fsm" of { true -> true; false -> case ms == "gen_event" of { true -> true; false -> case ms == "supervisor" of { true -> true; false -> case ms == "supervisor_bridge" of { true -> true; false -> case ms == "application" of { true -> true; false -> case ms == "ets" of { true -> true; false -> case ms == "prim_file" of { true -> true; false -> false } } } } } } } } } } } } } } } }
+}
+fn module_banned_3(ms: string) -> boolean {
+    case ms == "prim_inet" of { true -> true; false -> case ms == "erl_prim_loader" of { true -> true; false -> case ms == "zip" of { true -> true; false -> case ms == "erl_tar" of { true -> true; false -> case ms == "zlib" of { true -> true; false -> case ms == "re" of { true -> true; false -> case ms == "io" of { true -> true; false -> case ms == "io_lib" of { true -> true; false -> case ms == "timer" of { true -> true; false -> false } } } } } } } } }
+}
+fn module_banned(ms: string) -> boolean {
+    module_banned_0(ms) or module_banned_1(ms) or module_banned_2(ms) or module_banned_3(ms)
+}
+fn erlang_banned_0(fs: string) -> boolean {
+    case fs == "list_to_atom" of { true -> true; false -> case fs == "list_to_existing_atom" of { true -> true; false -> case fs == "binary_to_atom" of { true -> true; false -> case fs == "binary_to_existing_atom" of { true -> true; false -> case fs == "binary_to_term" of { true -> true; false -> case fs == "load_nif" of { true -> true; false -> case fs == "open_port" of { true -> true; false -> case fs == "port_command" of { true -> true; false -> case fs == "ports" of { true -> true; false -> case fs == "port_info" of { true -> true; false -> case fs == "port_control" of { true -> true; false -> case fs == "halt" of { true -> true; false -> case fs == "system_flag" of { true -> true; false -> case fs == "garbage_collect" of { true -> true; false -> case fs == "apply" of { true -> true; false -> case fs == "spawn" of { true -> true; false -> false } } } } } } } } } } } } } } } }
+}
+fn erlang_banned_1(fs: string) -> boolean {
+    case fs == "spawn_link" of { true -> true; false -> case fs == "spawn_monitor" of { true -> true; false -> case fs == "spawn_opt" of { true -> true; false -> case fs == "send" of { true -> true; false -> case fs == "exit" of { true -> true; false -> case fs == "trace" of { true -> true; false -> case fs == "trace_pattern" of { true -> true; false -> case fs == "system_monitor" of { true -> true; false -> case fs == "system_profile" of { true -> true; false -> case fs == "loaded" of { true -> true; false -> case fs == "preloaded" of { true -> true; false -> case fs == "process_flag" of { true -> true; false -> case fs == "group_leader" of { true -> true; false -> case fs == "process_info" of { true -> true; false -> case fs == "processes" of { true -> true; false -> case fs == "register" of { true -> true; false -> false } } } } } } } } } } } } } } } }
+}
+fn erlang_banned_2(fs: string) -> boolean {
+    case fs == "unregister" of { true -> true; false -> case fs == "registered" of { true -> true; false -> case fs == "whereis" of { true -> true; false -> case fs == "set_cookie" of { true -> true; false -> case fs == "system_info" of { true -> true; false -> case fs == "statistics" of { true -> true; false -> case fs == "send_after" of { true -> true; false -> case fs == "start_timer" of { true -> true; false -> case fs == "cancel_timer" of { true -> true; false -> false } } } } } } } } }
+}
+fn erlang_banned(fs: string) -> boolean {
+    erlang_banned_0(fs) or erlang_banned_1(fs) or erlang_banned_2(fs)
+}
+fn forbidden(m: atom, f: atom) -> boolean {
+    prefixed(bees_atoms@spelling(m)) or module_banned(bees_atoms@spelling(m)) or (bees_atoms@spelling(m) == "erlang" and erlang_banned(bees_atoms@spelling(f)))
+}

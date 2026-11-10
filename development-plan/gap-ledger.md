@@ -223,7 +223,7 @@ says what BEES does until the item lands. IDs are stable: a withdrawn item keeps
 | **S-10** | Variant types (roadmap chunk 5) | A cleaner `bees_term`. | Nothing hard | Recursive tagged tuples | ROADMAP chunk 5 |
 | **S-11** | Big integers (roadmap chunk 7) | Erlang integer semantics. | **1.0** (A1) | `int64`, with overflow raising `system_limit` | ROADMAP chunk 7 |
 | **S-12** | Dynamic linking and `hot_swap` loading (roadmap chunk 8) | Hot code upgrade. | Post-1.0 | None | Spec §26.3.2 |
-| **S-13** | Native TLS intrinsics, with a hook that exposes the peer certificate or its SHA-512 fingerprint | Retiring the TLS native edge; TRUST whitelisting. | Retiring E | rustls through the native edge (D6) | `tls_quantum_safe_future.md` §5 |
+| **S-13** | Native TLS intrinsics, with a hook that exposes the peer certificate or its SHA-512 fingerprint | Retiring the TLS native edge; TRUST whitelisting. | Retiring E | OpenSSL on the hosted targets and Mbed TLS on the boards, through the native edge (D40) | `tls_quantum_safe_future.md` §5 |
 | **S-14** | Crypto labels, `CtMask`, `proc[secret]` (roadmap chunk 9) | Constant-time comparison and zeroization inside Silica. | Retiring E | Native constant-time compare | `crypto-proposal-introduction.md` |
 | **S-15** | Region release inside a living actor (roadmap chunk 4, then chunk 15) **Delivered on macOS by chunk 15 phase 2** (stack-area regions; the new state is copied into the state area and the old state's memory is released at dispatch end). **Verified 2026-11-04 on silica-999939, macOS only** (BEES trials `s06_terms_and_regions`, `silica_defects`: 100,000 state replacements peak at 4.9 MB, was 551 MB; SD-7 and SD-21 closed). Later chunk 15 phases (`state_policy` spawn argument, copy-on-send) are on an unmerged Silica branch and unverified; the ESP32-S3 phase is not done. | Evacuation was BEES's substitute for GC; Silica now does it, so BEES has no evacuation step (roadmap §4.2). | Nothing | None needed | `region_memory_safety_todo.md`; `chunk15_stack_memory_design.md` |
 | **S-16** | A hash map | O(1) ETS operations. | Nothing hard | `wbt_map` | `atom_actor_registry_direct_index_design.md` §1 |
@@ -263,7 +263,7 @@ records.
 | TCP and UDP transport calls; kqueue/epoll registration and wait | `bees_io`, `bees_inet` | the transport wrappers BEES creates (S-22) |
 | `getaddrinfo` (A/AAAA records only) | DNS | the `getaddrinfo` wrapper (S-22) |
 | File write, directory operations, file metadata | `bees_file` | Silica `device_io` completion |
-| TLS 1.3 session operations through rustls on the hosted targets and a C TLS library on the ESP32-S3 (D6), with no transports of its own: configure, handshake, read, write, peer certificate DER and its SHA-512, ALPN | TRUST, BEAM-mode TLS | A Silica TLS built-in (S-13; not planned at first, D17) |
+| TLS 1.3 session operations through OpenSSL on the hosted targets and Mbed TLS on the boards (D40), with no transports of its own: configure, handshake, read, write, peer certificate DER and its SHA-512, ALPN | TRUST, BEAM-mode TLS | A Silica TLS built-in (S-13; not planned at first, D17) |
 | SHA-2 family, MD5, HMAC | `crypto`, certificate fingerprints, the Erlang cookie challenge | S-14 (MD5 stays for as long as BEAM mode exists) |
 | `random_bytes(n)` | `crypto:strong_rand_bytes`, tokens, challenges | A Silica secure-random built-in (not planned at first, D17) |
 | `ct_equal(a, b)` | Token validation | S-14 |

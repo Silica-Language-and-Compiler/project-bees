@@ -1,0 +1,3 @@
+// the timing of bees.config (beam.net_ticktime_s: a tick after net_ticktime/4 idle, the peer lost after net_ticktime silent)
+fn io_ms() -> uint64 { beam_conf@io_ms() }
+fn tick_ms() -> uint64 { beam_conf@tick_ms() }

@@ -1,6 +1,6 @@
 # The BEES configuration file: `bees.config`
 
-**Status: DESIGN, 2026-11-06 (roadmap D37), revised the same day for six user rulings (R1 to R6, listed in section 10). Nothing in this document is implemented.** There is no reader, no validator and no
+**Status: DESIGN, 2026-11-06 (roadmap D37), revised the same day for six user rulings (R1 to R6, listed in section 10). Nothing in this document is implemented.** **Update 2026-11-10 (N3): the `mode` check and the whole `trust` section are implemented by `tools/bees_config_trust.py`, the TRUST half of the reader, as a stand-in that reads the file (and the whitelist, pins and certificates) when the program is built and compiles in the values or the boot error (Silica cannot read files yet); see [spikes/N3-trust.md](spikes/N3-trust.md). To be merged with N2's BEAM half into N0.2's reader.** There is no reader, no validator and no
 `bees.config` in any trial. Milestone N0 ([mvp.md](mvp.md) section 5) builds it. What exists today is only the build-time
 manifest (`node`, `creation`, `timing`, `peer`, `remote`, `local`, `message` lines; compiler guide B1a, N1) and the M3 to M5
 node layer, which takes its timing and peer from that manifest. Companion documents: [roadmap.md](roadmap.md) (D26, D36,

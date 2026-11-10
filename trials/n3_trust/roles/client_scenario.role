@@ -1,0 +1,49 @@
+// (a) the scenario set: a permitted CALL (hello, a token is issued), a second CALL on the token fast path, a CAST, a CALL with a
+// binary argument and result
+fn label(step: int64) -> string {
+    case step of {
+        1 -> "call demo:add([1, 2]), hello path";
+        2 -> "call demo:add([40, 2]), token fast path";
+        3 -> "cast demo:note([7])";
+        4 -> "call demo:echo([<<\"hi\">>])";
+        _: int64 -> "?"
+    }
+}
+fn start(step: int64, me: actor_ref) -> atom {
+    case step of {
+        1 -> trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_add(), 2, ints2(1, 2), me, 1);
+        2 -> trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_add(), 2, ints2(40, 2), me, 2);
+        3 -> trpc_cast(server(), bees_atoms@a_demo(), bees_atoms@a_note(), 1, ints1(7), me, 3);
+        4 -> trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_echo(), 1, strs1("hi"), me, 4);
+        _: int64 -> say("scenario done")
+    }
+}
+// after the cast the driver waits 300 ms before the next step, so the server's lines for the cast come first
+fn next(step: int64, me: actor_ref) -> atom {
+    case step == 3 of { true -> wake(me, 300, 4); false -> start(step + 1, me) }
+}
+fn driver(r: { req: int64, what: atom, value: string }, step: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        go: boolean <- r.value == "go";
+        _: atom <- case go of {
+            true -> start(r.req, me);
+            false -> {
+                sequence
+                    _: atom <- say(concat(concat(concat("step ", bees_trust_frame@int_text(r.req)), concat(" ", label(r.req))), concat(": ", outcome(r))));
+                    _: atom <- next(r.req, me)
+                produces pure :ok end
+            }
+        }
+    produces pure (:no_reply, step + 1) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        b: int64 <- trust_boot();
+        _: atom <- start_reporter();
+        _: atom <- trust_start();
+        d: actor_ref <- spawn(0, driver, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: atom <- start(1, d);
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

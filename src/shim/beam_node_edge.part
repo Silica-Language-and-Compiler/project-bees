@@ -1,0 +1,82 @@
+
+// ---- BEES node edge, BEAM mode (N2): passed as the first role file to tools/bees_edge_gen.py, so it lands in the dangerous_
+// root unit of every BEAM-mode node program (after src/shim/bees_tcp_edge.part, which gives carrier_new). dangerous_beam_net
+// and dangerous_beam_auth are dangerous_ units, whose functions may be called only from an FFI worker (E4042): their behaviours
+// are spawned here by reference. Every value comes from beam_conf (tools/bees_config_beam.py, from bees.config), except the three that a program passes
+// (normally beam_conf@io_ms(), beam_conf@tick_ms(), beam_conf@cookie_path()), so that a trial can run M3-style variants of one node. The state
+// literals are the behaviours' state types written out (SD-31: no record-returning call inline as an argument).
+//
+// beam_launch(c, io_ms, tick_ms, cookie): the node over the unopened (:tcp) carrier c. Starts the cookie worker and, for EPMD, a second carrier. A
+// dialing node starts tx, the proxies and conn at once and opens c (to the configured port, or through EPMD's answer: epm
+// opens c); a listening node starts lsn on c, which registers with EPMD once bound and starts the link on the first accepted
+// connection. Returns the connection actor and the writer on a dialing node (both fields are lsn on a listening node).
+fn beam_pair(n: actor_ref, t: actor_ref) -> { conn: actor_ref, tx: actor_ref } { { conn: n, tx: t } }
+fn beam_banner() -> atom {
+    sequence proc[device_io]
+        _: atom <- println(beam_conf@summary());
+        _: atom <- println(case beam_conf@auth_cookie() of {
+            true -> "[bees] BEAM mode: Erlang cookie authentication, no encryption (transport tcp, 127.0.0.1); a downgrade from TRUST";
+            false -> "[bees] BEAM mode with auth none: TEST ONLY, no authentication, no encryption (127.0.0.1)"
+        })
+    produces pure :ok end
+}
+fn auth_new(cookie: string) -> dangerous_actor_ref {
+    sequence proc[concurrency]
+        a: dangerous_actor_ref <- spawn_dangerous(cookie, dangerous_beam_auth@auth, stack_policy(0, :keep_last_message), state_policy(:keep_state_area))
+    produces pure a end
+}
+fn beam_launch(c: dangerous_actor_ref, io_ms: uint64, tick_ms: uint64, cookie: string) -> { conn: actor_ref, tx: actor_ref } {
+    sequence proc[concurrency]
+        _: atom <- beam_banner();
+        me: actor_ref <- self();
+        a: dangerous_actor_ref <- auth_new(cookie);
+        ec: dangerous_actor_ref <- carrier_new();
+        p: { conn: actor_ref, tx: actor_ref } <- case beam_conf@link_dials() of {
+            true -> beam_dial(c, ec, a, me, io_ms, tick_ms);
+            false -> beam_listen(c, ec, a, me, io_ms, tick_ms)
+        }
+    produces pure p end
+}
+fn beam_dial(c: dangerous_actor_ref, ec: dangerous_actor_ref, a: dangerous_actor_ref, me: actor_ref, io_ms: uint64, tick_ms: uint64) -> { conn: actor_ref, tx: actor_ref } {
+    sequence proc[concurrency]
+        t: actor_ref <- spawn({ c: c, up: false, sent: 0, reaper: me, tick_ms: tick_ms }, dangerous_beam_net@tx, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        r: actor_ref <- beam_peers@start_proxies(t);
+        _: boolean <- cast(t, (:who, r) impl ActorMessage {});
+        n: actor_ref <- spawn({ asm: t, c: c, tx: t, auth: a, mode: 0, step: 0, peer: beam_conf@link_peer(), ok: 0, dropped: 0, ticks: 0, seen: 0, io_ms: io_ms, ch: 0, e0: 0 - 1, e1: 0, e2: 0, e3: 0, ctl: 0 }, dangerous_beam_net@conn, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: boolean <- case beam_conf@link_by_epmd() of {
+            true -> beam_lookup(c, ec, n);
+            false -> cast(c, (:open, n, beam_conf@link_address()) impl ActorMessage {})
+        };
+        p: { conn: actor_ref, tx: actor_ref } <- beam_pair(n, t)
+    produces pure p end
+}
+fn beam_lookup(c: dangerous_actor_ref, ec: dangerous_actor_ref, n: actor_ref) -> boolean {
+    sequence proc[concurrency]
+        e: actor_ref <- spawn({ c: ec, lcar: c, conn: n, kind: 2, port: 0, done: false, buf: "" }, dangerous_beam_net@epm, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        ok: boolean <- cast(ec, (:open, e, beam_conf@epmd_address()) impl ActorMessage {})
+    produces pure ok end
+}
+fn beam_listen(c: dangerous_actor_ref, ec: dangerous_actor_ref, a: dangerous_actor_ref, me: actor_ref, io_ms: uint64, tick_ms: uint64) -> { conn: actor_ref, tx: actor_ref } {
+    sequence proc[concurrency]
+        l: actor_ref <- spawn({ reaper: me, io_ms: io_ms, tick_ms: tick_ms, started: false, auth: a, ec: ec }, dangerous_beam_net@lsn, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: boolean <- cast(c, (:open, l, beam_conf@link_address()) impl ActorMessage {});
+        p: { conn: actor_ref, tx: actor_ref } <- beam_pair(l, l)
+    produces pure p end
+}
+fn beam_start(c: dangerous_actor_ref, io_ms: uint64, tick_ms: uint64, cookie: string) -> actor_ref {
+    sequence
+        p: { conn: actor_ref, tx: actor_ref } <- beam_launch(c, io_ms, tick_ms, cookie)
+    produces pure p.conn end
+}
+// a writer that is never "up" and writes raw segments: for a test program that breaks the protocol on purpose
+fn beam_raw_writer(c: dangerous_actor_ref) -> actor_ref {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        t: actor_ref <- spawn({ c: c, up: false, sent: 0, reaper: me, tick_ms: 0 }, dangerous_beam_net@tx, stack_policy(0, :keep_last_message), state_policy(:keep_state_area))
+    produces pure t end
+}
+fn beam_send_raw(tx: actor_ref, seg: string) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(tx, (:bees, 1, seg) impl ActorMessage {})
+    produces pure ok end
+}

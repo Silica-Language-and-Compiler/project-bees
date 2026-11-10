@@ -1,0 +1,34 @@
+// BEES TRUST mode (N3): the Silica face of the TRUST native edge (native/trust/silica_bees_trust.c; sidecar
+// dangerous_exposure_source/trust/): secure random bytes and the constant-time comparison, macOS system facilities only.
+// TRUST's own edge: BEAM mode has separate entries (D36). The raw bindings are called only through the bound-first
+// adapters below (SD-15), and the adapters only from the edge worker's external_danger sequence
+// (dangerous_bees_trust_edge@trnd), so every result is FFI-derived and tainted (SD-24): the random bytes come back as one
+// ETF binary that the receiving handler converts with the language's decode((:etf), ...) (mvp.md section 4).
+module dangerous_bees_trust_native;
+
+wrapper_meta "dangerous_exposure_source/trust/silica_bees_trust_wrapper.meta";
+
+export random_etf/1;
+export ct_equal/2;
+
+foreign c_wrapper "bees_trust_random_etf"
+fn random_etf_raw(n: int64) -> { tag: int64, text_ptr: uint8, text_len: uint64, error_code: int64 };
+
+foreign c_wrapper "bees_trust_ct_set"
+fn ct_set_raw(a_ptr: uint8, a_len: uint64) -> { tag: int64, value: int64, error_code: int64 };
+
+foreign c_wrapper "bees_trust_ct_equal"
+fn ct_equal_raw(b_ptr: uint8, b_len: uint64) -> { tag: int64, value: int64, error_code: int64 };
+
+// n random bytes as one ETF binary term (131 109 len bytes); empty on a bad n
+fn random_etf(n: int64) -> string {
+    out: string <- random_etf_raw(n);
+    out
+}
+
+// 1 when a and b are equal (same length, same bytes), else 0; constant time in the C edge
+fn ct_equal(a: string, b: string) -> int64 {
+    _: { tag: int64, value: int64, error_code: int64 } <- ct_set_raw(a);
+    r: { tag: int64, value: int64, error_code: int64 } <- ct_equal_raw(b);
+    r.value
+}

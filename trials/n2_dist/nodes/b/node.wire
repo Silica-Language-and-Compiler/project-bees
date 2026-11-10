@@ -1,0 +1,5 @@
+# N2 node b: dials a; has a proxy for a's inbox; serves outbox
+node   b@localhost
+peer   a@localhost 127.0.0.1 47431 dial
+remote inbox @ a@localhost cast { op: atom, n: int64 }
+local  outbox cast { op: atom, n: int64 }

@@ -30,7 +30,7 @@ for sid, title, extra in [
     node(sid, title, extra.get("owner", "BEES"), extra.get("area", "trials"), start=["R0.1"])
 node("ND", "User decision: which TLS library and engine, and explicit approval to fetch or build it (D38; the no-downloads rule blocks it until then)",
      "user", "plan", note="Runs from the start, in parallel with N2 and N3. Nothing that downloads or builds a TLS engine starts without it.")
-node("S12", "Spike: TLS engine (rustls hosted; C library on ESP32-S3; both profiles)", "BEES", "native", start=["ND"],
+node("S12", "Spike: TLS engine (OpenSSL hosted; Mbed TLS on the boards; both profiles (D40))", "BEES", "native", start=["ND"],
      note="Needs only the Rust and ESP-IDF toolchains; no Silica. Blocked on the user's approval (ND).")
 node("S13", "Spike: lifecycle cost (supervised spawn, message copies, yield vs mailbox depth, exit through the hub)",
      "BEES", "trials", start=["R0.1"], soft=[["S7", "exit part measured without S7's report prototype"]])

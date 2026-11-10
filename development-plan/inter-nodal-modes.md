@@ -11,6 +11,8 @@
 > ([bees-config-file.md](bees-config-file.md), D37), which replaces the `sys.config` this file used to describe; **a node runs one
 > mode, chosen there, and the default is TRUST.** Where this document still says `trust/1` term encoding it means SEMP's ETF map frames.
 >
+> **Update 2026-11-10 (N3, built and run on silica-999926):** TRUST logic over plaintext loopback exists (`src/trust/`): SEMP's map frames, CALL, CAST and result one request per connection, the whitelist, the forbidden guard and the permission gate, tokens from the native edge with a constant-time compare, suspicion and quarantine with a local operator reset, the timeouts and the `trpc` client; the peer identity is a test-only stand-in for the certificate fingerprint (R5) until TLS (N4). See [spikes/N3-trust.md](spikes/N3-trust.md).
+>
 > **Status, exactly (2026-11-06).** Built (milestones M0 to M5, BEES to BEES on `127.0.0.1`): BEAM mode's wire **without** the
 > cookie digest, framing, ticks and `REG_SEND`. **Not built:** the cookie digest, EPMD, links and pids on the wire, any TRUST
 > code, TLS, the configuration reader. The plan is the milestones N0 to N5 of [mvp.md](mvp.md) section 5.

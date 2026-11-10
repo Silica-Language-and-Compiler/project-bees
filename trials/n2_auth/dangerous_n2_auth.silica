@@ -1,0 +1,64 @@
+use bees_reporter;
+use dangerous_beam_auth;
+// N2: the cookie worker (dangerous_beam_auth) answers op 3 (the digest of a given challenge) and op 1 (a fresh challenge and
+// its digest) from the cookie file cookie.txt (written mode 600 by the leaf's Makefile). The hex of each op 3 digest is
+// compared with erlang:md5 by tools/test_beam_dist.py; op 1's digest is checked here against op 3 of the same challenge.
+module dangerous_n2_auth;
+
+fn hexd(v: int64) -> string { substring("0123456789abcdef", v, v + 1) }
+fn at(s: string, i: int64) -> int64 {
+    sequence proc[transport]
+        b: int64 <- byte_at(s, i)
+    produces pure b end
+}
+fn hex_of(s: string, i: int64, n: int64) -> string {
+    case i >= n of {
+        true -> "";
+        false -> concat(concat(hexd(at(s, i) / 16), hexd(at(s, i) % 16)), hex_of(s, i + 1, n))
+    }
+}
+fn u32(s: string) -> int64 { ((at(s, 0) * 256 + at(s, 1)) * 256 + at(s, 2)) * 256 + at(s, 3) }
+fn digest_of(s: string) -> string {
+    sequence proc[mem(normal), transport]
+        d: string <- byte_slice(s, 4, 20)
+    produces pure d end
+}
+fn say(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+fn sink(msg: (:bees, int64, string, string, atom), st: { w: dangerous_actor_ref, prev: string, n: int64 }) -> (:no_reply, { w: dangerous_actor_ref, prev: string, n: int64 }) {
+    case msg of {
+        (:bees, k: int64, body: string, _r: string, why: atom) -> {
+            sequence proc[concurrency]
+                me: actor_ref <- self();
+                ok: boolean <- why == :ok and length_bytes(body) == 20;
+                _: atom <- case k == 5 of {
+                    true -> say(concat("op1 ok ", case ok of { true -> "true"; false -> "false" }));
+                    false -> case st.n == 1 of {
+                        true -> say(concat("op1 digest equals op3 of its challenge ", case digest_of(body) == st.prev of { true -> "true"; false -> "false" }));
+                        false -> say(concat(concat("op3 ", case ok of { true -> "ok "; false -> "error " }), hex_of(body, 0, length_bytes(body))))
+                    }
+                };
+                _: boolean <- case k == 5 and ok of {
+                    true -> cast(st.w, (:bees, 3, u32(body), me) impl ActorMessage {});
+                    false -> true
+                }
+            produces pure (:no_reply, { w: st.w, prev: case k == 5 of { true -> digest_of(body); false -> st.prev }, n: case k == 5 of { true -> 1; false -> 0 } }) end
+        }
+    }
+}
+
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- bees_reporter@start();
+        w: dangerous_actor_ref <- spawn_dangerous("cookie.txt", dangerous_beam_auth@auth, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        s: actor_ref <- spawn({ w: w, prev: "", n: 0 }, sink, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: boolean <- cast(w, (:bees, 3, 3000000000, s) impl ActorMessage {});
+        _: boolean <- cast(w, (:bees, 3, 0, s) impl ActorMessage {});
+        _: boolean <- cast(w, (:bees, 3, 4294967295, s) impl ActorMessage {});
+        _: boolean <- cast(w, (:bees, 1, 0, s) impl ActorMessage {});
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

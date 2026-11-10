@@ -319,7 +319,7 @@ land in time; if one slips, everything that closes after it slips with it.
 | **S10** | Spike: BIF failure paths and the crash report | BEES | `trials` | R0.1 | — | — | R0.3, M0, S-9 |
 | **S11** | Spike: balancing through migrate_actor() | BEES | `trials` | R0.1 | — | — | M0, S-23, A6 |
 | **ND** | User decision: which TLS library and engine, and explicit approval to fetch or build it (D38; the no-downloads rule blocks it until then) | user | `plan` | — | — | — | S12, N4 |
-| **S12** | Spike: TLS engine (rustls hosted; C library on ESP32-S3; both profiles) | BEES | `native` | ND | — | — | M0, M1.N, N4 |
+| **S12** | Spike: TLS engine (OpenSSL hosted; Mbed TLS on the boards; both profiles (D40)) | BEES | `native` | ND | — | — | M0, M1.N, N4 |
 | **S13** | Spike: lifecycle cost (supervised spawn, message copies, yield vs mailbox depth, exit through the hub) | BEES | `trials` | R0.1 | — | S7 (exit part measured without S7's report prototype) | M0 |
 | **R0.3** | Contract v0 (contract/target-contract.md) | BEES | `contract` | S1, S2, S5, S6, S9, S10 | — | — | M0, T1 |
 | **M0** | Stage 0 exit: all thirteen spike notes merged, S-5 filed, contract v0 reviewed | BEES | `plan` | R0.1, S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11, S12, S13, R0.3 | — | — | M1.A |

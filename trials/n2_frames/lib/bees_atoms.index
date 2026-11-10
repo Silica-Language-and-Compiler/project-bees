@@ -1,0 +1,17 @@
+0	bad_tag
+1	bad_utf8
+2	bad_variant
+3	bad_version
+4	duplicate_field
+5	foreign_actor
+6	inc
+7	missing_field
+8	out_of_range
+9	too_deep
+10	too_large
+11	too_long
+12	trailing_bytes
+13	truncated
+14	unknown_atom
+15	unknown_field
+16	unsupported

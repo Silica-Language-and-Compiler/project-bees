@@ -1,0 +1,21 @@
+[trust] TEST ONLY: plaintext transport, peer identity is a test-supplied stand-in for the certificate fingerprint
+[trust] mode trust, listen 127.0.0.1:47502, whitelist 0 entries, pinned servers 1, frame_size_max 4096 (build limit 4096 until N1), args_len_max 4096, term_depth_max 32, call_timeout_ms 2000, first_frame_timeout_ms 2000, suspicion_limit 3, token_bytes 48, token_ttl_sec 300, one request per connection (B1)
+[trust] TRUST standalone: no whitelist file configured, no inbound connections accepted
+step 1 raw: unlisted fingerprint (64 bytes of 7): {error, closed}, bytes received 0
+step 2 raw: token_present with a token the server never issued: {error, closed}, bytes received 0
+step 3 raw: a call frame before the token step: {error, closed}, bytes received 0
+step 4 raw: hello with ver 2: {error, closed}, bytes received 0
+step 5 raw: hello, then a malformed map: {error, closed}, bytes received 93
+step 6 raw: hello, then a frame length above frame_size_max: {error, closed}, bytes received 93
+step 7 raw: the fingerprint, then nothing (first-frame timeout): {error, closed}, bytes received 0
+step 8 call erlang:apply/3 (forbidden): {error, closed}
+step 9 call demo:add([1, 2]) (permitted): {ok, int 3}
+step 10 cast demo:note([7]) (permitted): {ok, cast}
+step 11 call bees_trust_admin:reset/1 (forbidden: the reset is local only): {error, closed}
+step 12 call demo:secret/0 (not in b.cert's spec): {error, closed}
+step 13 call demo:crash/1 (the user code fails): {error, closed}
+step 14 call demo:slow([300000000]) (call timeout): {error, closed}
+step 15 call demo:add([1, 2]) while quarantined: {error, closed}
+step 16 call demo:add([1, 2]) after the operator reset: {ok, int 3}
+negative suite done
+exit=0

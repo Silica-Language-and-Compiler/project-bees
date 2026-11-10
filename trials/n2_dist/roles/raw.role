@@ -1,0 +1,44 @@
+// ---- a peer that breaks the protocol on purpose: it dials, and as its first bytes sends a data frame (REG_SEND to inbox)
+// instead of the handshake. The language's carrier is used directly, with the carrier contract's own messages; no node, no
+// handshake. The frame is written through dangerous_beam_net's raw writer (a writer that is never "up").
+fn owner(
+    msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom),
+    st: { c: dangerous_actor_ref, w: actor_ref, down: boolean }
+) -> (:no_reply, { c: dangerous_actor_ref, w: actor_ref, down: boolean }) {
+    case msg of {
+        (:link_up, _info: string) -> {
+            sequence proc[concurrency]
+                _: boolean <- send_data_frame(st.w);
+                _: boolean <- cast(st.c, (:credit, 1) impl ActorMessage {});
+                _: atom <- say("raw: data frame sent before any handshake")
+            produces pure (:no_reply, { c: st.c, w: st.w, down: st.down }) end
+        };
+        (:rx, _seg: string) -> (:no_reply, { c: st.c, w: st.w, down: st.down });
+        (:tx_credit, _n: int64) -> (:no_reply, { c: st.c, w: st.w, down: st.down });
+        (:tx_failed, _why: atom) -> link_ended(st);
+        (:link_down, _why2: atom) -> link_ended(st)
+    }
+}
+fn link_ended(st: { c: dangerous_actor_ref, w: actor_ref, down: boolean }) -> (:no_reply, { c: dangerous_actor_ref, w: actor_ref, down: boolean }) {
+    sequence
+        _: atom <- case st.down of { true -> :ok; false -> say("raw: link down") }
+    produces pure (:no_reply, { c: st.c, w: st.w, down: true }) end
+}
+fn send_data_frame(w: actor_ref) -> boolean {
+    sequence
+        m: { op: atom, n: int64 } <- { op: bees_atoms@a_inc(), n: 41 };
+        payload: string <- bees_msgs@enc_inbox(m);
+        body: string <- bees_dist@reg_send_body(payload, 1, "b@localhost", 1, "inbox");
+        ok: boolean <- beam_send_raw(w, bees_dist@frame4(body))
+    produces pure ok end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- start_reporter();
+        c: dangerous_actor_ref <- carrier_new();
+        w: actor_ref <- beam_raw_writer(c);
+        o: actor_ref <- spawn({ c: c, w: w, down: false }, owner, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: boolean <- cast(c, (:open, o, beam_conf@link_address()) impl ActorMessage {});
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

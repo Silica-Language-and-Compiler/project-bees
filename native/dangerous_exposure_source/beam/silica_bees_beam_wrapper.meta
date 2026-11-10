@@ -1,0 +1,29 @@
+link_library: "silica_bees_native"
+
+wrapper bees_beam_load_cookie {
+    symbol: "bees_beam_load_cookie"
+    result: "tagged_result"
+    error_domain: "dangerous_beam_auth_ffi"
+    arguments: [
+        { name: "path_ptr", lifetime: "borrowed", retain: false },
+        { name: "path_len", role: "length", length_of: "path_ptr" }
+    ]
+}
+
+wrapper bees_beam_challenge {
+    symbol: "bees_beam_challenge"
+    result: "tagged_result"
+    error_domain: "dangerous_beam_auth_ffi"
+}
+
+wrapper bees_beam_digest {
+    symbol: "bees_beam_digest"
+    result: "tagged_result"
+    error_domain: "dangerous_beam_auth_ffi"
+}
+
+wrapper bees_beam_digest_word {
+    symbol: "bees_beam_digest_word"
+    result: "tagged_result"
+    error_domain: "dangerous_beam_auth_ffi"
+}

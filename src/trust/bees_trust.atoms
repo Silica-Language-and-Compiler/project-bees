@@ -1,0 +1,45 @@
+# BEES TRUST mode (N3): every atom the TRUST units use (D30: reached through bees_atoms@a_<name>()).
+# frame keys and frame kinds (inter-nodal-modes 3.6)
+t
+ver
+req_id
+m
+f
+a
+args
+opts
+value
+token
+deadline_ms
+hello
+token_present
+token_issue
+call
+cast
+result
+goaway
+erlang
+# the language's rejection atoms (transport design 4.3), named in audit lines
+bad_version
+truncated
+trailing_bytes
+bad_tag
+too_large
+too_deep
+too_long
+out_of_range
+unknown_atom
+bad_variant
+missing_field
+duplicate_field
+unknown_field
+unsupported
+# trpc results (inter-nodal-modes 3.9)
+ok
+error
+dns_error
+connect_failed
+closed
+timeout
+protocol_error
+server_not_pinned

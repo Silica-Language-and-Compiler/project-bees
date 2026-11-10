@@ -1,0 +1,17 @@
+// (e) node a is stopped while a connection is open: a raw peer sends its fingerprint and hello, prints when the server has
+// answered, and the harness then kills node a (SIGKILL); the peer sees the connection close
+fn driver(r: { req: int64, what: atom, value: string }, step: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- say(concat("kill: ", outcome(r)))
+    produces pure (:no_reply, step + 1) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        b: int64 <- trust_boot();
+        _: atom <- start_reporter();
+        _: atom <- trust_start();
+        d: actor_ref <- spawn(0, driver, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: atom <- raw_open(1, bees_trust_frame@cat2(bees_trust_conf@self_fp(), bees_trust_frame@frame4(bees_trust_frame@enc_hello())), d, true);
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

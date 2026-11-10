@@ -1,0 +1,156 @@
+// ---- BEES TRUST node edge (N3): pasted by tools/bees_trust_gen.py into the dangerous_ root unit of every TRUST node program,
+// after the carrier edge (bees_tcp_edge.part, carrier_new). The behaviours of dangerous_bees_trust and the edge worker of
+// dangerous_bees_trust_edge are spawned here by reference and every message to them is cast from here, because a call to a
+// dangerous_ unit's function is allowed only inside an FFI worker (E4042), and the edge worker's spawn_dangerous site stays in
+// the root unit (SD-17), as for the language's carrier. TRUST mode only (D36).
+//
+// TEST ONLY until N4: plaintext transport on 127.0.0.1; the peer identity is a test-supplied stand-in for the certificate
+// fingerprint (R5). trust_boot prints that banner.
+//
+// trust_boot() -> int64        FIRST in main: 0 to go on; 1 when bees.config (read at build time, tools/bees_config_trust.py)
+//                              gave a boot error: the error line is printed and nothing has been started (R2)
+// trust_start() -> atom        the edge worker, one actor per whitelisted fingerprint, one token cache per pinned server, and,
+//                              when a whitelist is configured, the listener on trust.port
+// trpc_call(addr, m, f, arity, args, reply_to, req) / trpc_cast(...) -> atom
+//                              one request on a new connection to "host:port"; reply_to later gets ONE message
+//                              { req, what, value }: what ok (value: the result as an ETF span), cast (the cast was sent),
+//                              or dns_error, connect_failed, closed, timeout, protocol_error, server_not_pinned (inter-nodal-modes
+//                              3.9; {ok, Value}, {ok, cast} and {error, Reason} of trpc:call/cast). args is an ETF span of a
+//                              list (bees_trust_frame@enc_args_ints, or any encode of a List). DNS is not built (N1 open): a host
+//                              that is not an IPv4 literal is dns_error.
+// trust_reset(i) -> boolean     the operator's reset of whitelist entry i (D10): local only, a plain function of this program;
+//                              no peer can reach it (the forbidden guard blocks every bees_* and trust_* name and the MFA table
+//                              holds only what the .trust manifest lists)
+// trust_raw_writer(c) / trust_raw_send(tx, bytes) / trust_raw_frame(tx, body) / trust_raw_close(tx)
+//                              for test programs that speak the wire directly (hostile peers): a send actor on a carrier the test
+//                              owns, raw bytes, a frame of a body as is, close
+fn trust_say(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+fn trust_notes(i: int64) -> int64 {
+    case i >= bees_trust_conf@note_count() of {
+        true -> i;
+        false -> { sequence _: atom <- trust_say(concat("[trust] ", bees_trust_conf@note(i))) produces pure trust_notes(i + 1) end }
+    }
+}
+fn trust_boot() -> int64 {
+    case length_bytes(bees_trust_conf@boot_error()) > 0 of {
+        true -> {
+            sequence
+                _: atom <- trust_say(concat("[trust] boot refused: ", bees_trust_conf@boot_error()));
+                _: atom <- trust_say("[trust] no actor was started")
+            produces pure 1 end
+        };
+        false -> {
+            sequence
+                _: atom <- trust_say("[trust] TEST ONLY: plaintext transport, peer identity is a test-supplied stand-in for the certificate fingerprint");
+                _: atom <- trust_say(bees_trust_conf@summary());
+                _: int64 <- trust_notes(0)
+            produces pure 0 end
+        }
+    }
+}
+fn trust_start_peers(e: dangerous_actor_ref, i: int64) -> int64 {
+    case i >= bees_trust_conf@peer_count() of {
+        true -> i;
+        false -> {
+            sequence proc[concurrency]
+                p: actor_ref <- spawn_registered({ idx: i, susp: 0, quar: false, has: false, tlen: 0, exp: 0, w0: 0, w1: 0, w2: 0, w3: 0, w4: 0, w5: 0, w6: 0, w7: 0, w8: 0, w9: 0, edge: e }, dangerous_bees_trust@tpeer, bees_trust_conf@peer_name(i), stack_policy(0, :keep_last_message), state_policy(:keep_state_area))
+            produces pure trust_start_peers(e, i + 1) end
+        }
+    }
+}
+fn trust_start_caches(i: int64) -> int64 {
+    case i >= bees_trust_conf@server_count() of {
+        true -> i;
+        false -> {
+            sequence proc[concurrency]
+                p: actor_ref <- spawn_registered({ srv: i, has: false, tlen: 0, exp: 0, w0: 0, w1: 0, w2: 0, w3: 0, w4: 0, w5: 0, w6: 0, w7: 0, w8: 0, w9: 0 }, dangerous_bees_trust@tcache, bees_trust_conf@server_name(i), stack_policy(0, :keep_last_message), state_policy(:keep_state_area))
+            produces pure trust_start_caches(i + 1) end
+        }
+    }
+}
+fn trust_listen(e: dangerous_actor_ref) -> boolean {
+    sequence proc[concurrency]
+        c: dangerous_actor_ref <- carrier_new();
+        l: actor_ref <- spawn({ edge: e, n: 0 }, dangerous_bees_trust@tlsn, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        ok: boolean <- cast(c, (:open, l, bees_trust_conf@listen_spec()) impl ActorMessage {})
+    produces pure ok end
+}
+fn trust_start() -> atom {
+    sequence proc[concurrency]
+        e: dangerous_actor_ref <- spawn_dangerous(0, dangerous_bees_trust_edge@trnd, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: int64 <- trust_start_peers(e, 0);
+        _: int64 <- trust_start_caches(0);
+        _: boolean <- case bees_trust_conf@listens() of { true -> trust_listen(e); false -> true }
+    produces pure :ok end
+}
+fn trust_reset(i: int64) -> boolean {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        ok: boolean <- case i >= 0 and i < bees_trust_conf@peer_count() of {
+            true -> cast_registered(bees_trust_conf@peer_name(i), (:bees, 6, "", me, 0) impl ActorMessage {});
+            false -> false
+        }
+    produces pure ok end
+}
+// "a.b.c.d:port" with a dotted-decimal IPv4 host
+fn trust_ipv4_char(s: string, i: int64, n: int64, dots: int64, colon: boolean) -> boolean {
+    case i >= n of {
+        true -> dots == 3 and colon;
+        false -> trust_ipv4_at(s, substring(s, i, i + 1), i, n, dots, colon)
+    }
+}
+fn trust_ipv4_at(s: string, ch: string, i: int64, n: int64, dots: int64, colon: boolean) -> boolean {
+    case ch == "." of {
+        true -> colon == false and trust_ipv4_char(s, i + 1, n, dots + 1, colon);
+        false -> case ch == ":" of {
+            true -> colon == false and trust_ipv4_char(s, i + 1, n, dots, true);
+            false -> contains("0123456789", ch) and trust_ipv4_char(s, i + 1, n, dots, colon)
+        }
+    }
+}
+fn trust_reply(reply_to: actor_ref, req: int64, status: atom) -> atom {
+    sequence proc[concurrency]
+        m: { req: int64, what: atom, value: string } <- { req: req, what: status, value: "" };
+        _: boolean <- cast(reply_to, m impl ActorMessage {})
+    produces pure :ok end
+}
+fn trpc_request(kind: int64, addr: string, m: atom, f: atom, arity: int64, args: string, reply_to: actor_ref, req: int64) -> atom {
+    case bees_trust_conf@server_index(addr) < 0 of {
+        true -> trust_reply(reply_to, req, bees_atoms@a_server_not_pinned());
+        false -> case trust_ipv4_char(addr, 0, length_bytes(addr), 0, false) of {
+            false -> trust_reply(reply_to, req, bees_atoms@a_dns_error());
+            true -> case length_bytes(bees_trust_conf@self_fp()) == 64 of {
+                false -> trust_reply(reply_to, req, bees_atoms@a_protocol_error());
+                true -> trpc_open(kind, addr, m, f, arity, args, reply_to, req)
+            }
+        }
+    }
+}
+fn trpc_open(kind: int64, addr: string, m: atom, f: atom, arity: int64, args: string, reply_to: actor_ref, req: int64) -> atom {
+    sequence proc[concurrency]
+        c: dangerous_actor_ref <- carrier_new();
+        t: actor_ref <- spawn({ c: c, n: 0 }, dangerous_bees_trust@ttx, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        k: actor_ref <- spawn({ asm: t, c: c, tx: t, phase: 1, live: false, replied: false, srv: bees_trust_conf@server_index(addr), kind: kind, req: req, reply_to: reply_to, req_id: concat("r", bees_trust_frame@int_text(req)), m: m, f: f, a: arity, args: args }, dangerous_bees_trust@tcli, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        tm: timer_ref <- send_after(bees_trust_conf@connect_timeout_ms(), k, (:bees, 5, "", "", 0) impl ActorMessage {});
+        _: boolean <- cast(c, (:open, k, addr) impl ActorMessage {})
+    produces pure :ok end
+}
+fn trpc_call(addr: string, m: atom, f: atom, arity: int64, args: string, reply_to: actor_ref, req: int64) -> atom { trpc_request(1, addr, m, f, arity, args, reply_to, req) }
+fn trpc_cast(addr: string, m: atom, f: atom, arity: int64, args: string, reply_to: actor_ref, req: int64) -> atom { trpc_request(2, addr, m, f, arity, args, reply_to, req) }
+fn trust_raw_writer(c: dangerous_actor_ref) -> actor_ref {
+    sequence proc[concurrency]
+        t: actor_ref <- spawn({ c: c, n: 0 }, dangerous_bees_trust@ttx, stack_policy(0, :keep_last_message), state_policy(:keep_state_area))
+    produces pure t end
+}
+fn trust_raw_tx(tx: actor_ref, kind: int64, s1: string) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(tx, (:bees, kind, s1, "", bees_atoms@a_error(), bees_atoms@a_error(), 0) impl ActorMessage {})
+    produces pure ok end
+}
+fn trust_raw_send(tx: actor_ref, bytes_out: string) -> boolean { trust_raw_tx(tx, 4, bytes_out) }
+fn trust_raw_frame(tx: actor_ref, body: string) -> boolean { trust_raw_tx(tx, 9, body) }
+fn trust_raw_close(tx: actor_ref) -> boolean { trust_raw_tx(tx, 3, "") }

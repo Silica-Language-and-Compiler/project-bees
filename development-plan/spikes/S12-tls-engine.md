@@ -3,7 +3,7 @@
 **Update 2026-11-10 (D40, user decision): the engines are OpenSSL (Apple platforms, Linux) and Mbed TLS (NUCLEO-L476RG and ESP32-S3), so this spike's rustls track is superseded: rerun its questions against OpenSSL and Mbed TLS, X25519MLKEM768 first. Fetching or building either still needs the user's explicit approval.**
 **Status:** planned, not run. This document specifies the spike. Nothing has been built yet.
 **Update 2026-11-06 (roadmap D36, D38).** (1) **Running this spike needs the user's explicit approval** (milestone N4.0): the no-downloads rule blocks fetching or building any TLS engine, and the choice of engine is a user decision that runs in parallel with N2 and N3. (2) TRUST's TLS carries **TRUST's own frames** (a 4-byte length and one ETF map each); it is not wrapped around the Erlang distribution stream, which is how earlier text read. (3) BEAM mode's cookie authentication (N2) needs no TLS; its optional `inet_tls_dist`-compatible profile (D25) is a later use of the same engine. (4) Whatever the engine returns (plaintext, random bytes, digests) follows the conversion rule: handled in the `sequence` of a `sequence ... produces pure` block (mvp.md section 4).
-**Decision it confirms:** D6, revised 2026-09-17: rustls on the hosted targets, the board's Mbed TLS on the ESP32-S3, behind one C
+**Decision it confirms:** D40 (2026-11-10), which supersedes D6 (rustls, struck below): earlier, D6, revised 2026-09-17: rustls on the hosted targets, the board's Mbed TLS on the ESP32-S3, behind one C
 interface ([roadmap §6](../roadmap.md#6-decisions)).
 **What it settles first:** which C TLS library the ESP32-S3 uses. The board's Mbed TLS if it offers X25519MLKEM768, which
 TRUST's profile requires; otherwise a different C library that does (wolfSSL is the first candidate to check).
@@ -16,7 +16,7 @@ TRUST can't run without TLS, so the TLS engine is on the critical path for B1. B
 too (D25), so the same engine is on the path for B3. D6 chose rustls on the hosted targets and the board's own Mbed TLS on the
 ESP32-S3 (D29). This spike checks that choice before B1 and B3 depend on it. It answers five questions:
 
-1. Can rustls on the hosted targets, and Mbed TLS on the ESP32-S3, meet the TRUST TLS profile behind one small C
+1. Can OpenSSL on the hosted targets, and Mbed TLS on the boards (D40),
    interface? On the ESP32-S3 the first check is X25519MLKEM768 (R3).
 2. Does it fit BEES's I/O model: no transports of its own, no callbacks into Silica, and every output re-created?
 3. What does it cost in code size and RAM, especially on the ESP32-S3?
@@ -36,7 +36,7 @@ and the native-edge rules (gap ledger §4).
 | R3 | Key exchange **X25519MLKEM768** only; classical-only peers refused. **Relaxed 2026-11-10 (D41) on the NUCLEO-L476RG and ESP32-S3: classical X25519.** | The negotiated group is reported as `0x11EC`; a client offering only X25519 is refused |
 | R4 | Ciphers AES-256-GCM or ChaCha20-Poly1305 only | The negotiated suite is reported; the configuration allows no others |
 | R5 | Certificates Ed25519 or ECDSA P-256 | Both kinds of certificate complete the handshake |
-| R6 | No 0-RTT, renegotiation or compression | Configuration review (rustls doesn't implement renegotiation or compression) |
+| R6 | No 0-RTT, renegotiation or compression | Configuration review (TLS 1.3 only; OpenSSL and Mbed TLS option settings) |
 | R7 | ALPN `trust/1`, enforced | A peer offering another ALPN is refused; a peer offering none is refused by the interface's check after the handshake |
 | R8 | The peer's certificate DER and its SHA-512 are available (D11), and so are the client-side pins | The interface returns both, and the fingerprint matches one computed separately |
 | R9 | No transports of its own; ciphertext in, ciphertext and plaintext out | The test harness pumps bytes between two endpoints through memory buffers only |
@@ -45,7 +45,7 @@ and the native-edge rules (gap ledger §4).
 | R12 | Builds for all four 1.0 targets (D29) | Per-target build (§5) |
 | R13 | Fits the ESP32-S3 (about 512 KB SRAM) | Code size, and peak RAM during a handshake and a 1 MiB transfer |
 | R14 | A secure random source and a clock on the ESP32-S3 | These come from the board's hardware RNG and clock through the native edge (D17). Certificate validity also needs wall-clock time, which the board has only after SNTP or a set-time call; the spike records what the edge does before then |
-| R15 | Apache-2.0-compatible license | rustls is Apache-2.0, ISC or MIT; Mbed TLS and ESP-IDF are Apache-2.0 |
+| R15 | Apache-2.0-compatible license | OpenSSL 3.x and later is Apache-2.0; Mbed TLS and ESP-IDF are Apache-2.0 |
 | R16 | The BEAM-mode compatibility profile (TLS 1.3, X25519, ECDSA or RSA certificates, no ALPN requirement), selected per configuration, on the hosted targets | A stock OTP node of the release named in D14 connects with `inet_tls_dist` in both directions; the TRUST profile stays unchanged when the compatibility profile is not selected |
 
 ## 3. The C interface (`dangerous_bees_native` TLS entries)
@@ -105,10 +105,10 @@ are built only in the test harness. They are never part of the edge's release bu
 
 | Target | Engine | Notes |
 | --- | --- | --- |
-| Apple Silicon (macOS) | rustls 0.23 with `std`, `aws-lc-rs` provider | rustls's default features include `aws_lc_rs` and `prefer-post-quantum`. The spike turns off `tls12`, so only TLS 1.3 is built in, and narrows the key-exchange groups to X25519MLKEM768 and the cipher suites to R4. Building `aws-lc-rs` needs `cmake` and a C compiler. |
+| Apple Silicon (macOS), Linux | **OpenSSL (D40, 2026-11-10; the programmer installs it, BEES ships none), at least 4.1.0** | Supersedes the rustls row. TLS 1.3 only, key-exchange group X25519MLKEM768 only, the cipher suites of R4. Random source: the platform's CSPRNG. Check with `openssl list -kem-algorithms`. See [contract/what-is-required-to-use.md](../../contract/what-is-required-to-use.md). |
 | Linux AArch64 | As above | Needs a Linux AArch64 machine, or a cross sysroot for `aws-lc-sys`. |
 | Linux x86_64 | As above | Needs a Linux x86_64 machine. The Silica side waits on S-32, but the edge can be built and tested on its own. |
-| ESP32-S3 | A C TLS library: the board's Mbed TLS under ESP-IDF if it offers X25519MLKEM768, otherwise one that does (D6) | No Rust toolchain. The C interface in §3 is implemented twice, once over rustls and once over the board's library, and the same harness runs against both. |
+| ESP32-S3 and NUCLEO-L476RG (bare metal) | **Mbed TLS (D40), latest release (4.2.0 on 2026-11-10); X25519MLKEM768 is not supported, so R3 is relaxed to classical X25519 on these boards (D41)** | No Rust toolchain. The C interface in §3 is implemented over OpenSSL (hosted) and Mbed TLS (boards), and the same harness runs against both. Random source: the STM32L476RG hardware RNG on the NUCLEO; the hardware RNG with its physical entropy source enabled on the ESP32-S3. wolfSSL supports the group but was not adopted (memory fit unmeasured). |
 
 **The ESP32-S3's key exchange is the main risk.** TRUST's profile requires X25519MLKEM768 (R3). **Relaxed for the two boards 2026-11-10 (D41):** they use classical X25519 with Mbed TLS.
 The spike checks the Mbed TLS version ESP-IDF ships and whether it negotiates that group. If it does not, the spike
@@ -119,7 +119,7 @@ the edge, then wolfSSL, which has an ESP32 port and ML-KEM hybrid groups. D6 nam
 
 | Target | Where | Installs needed (not done yet) |
 | --- | --- | --- |
-| macOS AArch64 | This Mac | The Rust crates (`rustls`, `aws-lc-rs`, `rcgen` for test certificates). `cmake` and `clang` are already present. |
+| macOS AArch64 | This Mac | OpenSSL 4.1.0 or later, installed by the programmer (not fetched by BEES). `clang` is already present. rustls, `aws-lc-rs`, `rcgen` and `cmake` are no longer needed (D40). |
 | Linux AArch64 | A Linux AArch64 host, such as the one used for Silica's Linux port | The Rust crates |
 | Linux x86_64 | A Linux x86_64 host | The Rust crates |
 | ESP32-S3 | This Mac plus an ESP32-S3 board | ESP-IDF, already under `~/.espressif`, with its Mbed TLS component; wolfSSL's ESP-IDF component if Mbed TLS fails R3. No Rust toolchain. |

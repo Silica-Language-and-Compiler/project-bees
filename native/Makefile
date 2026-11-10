@@ -47,3 +47,21 @@ $(SOCKETS_LINK):
 
 clean:
 	rm -rf $(BUILD) $(ARCHIVE) $(SOCKETS_ARCHIVE)
+
+# TRUST mode (N3): its own archive, libsilica_bees_trust.a, from trust/ (random bytes and the constant-time comparison,
+# macOS system facilities only); its sidecar is dangerous_exposure_source/trust/. Kept apart from the BEAM-mode entries (D36).
+TRUST_SRCS := $(wildcard $(THIS_DIR)trust/*.c)
+TRUST_OBJS := $(patsubst $(THIS_DIR)trust/%.c,$(BUILD)/trust_%.o,$(TRUST_SRCS))
+TRUST_ARCHIVE := $(LIB)/libsilica_bees_trust.a
+all: $(TRUST_ARCHIVE)
+$(BUILD)/trust_%.o: $(THIS_DIR)trust/%.c $(wildcard $(THIS_DIR)dangerous_exposure_source/trust/*.h)
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -I$(THIS_DIR)dangerous_exposure_source/trust -c $< -o $@
+$(TRUST_ARCHIVE): $(TRUST_OBJS)
+	@mkdir -p $(LIB)
+	ar rcs $@ $^
+	@echo "[native] $(TRUST_ARCHIVE) (TRUST mode)"
+clean: clean-trust
+.PHONY: clean-trust
+clean-trust:
+	rm -f $(TRUST_ARCHIVE) $(TRUST_OBJS)

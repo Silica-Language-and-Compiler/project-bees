@@ -1,0 +1,170 @@
+// N3: the trust/1 frame codec and the forbidden guard, in memory (no carrier). Every frame BEES writes passes its own
+// structural check and its fields decode back with the language's decode; hostile frames are refused with the reason the
+// language names, before any value is decoded; the forbidden guard blocks SEMP's default map and BEES's prefixes; and
+// 200,000 refused frames (oversize lengths refused by wireframe@unframe before a byte is stored, and structural refusals)
+// leave memory flat (measured with /usr/bin/time -l, `make measure`; recorded in spikes/N3-trust.md).
+use bees_atoms;
+use bees_trust_frame;
+use bees_trust_guard;
+use bees_reporter;
+use wireframe;
+
+fn bs(xs: List[int64, mem(normal)]) -> string {
+    sequence proc[mem(normal), transport]
+        s: string <- bytes_of(xs)
+    produces pure s end
+}
+fn say(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+fn yes(b: boolean) -> string { case b of { true -> "yes"; false -> "no" } }
+fn code_text(c: int64) -> string {
+    case c == 0 of { true -> "ok"; false -> concat(bees_atoms@spelling(bees_trust_frame@reason(c)), concat(" ", bees_trust_frame@int_text(c))) }
+}
+fn atom_text(r: (:ok, atom) | (:rejected, atom)) -> string {
+    case r of { (:ok, a: atom) -> bees_atoms@spelling(a); (:rejected, w: atom) -> concat("rejected ", bees_atoms@spelling(w)) }
+}
+fn int_val(r: (:ok, int64) | (:rejected, atom)) -> string {
+    case r of { (:ok, n: int64) -> bees_trust_frame@int_text(n); (:rejected, w: atom) -> concat("rejected ", bees_atoms@spelling(w)) }
+}
+fn str_val(r: (:ok, string) | (:rejected, atom)) -> string {
+    case r of { (:ok, s: string) -> s; (:rejected, w: atom) -> concat("rejected ", bees_atoms@spelling(w)) }
+}
+fn chk(f: string) -> int64 { bees_trust_frame@check(f, 32, 4096) }
+fn line(name: string, f: string) -> atom { say(concat(concat(name, ": "), code_text(chk(f)))) }
+
+// a request frame: call demo:add([1, 2]) with req_id "r1"
+fn args12() -> string {
+    sequence proc[mem(normal)]
+        xs: List[int64, mem(normal)] <- [1, 2]
+    produces pure bees_trust_frame@enc_args_ints(xs) end
+}
+fn req() -> string { bees_trust_frame@enc_request(bees_atoms@a_call(), "r1", bees_atoms@a_demo(), bees_atoms@a_add(), 2, args12()) }
+
+fn written() -> atom {
+    sequence
+        _: atom <- say(concat("hello hex ", bees_trust_frame@hex(bees_trust_frame@enc_hello())));
+        _: atom <- line("hello", bees_trust_frame@enc_hello());
+        _: atom <- line("token_present", bees_trust_frame@enc_token_present("0123456789abcdef0123456789abcdef"));
+        _: atom <- line("token_issue", bees_trust_frame@enc_token_issue("0123456789abcdef0123456789abcdef"));
+        _: atom <- line("result", bees_trust_frame@enc_result("r1", bees_trust_frame@enc_value_int(3)));
+        _: atom <- line("call", req());
+        _: atom <- say(concat("call hex ", bees_trust_frame@hex(req())));
+        _: atom <- say(concat("t ", atom_text(bees_trust_frame@dec_atom(bees_trust_frame@span(req(), "t")))));
+        _: atom <- say(concat("ver ", int_val(bees_trust_frame@dec_int(bees_trust_frame@span(req(), "ver")))));
+        _: atom <- say(concat("req_id ", str_val(bees_trust_frame@dec_str(bees_trust_frame@span(req(), "req_id")))));
+        _: atom <- say(concat("m ", atom_text(bees_trust_frame@dec_atom(bees_trust_frame@span(req(), "m")))));
+        _: atom <- say(concat("f ", atom_text(bees_trust_frame@dec_atom(bees_trust_frame@span(req(), "f")))));
+        _: atom <- say(concat("a ", int_val(bees_trust_frame@dec_int(bees_trust_frame@span(req(), "a")))));
+        _: atom <- say(concat("args length ", bees_trust_frame@int_text(bees_trust_frame@list_len(bees_trust_frame@span(req(), "args")))));
+        _: atom <- say(concat("opts is a map ", yes(bees_trust_frame@is_map(bees_trust_frame@span(req(), "opts")))));
+        _: atom <- say(concat("absent key is empty ", yes(length_bytes(bees_trust_frame@span(req(), "token")) == 0)));
+        _: atom <- say(concat("t of a token frame decoded as int64: ", int_val(bees_trust_frame@dec_int(bees_trust_frame@span(bees_trust_frame@enc_hello(), "t")))))
+    produces pure :ok end
+}
+
+// hostile frames, each refused by check (no value decoded)
+fn h_version() -> string { sequence proc[mem(normal)] xs: List[int64, mem(normal)] <- [130, 116, 0, 0, 0, 0] produces pure bs(xs) end }
+fn h_not_map() -> string { sequence proc[mem(normal)] xs: List[int64, mem(normal)] <- [131, 104, 0, 0, 0, 0] produces pure bs(xs) end }
+fn h_short() -> string { sequence proc[mem(normal)] xs: List[int64, mem(normal)] <- [131, 116, 0, 0] produces pure bs(xs) end }
+// #{t => hello, ver => 1} with one byte missing at the end
+fn h_trunc() -> string { sequence proc[mem(normal)] xs: List[int64, mem(normal)] <- [131, 116, 0, 0, 0, 2, 119, 1, 116, 119, 5, 104, 101, 108, 108, 111, 119, 3, 118, 101, 114] produces pure bs(xs) end }
+// #{t => hello} and one trailing byte
+fn h_trail() -> string { sequence proc[mem(normal)] xs: List[int64, mem(normal)] <- [131, 116, 0, 0, 0, 1, 119, 1, 116, 119, 5, 104, 101, 108, 108, 111, 0] produces pure bs(xs) end }
+// #{t => hello, t => hello}
+fn h_dup() -> string { sequence proc[mem(normal)] xs: List[int64, mem(normal)] <- [131, 116, 0, 0, 0, 2, 119, 1, 116, 119, 5, 104, 101, 108, 108, 111, 119, 1, 116, 119, 5, 104, 101, 108, 108, 111] produces pure bs(xs) end }
+// #{nope => 1}: an atom the program does not hold
+fn h_atom() -> string { sequence proc[mem(normal)] xs: List[int64, mem(normal)] <- [131, 116, 0, 0, 0, 1, 119, 4, 110, 111, 112, 101, 97, 1] produces pure bs(xs) end }
+// #{args => [Pid]}: a pid (NEW_PID_EXT, 88) is not in TRUST's subset
+fn h_pid() -> string { sequence proc[mem(normal)] xs: List[int64, mem(normal)] <- [131, 116, 0, 0, 0, 1, 119, 4, 97, 114, 103, 115, 108, 0, 0, 0, 1, 88, 119, 1, 97, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 106] produces pure bs(xs) end }
+// #{args => [[[[1]]]]} with depth limit 3
+fn h_deep() -> string { sequence proc[mem(normal)] xs: List[int64, mem(normal)] <- [131, 116, 0, 0, 0, 1, 119, 4, 97, 114, 103, 115, 108, 0, 0, 0, 1, 108, 0, 0, 0, 1, 108, 0, 0, 0, 1, 108, 0, 0, 0, 1, 97, 1, 106, 106, 106, 106] produces pure bs(xs) end }
+// a map that claims 17 keys
+fn h_wide() -> string { sequence proc[mem(normal)] xs: List[int64, mem(normal)] <- [131, 116, 0, 0, 0, 17, 119, 1, 116, 97, 1] produces pure bs(xs) end }
+// #{t => 7}: a key that is not an atom value is fine structurally; a key that is not an atom is bad_tag: #{1 => 1}
+fn h_keytag() -> string { sequence proc[mem(normal)] xs: List[int64, mem(normal)] <- [131, 116, 0, 0, 0, 1, 97, 1, 97, 1] produces pure bs(xs) end }
+// a list that claims 2^31 elements in a short frame: refused before any element is read
+fn h_count() -> string { sequence proc[mem(normal)] xs: List[int64, mem(normal)] <- [131, 116, 0, 0, 0, 1, 119, 4, 97, 114, 103, 115, 108, 128, 0, 0, 0, 106] produces pure bs(xs) end }
+
+fn hostile() -> atom {
+    sequence
+        _: atom <- line("version byte 130", h_version());
+        _: atom <- line("not a map", h_not_map());
+        _: atom <- line("too short", h_short());
+        _: atom <- line("truncated", h_trunc());
+        _: atom <- line("trailing byte", h_trail());
+        _: atom <- line("key twice", h_dup());
+        _: atom <- line("unknown atom", h_atom());
+        _: atom <- line("pid in args", h_pid());
+        _: atom <- say(concat("depth 4 with limit 3: ", code_text(bees_trust_frame@check(h_deep(), 3, 4096))));
+        _: atom <- say(concat("depth 4 with limit 32: ", code_text(bees_trust_frame@check(h_deep(), 32, 4096))));
+        _: atom <- line("17 keys", h_wide());
+        _: atom <- line("integer key", h_keytag());
+        _: atom <- line("list count beyond the frame", h_count());
+        _: atom <- say(concat("call with args_len_max 9: ", code_text(bees_trust_frame@check(req(), 32, 9))));
+        _: atom <- say(concat("call with args_len_max 10: ", code_text(bees_trust_frame@check(req(), 32, 10))))
+    produces pure :ok end
+}
+
+fn guard() -> atom {
+    sequence
+        _: atom <- say(concat("erlang:apply forbidden ", yes(bees_trust_guard@forbidden(bees_atoms@a_erlang(), bees_atoms@a_apply()))));
+        _: atom <- say(concat("erlang:add forbidden ", yes(bees_trust_guard@forbidden(bees_atoms@a_erlang(), bees_atoms@a_add()))));
+        _: atom <- say(concat("os:cmd forbidden ", yes(bees_trust_guard@forbidden(bees_atoms@a_os(), bees_atoms@a_cmd()))));
+        _: atom <- say(concat("bees_trust_admin:reset forbidden ", yes(bees_trust_guard@forbidden(bees_atoms@a_bees_trust_admin(), bees_atoms@a_reset()))));
+        _: atom <- say(concat("demo:add forbidden ", yes(bees_trust_guard@forbidden(bees_atoms@a_demo(), bees_atoms@a_add()))))
+    produces pure :ok end
+}
+
+// 200,000 refused frames in one dispatch: half oversize (a 4-byte length of 100000 against a cap of 4096, refused by
+// wireframe@unframe as soon as the length is read, before any byte of the body is stored), half structural refusals
+fn oversize() -> string { sequence proc[mem(normal)] xs: List[int64, mem(normal)] <- [0, 1, 134, 160, 131, 116] produces pure bs(xs) end }
+fn refused_unframe(seg: string) -> int64 {
+    case wireframe@unframe(wireframe@fresh(:stream), seg, 4096) of {
+        (:rejected, _w: atom) -> 1;
+        (:more, _r: { mode: atom, expected: int64, pending: string }) -> 0;
+        (:frame, _b: string, _r2: { mode: atom, expected: int64, pending: string }) -> 0
+    }
+}
+fn refused_check(f: string) -> int64 { case chk(f) > 0 of { true -> 1; false -> 0 } }
+fn loop(i: int64, n: int64, ok: int64, big: string, bad: string) -> int64 {
+    case i >= n of {
+        true -> ok;
+        false -> loop(i + 1, n, ok + case i % 2 == 0 of { true -> refused_unframe(big); false -> refused_check(bad) }, big, bad)
+    }
+}
+fn memory() -> atom {
+    say(concat("refused of 200000: ", bees_trust_frame@int_text(loop(0, 200000, 0, oversize(), h_pid()))))
+}
+
+fn parsed() -> atom {
+    sequence
+        p1: { code: int64, what: string, kind: int64, token: string } <- bees_trust_frame@parse_first(bees_trust_frame@enc_hello(), 32, 4096);
+        _: atom <- say(concat(concat("parse_first hello: code ", bees_trust_frame@int_text(p1.code)), concat(" kind ", bees_trust_frame@int_text(p1.kind))));
+        p2: { code: int64, what: string, kind: int64, token: string } <- bees_trust_frame@parse_first(bees_trust_frame@enc_token_present("0123456789abcdef0123456789abcdef"), 32, 4096);
+        _: atom <- say(concat(concat("parse_first token_present: kind ", bees_trust_frame@int_text(p2.kind)), concat(" token ", p2.token)));
+        p3: { code: int64, what: string, kind: int64, token: string } <- bees_trust_frame@parse_first(req(), 32, 4096);
+        _: atom <- say(concat(concat("parse_first call: kind ", bees_trust_frame@int_text(p3.kind)), concat(" what ", p3.what)));
+        r: { code: int64, what: string, kind: int64, req_id: string, m: atom, f: atom, a: int64, args: string } <- bees_trust_frame@parse_req(req(), 32, 4096);
+        _: atom <- say(concat(concat(concat("parse_req: code ", bees_trust_frame@int_text(r.code)), concat(" kind ", bees_trust_frame@int_text(r.kind))), concat(concat(" req_id ", r.req_id), concat(concat(" m ", bees_atoms@spelling(r.m)), concat(" f ", bees_atoms@spelling(r.f))))));
+        q1: { code: int64, what: string, kind: int64, a: string, b: string } <- bees_trust_frame@parse_reply(bees_trust_frame@enc_token_issue("0123456789abcdef0123456789abcdef"), 32, 4096);
+        _: atom <- say(concat(concat("parse_reply token_issue: kind ", bees_trust_frame@int_text(q1.kind)), concat(" token ", q1.a)));
+        _: atom <- say(concat("result hex ", bees_trust_frame@hex(bees_trust_frame@enc_result("r1", bees_trust_frame@enc_value_int(3)))));
+        q2: { code: int64, what: string, kind: int64, a: string, b: string } <- bees_trust_frame@parse_reply(bees_trust_frame@enc_result("r1", bees_trust_frame@enc_value_int(3)), 32, 4096);
+        _: atom <- say(concat(concat("parse_reply result: kind ", bees_trust_frame@int_text(q2.kind)), concat(" req_id ", q2.a)));
+        q3: { code: int64, what: string, kind: int64, a: string, b: string } <- bees_trust_frame@parse_reply(h_version(), 32, 4096);
+        _: atom <- say(concat("parse_reply bad version: what ", q3.what))
+    produces pure :ok end
+}
+fn main() -> int64 {
+    sequence
+        _: atom <- bees_reporter@start();
+        _: atom <- written();
+        _: atom <- hostile();
+        _: atom <- guard();
+        _: atom <- parsed();
+        _: atom <- memory()
+    produces pure 0 end
+}

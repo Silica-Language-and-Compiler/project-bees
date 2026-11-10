@@ -1,0 +1,9 @@
+# node a's own atoms: the demo service's MFA names and its failure reason
+demo
+add
+echo
+slow
+crash
+note
+secret
+badarith

@@ -1,0 +1,127 @@
+// N2: the byte layouts of BEAM mode (beam_dist), with no network. Each message BEES writes is printed as hex
+// (tools/test_beam_dist.py compares them with the bytes OTP 28 writes: dist_util.erl's <<$N, ...>>, $r, $a, erl_epmd.erl's
+// ALIVE2_REQ and PORT_PLEASE2_REQ, term_to_binary of the control tuples), and control messages that a stock node wrote
+// (captured from erl as hex, below) are parsed back.
+use beam_dist;
+use bees_dist;
+
+fn hexd(v: int64) -> string { substring("0123456789abcdef", v, v + 1) }
+fn at(s: string, i: int64) -> int64 {
+    sequence proc[transport]
+        b: int64 <- byte_at(s, i)
+    produces pure b end
+}
+fn hex_of(s: string, i: int64, n: int64) -> string {
+    case i >= n of {
+        true -> "";
+        false -> concat(concat(hexd(at(s, i) / 16), hexd(at(s, i) % 16)), hex_of(s, i + 1, n))
+    }
+}
+fn hv(c: int64) -> int64 { case c >= 97 of { true -> c - 87; false -> c - 48 } }
+fn unhex_acc(s: string, i: int64, acc: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    case i < 0 of {
+        true -> acc;
+        false -> {
+            sequence proc[mem(normal)]
+                b: int64 <- hv(at(s, i)) * 16 + hv(at(s, i + 1));
+                l: List[int64, mem(normal)] <- prepend[int64, mem(normal)](b, acc)
+            produces pure unhex_acc(s, i - 2, l) end
+        }
+    }
+}
+fn unhex(s: string) -> string {
+    sequence proc[mem(normal), transport]
+        e: List[int64, mem(normal)] <- [];
+        xs: List[int64, mem(normal)] <- unhex_acc(s, length_bytes(s) - 2, e);
+        out: string <- bytes_of(xs)
+    produces pure out end
+}
+fn dump(label: string, s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(concat(concat(label, " "), hex_of(s, 0, length_bytes(s))))
+    produces pure :ok end
+}
+fn num(label: string, n: int64) -> atom {
+    sequence proc[device_io]
+        _: atom <- print_string(label);
+        _: atom <- print_string(" ");
+        _: atom <- print_int64(n);
+        _: atom <- println("")
+    produces pure :ok end
+}
+fn text(label: string, s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(concat(concat(label, " "), s))
+    produces pure :ok end
+}
+fn show_ctl(label: string, body: string) -> atom {
+    sequence
+        c: { code: int64, tag: int64, n: int64, p1: int64, p2: int64, p3: int64, p4: int64, p5: int64 } <- beam_dist@ctl(body);
+        _: atom <- num(concat(label, " code"), c.code);
+        _: atom <- num(concat(label, " tag"), c.tag);
+        _: atom <- num(concat(label, " arity"), c.n);
+        _: atom <- num(concat(label, " ends"), c.p2 * 1000000 + c.p3 * 1000 + c.p4);
+        _: atom <- num(concat(label, " payload at"), c.p5);
+        _: atom <- num(concat(label, " length"), length_bytes(body))
+    produces pure :ok end
+}
+fn show_pid(label: string, body: string, pos: int64) -> atom {
+    sequence
+        p: { code: int64, node: string, id: int64, serial: int64, creation: int64 } <- beam_dist@pid_at(body, pos);
+        _: atom <- text(concat(label, " node"), p.node);
+        _: atom <- num(concat(label, " code"), p.code);
+        _: atom <- num(concat(label, " id"), p.id);
+        _: atom <- num(concat(label, " creation"), p.creation)
+    produces pure :ok end
+}
+fn digest16() -> string { unhex("000102030405060708090a0b0c0d0e0f") }
+
+fn main() -> int64 {
+    sequence
+        _: atom <- dump("n_init", beam_dist@put_n_init("bees@localhost", 1));
+        _: atom <- dump("n_acc", beam_dist@put_n_acc("bees@localhost", 3000000000, 7));
+        _: atom <- num("n_acc challenge", beam_dist@n_acc_challenge(bees_dist@payload_of(beam_dist@put_n_acc("bees@localhost", 3000000000, 7), 2)));
+        _: atom <- dump("s_ok", beam_dist@put_status("ok"));
+        _: atom <- dump("s_not_allowed", beam_dist@put_status("not_allowed"));
+        _: atom <- text("status of s_not_allowed", beam_dist@status_of(bees_dist@payload_of(beam_dist@put_status("not_allowed"), 2)));
+        _: atom <- dump("r", beam_dist@put_r(3000000000, digest16()));
+        _: atom <- num("r challenge", beam_dist@r_challenge(bees_dist@payload_of(beam_dist@put_r(3000000000, digest16()), 2)));
+        _: atom <- dump("r digest", beam_dist@r_digest(bees_dist@payload_of(beam_dist@put_r(3000000000, digest16()), 2)));
+        _: atom <- dump("a", beam_dist@put_a(digest16()));
+        _: atom <- dump("a digest", beam_dist@a_digest(bees_dist@payload_of(beam_dist@put_a(digest16()), 2)));
+        _: atom <- num("a short digest", length_bytes(beam_dist@a_digest(unhex("6100010203"))));
+        _: atom <- num("digest word 3", beam_dist@word(digest16(), 3));
+        _: atom <- text("short name", beam_dist@short_name("bees@localhost"));
+        _: atom <- dump("alive2_req", beam_dist@alive2_req(47500, "bees"));
+        _: atom <- num("alive2_x_resp ok creation", beam_dist@alive2_resp(unhex("7600000a0b0c")).creation);
+        _: atom <- num("alive2_x_resp ok code", beam_dist@alive2_resp(unhex("7600000a0b0c")).code);
+        _: atom <- num("alive2_x_resp partial code", beam_dist@alive2_resp(unhex("760000")).code);
+        _: atom <- num("alive2_x_resp taken code", beam_dist@alive2_resp(unhex("760100000000")).code);
+        _: atom <- num("alive2_resp ok creation", beam_dist@alive2_resp(unhex("79000003")).creation);
+        _: atom <- num("alive2 garbage code", beam_dist@alive2_resp(unhex("41")).code);
+        _: atom <- dump("port_please2_req", beam_dist@port_please2_req("stock"));
+        _: atom <- num("port2_resp port", beam_dist@port2_resp(unhex("7700b98c4d000006000600057374")).port);
+        _: atom <- num("port2_resp code", beam_dist@port2_resp(unhex("7700b98c4d000006000600057374")).code);
+        _: atom <- num("port2_resp unknown code", beam_dist@port2_resp(unhex("7701")).code);
+        _: atom <- num("port2_resp partial code", beam_dist@port2_resp(unhex("7700b9")).code);
+        _: atom <- dump("pid", beam_dist@pid_bytes("bees@localhost", 0, 1));
+        _: atom <- dump("exit_noproc", beam_dist@exit_noproc(beam_dist@pid_bytes("bees@localhost", 5, 1), beam_dist@pid_bytes("gen@localhost", 10, 1794336599)));
+        _: atom <- dump("unlink_id_ack", beam_dist@unlink_id_ack(unhex("6e05009078563412"), beam_dist@pid_bytes("bees@localhost", 0, 1), beam_dist@pid_bytes("gen@localhost", 10, 1794336599)));
+        _: atom <- dump("send", beam_dist@send_body(beam_dist@pid_bytes("gen@localhost", 10, 1794336599), beam_dist@is_auth_reply(unhex("6c000000017705616c6961735a0005770d67656e406c6f63616c686f73746af36757000397fa7df100043f3b7d400000050300000000"))));
+        _: atom <- dump("with_pid", beam_dist@with_pid(beam_dist@pid_bytes("bees@localhost", 0, 1), unhex("83770161")));
+        _: atom <- show_ctl("link", unhex("70836803610158770d67656e406c6f63616c686f73740000000a000000006af3675758770e62656573406c6f63616c686f7374000000000000000000000001"));
+        _: atom <- show_pid("link from", unhex("70836803610158770d67656e406c6f63616c686f73740000000a000000006af3675758770e62656573406c6f63616c686f7374000000000000000000000001"), 6);
+        _: atom <- show_pid("link to", unhex("70836803610158770d67656e406c6f63616c686f73740000000a000000006af3675758770e62656573406c6f63616c686f7374000000000000000000000001"), 34);
+        _: atom <- show_ctl("monitor", unhex("70836804611358770d67656e406c6f63616c686f73740000000a000000006af3675758770e62656573406c6f63616c686f73740000000000000000000000015a0003770d67656e406c6f63616c686f73746af36757000397f97df000043f3b7d40"));
+        _: atom <- show_ctl("unlink_id", unhex("7083680461236e0500907856341258770d67656e406c6f63616c686f73740000000a000000006af3675758770e62656573406c6f63616c686f7374000000000000000000000001"));
+        _: atom <- show_ctl("exit2", unhex("70836804610858770d67656e406c6f63616c686f73740000000a000000006af3675758770e62656573406c6f63616c686f73740000000000000000000000016802770873687574646f776e6c0000000461014640040000000000006d000000017874000000017701617701626a"));
+        _: atom <- show_ctl("regsend_auth", concat(unhex("70836804610658770d67656e406c6f63616c686f73740000000a000000006af367577700770a6e65745f6b65726e656c"), unhex("83680377092467656e5f63616c6c680258770d67656e406c6f63616c686f73740000000a000000006af367576c000000017705616c6961735a0005770d67656e406c6f63616c686f73746af36757000397fa7df100043f3b7d4000000503000000006802770769735f61757468770d67656e406c6f63616c686f7374")));
+        _: atom <- text("regsend_auth name", beam_dist@ctl_text(unhex("70836804610658770d67656e406c6f63616c686f73740000000a000000006af367577700770a6e65745f6b65726e656c"), 36));
+        _: atom <- num("is_auth code", beam_dist@is_auth_tag(unhex("83680377092467656e5f63616c6c680258770d67656e406c6f63616c686f73740000000a000000006af367576c000000017705616c6961735a0005770d67656e406c6f63616c686f73746af36757000397fa7df100043f3b7d4000000503000000006802770769735f61757468770d67656e406c6f63616c686f7374")).code);
+        _: atom <- num("is_auth tag end", beam_dist@is_auth_tag(unhex("83680377092467656e5f63616c6c680258770d67656e406c6f63616c686f73740000000a000000006af367576c000000017705616c6961735a0005770d67656e406c6f63616c686f73746af36757000397fa7df100043f3b7d4000000503000000006802770769735f61757468770d67656e406c6f63616c686f7374")).tend);
+        _: atom <- num("not is_auth code", beam_dist@is_auth_tag(unhex("8361")).code);
+        _: atom <- show_ctl("truncated", unhex("70836804610858770d67656e"));
+        _: atom <- show_ctl("bad tag", unhex("7083680461085f"));
+        _: atom <- show_ctl("too deep", unhex("708368026101680168016801680168016801680168016801680168016801680168016801680168016801680168016a"))
+    produces pure 0 end
+}

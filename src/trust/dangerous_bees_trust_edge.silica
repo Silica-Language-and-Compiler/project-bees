@@ -1,0 +1,22 @@
+// BEES TRUST mode (N3): the edge worker, a cast-only FFI worker behaviour installed with spawn_dangerous by the node's root
+// unit (src/shim/bees_trust_node.part; the spawn site stays in the root unit, SD-17, as for the language's carrier). One
+// worker per node, shared by every connection; each request names the actor to answer.
+//   (1, "", "", n, reply_to)     n random bytes: reply_to gets (:bees, 7, etf_binary, "", 0); etf_binary is FFI-derived
+//                                and is decoded by reply_to with the language's decode((:etf), ...)
+//   (2, a, b, tag, reply_to)     constant-time a == b: reply_to gets (:bees, 8, "", "", 1 or 0)
+// The answer is the same tuple shape the connection actor receives from everything else (dangerous_bees_trust@tconn).
+module dangerous_bees_trust_edge;
+use dangerous_bees_trust_native;
+
+export trnd/2;
+
+fn trnd(msg: (int64, string, string, int64, actor_ref), st: int64) -> (:no_reply, int64) {
+    sequence proc[external_danger, concurrency]
+        (op: int64, a: string, b: string, n: int64, reply_to: actor_ref) <- msg;
+        bytes_out: string <- case op == 1 of { true -> dangerous_bees_trust_native@random_etf(n); false -> "" };
+        eq: int64 <- case op == 2 of { true -> dangerous_bees_trust_native@ct_equal(a, b); false -> 0 };
+        kind: int64 <- case op == 1 of { true -> 7; false -> 8 };
+        // one cast per message (the one FFI result cast a worker may make), to the requester the message names
+        _: boolean <- cast(reply_to, (:bees, kind, bytes_out, "", eq) impl ActorMessage {})
+    produces pure (:no_reply, st + 1) end
+}

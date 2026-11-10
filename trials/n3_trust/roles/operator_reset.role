@@ -1,0 +1,14 @@
+// the local operator (D10): 9 s after start it resets whitelist entry 0 (b.cert) with trust_reset, a plain function of this
+// program that no peer can reach
+fn operator(msg: int64, st: int64) -> (:no_reply, int64) {
+    sequence proc[device_io]
+        _: boolean <- trust_reset(0);
+        _: atom <- println("[operator] reset of whitelist entry 0 (b.cert), local only")
+    produces pure (:no_reply, st + 1) end
+}
+fn operator_start() -> atom {
+    sequence proc[concurrency]
+        o: actor_ref <- spawn(0, operator, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        t: timer_ref <- send_after(9000, o, 1 impl ActorMessage {})
+    produces pure :ok end
+}

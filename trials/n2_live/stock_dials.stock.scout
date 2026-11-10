@@ -1,0 +1,19 @@
+stock: ping beesl@localhost -> pong
+stock: nodes() lists BEES: true
+stock: sent {inbox, BEES} ! #{op => hello, n => 1}
+stock: outbox got {Pid, #{op => reply, n => 2}}; node(Pid) is BEES: true
+stock: sent Pid ! #{op => viapid, n => 3}
+stock: sent a BEES pid that BEES did not hand out a message (dropped by BEES)
+stock: linker A linked, unlinked and monitors the BEES pid
+stock: link to a pid BEES did not hand out ended with noproc
+stock: linker B is linked to the BEES pid
+stock: after link, unlink, monitor: nodes() lists BEES: true
+stock: idle 26 s (more than 3 x net_ticktime 8 s)
+stock: after 26 s idle: nodes() lists BEES: true
+stock: KILL NOW
+stock: nodedown seen within net_ticktime (8 s): true
+evidence: nodedown after N ms
+stock: linker B exited with noconnection
+stock: linker A's monitor fired with noconnection
+stock: done
+exit=0

@@ -1,0 +1,2 @@
+// a different cookie: the file beside bees.config's cookie file, with "_wrong" appended to its name (mode 600)
+fn cookie() -> string { concat(beam_conf@cookie_path(), "_wrong") }

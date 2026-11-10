@@ -1,0 +1,2 @@
+// the right cookie in a file that group and others may read (mode 644): the native edge refuses it, as OTP refuses a loose cookie
+fn cookie() -> string { concat(beam_conf@cookie_path(), "_loose") }

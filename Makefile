@@ -37,3 +37,15 @@ help:
 	@echo "make record-golden  re-record every golden (after a deliberate change only)"
 	@echo "make build | clean"
 	@echo "compiler: $(SILICA_COMPILER)"
+
+# N3 (TRUST): the TRUST half of the bees.config reader and erl reading the trust/1 frames BEES writes
+kit: kit-trust
+.PHONY: kit-trust
+kit-trust:
+	@python3 "$(BEES_ROOT)/tools/test_bees_config_trust.py" 2>&1 | tail -3
+
+# N2 (BEAM mode): the beam half of the bees.config reader, and the BEAM-mode layouts and digests against erl and OTP's sources
+kit: kit-beam
+.PHONY: kit-beam
+kit-beam:
+	@python3 "$(BEES_ROOT)/tools/test_beam_dist.py" 2>&1 | tail -3

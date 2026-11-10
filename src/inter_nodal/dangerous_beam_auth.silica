@@ -1,0 +1,87 @@
+// BEAM mode (N2): the cookie worker. One dangerous actor per node (its thread holds the last digest; the cookie is the edge's,
+// process-wide), installed by the program's root unit with spawn_dangerous (src/shim/beam_node_edge.part: auth_new), in the
+// shape of the language's dangerous_tcp_carrier: the worker behaviour lives in this library unit, its spawn site in the root.
+//
+// Request (:bees, op, arg, reply_to), one per handshake step that needs the cookie:
+//   op 1  a new challenge: C = a random 32-bit number (CCRandomGenerateBytes), and MD5(cookie ++ decimal(C)), the digest the
+//         peer must answer with. Reply (:bees, 5, body, "", why).
+//   op 3  the digest of a challenge the peer sent (arg): MD5(cookie ++ decimal(arg)). Reply (:bees, 6, body, "", why).
+// body is 20 bytes: the challenge (4, big-endian) and the digest (16); why is :ok, or :error with an empty body when the cookie
+// file could not be loaded (missing, loose permissions, bad content) or the generator failed. The cookie file is read at each
+// request (the worker's state: the path, normally beam_conf@cookie_path), so a node with a bad cookie file refuses every handshake and keeps running.
+//
+// Every foreign result is tainted; each scalar is re-created with the language's recreate inside the worker's own
+// external_danger sequence (as dangerous_tcp_carrier does for its descriptors), and only those pure numbers build the reply.
+// So the digest and the challenge leave the worker as pure values and are compared by the connection actor in Silica (N0.1's
+// result, with SD-25's caveat that the handler of an FFI result is not itself checked).
+module dangerous_beam_auth;
+use dangerous_beam_auth_ffi;
+
+export auth/2;
+
+fn pure_int(r: (:ok, int64) | (:rejected, atom)) -> int64 {
+    case r of {
+        (:ok, v: int64) -> v;
+        (:rejected, _why: atom) -> 0 - 1
+    }
+}
+fn bytes4(n: int64) -> string {
+    sequence proc[mem(normal), transport]
+        xs: List[int64, mem(normal)] <- [(n / 16777216) % 256, (n / 65536) % 256, (n / 256) % 256, n % 256];
+        s: string <- bytes_of(xs)
+    produces pure s end
+}
+fn join5(a: string, b: string, c: string, d: string, e: string) -> string {
+    sequence proc[mem(normal), transport]
+        parts: List[string, mem(normal)] <- [a, b, c, d, e];
+        s: string <- join_bytes(parts)
+    produces pure s end
+}
+fn body_of(ch: int64, w0: int64, w1: int64, w2: int64, w3: int64) -> string { join5(bytes4(ch), bytes4(w0), bytes4(w1), bytes4(w2), bytes4(w3)) }
+fn op_of(msg: (:bees, int64, int64, actor_ref)) -> int64 { case msg of { (:bees, op: int64, _a: int64, _r: actor_ref) -> op } }
+fn arg_of(msg: (:bees, int64, int64, actor_ref)) -> int64 { case msg of { (:bees, _op: int64, a: int64, _r: actor_ref) -> a } }
+fn to_of(msg: (:bees, int64, int64, actor_ref)) -> actor_ref { case msg of { (:bees, _op: int64, _a: int64, r: actor_ref) -> r } }
+fn none_res() -> { tag: int64, value: int64, error_code: int64 } { { tag: 1, value: 0, error_code: 0 } }
+
+fn auth(msg: (:bees, int64, int64, actor_ref), st: string) -> (:no_reply, string) {
+    sequence proc[external_danger, concurrency, transport]
+        op: int64 <- op_of(msg);
+        to: actor_ref <- to_of(msg);
+        lr: { tag: int64, value: int64, error_code: int64 } <- dangerous_beam_auth_ffi@load_cookie(st);
+        l_tag_raw: int64 <- lr.tag;
+        l_tag: int64 <- pure_int(recreate(l_tag_raw));
+        cr: { tag: int64, value: int64, error_code: int64 } <- case op == 1 and l_tag == 0 of {
+            true -> dangerous_beam_auth_ffi@challenge();
+            false -> none_res()
+        };
+        c_tag_raw: int64 <- cr.tag;
+        c_val_raw: int64 <- cr.value;
+        c_tag: int64 <- pure_int(recreate(c_tag_raw));
+        c_val: int64 <- pure_int(recreate(c_val_raw));
+        ch: int64 <- case op == 1 of { true -> c_val; false -> arg_of(msg) };
+        good: boolean <- l_tag == 0 and (op == 3 or c_tag == 0) and ch >= 0;
+        dr: { tag: int64, value: int64, error_code: int64 } <- case good of {
+            true -> dangerous_beam_auth_ffi@digest(ch);
+            false -> none_res()
+        };
+        d_tag_raw: int64 <- dr.tag;
+        d_tag: int64 <- pure_int(recreate(d_tag_raw));
+        ok: boolean <- good and d_tag == 0;
+        r0: { tag: int64, value: int64, error_code: int64 } <- dangerous_beam_auth_ffi@digest_word(0);
+        r1: { tag: int64, value: int64, error_code: int64 } <- dangerous_beam_auth_ffi@digest_word(1);
+        r2: { tag: int64, value: int64, error_code: int64 } <- dangerous_beam_auth_ffi@digest_word(2);
+        r3: { tag: int64, value: int64, error_code: int64 } <- dangerous_beam_auth_ffi@digest_word(3);
+        v0_raw: int64 <- r0.value;
+        v1_raw: int64 <- r1.value;
+        v2_raw: int64 <- r2.value;
+        v3_raw: int64 <- r3.value;
+        w0: int64 <- pure_int(recreate(v0_raw));
+        w1: int64 <- pure_int(recreate(v1_raw));
+        w2: int64 <- pure_int(recreate(v2_raw));
+        w3: int64 <- pure_int(recreate(v3_raw));
+        kind: int64 <- case op == 1 of { true -> 5; false -> 6 };
+        body: string <- case ok of { true -> body_of(ch, w0, w1, w2, w3); false -> "" };
+        why: atom <- case ok of { true -> :ok; false -> :error };
+        _: boolean <- cast(to, (:bees, kind, body, "", why) impl ActorMessage {})
+    produces pure (:no_reply, st) end
+}

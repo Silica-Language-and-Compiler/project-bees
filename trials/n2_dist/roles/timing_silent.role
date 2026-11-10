@@ -1,0 +1,3 @@
+// a node that sends no ticks (a test setting) and itself waits long
+fn io_ms() -> uint64 { 20000 }
+fn tick_ms() -> uint64 { 0 }

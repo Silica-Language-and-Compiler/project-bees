@@ -1,0 +1,3 @@
+[trust] boot refused: bees.config:8: trust.whitelist_file: whitelist file "unreadable_whitelist.config" is not readable (permissions) (relative to the directory of bees.config)
+[trust] no actor was started
+exit=1

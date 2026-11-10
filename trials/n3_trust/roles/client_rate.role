@@ -1,0 +1,25 @@
+// (f) rate: N calls demo:add([i, 1]) one after another, each on its own connection (B1), the first by hello and the rest on the
+// token fast path; prints the count of {ok, i+1} answers and the elapsed milliseconds (make measure; not a golden)
+fn total() -> int64 { 2000 }
+fn driver(r: { req: int64, what: atom, value: string }, st: { ok: int64, t0: int64 }) -> (:no_reply, { ok: int64, t0: int64 }) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        good: boolean <- r.what == bees_atoms@a_ok() and value_text(r.value) == concat("int ", bees_trust_frame@int_text(r.req + 1));
+        now: int64 <- monotonic_time();
+        _: atom <- case r.req >= total() of {
+            true -> say(concat(concat("rate: ", bees_trust_frame@int_text(st.ok + case good of { true -> 1; false -> 0 })), concat(" ok answers of 2000 calls in ms ", bees_trust_frame@int_text((now - st.t0) / 1000000))));
+            false -> trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_add(), 2, ints2(r.req + 1, 1), me, r.req + 1)
+        }
+    produces pure (:no_reply, { ok: st.ok + case good of { true -> 1; false -> 0 }, t0: st.t0 }) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        b: int64 <- trust_boot();
+        _: atom <- start_reporter();
+        _: atom <- trust_start();
+        t0: int64 <- monotonic_time();
+        d: actor_ref <- spawn({ ok: 0, t0: t0 }, driver, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: atom <- trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_add(), 2, ints2(1, 1), d, 1);
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

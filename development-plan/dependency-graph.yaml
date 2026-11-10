@@ -95,7 +95,7 @@ nodes:
     soft: []
     note: "Runs from the start, in parallel with N2 and N3. Nothing that downloads or builds a TLS engine starts without it."
   - id: "S12"
-    title: "Spike: TLS engine (rustls hosted; C library on ESP32-S3; both profiles)"
+    title: "Spike: TLS engine (OpenSSL hosted; Mbed TLS on the boards; both profiles (D40))"
     owner: "BEES"
     area: "native"
     start: ["ND"]

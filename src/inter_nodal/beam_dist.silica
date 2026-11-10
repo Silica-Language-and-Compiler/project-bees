@@ -1,0 +1,369 @@
+// BEAM mode (N2): the byte layouts that BEAM mode adds to bees_dist, as pure functions over Silica strings: the cookie steps of
+// handshake version 6, EPMD's registration and lookup, and the control messages a stock node sends. Read from the installed
+// OTP 28 (kernel-10.0: dist_util.erl, erl_epmd.erl, erl_epmd.hrl, dist.hrl) and checked against erl and a live EPMD
+// (tools/test_beam_dist.py, trials/n2_frames, trials/n2_live). Nothing here touches the network; dangerous_beam_net owns the actors.
+//
+//   flags  0x4_0307_0F9D: M3's mandatory set 0x4_0307_0F94 plus PUBLISHED (0x1: the stock node lists BEES in nodes(), not
+//          only in nodes(hidden)) and DIST_MONITOR (0x8: a stock monitor/2 on a BEES pid sends MONITOR_P, which BEES drops, D21)
+//   handshake (2-byte framing, bees_dist@frame2):
+//     initiator  N  flags(8) creation(4) nlen(2) name
+//     acceptor   s  status text: ok | ok_simultaneous | nok | not_allowed | alive (BEES sends ok or not_allowed)
+//     acceptor   N  flags(8) challenge(4) creation(4) nlen(2) name
+//     initiator  r  challenge(4) digest(16)       digest = MD5(cookie ++ decimal(acceptor's challenge))
+//     acceptor   a  digest(16)                    digest = MD5(cookie ++ decimal(initiator's challenge))
+//   EPMD (to 127.0.0.1:epmd_port, 2-byte length before each request, none before the answers):
+//     ALIVE2_REQ   120 port(2) 77 0 high(2)=6 low(2)=6 nlen(2) name elen(2)=0     the connection stays open: closing it unregisters
+//     ALIVE2_X_RESP 118 result(1) creation(4)   (ALIVE2_RESP 121 result(1) creation(2) from an older EPMD)
+//     PORT_PLEASE2_REQ 122 name
+//     PORT2_RESP   119 result(1) [port(2) type(1) proto(1) high(2) low(2) nlen(2) name elen(2) extra]; EPMD then closes
+//   control messages after the handshake (112, control as ETF, payload as ETF; tuple elements are found with a bounded skipper):
+//     LINK {1, From, To}  SEND {2, '', To}  EXIT {3, From, To, Reason}  REG_SEND {6, From, '', ToName}  EXIT2 {8, From, To, Reason}
+//     MONITOR_P {19, From, ToProc, Ref}  DEMONITOR_P {20, From, ToProc, Ref}  UNLINK_ID {35, Id, From, To}  UNLINK_ID_ACK {36, Id, From, To}
+//
+// Every reader checks bounds before it reads and answers a code (0 accepted, else one of the language's rejection reasons as
+// bees_ingress numbers them: 2 truncated, 4 bad_tag, 6 too_deep, 15 foreign_actor) instead of faulting.
+module beam_dist;
+use bees_dist;
+
+export flags_beam/0;
+export put_n_init/2;
+export put_n_acc/3;
+export put_status/1;
+export put_r/2;
+export put_a/1;
+export status_of/1;
+export n_acc_challenge/1;
+export r_challenge/1;
+export r_digest/1;
+export a_digest/1;
+export word/2;
+export alive2_req/2;
+export alive2_resp/1;
+export port_please2_req/1;
+export port2_resp/1;
+export short_name/1;
+export ctl/1;
+export span/3;
+export pid_at/2;
+export pid_bytes/3;
+export ctl_text/2;
+export exit_noproc/2;
+export unlink_id_ack/3;
+export send_body/2;
+export is_auth_tag/1;
+export is_auth_reply/1;
+export with_pid/2;
+export u32_at/2;
+
+// ---- bytes ----
+fn at(s: string, i: int64) -> int64 {
+    sequence proc[transport]
+        b: int64 <- byte_at(s, i)
+    produces pure b end
+}
+fn slice(s: string, start: int64, stop: int64) -> string {
+    sequence proc[mem(normal), transport]
+        out: string <- byte_slice(s, start, stop)
+    produces pure out end
+}
+fn bl(xs: List[int64, mem(normal)]) -> string {
+    sequence proc[mem(normal), transport]
+        s: string <- bytes_of(xs)
+    produces pure s end
+}
+fn b1(a: int64) -> string {
+    sequence proc[mem(normal)]
+        xs: List[int64, mem(normal)] <- [a]
+    produces pure bl(xs) end
+}
+fn be16(n: int64) -> string {
+    sequence proc[mem(normal)]
+        xs: List[int64, mem(normal)] <- [(n / 256) % 256, n % 256]
+    produces pure bl(xs) end
+}
+fn be32(n: int64) -> string {
+    sequence proc[mem(normal)]
+        xs: List[int64, mem(normal)] <- [(n / 16777216) % 256, (n / 65536) % 256, (n / 256) % 256, n % 256]
+    produces pure bl(xs) end
+}
+fn cat2(a: string, b: string) -> string {
+    sequence proc[mem(normal), transport]
+        parts: List[string, mem(normal)] <- [a, b];
+        s: string <- join_bytes(parts)
+    produces pure s end
+}
+fn cat3(a: string, b: string, c: string) -> string {
+    sequence proc[mem(normal), transport]
+        parts: List[string, mem(normal)] <- [a, b, c];
+        s: string <- join_bytes(parts)
+    produces pure s end
+}
+fn rd16(s: string, pos: int64) -> int64 { at(s, pos) * 256 + at(s, pos + 1) }
+fn u32_at(s: string, pos: int64) -> int64 { ((at(s, pos) * 256 + at(s, pos + 1)) * 256 + at(s, pos + 2)) * 256 + at(s, pos + 3) }
+fn span(s: string, a: int64, b: int64) -> string { slice(s, a, b) }
+
+// ---- handshake ----
+fn flags_beam() -> string {
+    sequence proc[mem(normal)]
+        xs: List[int64, mem(normal)] <- [0, 0, 0, 4, 3, 7, 15, 157]
+    produces pure bl(xs) end
+}
+fn put_n_init(name: string, creation: int64) -> string {
+    n: int64 <- length_bytes(name);
+    case n > 255 or n < 1 of {
+        true -> "";
+        false -> bees_dist@frame2(cat3(cat2(b1(78), flags_beam()), cat2(be32(creation), be16(n)), name))
+    }
+}
+fn put_n_acc(name: string, challenge: int64, creation: int64) -> string {
+    n: int64 <- length_bytes(name);
+    case n > 255 or n < 1 of {
+        true -> "";
+        false -> bees_dist@frame2(cat3(cat3(b1(78), flags_beam(), be32(challenge)), cat2(be32(creation), be16(n)), name))
+    }
+}
+fn put_status(text: string) -> string { bees_dist@frame2(cat2(b1(115), text)) }
+fn put_r(challenge: int64, digest: string) -> string { bees_dist@frame2(cat3(b1(114), be32(challenge), digest)) }
+fn put_a(digest: string) -> string { bees_dist@frame2(cat2(b1(97), digest)) }
+// the status text of an `s` message body, or "" when the body is not one
+fn status_of(body: string) -> string {
+    len: int64 <- length_bytes(body);
+    case len >= 2 and at(body, 0) == 115 of { true -> slice(body, 1, len); false -> "" }
+}
+// the challenge of an acceptor's N body (bytes 9 .. 12); the body was checked by bees_dist@n_acc_name first
+fn n_acc_challenge(body: string) -> int64 { u32_at(body, 9) }
+// an `r` body: 114, challenge(4), digest(16); -1 when it is not one
+fn r_challenge(body: string) -> int64 {
+    case length_bytes(body) == 21 and at(body, 0) == 114 of { true -> u32_at(body, 1); false -> 0 - 1 }
+}
+fn r_digest(body: string) -> string { case length_bytes(body) == 21 of { true -> slice(body, 5, 21); false -> "" } }
+fn a_digest(body: string) -> string {
+    case length_bytes(body) == 17 and at(body, 0) == 97 of { true -> slice(body, 1, 17); false -> "" }
+}
+// word i (0..3) of a 16-byte digest as an unsigned 32-bit number; -1 when the digest is short
+fn word(d: string, i: int64) -> int64 {
+    case length_bytes(d) >= 4 * i + 4 of { true -> u32_at(d, 4 * i); false -> 0 - 1 }
+}
+
+// ---- EPMD ----
+// the name EPMD knows: the node name up to its @
+fn short_name(node: string) -> string { substring_until_char(node, 0, '@') }
+fn alive2_req(port: int64, name: string) -> string {
+    n: int64 <- length_bytes(name);
+    body: string <- cat3(cat3(b1(120), be16(port), b1(77)), cat3(b1(0), be16(6), be16(6)), cat3(be16(n), name, be16(0)));
+    cat2(be16(length_bytes(body)), body)
+}
+// { code: 0 registered, 1 more bytes needed, 2 refused (the name is taken), 4 not an answer EPMD gives; creation }
+fn alive2_resp(s: string) -> { code: int64, creation: int64 } {
+    len: int64 <- length_bytes(s);
+    case len < 1 of {
+        true -> { code: 1, creation: 0 };
+        false -> case at(s, 0) of {
+            118 -> case len < 6 of {
+                true -> { code: 1, creation: 0 };
+                false -> case at(s, 1) == 0 of { true -> { code: 0, creation: u32_at(s, 2) }; false -> { code: 2, creation: 0 } }
+            };
+            121 -> case len < 4 of {
+                true -> { code: 1, creation: 0 };
+                false -> case at(s, 1) == 0 of { true -> { code: 0, creation: rd16(s, 2) }; false -> { code: 2, creation: 0 } }
+            };
+            _: int64 -> { code: 4, creation: 0 }
+        }
+    }
+}
+fn port_please2_req(name: string) -> string { cat3(be16(1 + length_bytes(name)), b1(122), name) }
+// { code: 0 found, 1 more bytes needed, 2 not registered, 4 not an answer EPMD gives; port }
+fn port2_resp(s: string) -> { code: int64, port: int64 } {
+    len: int64 <- length_bytes(s);
+    case len < 2 of {
+        true -> { code: 1, port: 0 };
+        false -> case at(s, 0) == 119 of {
+            false -> { code: 4, port: 0 };
+            true -> case at(s, 1) == 0 of {
+                false -> { code: 2, port: 0 };
+                true -> case len < 4 of { true -> { code: 1, port: 0 }; false -> { code: 0, port: rd16(s, 2) } }
+            }
+        }
+    }
+}
+
+// ---- ETF terms: a bounded skipper ----
+// The end position of the term at pos, or a negative rejection code. Every tag OTP 28 may put in a control message is
+// accepted (atoms, integers, floats, pids, ports, references, tuples, lists, strings, binaries, bignums, maps); depth is
+// bounded by 16 and every length by the bytes that are there.
+fn need(len: int64, stop: int64) -> int64 { case stop <= len of { true -> stop; false -> 0 - 2 } }
+fn skip_atom(s: string, len: int64, pos: int64) -> int64 {
+    case pos < 0 or pos + 2 > len of {
+        true -> 0 - 2;
+        false -> case at(s, pos) of {
+            119 -> need(len, pos + 2 + at(s, pos + 1));
+            115 -> need(len, pos + 2 + at(s, pos + 1));
+            118 -> case pos + 3 > len of { true -> 0 - 2; false -> need(len, pos + 3 + rd16(s, pos + 1)) };
+            100 -> case pos + 3 > len of { true -> 0 - 2; false -> need(len, pos + 3 + rd16(s, pos + 1)) };
+            _: int64 -> 0 - 4
+        }
+    }
+}
+fn after(p: int64, n: int64, len: int64) -> int64 { case p < 0 of { true -> p; false -> need(len, p + n) } }
+fn skip_n(s: string, len: int64, pos: int64, n: int64, depth: int64) -> int64 {
+    case pos < 0 or n == 0 of {
+        true -> pos;
+        false -> case n > len - pos of {
+            true -> 0 - 2;
+            false -> skip_n(s, len, skip(s, len, pos, depth), n - 1, depth)
+        }
+    }
+}
+fn skip(s: string, len: int64, pos: int64, depth: int64) -> int64 {
+    case depth > 16 of {
+        true -> 0 - 6;
+        false -> case pos < 0 or pos >= len of {
+            true -> 0 - 2;
+            false -> skip_tag(s, len, pos, at(s, pos), depth)
+        }
+    }
+}
+fn skip_tag(s: string, len: int64, pos: int64, tag: int64, depth: int64) -> int64 {
+    case tag of {
+        97 -> need(len, pos + 2);
+        98 -> need(len, pos + 5);
+        70 -> need(len, pos + 9);
+        119 -> skip_atom(s, len, pos);
+        118 -> skip_atom(s, len, pos);
+        115 -> skip_atom(s, len, pos);
+        100 -> skip_atom(s, len, pos);
+        88 -> after(skip_atom(s, len, pos + 1), 12, len);
+        103 -> after(skip_atom(s, len, pos + 1), 9, len);
+        89 -> after(skip_atom(s, len, pos + 1), 8, len);
+        120 -> after(skip_atom(s, len, pos + 1), 12, len);
+        90 -> case pos + 3 > len of { true -> 0 - 2; false -> after(skip_atom(s, len, pos + 3), 4 + 4 * rd16(s, pos + 1), len) };
+        114 -> case pos + 3 > len of { true -> 0 - 2; false -> after(skip_atom(s, len, pos + 3), 1 + 4 * rd16(s, pos + 1), len) };
+        104 -> case pos + 2 > len of { true -> 0 - 2; false -> skip_n(s, len, pos + 2, at(s, pos + 1), depth + 1) };
+        105 -> case pos + 5 > len of { true -> 0 - 2; false -> skip_n(s, len, pos + 5, u32_at(s, pos + 1), depth + 1) };
+        106 -> need(len, pos + 1);
+        107 -> case pos + 3 > len of { true -> 0 - 2; false -> need(len, pos + 3 + rd16(s, pos + 1)) };
+        108 -> case pos + 5 > len of { true -> 0 - 2; false -> skip(s, len, skip_n(s, len, pos + 5, u32_at(s, pos + 1), depth + 1), depth + 1) };
+        109 -> case pos + 5 > len of { true -> 0 - 2; false -> need(len, pos + 5 + u32_at(s, pos + 1)) };
+        77 -> case pos + 6 > len of { true -> 0 - 2; false -> need(len, pos + 6 + u32_at(s, pos + 1)) };
+        110 -> case pos + 3 > len of { true -> 0 - 2; false -> need(len, pos + 3 + at(s, pos + 1)) };
+        111 -> case pos + 6 > len of { true -> 0 - 2; false -> need(len, pos + 6 + u32_at(s, pos + 1)) };
+        116 -> case pos + 5 > len of { true -> 0 - 2; false -> skip_n(s, len, pos + 5, 2 * u32_at(s, pos + 1), depth + 1) };
+        _: int64 -> 0 - 4
+    }
+}
+
+// ---- control messages ----
+// A data-phase frame body: 112, 131, a small tuple of 2 to 5 elements whose first is a small integer (the control tag).
+// p1 .. p5 are the starts of elements 1 .. 4 and the end of the last (p_k = p_n for k beyond the tuple); the payload, if any,
+// starts at `pend`. code 0, or the rejection.
+fn ctl(s: string) -> { code: int64, tag: int64, n: int64, p1: int64, p2: int64, p3: int64, p4: int64, p5: int64 } {
+    len: int64 <- length_bytes(s);
+    case len < 6 of {
+        true -> { code: 2, tag: 0, n: 0, p1: 0, p2: 0, p3: 0, p4: 0, p5: 0 };
+        false -> case at(s, 0) == 112 and at(s, 1) == 131 and at(s, 2) == 104 and at(s, 4) == 97 and at(s, 3) >= 2 and at(s, 3) <= 5 of {
+            false -> { code: 4, tag: 0, n: 0, p1: 0, p2: 0, p3: 0, p4: 0, p5: 0 };
+            true -> ctl_spans(s, len, at(s, 5), at(s, 3))
+        }
+    }
+}
+fn nxt(s: string, len: int64, p: int64, more: boolean) -> int64 { case more of { true -> skip(s, len, p, 1); false -> p } }
+fn ctl_spans(s: string, len: int64, tag: int64, n: int64) -> { code: int64, tag: int64, n: int64, p1: int64, p2: int64, p3: int64, p4: int64, p5: int64 } {
+    p2: int64 <- nxt(s, len, 6, n >= 2);
+    p3: int64 <- nxt(s, len, p2, n >= 3);
+    p4: int64 <- nxt(s, len, p3, n >= 4);
+    p5: int64 <- nxt(s, len, p4, n >= 5);
+    bad: int64 <- case p2 < 0 of { true -> p2; false -> case p3 < 0 of { true -> p3; false -> case p4 < 0 of { true -> p4; false -> p5 } } };
+    case bad < 0 of {
+        true -> { code: 0 - bad, tag: tag, n: n, p1: 6, p2: 0, p3: 0, p4: 0, p5: 0 };
+        false -> { code: 0, tag: tag, n: n, p1: 6, p2: p2, p3: p3, p4: p4, p5: p5 }
+    }
+}
+// the text of an atom at pos ("" when the term there is not an atom)
+fn ctl_text(s: string, pos: int64) -> string {
+    len: int64 <- length_bytes(s);
+    e: int64 <- skip_atom(s, len, pos);
+    case e < 0 of {
+        true -> "";
+        false -> case at(s, pos) == 119 or at(s, pos) == 115 of { true -> slice(s, pos + 2, e); false -> slice(s, pos + 3, e) }
+    }
+}
+// a pid at pos: NEW_PID_EXT (88) or PID_EXT (103, one byte of creation); code 0 or the rejection
+fn pid_at(s: string, pos: int64) -> { code: int64, node: string, id: int64, serial: int64, creation: int64 } {
+    len: int64 <- length_bytes(s);
+    case pos < 0 or pos >= len of {
+        true -> { code: 2, node: "", id: 0, serial: 0, creation: 0 };
+        false -> pid_body(s, len, pos, at(s, pos), skip_atom(s, len, pos + 1))
+    }
+}
+fn crlen(tag: int64) -> int64 { case tag == 88 of { true -> 4; false -> 1 } }
+fn pid_body(s: string, len: int64, pos: int64, tag: int64, e: int64) -> { code: int64, node: string, id: int64, serial: int64, creation: int64 } {
+    case tag == 88 or tag == 103 of {
+        false -> { code: 4, node: "", id: 0, serial: 0, creation: 0 };
+        true -> case e < 0 of {
+            true -> { code: 0 - e, node: "", id: 0, serial: 0, creation: 0 };
+            false -> case e + 8 + crlen(tag) > len of {
+                true -> { code: 2, node: "", id: 0, serial: 0, creation: 0 };
+                false -> { code: 0, node: ctl_text(s, pos + 1), id: u32_at(s, e), serial: u32_at(s, e + 4), creation: pid_cr(s, e + 8, tag) }
+            }
+        }
+    }
+}
+fn pid_cr(s: string, p: int64, tag: int64) -> int64 { case tag == 88 of { true -> u32_at(s, p); false -> at(s, p) } }
+// the bytes of a pid of `node` (NEW_PID_EXT): id, serial 0, creation
+fn etf_atom(name: string) -> string {
+    n: int64 <- length_bytes(name);
+    case n <= 255 of { true -> cat3(b1(119), b1(n), name); false -> cat3(b1(118), be16(n), name) }
+}
+fn pid_bytes(node: string, id: int64, creation: int64) -> string { cat3(cat2(b1(88), etf_atom(node)), be32(id), cat2(be32(0), be32(creation))) }
+// replies, as frame bodies (bees_dist@frame4 adds the length): EXIT {3, OurPid, TheirPid, noproc} to a LINK for a pid this node
+// does not have, as a BEAM node answers it; UNLINK_ID_ACK {36, Id, OurPid, TheirPid}; SEND {2, '', ToPid} and a payload
+fn ctl_head(n: int64, tag: int64) -> string {
+    sequence proc[mem(normal)]
+        xs: List[int64, mem(normal)] <- [112, 131, 104, n, 97, tag]
+    produces pure bl(xs) end
+}
+fn exit_noproc(ours: string, theirs: string) -> string { cat3(ctl_head(4, 3), cat2(ours, theirs), etf_atom("noproc")) }
+fn unlink_id_ack(id: string, ours: string, theirs: string) -> string { cat3(ctl_head(4, 36), id, cat2(ours, theirs)) }
+fn send_body(to: string, payload: string) -> string { cat3(ctl_head(3, 2), cat2(b1(119), b1(0)), cat2(to, payload)) }
+
+// net_adm:ping's request to net_kernel (gen:call): {'$gen_call', {FromPid, Tag}, {is_auth, Node}}. Answers the end of Tag and
+// where FromPid starts and ends: { code, pid, tag, tend }; the reply is SEND to FromPid of {Tag, yes} (is_auth_reply).
+fn is_auth_tag(p: string) -> { code: int64, pid: int64, tag: int64, tend: int64 } {
+    len: int64 <- length_bytes(p);
+    case len < 4 of {
+        true -> { code: 2, pid: 0, tag: 0, tend: 0 };
+        false -> case at(p, 0) == 131 and at(p, 1) == 104 and at(p, 2) == 3 and ctl_text(p, 3) == "$gen_call" of {
+            false -> { code: 4, pid: 0, tag: 0, tend: 0 };
+            true -> is_auth_from(p, len, skip_atom(p, len, 3))
+        }
+    }
+}
+fn is_auth_from(p: string, len: int64, q: int64) -> { code: int64, pid: int64, tag: int64, tend: int64 } {
+    case q < 0 or q + 2 > len of {
+        true -> { code: 2, pid: 0, tag: 0, tend: 0 };
+        false -> case at(p, q) == 104 and at(p, q + 1) == 2 of {
+            false -> { code: 4, pid: 0, tag: 0, tend: 0 };
+            true -> is_auth_tag_end(p, len, q + 2, skip(p, len, q + 2, 2))
+        }
+    }
+}
+fn is_auth_tag_end(p: string, len: int64, pid: int64, tag: int64) -> { code: int64, pid: int64, tag: int64, tend: int64 } {
+    tend: int64 <- skip(p, len, tag, 2);
+    case tag < 0 or tend < 0 of {
+        true -> { code: 2, pid: 0, tag: 0, tend: 0 };
+        false -> case tend + 2 <= len and at(p, tend) == 104 and at(p, tend + 1) == 2 and ctl_text(p, tend + 2) == "is_auth" of {
+            false -> { code: 4, pid: 0, tag: 0, tend: 0 };
+            true -> { code: 0, pid: pid, tag: tag, tend: tend }
+        }
+    }
+}
+// the payload {Tag, yes}, given the bytes of Tag
+fn is_auth_reply(tag: string) -> string { cat3(cat3(b1(131), b1(104), b1(2)), tag, etf_atom("yes")) }
+// a payload that hands out a pid: {Pid, Value}, from the bytes of the pid and the encoded value (131 dropped)
+fn with_pid(pid: string, payload: string) -> string {
+    n: int64 <- length_bytes(payload);
+    case n < 2 of {
+        true -> "";
+        false -> cat3(cat3(b1(131), b1(104), b1(2)), pid, slice(payload, 1, n))
+    }
+}

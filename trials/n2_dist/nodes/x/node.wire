@@ -1,0 +1,4 @@
+# N2 node x: not in a's peer table; dials a
+node   x@localhost
+peer   a@localhost 127.0.0.1 47431 dial
+remote inbox @ a@localhost cast { op: atom, n: int64 }
