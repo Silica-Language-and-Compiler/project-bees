@@ -183,7 +183,7 @@ leaves fail with E4030 until it is made by hand.
 ### Pin moved to silica-999919 (2026-11-12, user ruling)
 
 `tools/silica.generation` is now `silica-999919-macos-applesilicon`. `carrier_new()` gained the stdlib carrier's `link_spec: ""`.
-Full `make integrate` after the move: **93 of 96 leaf results pass**; the three failures are SD-41 below, which also fails
+Full `make integrate` after the move: **101 results pass, 3 fail** (a leaf that does not build counts as one failure); the three failures are SD-41 below, which also fails
 with 999926 on this machine, so it is not caused by the move.
 
 | # | Found | What | Reproducer | BEES workaround |
