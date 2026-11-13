@@ -165,8 +165,8 @@ first request to last answer 12.86 s, **311.0 round trips per second** (621.9 me
 
 ## 2026-11-12: S14 step 1 (host-name resolution) on silica-999919 (not the pin)
 
-`binaries/silica-compiler` points at `silica-999919-macos-applesilicon`; `tools/silica.generation` still says 999926, so
-`make check-compiler` prints a NOTE. Everything below was found building `trials/name_resolution` with 999919.
+`binaries/silica-compiler` points at `silica-999919-macos-applesilicon`; `tools/silica.generation` said 999926 when this
+section was first written (the pin moved to 999919 the same day, below). Everything below was found building `trials/name_resolution` with 999919.
 
 | # | Found | What | Reproducer | BEES workaround |
 | --- | --- | --- | --- | --- |
@@ -179,3 +179,21 @@ five-field literal of 999926. The node trials (M2 to M4) will not compile agains
 `link_spec: ""` and the pin moves; that is a pin decision for the user, not made here. Separately, a fresh checkout has no
 `dangerous_exposure_source` link in `trials/m2_carrier_tcp` or `trials/s04_native_edge` (the link is ignored there), so those
 leaves fail with E4030 until it is made by hand.
+
+### Pin moved to silica-999919 (2026-11-12, user ruling)
+
+`tools/silica.generation` is now `silica-999919-macos-applesilicon`. `carrier_new()` gained the stdlib carrier's `link_spec: ""`.
+Full `make integrate` after the move: **93 of 96 leaf results pass**; the three failures are SD-41 below, which also fails
+with 999926 on this machine, so it is not caused by the move.
+
+| # | Found | What | Reproducer | BEES workaround |
+| --- | --- | --- | --- | --- |
+| SD-41 | 2026-11-12 | **The compiler runs out of memory compiling three small entry units**: `type_surface_cache_cache_beh` ends with `(:explicit, :out_of_memory)`, then `main_compile_beh` with `:actor_not_found`, and the compiler exits 76 (`restart_intensity_breach`). Units: `trials/a03_module_table/main.silica` (125 lines), `trials/m1_wire_reject/main.silica` (319), `trials/m1_wire_types_records/main.silica` (480); every library unit before them compiles. **Also with `silica-999926`** on this machine (checked on `a03_module_table`), where these leaves passed on 2026-11-10 on the earlier machine: so it is this machine or the current Silica tree that both compilers read, not the generation. Not yet reduced. | the three leaves | none; open |
+
+Other changes the move needed, none of them a Silica defect:
+
+| Change | Why |
+| --- | --- |
+| `m2_carrier_tcp` goldens: each side now ends with the carrier's own normal-exit report (`#0 dangerous_tcp_carrier_carrier`, reason `:normal`) | the stdlib carrier now stops when its link ends; read before re-recording, stable over three runs |
+| eight `lib/Supervisor.silica` / `lib/wire_etf.silica` links made relative (`../../../../silica/compiler/stdlib/...`) | they pointed at `/Users/yenrab/silica/...`, a path on the earlier machine (E1009 "unknown module in use") |
+| `dangerous_exposure_source` links committed in `m0_recreation`, `m2_carrier_tcp`, `m2_ffi_shapes`, `s04_native_edge` (`.gitignore` exceptions) | a fresh checkout had none (E4030) |

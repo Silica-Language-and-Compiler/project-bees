@@ -7,6 +7,10 @@ trials/*/*
 # leaves whose units read a native sidecar keep the link to native/dangerous_exposure_source
 !trials/name_resolution/dangerous_exposure_source
 !trials/silica_defects/dangerous_exposure_source
+!trials/m2_carrier_tcp/dangerous_exposure_source
+!trials/s04_native_edge/dangerous_exposure_source
+!trials/m0_recreation/dangerous_exposure_source
+!trials/m2_ffi_shapes/dangerous_exposure_source
 !trials/*/sout.sed
 # M3: the roles and the node leaves (their generated files are ignored again below)
 !trials/m3_dist/roles/
