@@ -162,3 +162,53 @@ carries the 2026-11-09 listener form and `carrier@provides`). Every leaf was bui
 **Rate and memory (M4 `make measure`, one run, this machine, not a benchmark):** 4,000 requests with the full payload, 8 in flight:
 first request to last answer 12.86 s, **311.0 round trips per second** (621.9 messages per second across the link); peak resident set
 **6.3 MiB** on each node (peak footprint 6.0 and 5.9 MiB). Before the port (M4, 2026-11-05): 19.1 round trips per second, 90 and 95 MiB.
+
+## 2026-11-12: S14 step 1 (host-name resolution) on silica-999919 (not the pin)
+
+`binaries/silica-compiler` points at `silica-999919-macos-applesilicon`; `tools/silica.generation` said 999926 when this
+section was first written (the pin moved to 999919 the same day, below). Everything below was found building `trials/name_resolution` with 999919.
+
+| # | Found | What | Reproducer | BEES workaround |
+| --- | --- | --- | --- | --- |
+| SD-40 | 2026-11-12 | **A string argument of a foreign function, written as a call expression, reaches C with the wrong pointer and length.** `resolve_raw(name())` passes a 1-byte string (the C side saw `len=1` for every host); `h: string <- name(); resolve_raw(h)` passes the string intact. Nothing is reported at compile or run time: the lookup simply fails (`nxdomain`). The language's own `dangerous_sockets` always binds the string first, so it does not meet this. | `trials/silica_defects/dangerous_sd40_ffi_string_argument_from_call.silica` (golden records today's wrong `inline 1 1` beside `bound 0 0`) | `dangerous_bees_dns@resolver` binds the host to a name before the foreign call. Keeps to the design. |
+| SD-3 (again) | 2026-11-12 | A one-shot FFI worker in a **library unit** (`dangerous_bees_dns@resolver`, spawned by reference) took the default-less path "no case arm matched" on every tuple request from another unit, while the plain atom `:close` matched; the same worker in the sender's own unit worked. The atoms of the request were numbered differently in the two units: SD-3, not new. | (shown while building; not kept) | D30, as everywhere else: `src/inter_nodal/bees_dns.atoms` lists the resolver's atoms, and `dangerous_bees_dns` and its callers `use bees_atoms`. |
+
+**Not a Silica defect, but found on the way:** the Silica tree's `dangerous_tcp_carrier@initial()` now has a sixth state field,
+`link_spec: string` (the hosted link design), while BEES's `carrier_new()` (`src/shim/bees_tcp_edge.part`) still spells the
+five-field literal of 999926. The node trials (M2 to M4) will not compile against the current tree until the literal gains
+`link_spec: ""` and the pin moves; that is a pin decision for the user, not made here. Separately, a fresh checkout has no
+`dangerous_exposure_source` link in `trials/m2_carrier_tcp` or `trials/s04_native_edge` (the link is ignored there), so those
+leaves fail with E4030 until it is made by hand.
+
+### Pin moved to silica-999919 (2026-11-12, user ruling)
+
+`tools/silica.generation` is now `silica-999919-macos-applesilicon`. `carrier_new()` gained the stdlib carrier's `link_spec: ""`.
+Full `make integrate` after the move: **101 results pass, 3 fail** (a leaf that does not build counts as one failure); the three failures are SD-41 below, which also fails
+with 999926 on this machine, so it is not caused by the move.
+
+| # | Found | What | Reproducer | BEES workaround |
+| --- | --- | --- | --- | --- |
+| SD-41 | 2026-11-12 | **The compiler's `type_surface_cache` actor uses up its address-space reservation, about 1 MB per message, while its state is 33-44 KB.** It ends with `(:explicit, :out_of_memory)`, then `main_compile_beh` with `:actor_not_found`, exit 76. Diagnosed 2026-11-13 under lldb with 999919, while compiling `lib/bees_modules.silica` in `a03_module_table` (not `main.silica`, as first recorded): (1) the cache's behaviour is unproven (ACB #560 = 0), so every dispatch ends in `_silica_rt_state_copy_all`, which places its scratch block **below the committed run** and commits fresh pages for it (`_silica_rt_stack_grow_to`, 1 MB chunks); (2) the cache is spawned with `stack_policy(0, :keep_high_water)` (`compiler/src/type_checker/type_surface_cache.silica:137`; ACB #312 = 5), so those pages are never given back; (3) so the committed run grows by about 1 MB per message: 994 MB at copy 1,000, 4,994 MB at 5,000, 9,994 MB at 10,000, with live state at 32,976 bytes, and it fails at copy 22,177, when the run reaches the default reservation (`hw.memsize` + `vm.swapusage` total, read at process start: 16 GB + 3 to 6 GB here). The pages are committed with `mprotect` and barely touched, so RSS stays at about 1 GB and the machine never runs short (78% free during the failure). A unit fails when it makes more cache requests than its reservation has MB, so this does not depend on other apps: more swap at start means a bigger reservation. A machine with more RAM passes. It matches Silica's own note in `transport_hosted_ethernet_plan.md` (Linux, 3.9 GB). `callee_env_cache` and `parse_in_actor` use the same policies and probably have the same exposure. The earlier "also with 999926" check may have read a stale `silica.compile.crashed` (see `tools/trial.mk` below) and is not trusted. | the three leaves (`make -C trials/a03_module_table build`); full report for the fixer: `silica-reports/SD-41-state-copy-scratch-ratchet.md` | **Fixed in `silica-999916`** (2026-11-13): the three leaves build and pass, with peak RSS 361-558 MB; the pin moved to 999916 |
+
+Other changes the move needed, none of them a Silica defect:
+
+| Change | Why |
+| --- | --- |
+| `m2_carrier_tcp` goldens: each side now ends with the carrier's own normal-exit report (`#0 dangerous_tcp_carrier_carrier`, reason `:normal`) | the stdlib carrier now stops when its link ends; read before re-recording, stable over three runs |
+| eight `lib/Supervisor.silica` / `lib/wire_etf.silica` links made relative (`../../../../silica/compiler/stdlib/...`) | they pointed at `/Users/yenrab/silica/...`, a path on the earlier machine (E1009 "unknown module in use") |
+| `dangerous_exposure_source` links committed in `m0_recreation`, `m2_carrier_tcp`, `m2_ffi_shapes`, `s04_native_edge` (`.gitignore` exceptions) | a fresh checkout had none (E4030) |
+| `tools/trial.mk` `build` and `clean` also remove `silica.compile.crashed` and `silica.compile.inprogress` (2026-11-13) | the compiler's crash record survives between batches unless the Makefile removes it (Silica's own Makefile does, `main_crash.silica`); without this, every later build of a leaf that once crashed reported "crashed ... (recorded as failed)" without compiling the unit |
+
+## 2026-11-13: pin moved to silica-999916 (SD-41 fixed)
+
+999916 carries Silica's fix for SD-41. With it, `a03_module_table`, `m1_wire_reject` and `m1_wire_types_records` build and
+pass. Their peak RSS is 552, 558 and 361 MB (999919 crashed at 1 to 1.5 GB).
+
+| Change | Why |
+| --- | --- |
+| `tools/silica.generation` is `silica-999916-macos-applesilicon` | user ruling, 2026-11-13 |
+| `trials/m2_carrier_tcp/peer.role`: each line of the owner's output is one `println` | the carrier (spawned without a supervisor) stops at the link's end, and the runtime writes `[silica] root actor exited (no supervisor)` from its thread while the owner prints. With several `print_string` calls per line, the notice landed mid-line. Under 999916 it moved in 5 of 5 runs, so this is a timing change, not a defect |
+| `trials/m2_carrier_tcp/sout.sed` deletes that notice and any failure report whose reason is `:normal` (the carrier's own stop), and the two goldens no longer hold them | both are written from the carrier's thread while the owner prints, and in a full run the report also landed before the owner's last four lines. A report with any other reason is kept and checked; the owner's `link_down closed` line still shows the link ended. Stable over 10 runs |
+| `tools/trial.mk` applies `sout.sed` to paired entries too | the pair loop (`run_pair.py`) had no hook |
+| `tools/run_trial.py`: the runtime's `[silica] root actor exited (no supervisor)` notice no longer counts as output when waiting for quiet | `m3_dist ticks_alive.a` was killed at the 60 s cap in 3 of 5 runs (`exit=-9`, all of its output correct). After the marker, its short-lived actors stop about every 0.5 s, so the 0.5 s quiet window that sends `exit` rarely opened (a sample showed main still in `silica_rt_wait_for_exit`). Every caller deletes the notice afterwards anyway. Stable over 6 runs |
+

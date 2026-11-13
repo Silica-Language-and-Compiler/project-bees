@@ -1,0 +1,123 @@
+use bees_atoms;
+use bees_addr;
+use dangerous_bees_dns;
+// Host-name resolution (spikes/S14-name-resolution.md, D42), step 1: the interim system resolver and the pure address checks.
+// A probe looks up one host at a time through a fresh one-shot resolver (dangerous_bees_dns@resolver) and prints what comes
+// back and what bees_addr@usable keeps of it; then it prints the pure checks on fixed inputs.
+//   0 "localhost"              resolved; usable keeps 127.0.0.1
+//   1 "127.0.0.1"              a literal goes through the resolver unchanged
+//   2 "no-such-host.invalid"   :nxdomain (RFC 6761: .invalid never resolves)
+//   3 ""                       :bad_name, refused before the system is asked
+// The answer to the probe's kick is (:resolved, -1, "").
+module dangerous_resolve_hosts;
+
+fn region_dump_limit() -> int64 { 0 }
+
+// The trial's FailureReporter: as bees_reporter, but a report of a normal stop is not printed, because each one-shot resolver
+// ends normally after its answer and its report would interleave with the probe's lines in an order that varies.
+fn quiet_reporter(report: string, state: int64) -> (:no_reply, int64) {
+    sequence proc[device_io]
+        _: atom <- case contains(report, "reason:          :normal") of {
+            true -> :ok;
+            false -> println_stderr(report)
+        }
+    produces pure (:no_reply, state) end
+}
+
+fn host_of(i: int64) -> string {
+    case i of {
+        0 -> "localhost";
+        1 -> "127.0.0.1";
+        2 -> "no-such-host.invalid";
+        _: int64 -> ""
+    }
+}
+
+fn digits(n: int64, acc: string) -> string {
+    d: string <- concat(char_text_of(n % 10), acc);
+    case n < 10 of { true -> d; false -> digits(n / 10, d) }
+}
+fn char_text_of(d: int64) -> string {
+    case d of { 0 -> "0"; 1 -> "1"; 2 -> "2"; 3 -> "3"; 4 -> "4"; 5 -> "5"; 6 -> "6"; 7 -> "7"; 8 -> "8"; _: int64 -> "9" }
+}
+fn int_text(n: int64) -> string { digits(n, "") }
+
+fn b2s(b: boolean) -> string { case b of { true -> "true"; false -> "false" } }
+
+fn show(label: string, r: { kept: string, n: int64, dropped: int64, outside: int64 }) -> atom {
+    sequence proc[device_io]
+        a: string <- concat(concat(label, " kept="), r.kept);
+        b: string <- concat(concat(" n=", int_text(r.n)), concat(" dropped=", int_text(r.dropped)));
+        _: atom <- println(concat(concat(a, b), concat(" outside=", int_text(r.outside))))
+    produces pure :ok end
+}
+
+fn pure_checks() -> atom {
+    sequence proc[device_io]
+        mixed: string <- "10.0.0.8,256.1.1.1,0.0.0.0,224.0.0.1,10.0.0.8,01.2.3.4,1.2.3,255.255.255.255,127.0.0.1,1.2.3.4.5";
+        _: atom <- show("mixed any", bees_addr@usable(mixed, false));
+        _: atom <- show("mixed loopback-only", bees_addr@usable(mixed, true));
+        _: atom <- show("empty", bees_addr@usable("", false));
+        _: atom <- println(concat("quad 192.168.1.20 ", b2s(bees_addr@is_quad("192.168.1.20"))));
+        _: atom <- println(concat("quad 1.2.3.04 ", b2s(bees_addr@is_quad("1.2.3.04"))));
+        _: atom <- println(concat("quad billing.example ", b2s(bees_addr@is_quad("billing.example"))));
+        _: atom <- println(concat("ipv6 ::1 ", b2s(bees_addr@is_ipv6_literal("::1"))));
+        _: atom <- println(concat("ipv6 fe80::1%en0 ", b2s(bees_addr@is_ipv6_literal("fe80::1%en0"))));
+        _: atom <- println(concat("ipv6 billing.example ", b2s(bees_addr@is_ipv6_literal("billing.example"))));
+        _: atom <- println(concat("first ", bees_addr@first_of("10.0.0.8,10.0.0.9")));
+        _: atom <- println(concat("rest ", bees_addr@rest_of("10.0.0.8,10.0.0.9")));
+        _: atom <- println(concat("rest of one [", concat(bees_addr@rest_of("10.0.0.8"), "]")))
+    produces pure :ok end
+}
+
+fn lookup(me: actor_ref, i: int64) -> boolean {
+    sequence proc[concurrency]
+        w: dangerous_actor_ref <- spawn_dangerous(me, dangerous_bees_dns@resolver, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        ok: boolean <- cast(w, (:resolve, me, host_of(i), i) impl ActorMessage {})
+    produces pure ok end
+}
+
+fn report(msg: (:resolved, int64, string) | (:resolve_failed, int64, atom)) -> int64 {
+    case msg of {
+        (:resolved, tag: int64, addrs: string) -> case tag >= 0 of {
+            false -> tag;
+            true -> {
+                _: atom <- show(concat(concat("lookup ", host_of(tag)), " resolved"), bees_addr@usable(addrs, false));
+                tag
+            }
+        };
+        (:resolve_failed, tag2: int64, why: atom) -> {
+            sequence proc[device_io]
+                _: atom <- println(concat(concat(concat("lookup [", host_of(tag2)), "] failed "), atom_name(why)))
+            produces pure tag2 end
+        }
+    }
+}
+
+fn probe(msg: (:resolved, int64, string) | (:resolve_failed, int64, atom), n: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        t: int64 <- report(msg);
+        nxt: int64 <- t + 1;
+        _: boolean <- case nxt <= 3 of {
+            true -> lookup(me, nxt);
+            false -> {
+                sequence proc[concurrency, device_io]
+                    _: atom <- pure_checks();
+                    _: atom <- println("done");
+                    _: atom <- stop_self(:normal)
+                produces pure true end
+            }
+        }
+    produces pure (:no_reply, n + 1) end
+}
+
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        rep: actor_ref <- spawn(0, quiet_reporter, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: atom <- register_failure_reporter(rep);
+        p: actor_ref <- spawn(0, probe, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: boolean <- cast(p, (:resolved, 0 - 1, "") impl ActorMessage {});
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}
