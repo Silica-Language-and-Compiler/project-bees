@@ -162,3 +162,20 @@ carries the 2026-11-09 listener form and `carrier@provides`). Every leaf was bui
 **Rate and memory (M4 `make measure`, one run, this machine, not a benchmark):** 4,000 requests with the full payload, 8 in flight:
 first request to last answer 12.86 s, **311.0 round trips per second** (621.9 messages per second across the link); peak resident set
 **6.3 MiB** on each node (peak footprint 6.0 and 5.9 MiB). Before the port (M4, 2026-11-05): 19.1 round trips per second, 90 and 95 MiB.
+
+## 2026-11-12: S14 step 1 (host-name resolution) on silica-999919 (not the pin)
+
+`binaries/silica-compiler` points at `silica-999919-macos-applesilicon`; `tools/silica.generation` still says 999926, so
+`make check-compiler` prints a NOTE. Everything below was found building `trials/name_resolution` with 999919.
+
+| # | Found | What | Reproducer | BEES workaround |
+| --- | --- | --- | --- | --- |
+| SD-40 | 2026-11-12 | **A string argument of a foreign function, written as a call expression, reaches C with the wrong pointer and length.** `resolve_raw(name())` passes a 1-byte string (the C side saw `len=1` for every host); `h: string <- name(); resolve_raw(h)` passes the string intact. Nothing is reported at compile or run time: the lookup simply fails (`nxdomain`). The language's own `dangerous_sockets` always binds the string first, so it does not meet this. | `trials/silica_defects/dangerous_sd40_ffi_string_argument_from_call.silica` (golden records today's wrong `inline 1 1` beside `bound 0 0`) | `dangerous_bees_dns@resolver` binds the host to a name before the foreign call. Keeps to the design. |
+| SD-3 (again) | 2026-11-12 | A one-shot FFI worker in a **library unit** (`dangerous_bees_dns@resolver`, spawned by reference) took the default-less path "no case arm matched" on every tuple request from another unit, while the plain atom `:close` matched; the same worker in the sender's own unit worked. The atoms of the request were numbered differently in the two units: SD-3, not new. | (shown while building; not kept) | D30, as everywhere else: `src/inter_nodal/bees_dns.atoms` lists the resolver's atoms, and `dangerous_bees_dns` and its callers `use bees_atoms`. |
+
+**Not a Silica defect, but found on the way:** the Silica tree's `dangerous_tcp_carrier@initial()` now has a sixth state field,
+`link_spec: string` (the hosted link design), while BEES's `carrier_new()` (`src/shim/bees_tcp_edge.part`) still spells the
+five-field literal of 999926. The node trials (M2 to M4) will not compile against the current tree until the literal gains
+`link_spec: ""` and the pin moves; that is a pin decision for the user, not made here. Separately, a fresh checkout has no
+`dangerous_exposure_source` link in `trials/m2_carrier_tcp` or `trials/s04_native_edge` (the link is ignored there), so those
+leaves fail with E4030 until it is made by hand.

@@ -1,0 +1,61 @@
+use bees_reporter;
+// SD-40 (silica-999919): a string argument of a foreign function, written as a call expression, reaches C with the wrong
+// pointer and length (length 1 here); the same string bound to a name first reaches C intact. The foreign function is BEES's
+// bees_dns_resolve (native/src/silica_bees_dns.c), which answers tag 0 for a name that resolves and tag 1 with a reason
+// otherwise (1 nxdomain, 4 bad_name). "localhost" resolves on every host.
+// The golden records today's wrong output: the first line should be "inline 0 0" like the second.
+module dangerous_sd40_ffi_string_argument_from_call;
+
+wrapper_meta "dangerous_exposure_source/bees/silica_bees_native_wrapper.meta";
+
+foreign c_wrapper "bees_dns_resolve"
+fn resolve_raw(host_ptr: uint8, host_len: uint64) -> { tag: int64, value: int64, error_code: int64 };
+
+fn name() -> string { "localhost" }
+
+fn pure_int(r: (:ok, int64) | (:rejected, atom)) -> int64 {
+    case r of {
+        (:ok, v: int64) -> v;
+        (:rejected, _why: atom) -> 0 - 1
+    }
+}
+
+fn sink(msg: string, n: int64) -> (:no_reply, int64) {
+    sequence proc[device_io]
+        _: atom <- println(msg)
+    produces pure (:no_reply, n + 1) end
+}
+
+fn line(label: string, tag: int64, code: int64) -> string {
+    concat(concat(label, concat(" ", digit(tag))), concat(" ", digit(code)))
+}
+fn digit(d: int64) -> string {
+    case d of { 0 -> "0"; 1 -> "1"; 2 -> "2"; 3 -> "3"; 4 -> "4"; 5 -> "5"; _: int64 -> "?" }
+}
+
+fn worker(msg: int64, reply_to: actor_ref) -> (:no_reply, actor_ref) {
+    sequence proc[external_danger, concurrency, transport]
+        a: { tag: int64, value: int64, error_code: int64 } <- resolve_raw(name());
+        h: string <- name();
+        b: { tag: int64, value: int64, error_code: int64 } <- resolve_raw(h);
+        at_raw: int64 <- a.tag;
+        ac_raw: int64 <- a.error_code;
+        bt_raw: int64 <- b.tag;
+        bc_raw: int64 <- b.error_code;
+        at: int64 <- pure_int(recreate(at_raw));
+        ac: int64 <- pure_int(recreate(ac_raw));
+        bt: int64 <- pure_int(recreate(bt_raw));
+        bc: int64 <- pure_int(recreate(bc_raw));
+        _: boolean <- cast(reply_to, concat(concat(line("inline", at, ac), "\n"), line("bound", bt, bc)) impl ActorMessage {})
+    produces pure (:no_reply, reply_to) end
+}
+
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- bees_reporter@start();
+        s: actor_ref <- spawn(0, sink, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        w: dangerous_actor_ref <- spawn_dangerous(s, worker, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: boolean <- cast(w, 1 impl ActorMessage {});
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

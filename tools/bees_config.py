@@ -144,6 +144,10 @@ FIXED_ATOMS = {
     "unsupported",
     # dangerous_bees_net's own actor-protocol tags (never on the wire): (:bees, ...) between its actors, (:car, c) and (:who, r) to its writer
     "bees", "car", "who",
+    # host-name resolution (spikes/S14, D42; never on the wire): dangerous_bees_dns's request and answers, its reasons, and the
+    # dial actor's failure reasons ({:dns, reason})
+    "resolve", "resolved", "resolve_failed", "nxdomain", "no_address", "bad_name", "failed",
+    "dns", "not_loopback", "no_usable_address", "not_built_yet",
 }
 
 # Arms per generated `case` (Silica rejects 512). BEES_TIER lowers it so a trial can cross the tier boundary with few entries.

@@ -12,6 +12,8 @@
 #   fail_*.silica (dangerous_fail_*.silica when the unit declares foreign functions: E4020 wants the dangerous_ prefix)       compile-fail trials, compiled in isolation; the compiler's output is
 #                       the golden (.golden_fail)
 #   NAME.scout          golden stdout+stderr+exit code of entry NAME (recorded, then diffed)
+#   sout.sed            (optional) sed -E script applied to every entry's NAME.sout after its run, for what varies
+#                       between runs (e.g. where the runtime's own lines land)
 #
 # Targets:
 #   build           silica.config -> compile (reclaim loop) -> assemble -> link every entry
@@ -85,7 +87,8 @@ build: silica.config
 	echo "[$(LEAF_NAME)] built: $(ENTRIES)"
 
 run: build
-	@cd "$(LEAF)" && for e in $(filter-out $(PAIRED),$(ENTRIES)); do $(call RUN_TRIAL,./$$e,$$e.sout); done
+	@cd "$(LEAF)" && for e in $(filter-out $(PAIRED),$(ENTRIES)); do $(call RUN_TRIAL,./$$e,$$e.sout); \
+		if [ -f sout.sed ]; then sed -i '' -E -f sout.sed "$$e.sout"; fi; done
 	@cd "$(LEAF)" && for p in $(PAIR_FILES); do \
 		set -- $$(cat "$$p"); \
 		"$(BEES_ROOT)/tools/run_pair.py" "./$$1" "$$1.sout" "$$(cat "$$1.wait_for_exit")" "./$$2" "$$2.sout" "$$(cat "$$2.wait_for_exit")"; \

@@ -1,0 +1,13 @@
+0	bad_name
+1	close
+2	dns
+3	failed
+4	no_address
+5	no_usable_address
+6	not_built_yet
+7	not_loopback
+8	nxdomain
+9	resolve
+10	resolve_failed
+11	resolved
+12	temporary

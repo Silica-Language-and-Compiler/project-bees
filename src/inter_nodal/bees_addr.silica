@@ -1,0 +1,150 @@
+// BEES host addresses (spikes/S14 sections 5 and 7, roadmap D42): the pure checks on an address before the language's (:tcp)
+// carrier is opened with it. The carrier takes only an IPv4 dotted quad (it parses with inet_pton(AF_INET)), so a host name
+// is resolved first (dangerous_bees_dns, the interim system resolver) and every address that comes back, which is FFI output
+// and untrusted, is parsed and checked here before it is dialled.
+//
+//   quad_value(s)        the 32-bit value of a dotted quad, or -1: exactly four decimal fields of 0 to 255, one to three
+//                        digits each, no sign, no empty field, no leading zero (inet_aton would read "010" as octal)
+//   is_quad(s)           quad_value(s) >= 0
+//   is_ipv6_literal(s)   s holds a ':' (an IPv6 literal, possibly with a zone): "not built yet" while the carrier is IPv4-only
+//   is_loopback(v)       v is in 127.0.0.0/8
+//   usable(csv, lo)      the addresses of csv (dotted quads separated by ',') that may be dialled, in order: unparseable
+//                        parts, 0.0.0.0/8, 255.255.255.255, 224.0.0.0/4 and 240.0.0.0/4 are dropped, a repeat of an earlier
+//                        part is dropped (before the loopback rule, so it is counted once);
+//                        when lo (a loopback-only setting: beam.auth none, trust.plaintext_test_only), an address outside
+//                        127.0.0.0/8 is not kept and counted in `outside`, and the caller refuses the dial (never the name:
+//                        a name passes a loopback-only rule only by what it resolves to).
+//   first_of(csv), rest_of(csv)   the first address of a usable list and the list after it ("" when none)
+//
+// Byte reads run in a `sequence` that declares `transport` (E3013), as the language's own address parsers do.
+module bees_addr;
+
+export quad_value/1;
+export is_quad/1;
+export is_ipv6_literal/1;
+export is_loopback/1;
+export usable/2;
+export first_of/1;
+export rest_of/1;
+
+fn at(s: string, i: int64) -> int64 {
+    sequence proc[transport]
+        b: int64 <- byte_at(s, i)
+    produces pure b end
+}
+
+// one field of a quad starting at i: (value, the index after its digits), value -1 when it is not 1 to 3 digits of 0 to 255
+// with no leading zero
+fn field(s: string, i: int64, start: int64, acc: int64) -> { v: int64, next: int64 } {
+    case i >= length_bytes(s) of {
+        true -> field_end(start, i, acc, s);
+        false -> {
+            d: int64 <- at(s, i) - 48;
+            case d < 0 or d > 9 of {
+                true -> field_end(start, i, acc, s);
+                false -> case i - start >= 3 of {
+                    true -> { v: 0 - 1, next: i };
+                    false -> field(s, i + 1, start, acc * 10 + d)
+                }
+            }
+        }
+    }
+}
+fn field_end(start: int64, i: int64, acc: int64, s: string) -> { v: int64, next: int64 } {
+    n: int64 <- i - start;
+    lead0: boolean <- n > 1 and at(s, start) == 48;
+    case n == 0 or lead0 or acc > 255 of {
+        true -> { v: 0 - 1, next: i };
+        false -> { v: acc, next: i }
+    }
+}
+// fields k..3 from index i; acc is the value so far
+fn quad_from(s: string, i: int64, k: int64, acc: int64) -> int64 {
+    f: { v: int64, next: int64 } <- field(s, i, i, 0);
+    case f.v < 0 of {
+        true -> 0 - 1;
+        false -> {
+            a2: int64 <- acc * 256 + f.v;
+            case k == 3 of {
+                true -> case f.next == length_bytes(s) of { true -> a2; false -> 0 - 1 };
+                false -> case f.next < length_bytes(s) and at(s, f.next) == 46 of {
+                    true -> quad_from(s, f.next + 1, k + 1, a2);
+                    false -> 0 - 1
+                }
+            }
+        }
+    }
+}
+fn quad_value(s: string) -> int64 {
+    case length_bytes(s) < 7 or length_bytes(s) > 15 of {
+        true -> 0 - 1;
+        false -> quad_from(s, 0, 0, 0)
+    }
+}
+fn is_quad(s: string) -> boolean { quad_value(s) >= 0 }
+
+fn has_colon(s: string, i: int64) -> boolean {
+    case i >= length_bytes(s) of {
+        true -> false;
+        false -> case at(s, i) == 58 of { true -> true; false -> has_colon(s, i + 1) }
+    }
+}
+fn is_ipv6_literal(s: string) -> boolean { has_colon(s, 0) }
+
+fn is_loopback(v: int64) -> boolean { v >= 0 and v / 16777216 == 127 }
+
+// never dialled: this-network 0.0.0.0/8, limited broadcast, multicast 224.0.0.0/4, reserved 240.0.0.0/4
+fn dialable(v: int64) -> boolean {
+    top: int64 <- v / 16777216;
+    v >= 0 and top != 0 and top < 224
+}
+
+// is q one of the ','-separated parts of list, from index i
+fn listed(list: string, q: string, i: int64) -> boolean {
+    case i >= length_bytes(list) of {
+        true -> false;
+        false -> {
+            p: string <- substring_until_char(list, i, ',');
+            case p == q of {
+                true -> true;
+                false -> listed(list, q, i + length_bytes(p) + 1)
+            }
+        }
+    }
+}
+fn joined(list: string, q: string) -> string {
+    case length_bytes(list) == 0 of { true -> q; false -> concat(concat(list, ","), q) }
+}
+
+fn checked(kept: string, n: int64, dropped: int64, outside: int64) -> { kept: string, n: int64, dropped: int64, outside: int64 } {
+    { kept: kept, n: n, dropped: dropped, outside: outside }
+}
+fn usable_from(csv: string, i: int64, lo: boolean, acc: { kept: string, n: int64, dropped: int64, outside: int64 }) -> { kept: string, n: int64, dropped: int64, outside: int64 } {
+    case i > length_bytes(csv) or length_bytes(csv) == 0 of {
+        true -> acc;
+        false -> {
+            p: string <- substring_until_char(csv, i, ',');
+            v: int64 <- quad_value(p);
+            nxt: { kept: string, n: int64, dropped: int64, outside: int64 } <- case dialable(v) and not listed(substring(csv, 0, i), p, 0) of {
+                false -> checked(acc.kept, acc.n, acc.dropped + 1, acc.outside);
+                true -> case lo and not is_loopback(v) of {
+                    true -> checked(acc.kept, acc.n, acc.dropped, acc.outside + 1);
+                    false -> checked(joined(acc.kept, p), acc.n + 1, acc.dropped, acc.outside)
+                }
+            };
+            usable_from(csv, i + length_bytes(p) + 1, lo, nxt)
+        }
+    }
+}
+fn usable(csv: string, lo: boolean) -> { kept: string, n: int64, dropped: int64, outside: int64 } {
+    usable_from(csv, 0, lo, checked("", 0, 0, 0))
+}
+
+fn first_of(csv: string) -> string { substring_until_char(csv, 0, ',') }
+fn rest_of(csv: string) -> string {
+    f: string <- first_of(csv);
+    case length_bytes(f) >= length_bytes(csv) of {
+        true -> "";
+        false -> substring(csv, length_bytes(f) + 1, length_bytes(csv))
+    }
+}

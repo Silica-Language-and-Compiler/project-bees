@@ -4,6 +4,18 @@
 `bees.config` (or given to TRUST's `trpc:call` at run time) becomes the IPv4 address that BEES hands to the language's `(:tcp)`
 carrier. Nothing here is implemented. **Decision:** roadmap D42 (user rulings of 2026-11-12, section 8).
 
+> **Progress 2026-11-12 (step 1 built, on silica-999919):** the resolver (section 3) and the pure checks (section 5) exist and
+> pass `trials/name_resolution`: `native/src/silica_bees_dns.c` (two entries in BEES's native archive),
+> `src/inter_nodal/dangerous_bees_dns.silica` (the one-shot FFI worker, contract as section 3), `src/inter_nodal/bees_addr.silica`
+> (dotted-quad parsing, the drop rules, repeats dropped before the loopback rule, IPv6-literal detection), and
+> `src/inter_nodal/bees_dns.atoms` (D30: the resolver is a library unit's worker, so SD-3 applies). The trial resolves
+> `localhost` (127.0.0.1), a literal, `no-such-host.invalid` (`nxdomain`) and `""` (`bad_name`) and checks the filter on fixed
+> inputs. New defect SD-40 (a foreign string argument written as a call expression reaches C as 1 byte) is worked around by
+> binding the host first. **Not built yet:** the dial actor `dlr` and the node-edge change (section 4), the boot-time
+> `listen_address` check, and the config reader's IPv6 refusal (section 7). `dlr` needs the node trials to compile again, which
+> they will not until `carrier_new()` gains the stdlib carrier's new `link_spec` field and the pin moves (silica-defects.md,
+> 2026-11-12).
+
 **Stated goal for later (D42):** the system resolver used first (section 3) is an interim. It is to be **replaced by a Silica
 implementation** of name resolution, with no C of BEES's own, once the language offers what that needs (section 9).
 

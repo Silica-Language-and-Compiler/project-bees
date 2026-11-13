@@ -1,0 +1,101 @@
+// BEES host-name resolution, interim (spikes/S14 section 3, roadmap D42): the system resolver behind one FFI worker.
+// STATED GOAL (D42): this unit and its C (native/src/silica_bees_dns.c) are to be replaced by a Silica implementation of name
+// resolution (S14 section 9), keeping the contract below so that its callers do not change.
+//
+// resolver: a one-shot FFI worker. A program installs it with spawn_dangerous (one per lookup) and casts it one request:
+//   in   (:resolve, owner, host, tag)
+//   out  (:resolved, tag, addrs)           addrs: the host's IPv4 addresses, dotted quads separated by ',', system order
+//        (:resolve_failed, tag, reason)    reason: :nxdomain, :no_address, :temporary, :bad_name or :failed
+// and then it ends. getaddrinfo has no timeout of its own and blocks the worker's thread, so the owner keeps the budget
+// (a timer) and drops an answer whose tag it has given up on; a slow lookup holds only its own worker.
+//
+// addrs is FFI output and untrusted: the owner checks it with bees_addr@usable before anything is dialled (S14 section 5).
+// The request and answer tags are Silica-level actor-protocol atoms, never on the wire (tools/bees_config.py lists them).
+use bees_atoms;
+module dangerous_bees_dns;
+
+export resolver/2;
+
+wrapper_meta "dangerous_exposure_source/bees/silica_bees_native_wrapper.meta";
+
+foreign c_wrapper "bees_dns_resolve"
+fn resolve_raw(host_ptr: uint8, host_len: uint64) -> { tag: int64, value: int64, error_code: int64 };
+
+foreign c_wrapper "bees_dns_take"
+fn take_raw(unused: int64) -> { tag: int64, text_ptr: uint8, text_len: uint64, error_code: int64 };
+
+// the C side's reasons (BEES_DNS_* in silica_bees_native_wrapper.h)
+fn reason_of(code: int64) -> atom {
+    case code of {
+        1 -> :nxdomain;
+        2 -> :no_address;
+        3 -> :temporary;
+        4 -> :bad_name;
+        _: int64 -> :failed
+    }
+}
+
+// the request's fields; :close ends a resolver that will not be asked (its owner gave up before casting)
+fn req_owner(msg: (:resolve, actor_ref, string, int64) | :close, fallback: actor_ref) -> actor_ref {
+    case msg of {
+        (:resolve, o: actor_ref, _h: string, _t: int64) -> o;
+        :close -> fallback
+    }
+}
+fn req_host(msg: (:resolve, actor_ref, string, int64) | :close) -> string {
+    case msg of {
+        (:resolve, _o: actor_ref, h: string, _t: int64) -> h;
+        :close -> ""
+    }
+}
+fn req_tag(msg: (:resolve, actor_ref, string, int64) | :close) -> int64 {
+    case msg of {
+        (:resolve, _o: actor_ref, _h: string, t: int64) -> t;
+        :close -> 0 - 1
+    }
+}
+fn is_request(msg: (:resolve, actor_ref, string, int64) | :close) -> boolean {
+    case msg of {
+        (:resolve, _o: actor_ref, _h: string, _t: int64) -> true;
+        :close -> false
+    }
+}
+fn pure_int(r: (:ok, int64) | (:rejected, atom)) -> int64 {
+    case r of {
+        (:ok, v: int64) -> v;
+        (:rejected, _why: atom) -> 0 - 1
+    }
+}
+fn no_lookup() -> { tag: int64, value: int64, error_code: int64 } { { tag: 1, value: 0, error_code: 4 } }
+
+// One request, one lookup, one answer (the one tainted cast a worker makes per message), then the worker ends. The FFI's
+// scalars are re-created before anything branches on them, as the language's carrier does.
+fn resolver(msg: (:resolve, actor_ref, string, int64) | :close, owner0: actor_ref) -> (:no_reply, actor_ref) {
+    sequence proc[external_danger, concurrency, transport]
+        asked: boolean <- is_request(msg);
+        owner: actor_ref <- req_owner(msg, owner0);
+        tag: int64 <- req_tag(msg);
+        host: string <- req_host(msg);
+        r: { tag: int64, value: int64, error_code: int64 } <- case asked of {
+            true -> resolve_raw(host);
+            false -> no_lookup()
+        };
+        rtag_raw: int64 <- r.tag;
+        rerr_raw: int64 <- r.error_code;
+        rtag: int64 <- pure_int(recreate(rtag_raw));
+        rerr: int64 <- pure_int(recreate(rerr_raw));
+        text: string <- case rtag == 0 of {
+            true -> take_raw(0);
+            false -> ""
+        };
+        ans: (:resolved, int64, string) | (:resolve_failed, int64, atom) <- case rtag == 0 of {
+            true -> (:resolved, tag, text);
+            false -> (:resolve_failed, tag, reason_of(rerr))
+        };
+        _: boolean <- case asked of {
+            true -> cast(owner, ans impl ActorMessage {});
+            false -> true
+        };
+        _: atom <- stop_self(:normal)
+    produces pure (:no_reply, owner) end
+}
