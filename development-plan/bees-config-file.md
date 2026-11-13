@@ -126,7 +126,8 @@ repaired, rounded or defaulted around a bad value. The rules:
    `.erlang.cookie` for the same reason).
 9. **Not built yet** is an error, not a downgrade: `transport tls` before the TLS engine exists; a `plaintext_test_only`
    value on a non-loopback address; `trust` without plaintext before N4; a `frame_size_max` or `args_len_max` above what the
-   build implements (4096 bytes until N1 lifts it, section 5.4) is "not built yet" and is never clamped.
+   build implements (4096 bytes until N1 lifts it, section 5.4) is "not built yet" and is never clamped; an IPv6 literal in
+   `listen_address` or a peer's `host` is "not built yet" while the language's carrier is IPv4-only (D42, spikes/S14).
 10. **The node name** equals the manifest's `node` line (section 2).
 11. On success BEES logs a **sanitized summary** of the effective configuration (every value except file contents, cookies,
     tokens and key paths' contents). Secrets are never printed.
@@ -155,13 +156,13 @@ reads only the manifest.
 | `transport` | `tcp` or `tls` | `tls` (D25) | closed set | `tls` is the `inet_tls_dist`-compatible profile (inter-nodal-modes 4.5) and does not exist until the TLS engine does (N4, user approval), so **until then a beam node must write `{transport, tcp}`**, and gets the downgrade banner. |
 | `auth` | `cookie` or `none` | `cookie` | closed set | `none` is the M3 to M5 behaviour (no digest): **a loopback-only TEST setting** (banner), kept now so the M3 to M5 trials keep their goldens when they move to a file. **Ruled 2026-11-06 (R4):** when cookies exist (N2) those trials move to `cookie`; `none` then stays only for tests that need it. Erlang's cookie digest (MD5, random challenge) is N2. |
 | `cookie_file` | string (path) | none; **required** when `auth` is `cookie` | file, 1 to 255 bytes of content, not group/world readable | never read from `~/.erlang.cookie` implicitly (inter-nodal-modes 4.3); never logged. |
-| `listen_address` | string: IPv4 or IPv6 literal, or a host name | **none: required** (R6) | resolvable at boot | BEES. **No built-in default, in code or reader** (ruled 2026-11-06): a missing one fails validation. The trials write `"127.0.0.1"` in their configs. |
+| `listen_address` | string: IPv4 or IPv6 literal, or a host name | **none: required** (R6) | resolvable at boot to an IPv4 address of this host; IPv6 is "not built yet" (D42) | BEES. **No built-in default, in code or reader** (ruled 2026-11-06): a missing one fails validation. The trials write `"127.0.0.1"` in their configs. |
 | `listen_port` | integer | 0 | 0 to 65535 (B) | 0 = ephemeral, registered with EPMD (as OTP does). |
 | `epmd` | `external` or `none` | `external` | closed set | `external`: register (ALIVE2) with and look peers up (PORT_PLEASE2) in an EPMD; `none`: fixed ports, as M3 to M5. A BEES EPMD server for hosts with no Erlang (inter-nodal-modes 4.3) is B3, not N2. |
 | `epmd_port` | integer | 4369 (OTP's) | 1 to 65535 (B) | the port of the EPMD on this host and on peers. |
 | `net_ticktime_s` | integer | 60 (OTP's `net_ticktime`) | 4 to 3600 (B) | BEES sends a tick when idle for `net_ticktime_s / 4` and treats `net_ticktime_s` of silence as a lost peer; the manifest's `timing` 15000/60000 is the same pair. |
 | `open_timeout_ms` | integer | the manifest's `open_ms` (10000) | 1 to 60000 (manifest rule) | bounds listening, accepting, connecting, the handshake. |
-| `peers` | list of `{"name@host", [{host, S}, {port, N or epmd}, {role, dial or listen}]}` | the manifest's `peer` lines | each name is listed in the manifest (D16); `port` 1 to 65535 or `epmd` | `epmd` as a port means look it up. Host is a literal or a name resolved through DNS (N1). |
+| `peers` | list of `{"name@host", [{host, S}, {port, N or epmd}, {role, dial or listen}]}` | the manifest's `peer` lines | each name is listed in the manifest (D16); `port` 1 to 65535 or `epmd` | `epmd` as a port means look it up. Host is a literal or a name resolved through the system resolver on every dial (D42, spikes/S14). |
 | `spawn` | `none`, `allowlist`, `any` | `none` | closed set | remote spawn, inter-nodal-modes 4.5; takes effect at L3 (B4, after 1.0); validated now. |
 | `spawn_allowlist` | list of `{Module, Function, Arity}` atoms and integer | `[]` | at most 1024 entries (B) | only with `spawn allowlist`. |
 | `frame_size_max` | integer (bytes) | 4294967295, BEAM's packet limit (E; R1) | 512 to 4294967295 (E) | Ruled 2026-11-06 (R1): the frame cap is **the same as BEAM's**. The cap is on the whole distribution packet (the `112` byte, the control message and the payload). Until N1 lifts the codec the build implements **4096** only, and a larger value is "not built yet" (section 5.4; the effective default before N1 is 4096, printed in the boot summary). Passed to `wireframe@unframe` and `decode`. |
@@ -180,7 +181,7 @@ and comes from inter-nodal-modes 3.8 where that table already has one.
 | Option | Type | Default | Bounds | SEMP source and notes |
 | --- | --- | --- | --- | --- |
 | `port` | integer | 6469 | 1 to 65535 (B) | R example `6464`; H `DEFAULT_PORT 6469`; `trust_listener.erl:96` reads it and **errors if unset**. Sources disagree (section 8). |
-| `listen_address` | string | **none: required** (R6) | literal or name | BEES. **No built-in default** (ruled 2026-11-06). SEMP's `ssl:listen` binds every interface and needs no address; BEES requires an explicit one. The trial configs write `"127.0.0.1"`. |
+| `listen_address` | string | **none: required** (R6) | literal or name (resolved at boot, IPv4 only: D42) | BEES. **No built-in default** (ruled 2026-11-06). SEMP's `ssl:listen` binds every interface and needs no address; BEES requires an explicit one. The trial configs write `"127.0.0.1"`. |
 | `tls_opts` | list of `{certfile, S}`, `{keyfile, S}`, `{cacertfile, S}` | none | exactly these three keys, all required unless `plaintext_test_only` | R example; `trust_listener.erl:148`. SEMP passes **any** `ssl` option through; BEES accepts only these three (the profile fixes everything else). `cacertfile` is the CA of client certificates. |
 | `client_tls_opts` | same | the value of `tls_opts` | same keys | `trpc.erl:480` (SEMP default `[]`; BEES defaults to the node's own pair so one node can be both). |
 | `whitelist_file` | string (path) | unset (explicit, bannered standalone) | readable, parseable file; **configured and missing or unreadable is a boot error** (R2) | R; `semp_whitelist.erl:275`. SEMP resolves it inside the host app's `priv/` and **silently** runs standalone when it is missing; BEES resolves it relative to the directory of `bees.config` and never runs silently without it (validation rule 8). |
