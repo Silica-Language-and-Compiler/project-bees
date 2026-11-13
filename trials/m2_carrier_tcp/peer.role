@@ -20,29 +20,30 @@ fn framed(s: string) -> string {
     produces pure seg end
 }
 
+// Each line is one println: the runtime's "root actor exited" line for the carrier's normal stop is written from another
+// thread while these lines print, and a whole-line write keeps it from landing inside one (sout.sed then deletes it).
+fn digits(n: int64, acc: string) -> string {
+    d: string <- concat(char_text_of(n % 10), acc);
+    case n < 10 of { true -> d; false -> digits(n / 10, d) }
+}
+fn char_text_of(d: int64) -> string {
+    case d of { 0 -> "0"; 1 -> "1"; 2 -> "2"; 3 -> "3"; 4 -> "4"; 5 -> "5"; 6 -> "6"; 7 -> "7"; 8 -> "8"; _: int64 -> "9" }
+}
+fn int_text(n: int64) -> string { digits(n, "") }
+fn b2s(b: boolean) -> string { case b of { true -> "true"; false -> "false" } }
+
 fn show_frame(s: string) -> atom {
     sequence proc[device_io]
-        _: atom <- print_string(label());
-        _: atom <- print_string(" rx ");
-        _: atom <- println(s)
+        _: atom <- println(concat(concat(label(), " rx "), s))
     produces pure :ok end
 }
 
 fn show_end(reason: atom, up: boolean, got: int64, txc: int64) -> atom {
     sequence proc[device_io]
-        _: atom <- print_string(label());
-        _: atom <- print_string(" link_down ");
-        _: atom <- println(bees_atoms@spelling(reason));
-        _: atom <- print_string(label());
-        _: atom <- print_string(" link_up seen ");
-        _: atom <- print_boolean(up);
-        _: atom <- println("");
-        _: atom <- print_string(label());
-        _: atom <- print_string(" frames received ");
-        _: atom <- print_int64(got);
-        _: atom <- print_string(", tx credit grants ");
-        _: atom <- print_int64(txc);
-        _: atom <- println("");
+        _: atom <- println(concat(concat(label(), " link_down "), bees_atoms@spelling(reason)));
+        _: atom <- println(concat(concat(label(), " link_up seen "), b2s(up)));
+        fr: string <- concat(concat(label(), " frames received "), int_text(got));
+        _: atom <- println(concat(concat(fr, ", tx credit grants "), int_text(txc)));
         _: atom <- println("done")
     produces pure :ok end
 }

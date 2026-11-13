@@ -3,17 +3,6 @@ b link_down closed
 b link_up seen true
 b frames received 1, tx credit grants 2
 done
-[silica] root actor exited (no supervisor)
 
-=== Silica Actor Failure ===
-actor_id:        1
-agent_type_atom: 0
-reason:          :normal
-reason_tag:      0
-supervisor_acb:  0x0
-call_stack:
-  #0  dangerous_tcp_carrier_carrier
-  #1  _actor_thread_main
-=== End Silica Actor Failure ===
 
 exit=0

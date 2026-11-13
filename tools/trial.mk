@@ -12,7 +12,7 @@
 #   fail_*.silica (dangerous_fail_*.silica when the unit declares foreign functions: E4020 wants the dangerous_ prefix)       compile-fail trials, compiled in isolation; the compiler's output is
 #                       the golden (.golden_fail)
 #   NAME.scout          golden stdout+stderr+exit code of entry NAME (recorded, then diffed)
-#   sout.sed            (optional) sed -E script applied to every entry's NAME.sout after its run, for what varies
+#   sout.sed            (optional) sed -E script applied to every entry's NAME.sout after its run (paired entries too), for what varies
 #                       between runs (e.g. where the runtime's own lines land)
 #
 # Targets:
@@ -71,7 +71,7 @@ silica.config: bees_atoms
 
 build: silica.config
 	@cd "$(LEAF)" && rm -f *.sams *.iface *.o lib/*.sams lib/*.iface lib/*.o \
-		silica.compile.order silica.needs_runtime silica.link __silica_runtime.sams
+		silica.compile.order silica.compile.crashed silica.compile.inprogress silica.needs_runtime silica.link __silica_runtime.sams
 	@cd "$(LEAF)" && echo "[$(LEAF_NAME)] compiling $$(grep -c . silica.config) units" && $(RUN_SILICA_COMPILER)
 	@cd "$(LEAF)" && for sams in *.sams lib/*.sams; do \
 		[ -f "$$sams" ] || continue; \
@@ -93,6 +93,7 @@ run: build
 		set -- $$(cat "$$p"); \
 		"$(BEES_ROOT)/tools/run_pair.py" "./$$1" "$$1.sout" "$$(cat "$$1.wait_for_exit")" "./$$2" "$$2.sout" "$$(cat "$$2.wait_for_exit")"; \
 		sed -i '' -E 's/0x[0-9a-f]{6,}/0xADDR/g' "$$1.sout" "$$2.sout"; \
+		if [ -f sout.sed ]; then sed -i '' -E -f sout.sed "$$1.sout" "$$2.sout"; fi; \
 	done
 
 # Compile-fail trials: each is compiled alone in .fail/NAME/ with the leaf's lib/ beside it, so
@@ -138,7 +139,7 @@ clean:
 	@cd "$(LEAF)" && rm -rf *.sams *.iface *.o *.sout *.cur_fail lib/*.sams lib/*.iface lib/*.o .fail *.silica.derived lib/*.silica.derived \
 		lib/bees_atoms.silica lib/bees_atoms.index lib/bees_modules.silica lib/bees_ids.silica \
 		lib/bees_wire_tables.silica lib/bees_wire_ints.silica lib/bees_wire_msgs.silica lib/bees_msgs.silica lib/bees_peers.silica \
-		silica.config silica.compile.order silica.needs_runtime silica.link .integrate_counts $(ENTRIES)
+		silica.config silica.compile.order silica.compile.crashed silica.compile.inprogress silica.needs_runtime silica.link .integrate_counts $(ENTRIES)
 
 help:
 	@echo "targets: build run integrate record-golden clean units"; echo "compiler: $(SILICA_COMPILER)"
