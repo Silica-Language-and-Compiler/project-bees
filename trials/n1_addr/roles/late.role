@@ -1,0 +1,12 @@
+// N1: a timer that prints a fixed line after 4 s, so that the harness keeps this program alive while the other side dials
+fn late(msg: int64, st: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- say("late: 4 s passed")
+    produces pure (:no_reply, st + 1) end
+}
+fn start_late() -> atom {
+    sequence proc[concurrency]
+        l: actor_ref <- spawn(0, late, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: timer_ref <- send_after(4000, l, 0 impl ActorMessage {})
+    produces pure :ok end
+}

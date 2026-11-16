@@ -1,0 +1,19 @@
+// N4.1 node m: a TRUST client whose pin file pins node a's address to another certificate (u.pem). The TLS handshake
+// completes on m's side, the engine finds that node a's certificate is not the pinned one, and the call answers
+// server_not_pinned (inter-nodal-modes 3.9) without m sending its Finished: node a never sees a TRUST byte.
+fn driver(r: { req: int64, what: atom, value: string }, step: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- say(concat("pin: call demo:add([1, 2]) to a server pinned to another certificate: ", outcome(r)));
+        _: atom <- say("pin done")
+    produces pure (:no_reply, step + 1) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        b: int64 <- trust_boot();
+        _: atom <- start_reporter();
+        _: atom <- trust_start();
+        d: actor_ref <- spawn(0, driver, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: atom <- trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_add(), 2, ints2(1, 2), d, 1);
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

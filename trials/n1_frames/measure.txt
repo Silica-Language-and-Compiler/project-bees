@@ -1,0 +1,11 @@
+== small
+time ms 10
+time ms 67
+a:  2.77 real 0.03 user 0.03 sys; 23773184 maximum resident set size; 23364328 peak memory footprint;
+b:  2.26 real 0.03 user 0.02 sys; 33275904 maximum resident set size; 32883456 peak memory footprint;
+== big
+time ms 9
+time ms 67
+time ms 4482
+a:  7.35 real 0.80 user 0.13 sys; 658685952 maximum resident set size; 658621664 peak memory footprint;
+b:  6.84 real 0.90 user 0.14 sys; 737607680 maximum resident set size; 737576208 peak memory footprint;

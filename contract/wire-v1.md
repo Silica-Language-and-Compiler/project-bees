@@ -351,6 +351,17 @@ memory model, not design limits**; N1 lifts them toward BEAM's (the limits becom
 `wireframe@unframe`, and a refusal is still made before anything is allocated). Until then a configured value above what is built
 is a boot error ("not built yet"), never clamped. The limits above this paragraph stay true of the code as built.
 
+**Update 2026-11-10 (N1): the limits node programs enforce now.** The table above is the M1b typed codec's (`bees_wire`, still
+used by the `m1_wire_*` trials and the oracle). A node program decodes with the language's `decode` and `wireframe@unframe`, whose
+limits come from `bees.config` (`beam.frame_size_max`; TRUST: `frame_size_max`, `args_len_max`, `term_depth_max`): the frame is
+configurable up to 4294967295 bytes and refused from its 4-byte length before a byte is stored; strings and lists are bounded by the
+frame (`max_length` = the cap); depth by the declared type (BEAM mode) or `term_depth_max` (TRUST); integers by their type. Reached:
+64 KiB, 1 MiB and 8 MiB frames round-trip between two processes [test] (`trials/n1_frames`), exactly-at-the-cap accepted and one
+above refused [test] (`trials/n1_limits`). Remaining gaps: memory (an 8 MiB frame peaks at about 628 MiB on the receiver, SD-35),
+big integers beyond 64 bits and non-ASCII atoms (unchanged). A sender whose peer refuses a frame it is still writing now sees a
+failed write and a link down (SD-42, resolved by Silica 71009f96f8, 2026-11-12; until then it was killed by SIGPIPE). See
+development-plan/spikes/N1-addresses-and-limits.md.
+
 **Depth** counts tuples, maps, lists and STRING_EXT as one level each; a scalar does not; the outermost composite is level 1
 (M1b, decision 1). A message type that nests deeper than 16 can never be decoded; the generator warns.
 

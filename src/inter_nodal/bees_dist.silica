@@ -22,6 +22,7 @@ use wireframe;
 use carrier;
 
 export max_body/0;
+export reg_send_body_max/6;
 export max_handshake/0;
 export put_n_init/2;
 export put_n_acc/2;
@@ -238,8 +239,13 @@ fn etf_atom(name: string) -> string {
 // already ETF. id is the foreign pid's 4-byte id (the sending proxy's number), serial 0, creation as given. "" when the
 // payload is empty or would not fit in a body of max_body bytes.
 fn reg_send_body(payload: string, id: int64, node: string, creation: int64, toname: string) -> string {
+    reg_send_body_max(payload, id, node, creation, toname, max_body())
+}
+// the same with the frame cap given: a node's proxies pass their configured beam.frame_size_max (bees_peers@frame_max(),
+// beam_conf@frame_max(), from bees.config through tools/bees_conf.py; N1). max_body() (4096) stays for the raw test peers.
+fn reg_send_body_max(payload: string, id: int64, node: string, creation: int64, toname: string, max: int64) -> string {
     plen: int64 <- length_bytes(payload);
-    case plen < 1 or plen + 64 + length_bytes(node) + length_bytes(toname) > max_body() of {
+    case plen < 1 or plen + 64 + length_bytes(node) + length_bytes(toname) > max of {
         true -> "";
         false -> reg_send_build(payload, id, node, creation, toname)
     }

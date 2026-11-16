@@ -51,6 +51,21 @@ define RUN_TRIAL
 	sed -i '' -E 's/0x[0-9a-f]{6,}/0xADDR/g' "$(2)"
 endef
 
+# TRUST over TLS (N4.1): a program whose silica.link names the TLS engine's archive (libsilica_bees_tls.a) is linked with the
+# programmer-installed OpenSSL (D40; BEES ships none). OPENSSL_PREFIX as in native/Makefile.
+OPENSSL_PREFIX ?= $(firstword $(foreach p,/opt/homebrew/opt/openssl /opt/homebrew/opt/openssl@3,$(if $(wildcard $(p)/include/openssl/ssl.h),$(p))))
+OPENSSL_LDFLAGS := $(if $(OPENSSL_PREFIX),-L$(OPENSSL_PREFIX)/lib) -lssl -lcrypto
+
+# The runtime prints "[silica] root actor exited (no supervisor)" on stderr when an unsupervised actor ends. Since Silica
+# commit 71009f96f8 the language's carriers end with their link, so a pair trial prints it once per carrier, and stderr can
+# land in the middle of a stdout line ("client: answer seq [silica] root actor exited (no supervisor)\n1"). The pair trials
+# remove it with its newline wherever it lands (a whole line, or inside one, which rejoins the stdout line).
+STRIP_ROOT_EXIT = perl -0pi -e 's/\[silica\] root actor exited \(no supervisor\)\n//g'
+# A program without its own failure reporter gets the runtime's report of every actor end on stderr, so since 71009f96f8 also
+# the carrier's own `:normal` end; its place among the stdout lines varies. STRIP_CARRIER_END removes exactly that report (reason
+# :normal, call stack in dangerous_tcp_carrier_carrier) and the root-actor line; any other report stays in the output.
+STRIP_CARRIER_END = perl -0pi -e 's/\[silica\] root actor exited \(no supervisor\)\n//g; s/\n?=== Silica Actor Failure ===\n(?:(?!=== End).)*?reason:\s+:normal\n(?:(?!=== End).)*?dangerous_tcp_carrier_carrier\n(?:(?!=== End).)*?=== End Silica Actor Failure ===\n\n?//gs'
+
 .PHONY: check-compiler
 check-compiler:
 	@if [ ! -x "$(SILICA_COMPILER)" ]; then echo "FAIL: no silica-compiler at $(SILICA_COMPILER)"; exit 1; fi

@@ -65,3 +65,49 @@ clean: clean-trust
 .PHONY: clean-trust
 clean-trust:
 	rm -f $(TRUST_ARCHIVE) $(TRUST_OBJS)
+
+# TRUST over TLS (N4.1): its own archive, libsilica_bees_tls.a, from tls/ over the programmer-installed OpenSSL (D40: BEES
+# ships no TLS library; contract/what-is-required-to-use.md). OPENSSL_PREFIX names the installation (default: Homebrew's
+# openssl, then openssl@4). The minimum is OpenSSL 4.1.0, with no exception: an older OpenSSL, or none, is refused with a
+# message naming what was found, and nothing is built or left against it. `make -C native tls` fails then (exit 1);
+# `make -C native` (all) prints the same refusal and goes on, because the BEAM-mode and plaintext TRUST programs do not need the
+# engine; every trial that needs it calls `tls` itself and fails with the message. build/tls.status: "ok <version>" or
+# "refused: <why>".
+OPENSSL_PREFIX ?= $(firstword $(foreach p,/opt/homebrew/opt/openssl /opt/homebrew/opt/openssl@4,$(if $(wildcard $(p)/include/openssl/ssl.h),$(p))))
+TLS_ARCHIVE := $(LIB)/libsilica_bees_tls.a
+TLS_OBJ := $(BUILD)/tls_silica_bees_tls.o
+comma := ,
+OPENSSL_VERSION_TEXT := $(if $(OPENSSL_PREFIX),$(shell awk '/define OPENSSL_VERSION_(MAJOR|MINOR|PATCH)[ \t]/ { v[$$(NF-1)] = $$NF } END { printf "%d.%d.%d", v["OPENSSL_VERSION_MAJOR"], v["OPENSSL_VERSION_MINOR"], v["OPENSSL_VERSION_PATCH"] }' "$(OPENSSL_PREFIX)/include/openssl/opensslv.h" 2>/dev/null))
+OPENSSL_TOO_OLD := $(if $(OPENSSL_VERSION_TEXT),$(shell echo "$(OPENSSL_VERSION_TEXT)" | awk -F. '{ exit !(($$1 * 10000 + $$2 * 100 + $$3) < 40100) }' && echo 1))
+TLS_REFUSAL := $(if $(wildcard $(OPENSSL_PREFIX)/include/openssl/ssl.h),$(if $(OPENSSL_TOO_OLD),OpenSSL $(OPENSSL_VERSION_TEXT) at $(OPENSSL_PREFIX) is older than 4.1.0$(comma) the minimum (contract/what-is-required-to-use.md); install OpenSSL 4.1.0 or later and point OPENSSL_PREFIX at it),no OpenSSL headers found (OPENSSL_PREFIX: $(or $(OPENSSL_PREFIX),unset; looked at /opt/homebrew/opt/openssl and openssl@4)); install OpenSSL 4.1.0 or later and set OPENSSL_PREFIX (contract/what-is-required-to-use.md))
+TLS_FLAGS_FILE := $(BUILD)/tls.flags
+.PHONY: tls tls-report tls-selftest tls-flags
+all: tls-report
+# all: the refusal is printed and the other archives go on
+tls-report:
+	@$(MAKE) --no-print-directory tls || echo "[native] continuing without the TLS engine: only the TRUST-over-TLS trials need it, and they fail with the message above"
+# tls: the engine, or a refusal (exit 1) naming the installed version and the minimum; a refused build leaves no archive
+tls: tls-flags
+	@if [ -n "$(TLS_REFUSAL)" ]; then echo "[native] REFUSED to build the TLS engine: $(TLS_REFUSAL)"; \
+		echo "refused: $(TLS_REFUSAL)" > "$(BUILD)/tls.status"; rm -f "$(TLS_ARCHIVE)" "$(TLS_OBJ)"; exit 1; \
+	else $(MAKE) --no-print-directory "$(TLS_ARCHIVE)" && echo "ok $(OPENSSL_VERSION_TEXT)" > "$(BUILD)/tls.status"; fi
+# the installation is part of the object: it is rebuilt whenever OPENSSL_PREFIX changes
+tls-flags:
+	@mkdir -p $(BUILD); echo "$(OPENSSL_PREFIX)" | cmp -s - "$(TLS_FLAGS_FILE)" || echo "$(OPENSSL_PREFIX)" > "$(TLS_FLAGS_FILE)"
+$(TLS_OBJ): $(THIS_DIR)tls/silica_bees_tls.c $(wildcard $(THIS_DIR)dangerous_exposure_source/tls/*.h) $(TLS_FLAGS_FILE)
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -I$(THIS_DIR)dangerous_exposure_source/tls -I$(OPENSSL_PREFIX)/include -c $< -o $@
+$(TLS_ARCHIVE): $(TLS_OBJ)
+	@mkdir -p $(LIB)
+	ar rcs $@ $^
+	@echo "[native] $(TLS_ARCHIVE) (TRUST over TLS; OpenSSL $(OPENSSL_VERSION_TEXT) at $(OPENSSL_PREFIX))"
+# spike S12's in-memory checks of the engine against the trial certificates (TEST ONLY; run by trials/n4_trust_tls)
+tls-selftest: tls
+	@$(CC) -std=c11 -Wall -Wextra -O2 -arch $(ARCH) -mmacosx-version-min=$(MACOS_MIN_VERSION) -DBEES_TLS_SELFTEST \
+		-I$(THIS_DIR)dangerous_exposure_source/tls -I$(OPENSSL_PREFIX)/include $(THIS_DIR)tls/silica_bees_tls.c $(THIS_DIR)tls/selftest/bees_tls_selftest.c \
+		-L$(OPENSSL_PREFIX)/lib -lssl -lcrypto -o $(BUILD)/bees_tls_selftest
+	@$(BUILD)/bees_tls_selftest $(THIS_DIR)../trials/n4_trust_tls/certs
+clean: clean-tls
+.PHONY: clean-tls
+clean-tls:
+	rm -f $(TLS_ARCHIVE) $(TLS_OBJ) $(TLS_FLAGS_FILE) $(BUILD)/bees_tls_selftest $(BUILD)/tls.status

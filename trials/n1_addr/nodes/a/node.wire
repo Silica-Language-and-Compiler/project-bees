@@ -1,0 +1,4 @@
+node   a@localhost
+peer   b@localhost 127.0.0.1 47451 listen
+remote outbox @ b@localhost cast { op: atom, n: int64 }
+local  inbox cast { op: atom, n: int64 }

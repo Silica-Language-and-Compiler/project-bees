@@ -445,7 +445,7 @@ client's node a `local` line.
 - **Node names and creations** are yours. The peer table is fixed at build time (D16): a program cannot talk to a node it
   does not list.
 - **Timers** are Silica's (A3.3); BEES's ticks use them internally and you do not have to.
-- **Bytes and the host** (files, other transports, DNS) are yours. The carrier is BEES's own foreign-function code and is not
+- **Bytes and the host** (files, other transports) are yours. **Host-name resolution (DNS) is BEES's, not the compiler's** (ruled 2026-11-12): BEES resolves a name with `getaddrinfo` in its own native edge and hands the carrier a literal address. The carrier is BEES's own foreign-function code and is not
   exposed to your program.
 - **One compiler per application:** every program of one application is built by one compiler, so the manifests of its nodes
   agree. BEES checks nothing across programs; a type mismatch shows up as a refused frame.
@@ -489,7 +489,8 @@ Two rules apply to every program that crosses a node boundary, in both modes (us
 | Registered names, process-information queries | planned |
 | Result-returning variants of common fallible library calls | planned |
 | In-memory tables, counters, persistent storage of values | planned |
-| Host input and output, files, transports and DNS (wrappers over Silica's foreign-function interface) | planned |
+| Host input and output, files and transports (wrappers over Silica's foreign-function interface) | planned |
+| Host-name resolution (DNS): BEES's own `getaddrinfo` edge (`native/src/silica_bees_resolve.c`) | built (N1) |
 | Re-creation of foreign data | blocked on Silica |
 | Balancing and placement of actors across cores | planned |
 | Secure inter-node communication (TRUST: a separate implementation from BEAM mode, D36) | planned (N3 to N5); needs a TLS engine, which needs the user's explicit approval (D38). The unauthenticated BEAM-mode node layer exists (B1a) |

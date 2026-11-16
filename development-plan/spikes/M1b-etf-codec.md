@@ -142,6 +142,11 @@ by hand (and checked by the unsupported-tag rule, not by erl).
 > verified). It is a known gap, to be closed toward BEAM's limits in milestone N1 (the limits become arguments of the language's `decode`
 > and `wireframe@unframe`). Atoms are 255 characters in BEAM and 255 bytes here, equal for the ASCII text this codec accepts.
 
+> **Update 2026-11-10 (N1).** Node programs no longer use this codec's limits: they decode with the language's `decode` and
+> `wireframe@unframe`, with the caps from `bees.config` (up to 4294967295 bytes, strings and lists bounded by the frame, depth by the
+> declared type); 8 MiB frames round-trip (`trials/n1_frames`). This codec keeps its limits for the `m1_wire_*` trials and the oracle;
+> the remaining gap at size is memory (SD-35). [N1-addresses-and-limits.md](N1-addresses-and-limits.md).
+
 - **Tagged tuples** (`(:ok, int64)` as a message type) are still a build error: a generated unit may not contain a BEAM atom literal (D30)
   and the type is written with one. `(atom, T)` and an `atom` field are the supported form. The manifest could grow a `tag(name)` pseudo-type
   that checks the atom against `bees_atoms@a_name()` and is typed `atom`; not built.

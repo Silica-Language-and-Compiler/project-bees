@@ -6,7 +6,7 @@ LEAF_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 ROLES := $(BEES_ROOT)/trials/n3_trust/roles
 GEN := $(BEES_ROOT)/tools/bees_trust_gen.py
 CONF := $(BEES_ROOT)/tools/bees_config_trust.py
-_ := $(shell cd "$(LEAF_DIR)" && $(PRE_GEN) python3 "$(CONF)" conf -o lib bees.config && python3 "$(GEN)" mfa -o lib none.trust && \
+_ := $(shell cd "$(LEAF_DIR)" && $(PRE_GEN) python3 "$(CONF)" conf -o lib bees.config && python3 "$(GEN)" mfa -o lib --config bees.config none.trust && \
 	python3 "$(GEN)" edge dangerous_c_scenario dangerous_c_scenario.silica $(ROLES)/client_common.role $(ROLES)/client_scenario.role && \
 	python3 "$(GEN)" edge dangerous_c_negative dangerous_c_negative.silica $(ROLES)/client_common.role $(ROLES)/client_negative.role && \
 	python3 "$(GEN)" edge dangerous_c_kill dangerous_c_kill.silica $(ROLES)/client_common.role $(ROLES)/client_kill.role && \

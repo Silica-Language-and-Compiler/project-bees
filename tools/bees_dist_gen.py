@@ -13,13 +13,17 @@ lines read here are:
                                                      ticks (a test setting: the peer will drop this node after its io_ms).
                                                      open_ms is kept for the manifest's shape; the language's (:tcp) carrier
                                                      connects or fails at once and has no accept timeout (N1 note)
-    peer     <name> <host> <port> <listen|dial>      a node this program may talk to; host is 127.0.0.1 (the MVP)
+    peer     <name> <host> <port> <listen|dial>      a node this program may talk to; host is an IPv4 literal or a host name
+                                                     (N1). Built from the manifest alone the node is auth none, a loopback-only
+                                                     test setting, so only loopback hosts pass (tools/bees_conf.py manifest_only)
     remote   <name> @ <peer name> cast <type>        a registered name on that peer: a proxy is registered here
     local    <name> cast <type>                      a registered name here that a peer may send to: a deliverer
 
 The first `peer` line gives the program's one link (M3: one live link per node): `dial` connects to it ("host:port", the
 language's carrier address), `listen` binds its port on 127.0.0.1 ("listen:port") and the first accepted connection becomes the
-link; it must name a node of the table. Every other `peer` line is a table entry (a node that may dial in).
+link; it must name a node of the table. Every other `peer` line is a table entry (a node that may dial in). With a bees.config
+(tools/bees_conf.py, the one reader, a build-time stand-in) the file's values win over the manifest's (bees-config-file.md
+section 2): the link's address, its role, and the frame cap `beam.frame_size_max`.
 
 Generated, with no BEAM atom literal (the registered names come from bees_atoms, D30; the language's transport tags are
 Silica-level atoms, allowed by `bees_config check`):
@@ -28,9 +32,14 @@ Silica-level atoms, allowed by `bees_config check`):
                         dec_<name>(frame) -> (:ok, T) | (:rejected, atom) (the language's decode((:etf), frame, { limits })),
                         and validate_named(frame, name) -> atom (:ok or the rejection reason) for the connection actor.
                         Both calls run in the sequence of a `sequence proc[mem(normal), transport] ... produces pure` block (user ruling
-                        2026-11-06). Limits (max_bytes, max_depth, max_length) are the module constants below until bees.config
-                        carries them (N1, D39 R1).
-    bees_peers.silica   node_name, node_creation, open_ms, io_ms, tick_ms, link_address, link_dials, link_peer, peer_count,
+                        2026-11-06). Limits (N1, D39 R1): max_bytes and max_length are `beam.frame_size_max` (BEAM's
+                        4294967295 when the file does not set it: a term is bounded by the packet, as in BEAM), max_depth is
+                        the declared type's own nesting plus one (BEAM has no depth limit; a typed decode cannot go deeper
+                        than its type). They are literals because the language's decode bakes its limits into the derived
+                        decoder (transport design 4.1, E2402): a build-time value whatever reads the file.
+    bees_peers.silica   node_name, node_creation, open_ms, io_ms, tick_ms, frame_max (the unframe cap and the send cap),
+                        link_address, link_dials, link_peer, link_resolve, link_host, link_port (a dial host that is a name is
+                        turned into an IPv4 literal at boot by the resolver edge, N1), peer_count,
                         peer_index, peer_name, local_index (a registered name -> its index, -1 when no peer may send to it),
                         start_deliverer (a short-lived actor that decodes a payload with bees_msgs@dec_<name> and delivers it with
                         cast_registered, then ends), start_proxies (one proxy per remote name, registered under it, and a reaper
@@ -47,12 +56,8 @@ import bees_wire_gen as W
 NAME_RE = re.compile(r"[a-z][a-z0-9_]*")
 NODE_RE = re.compile(r"[A-Za-z0-9_.@\-]+")
 
-# The decode limits handed to the language's decode for every message type (transport design 4.1). M3's frame cap and the
-# typed codec's depth and element limits; the string limit is the larger of M1b's list (256) and binary (1024) limits because
-# the language has one max_length for both. bees.config will carry them (N1).
-MAX_BYTES = 4096
-MAX_DEPTH = 16
-MAX_LENGTH = 1024
+# The decode limits (transport design 4.1) come from bees.config's beam.frame_size_max (N1); BEAM's packet limit when unset (R1).
+BEAM_FRAME_MAX = 4294967295
 
 
 class DistError(Exception):
@@ -91,8 +96,8 @@ def parse(paths):
                 elif k == "peer":
                     if len(t) != 5 or not NODE_RE.fullmatch(t[1]) or t[4] not in ("listen", "dial") or not t[3].isdigit():
                         raise DistError(f"{where}: expected: peer <name> <host> <port> <listen|dial>")
-                    if t[2] != "127.0.0.1":
-                        raise DistError(f"{where}: host {t[2]} is refused: the MVP transport is 127.0.0.1 only")
+                    if not re.fullmatch(r"[A-Za-z0-9.:\-]{1,253}", t[2]):
+                        raise DistError(f"{where}: host {t[2]} is not an IPv4 or IPv6 literal or a host name")
                     if not (1 <= int(t[3]) <= 65535):
                         raise DistError(f"{where}: port {t[3]} is not 1..65535")
                     if any(p[0] == t[1] for p in d["peers"]):
@@ -166,15 +171,15 @@ def variable_sized(ty):
     return True
 
 
-def limits_arg(ty):
-    return f", {{ max_bytes: {MAX_BYTES}, max_depth: {MAX_DEPTH}, max_length: {MAX_LENGTH} }}" if variable_sized(ty) else ""
+def limits_arg(ty, frame_max):
+    return f", {{ max_bytes: {frame_max}, max_depth: {W.depth_of(ty) + 1}, max_length: {frame_max} }}" if variable_sized(ty) else ""
 
 
 def result_type(st):
     return f"(:ok, {st}) | (:rejected, atom)"
 
 
-def generate_msgs(out_dir, msgs):
+def generate_msgs(out_dir, msgs, frame_max=BEAM_FRAME_MAX):
     """bees_msgs.silica: the two-function shape per message over the language's derived encode and decode."""
     ln = ["// Generated by tools/bees_dist_gen.py (bees_config generate). Do not edit. The message codecs of this program's manifest:",
           "// the language's derived encode((:etf), value) and decode((:etf), frame, { limits }) behind enc_<name> / dec_<name>",
@@ -195,7 +200,7 @@ def generate_msgs(out_dir, msgs):
                "    produces pure s end", "}", "",
                f"fn dec_{name}(frame: string) -> {rt} {{",
                "    sequence proc[mem(normal), transport]",
-               f"        r: {rt} <- decode((:etf), frame{limits_arg(ty)})",
+               f"        r: {rt} <- decode((:etf), frame{limits_arg(ty, frame_max)})",
                "    produces pure r end", "}", "",
                f"fn check_{name}(frame: string) -> atom {{",
                "    sequence",
@@ -210,28 +215,38 @@ def generate_msgs(out_dir, msgs):
         out.write("\n".join(ln))
 
 
-def generate(out_dir, paths):
+def generate(out_dir, paths, link=None):
+    """link: tools/bees_conf.py m3_link() of the program's bees.config (None: the manifest alone, checked by the caller)"""
     d = parse(paths)
     msgs = check(d, W.collect(paths, warn=False))
-    generate_msgs(out_dir, [(n, msgs[n]) for n in sorted(msgs)])
+    if link is None:
+        first = d["peers"][0]
+        link = {"frame_max": BEAM_FRAME_MAX, "link_dials": first[3] == "dial", "link_host": first[1],
+                "link_address": f"listen:{first[2]}" if first[3] == "listen" else f"{first[1]}:{first[2]}",
+                "link_port": first[2], "link_resolve": False}
+    generate_msgs(out_dir, [(n, msgs[n]) for n in sorted(msgs)], link["frame_max"])
     ln = ["// Generated by tools/bees_dist_gen.py (bees_config generate). Do not edit. The peer table, the proxies and the deliverers",
           "// of this program's manifest (M3, over the language's transport). No BEAM atom literal: every registered name comes from",
           "// bees_atoms (D30); the :bees tag is dangerous_bees_net's actor-protocol tag.",
           "module bees_peers;", "use bees_atoms;", "use bees_msgs;", "use bees_dist;", ""]
-    ex = ["node_name/0", "node_creation/0", "open_ms/0", "io_ms/0", "tick_ms/0", "link_address/0", "link_dials/0",
-          "link_peer/0", "peer_count/0", "peer_index/1", "peer_name/1", "local_index/1", "start_deliverer/1", "start_proxies/1"]
+    ex = ["node_name/0", "node_creation/0", "open_ms/0", "io_ms/0", "tick_ms/0", "frame_max/0", "link_address/0", "link_dials/0",
+          "link_peer/0", "link_resolve/0", "link_host/0", "link_port/0", "peer_count/0", "peer_index/1", "peer_name/1", "local_index/1", "start_deliverer/1", "start_proxies/1"]
     ln += [f"export {e};" for e in ex] + [""]
     peers = d["peers"]
     o, i, t = d["timing"]
     ln += [f"fn node_name() -> string {{ {lit(d['node'])} }}",
            f"fn node_creation() -> int64 {{ {d['creation']} }}",
-           f"fn open_ms() -> int64 {{ {o} }}", f"fn io_ms() -> uint64 {{ {i} }}", f"fn tick_ms() -> uint64 {{ {t} }}"]
-    first = peers[0]
-    # the language's carrier addresses (transport design 6.2, 6.3): "host:port" connects, "listen:port" listens on 127.0.0.1
-    address = f"listen:{first[2]}" if first[3] == "listen" else f"{first[1]}:{first[2]}"
-    ln += [f"fn link_address() -> string {{ {lit(address)} }}",
-           f"fn link_dials() -> boolean {{ {'true' if first[3] == 'dial' else 'false'} }}",
-           f"fn link_peer() -> int64 {{ {0 if first[3] == 'dial' else -1} }}",
+           f"fn open_ms() -> int64 {{ {o} }}", f"fn io_ms() -> uint64 {{ {i} }}", f"fn tick_ms() -> uint64 {{ {t} }}",
+           f"fn frame_max() -> int64 {{ {link['frame_max']} }}"]
+    # the language's carrier addresses (transport design 6.2, 6.3): "host:port" connects, "listen:port" listens on 127.0.0.1,
+    # "listen:any:port" on every IPv4 interface
+    dials = link["link_dials"]
+    ln += [f"fn link_address() -> string {{ {lit(link['link_address'])} }}",
+           f"fn link_dials() -> boolean {{ {'true' if dials else 'false'} }}",
+           f"fn link_peer() -> int64 {{ {0 if dials else -1} }}",
+           f"fn link_resolve() -> boolean {{ {'true' if link.get('link_resolve') else 'false'} }}",
+           f"fn link_host() -> string {{ {lit(link['link_host'])} }}",
+           f"fn link_port() -> int64 {{ {link.get('link_port', 0)} }}",
            f"fn peer_count() -> int64 {{ {len(peers)} }}"]
     arms = "".join(f"        {lit(p[0])} -> {k};\n" for k, p in enumerate(peers))
     ln += ["fn peer_index(name: string) -> int64 {", "    case name of {", arms + "        _: string -> -1", "    }", "}"]
@@ -270,7 +285,7 @@ def generate(out_dir, paths):
         ln += [f"fn proxy_{n}(msg: {st}, st: {STATE}) -> (:no_reply, {STATE}) {{",
                "    sequence proc[concurrency]",
                f"        payload: string <- bees_msgs@enc_{n}(msg);",
-               f"        body: string <- bees_dist@reg_send_body(payload, st.id, node_name(), node_creation(), bees_atoms@spelling(bees_atoms@a_{n}()));",
+               f"        body: string <- bees_dist@reg_send_body_max(payload, st.id, node_name(), node_creation(), bees_atoms@spelling(bees_atoms@a_{n}()), frame_max());",
                "        seg: string <- bees_dist@frame4(body);",
                "        _: boolean <- case length_bytes(body) > 0 of { true -> cast(st.tx, (:bees, 0, seg) impl ActorMessage {}); false -> true }",
                "    produces pure (:no_reply, st) end", "}", ""]

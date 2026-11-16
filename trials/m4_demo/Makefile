@@ -32,7 +32,7 @@ run: build
 		sc=$$(echo "$$s" | cut -d'|' -f1); ea=$$(echo "$$s" | cut -d'|' -f2); ma=$$(echo "$$s" | cut -d'|' -f3); eb=$$(echo "$$s" | cut -d'|' -f4); mb=$$(echo "$$s" | cut -d'|' -f5); kt=$$(echo "$$s" | cut -d'|' -f6); \
 		if [ -n "$$kt" ]; then k="--kill-a-on"; else k=""; fi; \
 		"$(BEES_ROOT)/tools/run_demo.py" --a "nodes/$$ea" "$$sc.a.sout" "$$ma" --b "nodes/$$eb" "$$sc.b.sout" "$$mb" $$k $${kt:+"$$kt"} || echo "pair $$sc: a run failed"; \
-		sed -i '' -E -e 's/0x[0-9a-f]{6,}/0xADDR/g' -e '/^\[silica\] root actor exited/d' -e '/net ticks seen/d' "$$sc.a.sout" "$$sc.b.sout"; \
+		sed -i '' -E -e 's/0x[0-9a-f]{6,}/0xADDR/g' -e '/net ticks seen/d' "$$sc.a.sout" "$$sc.b.sout"; $(STRIP_ROOT_EXIT) "$$sc.a.sout" "$$sc.b.sout"; \
 	done
 
 integrate: run

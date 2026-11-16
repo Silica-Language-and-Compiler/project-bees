@@ -241,6 +241,11 @@ replaced by Silica TLS intrinsics (S-13) without a wire change.
 - No 0-RTT, no renegotiation, no compression.
 - The client CA must be configured explicitly; there is no implicit system trust store.
 
+**Status 2026-11-12 (N4.1):** this profile is built for hosted nodes in `native/tls/silica_bees_tls.c` (OpenSSL, D40) and run on
+macOS between BEES nodes on 127.0.0.1 (`trials/n4_trust_tls`; mvp.md N4). TLS sits between the language's `(:tcp)` carrier and
+TRUST's framing and owns no transport (spike S12). Open for the user: whether the CA (`cacertfile`) stays beside the SHA-512
+whitelist and pins (Silica's `ethernet_direct_mtls` example trusts by pin alone), and D41's board peers.
+
 
 ### 3.3 Identity and whitelists
 

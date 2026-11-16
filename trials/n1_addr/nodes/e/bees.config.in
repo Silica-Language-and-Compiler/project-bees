@@ -1,0 +1,6 @@
+%% N1 node e: dials a name that does not resolve: dns_error, no crash (@IP@ is this machine's non-loopback IPv4 address, written by the leaf's Makefile)
+[ {mode, beam},
+  {node, [{name, "b@localhost"}]},
+  {beam, [{transport, tcp}, {auth, cookie}, {cookie_file, "../../../n2_dist/cookie"}, {listen_address, "127.0.0.1"},
+          {listen_port, 47464}, {epmd, none}, {frame_size_max, 4096},
+          {peers, [{"a@localhost", [{host, "no-such-host.invalid"}, {port, 47451}, {role, dial}]}]}]} ].

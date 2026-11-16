@@ -1,0 +1,20 @@
+// BEES N1: the Silica face of the resolver edge (native/src/silica_bees_resolve.c; sidecar
+// dangerous_exposure_source/resolve/), getaddrinfo of the macOS system library. The language's (:tcp) carrier dials IPv4
+// literals only, so a dial host that is a name is resolved here first (the BEAM-mode and M3 nodes' dialers). The raw binding
+// is called only through the bound-first adapter below (SD-15), and the adapter only from the resolver worker's
+// external_danger sequence (dangerous_bees_resolve@rslv), so the answer is FFI-derived and tainted (SD-24): it comes back as
+// one ETF binary that the receiving handler converts with the language's decode((:etf), ...) (mvp.md section 4).
+module dangerous_bees_resolve_native;
+
+wrapper_meta "dangerous_exposure_source/resolve/silica_bees_resolve_wrapper.meta";
+
+export resolve_etf/1;
+
+foreign c_wrapper "bees_resolve_etf"
+fn resolve_etf_raw(host_ptr: uint8, host_len: uint64) -> { tag: int64, text_ptr: uint8, text_len: uint64, error_code: int64 };
+
+// the answer for host as one ETF binary term: "ok <ipv4> <n4> <n6>" or "dns_error <reason>"
+fn resolve_etf(host: string) -> string {
+    out: string <- resolve_etf_raw(host);
+    out
+}

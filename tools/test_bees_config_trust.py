@@ -64,12 +64,12 @@ class Conf(unittest.TestCase):
     def test_good_minimal_and_defaults(self):
         v, notes, err = self.verdict(GOOD_TRUST % "")
         self.assertIsNone(err)
-        for k, (_, default) in B.TRUST_OPTS.items():
+        for k, o in B.TRUST_OPTS.items():
             if k in ("port", "listen_address", "plaintext_test_only", "args_len_max", "session"):
                 continue
-            self.assertEqual(v[k], default, k)
+            self.assertEqual(v[k], o.default, k)
         self.assertEqual(v["args_len_max"], v["frame_size_max"])          # default: equal to frame_size_max (R1)
-        self.assertEqual(v["frame_eff"], B.BUILD_FRAME_MAX)              # the build implements 4096 until N1
+        self.assertEqual(v["frame_eff"], B.BEAM_FRAME_MAX)               # N1: BEAM's packet limit is the default and is built
         self.assertEqual(v["session"], {k: d for k, (_, d) in B.SESSION_OPTS.items()})
         self.assertIn("TRUST standalone", " ".join(notes))               # an unset whitelist is bannered, not silent
 
@@ -92,30 +92,37 @@ class Conf(unittest.TestCase):
         self.refused(GOOD_TRUST % ", {colour, red}", "trust.colour", "unknown key")
         self.refused(GOOD_TRUST % ", {token_ttl_ms, 300000}", "trust.token_ttl_ms", "token_ttl_sec")
         self.refused(GOOD_TRUST % ", {port, 1}", "trust.port", "duplicate key")
-        self.refused("[{other, 1}].", "(top).other", "unknown key")
+        self.refused("[{other, 1}].", ": other: unknown key", "unknown key")
 
     def test_types_and_bounds(self):
         self.refused(GOOD_TRUST % ", {call_timeout_ms, \"5\"}", "trust.call_timeout_ms", "expected an integer")
-        self.refused(GOOD_TRUST % ", {call_timeout_ms, 0}", "trust.call_timeout_ms", "outside 1 to 600000")
-        self.refused(GOOD_TRUST % ", {call_timeout_ms, 600001}", "trust.call_timeout_ms", "outside")
-        self.refused(GOOD_TRUST % ", {token_bytes, 31}", "trust.token_bytes", "outside 32 to 64")
+        self.refused(GOOD_TRUST % ", {call_timeout_ms, 0}", "trust.call_timeout_ms", "0 is below 1 (bounds 1 to 600000")
+        self.refused(GOOD_TRUST % ", {call_timeout_ms, 600001}", "trust.call_timeout_ms", "600001 is above 600000")
+        self.refused(GOOD_TRUST % ", {token_bytes, 31}", "trust.token_bytes", "31 is below 32 (bounds 32 to 64")
         self.refused(GOOD_TRUST % ", {whitelist_autoload, yes}", "trust.whitelist_autoload", "true or false")
         self.refused(GOOD_TRUST % ", {tls_opts, [{password, \"x\"}]}", "trust.tls_opts.password", "unknown key")
         self.refused(GOOD_TRUST % ", {session, #{idle_ms => 70000, max_age_ms => 60000}}", "trust.session.idle_ms", "above max_age_ms")
 
     def test_cross_fields_and_not_built(self):
         self.refused(GOOD_TRUST % ", {frame_size_max, 2048}, {args_len_max, 4096}", "trust.args_len_max", "above frame_size_max")
-        self.refused(GOOD_TRUST % ", {frame_size_max, 8192}", "trust.frame_size_max", "not built yet")
+        # N1: the cap is the operator's, up to BEAM's 4294967295 (R1); nothing above 4096 is "not built yet" any more
+        v, _, err = self.verdict(GOOD_TRUST % ", {frame_size_max, 4294967295}")
+        self.assertIsNone(err)
+        self.assertEqual((v["frame_eff"], v["args_eff"]), (4294967295, 4294967295))
+        self.refused(GOOD_TRUST % ", {frame_size_max, 4294967296}", "trust.frame_size_max", "4294967296 is above 4294967295")
+        self.refused(GOOD_TRUST % ", {frame_size_max, 511}", "trust.frame_size_max", "511 is below 512")
         self.refused(GOOD_TRUST % ", {dns_ns_timeout_ms, 6000}", "trust.dns_ns_timeout_ms", "dns_total_timeout_ms")
 
     def test_required_by_mode(self):
         self.refused("""[{trust, [{plaintext_test_only, true}]}].""", "trust.listen_address", "no default (R6)")
-        self.refused("""[{trust, [{listen_address, "127.0.0.1"}]}].""", "trust.plaintext_test_only", "TLS is not built")
+        # N4.1: without plaintext_test_only the node speaks TLS, so tls_opts is required (all three keys)
+        self.refused("""[{trust, [{listen_address, "127.0.0.1"}]}].""", "trust.tls_opts", "required")
         self.refused("""[{trust, [{listen_address, "10.0.0.7"}, {plaintext_test_only, true}]}].""", "trust.listen_address", "loopback")
         # in mode beam the trust section is validated (types, bounds) but its required values are not demanded
-        v, _, err = self.verdict("""[{mode, beam}, {trust, [{port, 6469}]}].""")
+        beam = '{beam, [{transport, tcp}, {auth, none}, {listen_address, "127.0.0.1"}]}'
+        v, _, err = self.verdict("""[{mode, beam}, %s, {trust, [{port, 6469}]}].""" % beam)
         self.assertIsNone(err)
-        self.refused("""[{mode, beam}, {trust, [{port, 0}]}].""", "trust.port", "outside")
+        self.refused("""[{mode, beam}, %s, {trust, [{port, 0}]}].""" % beam, "trust.port", "0 is below 1")
 
     def test_whitelist_files(self):
         self.refused(GOOD_TRUST % ', {whitelist_file, "wl.config"}', "trust.whitelist_file", 'whitelist file "wl.config" does not exist')
@@ -168,6 +175,34 @@ class Conf(unittest.TestCase):
         v, notes, err = B.run(self.write("bees.config", "[{mode, 1}]."))
         B.gen(os.path.join(self.d, "lib"), v, notes, err)
         self.assertIn("bees.config:1: mode: expected beam or trust", slurp(os.path.join(self.d, "lib", "bees_trust_conf.silica")))
+
+    def test_tls_mode(self):
+        """N4.1: without plaintext_test_only the node speaks TLS: tls_opts with all three keys, a non-loopback listen address,
+        pins that name readable certificates; the generated unit carries the engine's absolute paths and each pin's SHA-512"""
+        for n in ("node.pem", "ca.pem", "certs/a.pem"):
+            self.write(n, "-----BEGIN CERTIFICATE-----\n" + base64.b64encode(n.encode()).decode() + "\n-----END CERTIFICATE-----\n")
+        self.write("node-key.pem", "key", 0o600)
+        self.write("pins.config", """#{"10.0.0.9:47601" => "a.pem"}.""")
+        tls = ('{tls_opts, [{certfile, "node.pem"}, {keyfile, "node-key.pem"}, {cacertfile, "ca.pem"}]}')
+        text = """[{mode, trust}, {trust, [{listen_address, "0.0.0.0"}, %s, {server_pins_file, "pins.config"}]}].""" % tls
+        v, notes, err = self.verdict(text)
+        self.assertIsNone(err)
+        self.assertTrue(v["tls"])
+        self.assertEqual(v["self_fp"], "")      # no stand-in identity over TLS
+        B.gen(os.path.join(self.d, "lib"), v, notes, err)
+        unit = slurp(os.path.join(self.d, "lib", "bees_trust_conf.silica"))
+        self.assertIn("fn tls() -> boolean { true }", unit)
+        # the engine's spec: certfile, keyfile, cacertfile, each ended by a NUL, written as bytes
+        key_bytes = ", ".join(str(b) for b in os.path.abspath(os.path.join(self.d, "node-key.pem")).encode())
+        self.assertIn(key_bytes + ", 0, ", unit)
+        self.assertIn("fn tls_client_spec() -> string {", unit)
+        # the pin is the TLS link's, not the engine's
+        self.assertIn('0 -> "' + hashlib.sha512(b"certs/a.pem").hexdigest() + '"', unit)
+        self.refused("""[{mode, trust}, {trust, [{listen_address, "127.0.0.1"}, {tls_opts, [{certfile, "node.pem"}]}]}].""",
+                     "trust.tls_opts", "needs all three")
+        self.write("pins2.config", """#{"10.0.0.9:47601" => "gone.pem"}.""")
+        v, _, err = self.verdict("""[{mode, trust}, {trust, [{listen_address, "127.0.0.1"}, %s, {server_pins_file, "pins2.config"}]}].""" % tls)
+        self.assertIn("pinned certificate", err)
 
 
 def find_erl():

@@ -1,0 +1,15 @@
+[bees] TEST ONLY: no authentication, no encryption on this transport (127.0.0.1); TRUST's TLS is not built yet
+[bees audit] handshake complete with b@127.0.0.1 0
+echo: got seq 1
+echo: len 65536
+echo: got seq 2
+echo: len 1048576
+echo: got seq 3
+echo: len 8388608
+[bees audit] bad frame length, link closed too_large 5
+[bees audit] link down, proxies ended; reason closed 3
+[bees audit] frames delivered - 3
+[bees audit] frames dropped - 1
+[bees audit] net ticks seen (1 yes, 0 no) - 0
+proxy ended (killed)
+exit=0

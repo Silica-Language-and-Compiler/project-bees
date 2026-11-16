@@ -38,7 +38,7 @@ run: build
 	@cd "$(HERE)" && for s in $(SCEN_QUOTED); do \
 		sc=$$(echo "$$s" | cut -d'|' -f1); ea=$$(echo "$$s" | cut -d'|' -f2); ma=$$(echo "$$s" | cut -d'|' -f3); eb=$$(echo "$$s" | cut -d'|' -f4); mb=$$(echo "$$s" | cut -d'|' -f5); tr=$$(echo "$$s" | cut -d'|' -f6); \
 		"$(BEES_ROOT)/tools/run_pair.py" "nodes/$$ea" "$$sc.a.sout" "$$ma" "nodes/$$eb" "$$sc.b.sout" "$$mb" 0.5 60 || echo "pair $$sc: a run failed"; \
-		sed -i '' -E -e 's/0x[0-9a-f]{6,}/0xADDR/g' -e '/^\[silica\] root actor exited/d' "$$sc.a.sout" "$$sc.b.sout"; \
+		sed -i '' -E -e 's/0x[0-9a-f]{6,}/0xADDR/g' "$$sc.a.sout" "$$sc.b.sout"; $(STRIP_ROOT_EXIT) "$$sc.a.sout" "$$sc.b.sout"; \
 		if [ "$$tr" = 1 ]; then \
 			awk -v m="$$ma" 'done { if ($$0 ~ /^exit=/) print; next } { print } index($$0, m) { done = 1 }' "$$sc.a.sout" > "$$sc.a.tmp" && mv "$$sc.a.tmp" "$$sc.a.sout"; \
 			awk -v m="$$mb" 'done { if ($$0 ~ /^exit=/) print; next } { print } index($$0, m) { done = 1 }' "$$sc.b.sout" > "$$sc.b.tmp" && mv "$$sc.b.tmp" "$$sc.b.sout"; \

@@ -1,9 +1,11 @@
-// BEES TRUST mode (N3): TRUST logic over a plaintext loopback carrier, one request per connection (B1). TRUST is its own
+// BEES TRUST mode (N3, and over mutual TLS 1.3 since N4.1): TRUST logic, one request per connection (B1). TRUST is its own
 // implementation (D36): nothing here uses BEAM mode's distribution layer (dangerous_bees_net, bees_dist, bees_peers).
 //
-// TEST ONLY: there is no TLS yet (N4), so the peer's identity is a TEST-SUPPLIED STAND-IN for the certificate fingerprint: the
-// first 64 bytes a client sends on a connection (accepted by the user 2026-11-06, R5, until TLS exists; plaintext_test_only,
-// loopback only, a boot banner says so).
+// Two transports (chosen by bees.config, the link part tools/bees_trust_gen.py pastes into the node's root unit): under
+// plaintext_test_only (N3, TEST ONLY, loopback, a boot banner says so) a connection's link is the language's (:tcp) carrier and the
+// peer's identity is a TEST-SUPPLIED STAND-IN for the certificate fingerprint, the first 64 bytes a client sends (R5); over mutual
+// TLS 1.3 (N4.1) the link is dangerous_bees_tls@ttls, which speaks the carrier contract upward and hands up, as the first 64 bytes,
+// the SHA-512 of the peer certificate's DER (D11), so the logic below is the same for both. "Carrier" below means the link.
 //
 // Actors (the language's (:tcp) carrier underneath, contract of transport design 6.2):
 //   tlsn    the LISTEN ACTOR: owner of the listening carrier; for every accepted connection it starts one send actor and one
@@ -79,7 +81,10 @@ fn to_tx(tx: actor_ref, kind: int64, s1: string, s2: string, m: atom, f: atom, n
     produces pure ok end
 }
 fn tx_simple(tx: actor_ref, kind: int64, s1: string, s2: string) -> boolean { to_tx(tx, kind, s1, s2, err_atom(), err_atom(), 0) }
-fn tx_close(tx: actor_ref) -> boolean { tx_simple(tx, 3, "", "") }
+// the send actor's last message: kind 3 closes the carrier after what it already holds; kind 10 (the owner has seen :link_down)
+// only ends the send actor, because the carrier has already ended with its link (Silica 71009f96f8) and a cast to an ended
+// actor fails its sender (actor_not_found, SD-43)
+fn tx_end(tx: actor_ref, down: boolean) -> boolean { tx_simple(tx, case down of { true -> 10; false -> 3 }, "", "") }
 fn asm_new(core: actor_ref, fixed: int64, pending: string, go: boolean) -> actor_ref {
     sequence proc[concurrency]
         a: actor_ref <- spawn({ core: core, fixed: fixed, max: bees_trust_conf@frame_size_max(), rx: { mode: :stream, expected: 0, pending: pending } }, tasm, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
@@ -116,11 +121,6 @@ fn mfa_text(m: atom, f: atom, a: int64) -> string {
     concat(concat(bees_atoms@spelling(m), ":"), concat(bees_atoms@spelling(f), concat("/", bees_trust_frame@int_text(a))))
 }
 
-fn carrier_gone(c: dangerous_actor_ref) -> boolean {
-    sequence proc[concurrency]
-        r: (int64, affinity_error) <- remove_actor(c)
-    produces pure true end
-}
 // ======================================================================== tasm
 fn asm_kind(msg: (:bees, int64, string)) -> int64 { case msg of { (:bees, k: int64, _s: string) -> k } }
 fn asm_seg(msg: (:bees, int64, string)) -> string { case msg of { (:bees, _k: int64, s: string) -> s } }
@@ -176,6 +176,7 @@ fn tm_f(msg: (:bees, int64, string, string, atom, atom, int64)) -> atom { case m
 fn tm_n(msg: (:bees, int64, string, string, atom, atom, int64)) -> int64 { case msg of { (:bees, _k: int64, _a: string, _b: string, _m: atom, _f: atom, n: int64) -> n } }
 // kinds: 1 token_issue(token)  2 result(req_id, value span)  3 close  4 raw bytes (the stand-in fingerprint; test frames)
 //        5 hello  6 token_present(token)  7 call(req_id, args span, m, f, arity)  8 cast(same)  9 a frame body to frame as is
+//        10 end without touching the carrier (it has already ended with its link)
 fn tx_body(kind: int64, s1: string, s2: string, m: atom, f: atom, n: int64) -> string {
     case kind of {
         1 -> bees_trust_frame@frame4(bees_trust_frame@enc_token_issue(s1));
@@ -198,7 +199,7 @@ fn ttx(msg: (:bees, int64, string, string, atom, atom, int64), st: { c: dangerou
             true -> cast(st.c, :close impl ActorMessage {});
             false -> case length_bytes(seg) > 0 of { true -> cast(st.c, (:tx, seg, me) impl ActorMessage {}); false -> true }
         };
-        _: atom <- case k == 3 of { true -> stop_self(:normal); false -> :ok }
+        _: atom <- case k == 3 or k == 10 of { true -> stop_self(:normal); false -> :ok }
     produces pure (:no_reply, { c: st.c, n: st.n + 1 }) end
 }
 
@@ -331,7 +332,7 @@ fn on_listen(msg: (:link_up, string) | (:accepted, dangerous_actor_ref, string) 
     case msg of {
         (:accepted, car: dangerous_actor_ref, _i: string) -> accept_one(car, st);
         (:link_up, info: string) -> case starts_with(info, "port:") of {
-            true -> { sequence _: atom <- say(concat("[trust] listening on 127.0.0.1:", substring(info, 5, length_bytes(info)))) produces pure false end };
+            true -> { sequence _: atom <- say(concat(case starts_with(bees_trust_conf@listen_spec(), "listen:any:") of { true -> "[trust] listening on 0.0.0.0:"; false -> "[trust] listening on 127.0.0.1:" }, substring(info, 5, length_bytes(info)))) produces pure false end };
             false -> false
         };
         (:rx, _s: string) -> false;
@@ -360,7 +361,7 @@ fn re(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, edge: dangero
 // close: the send actor closes the carrier after what it already holds, the assembler ends, the actor is reaped in 500 ms
 fn shut(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, edge: dangerous_actor_ref, phase: int64, peer: int64, kind: int64, down: boolean, live: boolean, cid: int64 }, me: actor_ref) -> { asm: actor_ref, phase: int64, peer: int64, kind: int64, down: boolean, live: boolean } {
     sequence
-        _: boolean <- tx_close(st.tx);
+        _: boolean <- tx_end(st.tx, st.down);
         _: boolean <- asm_stop(st.asm, st.live);
         _: boolean <- arm(me, 500, 9)
     produces pure mk(st.asm, 9, st.peer, st.kind, st.down, false) end
@@ -406,12 +407,18 @@ fn stage(phase: int64) -> string {
 }
 fn c_down(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, edge: dangerous_actor_ref, phase: int64, peer: int64, kind: int64, down: boolean, live: boolean, cid: int64 }, me: actor_ref) -> { asm: actor_ref, phase: int64, peer: int64, kind: int64, down: boolean, live: boolean } {
     case st.phase of {
-        0 -> to_phase(st, 10);
-        1 -> { sequence _: atom <- audit("closed_by_peer", "-", stage(1), st.cid) produces pure shut(st, me) end };
-        3 -> { sequence _: atom <- audit("closed_by_peer", fp_of(st), stage(3), st.cid) produces pure shut(st, me) end };
-        6 -> { sequence _: atom <- audit("closed_by_peer", fp_of(st), stage(6), st.cid) produces pure shut(st, me) end };
+        // the link went down before it came up (over TLS: a refused handshake, audited by the TLS worker): the unused send
+        // actor ends too, without touching the link
+        0 -> { sequence _: boolean <- tx_end(st.tx, true) produces pure to_phase(st, 10) end };
+        1 -> { sequence _: atom <- audit("closed_by_peer", "-", stage(1), st.cid) produces pure shut(gone(st), me) end };
+        3 -> { sequence _: atom <- audit("closed_by_peer", fp_of(st), stage(3), st.cid) produces pure shut(gone(st), me) end };
+        6 -> { sequence _: atom <- audit("closed_by_peer", fp_of(st), stage(6), st.cid) produces pure shut(gone(st), me) end };
         _: int64 -> mk(st.asm, st.phase, st.peer, st.kind, true, st.live)
     }
+}
+// the carrier said :link_down and has ended with it: nothing casts to it again
+fn gone(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, edge: dangerous_actor_ref, phase: int64, peer: int64, kind: int64, down: boolean, live: boolean, cid: int64 }) -> { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, edge: dangerous_actor_ref, phase: int64, peer: int64, kind: int64, down: boolean, live: boolean, cid: int64 } {
+    { asm: st.asm, c: st.c, tx: st.tx, edge: st.edge, phase: st.phase, peer: st.peer, kind: st.kind, down: true, live: st.live, cid: st.cid }
 }
 // a framing refusal (an oversize length, a bad prefix): no frame was stored or decoded
 fn c_reject(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, edge: dangerous_actor_ref, phase: int64, peer: int64, kind: int64, down: boolean, live: boolean, cid: int64 }, me: actor_ref, code: int64) -> { asm: actor_ref, phase: int64, peer: int64, kind: int64, down: boolean, live: boolean } {
@@ -439,7 +446,7 @@ fn c_call_timeout(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, e
     sequence
         _: atom <- audit("timeout", fp_of(st), stage(7), st.cid);
         _: boolean <- peer_tell(st.peer, 2, "timeout", me, 1);
-        _: boolean <- tx_close(st.tx);
+        _: boolean <- tx_end(st.tx, st.down);
         _: boolean <- asm_stop(st.asm, st.live)
     produces pure mk(st.asm, 8, st.peer, 1, st.down, false) end
 }
@@ -568,7 +575,7 @@ fn c_admit(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, edge: da
             true -> { sequence _: boolean <- arm(me, bees_trust_conf@call_timeout_ms(), 7) produces pure mk(st.asm, 7, st.peer, 1, st.down, st.live) end };
             false -> {
                 sequence
-                    _: boolean <- tx_close(st.tx);
+                    _: boolean <- tx_end(st.tx, st.down);
                     _: boolean <- asm_stop(st.asm, st.live)
                 produces pure mk(st.asm, 8, st.peer, 2, st.down, false) end
             }
@@ -648,6 +655,8 @@ fn c_bees(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, edge: dan
         7 -> c_random(st, me, s1);
         8 -> c_tokchk(st, me, n);
         9 -> c_done(st, me, s1, s2, n);
+        // an audit line of the TLS worker under this connection (it may not print itself, E2103): event, what
+        11 -> { sequence _: atom <- audit(s1, "-", s2, st.cid) produces pure keep(st) end };
         _: int64 -> keep(st)
     }
 }
@@ -669,9 +678,8 @@ fn tconn(msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_fa
     sequence proc[concurrency]
         me: actor_ref <- self();
         s: { asm: actor_ref, phase: int64, peer: int64, kind: int64, down: boolean, live: boolean } <- conn_handle(st, me, msg);
-        // the connection's carrier is closed and has nothing more to say: it is removed with the actor (the language's
-        // carrier never ends by itself after :close, and each one left behind holds its memory)
-        gone: boolean <- case s.phase == 10 of { true -> carrier_gone(st.c); false -> false };
+        // the connection's carrier has already ended with its link (Silica 71009f96f8: a carrier ends after :link_down, on
+        // :close or a peer close), so the actor only ends itself; nothing casts to the carrier after this
         _: atom <- case s.phase == 10 of { true -> stop_self(:normal); false -> :ok }
     produces pure (:no_reply, { asm: s.asm, c: st.c, tx: st.tx, edge: st.edge, phase: s.phase, peer: s.peer, kind: s.kind, down: s.down, live: s.live, cid: st.cid }) end
 }
@@ -693,9 +701,11 @@ fn answer(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, phase: in
         }
     }
 }
-fn kshut(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, phase: int64, live: boolean, replied: boolean, srv: int64, kind: int64, req: int64, reply_to: actor_ref, req_id: string, m: atom, f: atom, a: int64, args: string }, me: actor_ref) -> { asm: actor_ref, phase: int64, live: boolean, replied: boolean } {
+fn kshut(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, phase: int64, live: boolean, replied: boolean, srv: int64, kind: int64, req: int64, reply_to: actor_ref, req_id: string, m: atom, f: atom, a: int64, args: string }, me: actor_ref) -> { asm: actor_ref, phase: int64, live: boolean, replied: boolean } { kshut_d(st, me, false) }
+// down: the carrier has said :link_down and ended, so the send actor ends without casting to it (tx_end)
+fn kshut_d(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, phase: int64, live: boolean, replied: boolean, srv: int64, kind: int64, req: int64, reply_to: actor_ref, req_id: string, m: atom, f: atom, a: int64, args: string }, me: actor_ref, down: boolean) -> { asm: actor_ref, phase: int64, live: boolean, replied: boolean } {
     sequence
-        _: boolean <- tx_close(st.tx);
+        _: boolean <- tx_end(st.tx, down);
         _: boolean <- asm_stop(st.asm, st.live);
         _: boolean <- arm(me, 500, 9)
     produces pure ks(st.asm, 9, false, true) end
@@ -712,25 +722,27 @@ fn forget(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, phase: in
         }
     }
 }
-fn kfail(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, phase: int64, live: boolean, replied: boolean, srv: int64, kind: int64, req: int64, reply_to: actor_ref, req_id: string, m: atom, f: atom, a: int64, args: string }, me: actor_ref, status: atom) -> { asm: actor_ref, phase: int64, live: boolean, replied: boolean } {
+fn kfail(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, phase: int64, live: boolean, replied: boolean, srv: int64, kind: int64, req: int64, reply_to: actor_ref, req_id: string, m: atom, f: atom, a: int64, args: string }, me: actor_ref, status: atom) -> { asm: actor_ref, phase: int64, live: boolean, replied: boolean } { kfail_d(st, me, status, false) }
+fn kfail_d(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, phase: int64, live: boolean, replied: boolean, srv: int64, kind: int64, req: int64, reply_to: actor_ref, req_id: string, m: atom, f: atom, a: int64, args: string }, me: actor_ref, status: atom, down: boolean) -> { asm: actor_ref, phase: int64, live: boolean, replied: boolean } {
     sequence
         _: boolean <- answer(st, status, "");
         _: boolean <- forget(st, me, status);
-        s: { asm: actor_ref, phase: int64, live: boolean, replied: boolean } <- kshut(st, me)
+        s: { asm: actor_ref, phase: int64, live: boolean, replied: boolean } <- kshut_d(st, me, down)
     produces pure s end
 }
 // the cache answered (phase 0): send everything now
 fn k_cache(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, phase: int64, live: boolean, replied: boolean, srv: int64, kind: int64, req: int64, reply_to: actor_ref, req_id: string, m: atom, f: atom, a: int64, args: string }, me: actor_ref, tok: string, has: int64) -> { asm: actor_ref, phase: int64, live: boolean, replied: boolean } {
     case st.phase of {
         0 -> k_send(st, me, tok, has);
-        6 -> kshut(st, me);
+        6 -> kshut_d(st, me, true);
         _: int64 -> kkeep(st)
     }
 }
-// everything the client says, pipelined: the stand-in fingerprint, token_present or hello, the request
+// everything the client says, pipelined: the stand-in fingerprint (plaintext_test_only only; over TLS the identity is the
+// certificate), token_present or hello, the request
 fn k_send(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, phase: int64, live: boolean, replied: boolean, srv: int64, kind: int64, req: int64, reply_to: actor_ref, req_id: string, m: atom, f: atom, a: int64, args: string }, me: actor_ref, tok: string, has: int64) -> { asm: actor_ref, phase: int64, live: boolean, replied: boolean } {
     sequence
-        _: boolean <- tx_simple(st.tx, 4, bees_trust_conf@self_fp(), "");
+        _: boolean <- case bees_trust_conf@tls() of { true -> true; false -> tx_simple(st.tx, 4, bees_trust_conf@self_fp(), "") };
         _: boolean <- case has == 1 of { true -> tx_simple(st.tx, 6, tok, ""); false -> tx_simple(st.tx, 5, "", "") };
         _: boolean <- to_tx(st.tx, case st.kind == 1 of { true -> 7; false -> 8 }, st.req_id, st.args, st.m, st.f, st.a);
         a: actor_ref <- asm_new(me, 0, "", true);
@@ -773,13 +785,14 @@ fn k_token(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, phase: i
         }
     produces pure s end
 }
-fn k_down(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, phase: int64, live: boolean, replied: boolean, srv: int64, kind: int64, req: int64, reply_to: actor_ref, req_id: string, m: atom, f: atom, a: int64, args: string }, me: actor_ref) -> { asm: actor_ref, phase: int64, live: boolean, replied: boolean } {
+// why: the link's reason; over TLS a server whose certificate is not the pinned one ends the link with server_not_pinned
+fn k_down(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, phase: int64, live: boolean, replied: boolean, srv: int64, kind: int64, req: int64, reply_to: actor_ref, req_id: string, m: atom, f: atom, a: int64, args: string }, me: actor_ref, why: atom) -> { asm: actor_ref, phase: int64, live: boolean, replied: boolean } {
     case st.phase of {
         0 -> ks(st.asm, 6, st.live, st.replied);
-        1 -> kfail(st, me, bees_atoms@a_connect_failed());
-        2 -> kfail(st, me, bees_atoms@a_closed());
-        3 -> kfail(st, me, bees_atoms@a_closed());
-        4 -> kshut(st, me);
+        1 -> kfail_d(st, me, case why == bees_atoms@a_server_not_pinned() of { true -> why; false -> bees_atoms@a_connect_failed() }, true);
+        2 -> kfail_d(st, me, bees_atoms@a_closed(), true);
+        3 -> kfail_d(st, me, bees_atoms@a_closed(), true);
+        4 -> kshut_d(st, me, true);
         _: int64 -> kkeep(st)
     }
 }
@@ -818,6 +831,8 @@ fn k_bees(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, phase: in
         4 -> case st.live and st.phase < 9 of { true -> { sequence _: boolean <- credit(st.c, 1) produces pure kkeep(st) end }; false -> kkeep(st) };
         5 -> k_timer(st, me, n);
         20 -> k_cache(st, me, s1, n);
+        // an audit line of the TLS worker under this call (it may not print itself, E2103): event, what
+        11 -> { sequence _: atom <- audit(s1, "-", s2, st.req) produces pure kkeep(st) end };
         _: int64 -> kkeep(st)
     }
 }
@@ -837,7 +852,7 @@ fn cli_handle(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, phase
         (:rx, seg: string) -> k_rx(st, seg);
         (:tx_credit, _n: int64) -> kkeep(st);
         (:tx_failed, _why: atom) -> kkeep(st);
-        (:link_down, _w: atom) -> k_down(st, me);
+        (:link_down, w: atom) -> k_down(st, me, w);
         (:bees, k: int64, s1: string, s2: string, n: int64) -> k_bees(st, me, k, s1, s2, n)
     }
 }
@@ -845,7 +860,6 @@ fn tcli(msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_fai
     sequence proc[concurrency]
         me: actor_ref <- self();
         s: { asm: actor_ref, phase: int64, live: boolean, replied: boolean } <- cli_handle(st, me, msg);
-        gone: boolean <- case s.phase == 10 of { true -> carrier_gone(st.c); false -> false };
         _: atom <- case s.phase == 10 of { true -> stop_self(:normal); false -> :ok }
     produces pure (:no_reply, { asm: s.asm, c: st.c, tx: st.tx, phase: s.phase, live: s.live, replied: s.replied, srv: st.srv, kind: st.kind, req: st.req, reply_to: st.reply_to, req_id: st.req_id, m: st.m, f: st.f, a: st.a, args: st.args }) end
 }

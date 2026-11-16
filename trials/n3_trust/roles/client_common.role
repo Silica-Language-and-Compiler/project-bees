@@ -126,7 +126,7 @@ fn raw_event(msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:t
                 sequence
                     _: atom <- case st.loud of { true -> say("raw peer: the server closed the connection"); false -> :ok };
                     _: boolean <- raw_tell(st);
-                    _: boolean <- trust_raw_close(st.tx)
+                    _: boolean <- trust_raw_end(st.tx)
                 produces pure 0 - 1 end
             }
         }

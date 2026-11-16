@@ -108,6 +108,25 @@ trials/n3_trust/nodes/*/silica.config
 trials/n3_trust/nodes/*/silica.atoms
 trials/n3_trust/nodes/*/lib/bees_atoms.*
 trials/n3_trust_frames/lib/bees_atoms.*
+# N4.1 (TRUST over mutual TLS 1.3): as N3; the TEST-ONLY certificates and keys in certs/ are fixtures the goldens depend on
+# (tools/bees_test_certs.sh made them once; keys that belong to nobody)
+!trials/n4_trust_tls/roles/
+!trials/n4_trust_tls/nodes/
+!trials/n4_trust_tls/certs/
+trials/n4_trust_tls/nodes/*/*
+!trials/n4_trust_tls/nodes/*/Makefile
+!trials/n4_trust_tls/nodes/*/*.config
+!trials/n4_trust_tls/nodes/*/*.atoms
+!trials/n4_trust_tls/nodes/*/*.trust
+!trials/n4_trust_tls/nodes/*/lib/
+!trials/n4_trust_tls/nodes/*/dangerous_exposure_source
+trials/n4_trust_tls/nodes/*/lib/bees_trust_conf.*
+trials/n4_trust_tls/nodes/*/lib/bees_trust_mfa.silica
+trials/n4_trust_tls/rate.*.out*
+trials/n4_trust_tls/measure.txt
+trials/n4_trust_tls/nodes/*/silica.config
+trials/n4_trust_tls/nodes/*/silica.atoms
+trials/n4_trust_tls/nodes/*/lib/bees_atoms.*
 # N2 (BEAM mode): the roles and node leaves of n2_dist and n2_live; generated root units, beam_conf/beam_peers, cookie files,
 # the live trial's raw logs and its compiled stock driver
 !trials/n2_dist/roles/
@@ -138,3 +157,27 @@ trials/*/nodes/*/lib/bees_atoms.index
 trials/n2_auth/cookie.txt
 trials/n2_live/*.raw
 trials/n2_live/erl_crash.dump
+# N0.2: the M3 and M4 node leaves' bees.config
+!trials/m3_dist/nodes/*/bees.config
+!trials/m4_demo/nodes/*/bees.config
+# N1: trials/n1_addr and trials/n1_frames (roles, node leaves); n1_addr's bees.config is written from bees.config.in
+!trials/n1_addr/roles/
+!trials/n1_addr/nodes/
+!trials/n1_frames/roles/
+!trials/n1_frames/nodes/
+trials/n1_addr/nodes/*/*
+trials/n1_frames/nodes/*/*
+!trials/n1_addr/nodes/*/Makefile
+!trials/n1_frames/nodes/*/Makefile
+!trials/n1_addr/nodes/*/node.wire
+!trials/n1_frames/nodes/*/node.wire
+!trials/n1_addr/nodes/*/node.atoms
+!trials/n1_addr/nodes/*/bees.config.in
+!trials/n1_frames/nodes/*/bees.config
+!trials/n1_addr/nodes/*/lib/
+!trials/n1_frames/nodes/*/lib/
+!trials/n1_addr/nodes/*/dangerous_exposure_source
+!trials/n1_frames/nodes/*/dangerous_exposure_source
+trials/n1_addr/any_ip.*.out
+trials/n1_frames/big.times
+trials/n1_frames/measure_*

@@ -133,7 +133,10 @@ DROP = "[bees audit] frame dropped, not a name this node serves"
 
 def norm_bees(lines, rc):
     out = []
-    for l in lines:
+    # the runtime's root-actor line (stderr) can land inside a stdout line: removed with its newline wherever it is
+    # (tools/silica.mk STRIP_ROOT_EXIT), which rejoins the stdout line
+    text = "\n".join(lines).replace("[silica] root actor exited (no supervisor)\n", "")
+    for l in text.split("\n"):
         if l.startswith("[silica] root actor exited"):
             continue
         out.append(re.sub(r"0x[0-9a-f]{6,}", "0xADDR", l))

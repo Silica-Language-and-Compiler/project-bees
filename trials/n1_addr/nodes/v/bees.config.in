@@ -1,0 +1,6 @@
+%% N1 node v (OPT-IN, not run by make integrate): dials node w (listening on 0.0.0.0) over the non-loopback address (@IP@ is this machine's non-loopback IPv4 address, written by the leaf's Makefile)
+[ {mode, beam},
+  {node, [{name, "b@localhost"}]},
+  {beam, [{transport, tcp}, {auth, cookie}, {cookie_file, "../../../n2_dist/cookie"}, {listen_address, "127.0.0.1"},
+          {listen_port, 47462}, {epmd, none}, {frame_size_max, 4096},
+          {peers, [{"a@localhost", [{host, "@IP@"}, {port, 47459}, {role, dial}]}]}]} ].

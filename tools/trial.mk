@@ -56,10 +56,11 @@ units:
 # are .module and .pools manifests, lib/bees_peers.silica + lib/bees_msgs.silica where a .wire manifest has node lines
 # (the language's encode/decode behind enc_/dec_), and lib/bees_wire_tables.silica + lib/bees_wire_ints.silica +
 # lib/bees_wire_msgs.silica where a .wire manifest has none (the typed codec of the m1 trials), before anything is
-# compiled, and checks that no other unit writes a BEAM atom literal.
+# compiled, and checks that no other unit writes a BEAM atom literal. A leaf with a bees.config passes it (--config) to the one
+# reader, tools/bees_conf.py (N0.2, a build-time stand-in): its values win over the manifest's, a violation stops the build.
 bees_atoms:
 	@cd "$(LEAF)" && if [ -n "$(MANIFESTS)" ]; then \
-		mkdir -p lib && "$(BEES_CONFIG)" generate -o lib $(MANIFESTS) && \
+		mkdir -p lib && "$(BEES_CONFIG)" generate -o lib $(if $(wildcard $(LEAF)/bees.config),--config bees.config) $(MANIFESTS) && \
 		"$(BEES_CONFIG)" check lib/*.silica *.silica; \
 	fi
 
@@ -78,6 +79,7 @@ build: silica.config
 	@cd "$(LEAF)" && libs=""; for o in lib/*.o; do [ -f "$$o" ] && libs="$$libs $$o"; done; \
 	rt=""; [ -f __silica_runtime.o ] && rt=__silica_runtime.o; \
 	archives=""; [ -f silica.link ] && archives=$$(awk -F'"' '/^archive:/ { printf "%s ", $$2 }' silica.link); \
+	case "$$archives" in *libsilica_bees_tls.a*) archives="$$archives $(OPENSSL_LDFLAGS)";; esac; \
 	for e in $(ENTRIES); do \
 		[ -f "$$e.o" ] || { echo "FAIL: [$(LEAF_NAME)] $$e.o missing"; exit 1; }; \
 		$(CLANG) "$$e.o" $$libs $$rt $$archives $(LDFLAGS) -o "$$e" || exit 1; \
@@ -89,7 +91,7 @@ run: build
 	@cd "$(LEAF)" && for p in $(PAIR_FILES); do \
 		set -- $$(cat "$$p"); \
 		"$(BEES_ROOT)/tools/run_pair.py" "./$$1" "$$1.sout" "$$(cat "$$1.wait_for_exit")" "./$$2" "$$2.sout" "$$(cat "$$2.wait_for_exit")"; \
-		sed -i '' -E 's/0x[0-9a-f]{6,}/0xADDR/g' "$$1.sout" "$$2.sout"; \
+		sed -i '' -E 's/0x[0-9a-f]{6,}/0xADDR/g' "$$1.sout" "$$2.sout"; $(STRIP_CARRIER_END) "$$1.sout" "$$2.sout"; \
 	done
 
 # Compile-fail trials: each is compiled alone in .fail/NAME/ with the leaf's lib/ beside it, so

@@ -1,0 +1,2 @@
+// 64 KiB and 1 MiB only (the memory of the small sizes, `make measure`)
+fn last_seq() -> int64 { 2 }

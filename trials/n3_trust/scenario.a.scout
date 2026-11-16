@@ -1,5 +1,5 @@
 [trust] TEST ONLY: plaintext transport, peer identity is a test-supplied stand-in for the certificate fingerprint
-[trust] mode trust, listen 127.0.0.1:47501, whitelist 2 entries, pinned servers 0, frame_size_max 4096 (build limit 4096 until N1), args_len_max 4096, term_depth_max 32, call_timeout_ms 400, first_frame_timeout_ms 500, suspicion_limit 8, token_bytes 48, token_ttl_sec 300, one request per connection (B1)
+[trust] mode trust, listen 127.0.0.1:47501, whitelist 2 entries, pinned servers 0, frame_size_max 4096, args_len_max 4096, term_depth_max 32, call_timeout_ms 400, first_frame_timeout_ms 500, suspicion_limit 8, token_bytes 48, token_ttl_sec 300, one request per connection (B1)
 [trust] whitelist: certificate z.cert is missing or unreadable, entry skipped (as SEMP does)
 [trust] listening on 127.0.0.1:47501
 [trust audit] token_issued fp=9fecef522decaee2ee95bcf1e0fb3db6b186fe92191395877af91ec2ff0968aafbf246a408690da60dac84c68ccbf6fe51b31016138b425985fe3d21b592c344 new token for this fingerprint (the token itself is never logged) 0

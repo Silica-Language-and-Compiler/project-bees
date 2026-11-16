@@ -1,0 +1,156 @@
+// ---- node b (N4.1, TRUST over mutual TLS 1.3; the N3 role of the same name with node a's port and the raw peers on a TLS link):
+// a TRUST client. A driver actor runs numbered steps one after another; each step is a trpc call or cast, or
+// a raw connection that speaks the wire itself (a hostile peer), and every outcome comes back to the driver as one message
+// { req, status, value } and is printed as one line.
+fn region_dump_limit() -> int64 { 0 }
+// every report but an ordinary stop_self(:normal) goes to stderr (none is expected: a golden that shows one is a finding)
+fn reporter(report: string, st: int64) -> (:no_reply, int64) {
+    sequence proc[device_io]
+        _: atom <- case contains(report, "reason:          :normal") of { true -> :ok; false -> println_stderr(report) }
+    produces pure (:no_reply, st) end
+}
+fn start_reporter() -> atom {
+    sequence proc[concurrency]
+        r: actor_ref <- spawn(0, reporter, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        ok: atom <- register_failure_reporter(r)
+    produces pure ok end
+}
+fn say(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+fn server() -> string { "127.0.0.1:47601" }
+fn ints1(a: int64) -> string {
+    sequence proc[mem(normal)]
+        xs: List[int64, mem(normal)] <- [a]
+    produces pure bees_trust_frame@enc_args_ints(xs) end
+}
+fn ints2(a: int64, b: int64) -> string {
+    sequence proc[mem(normal)]
+        xs: List[int64, mem(normal)] <- [a, b]
+    produces pure bees_trust_frame@enc_args_ints(xs) end
+}
+fn ints3(a: int64, b: int64, c: int64) -> string {
+    sequence proc[mem(normal)]
+        xs: List[int64, mem(normal)] <- [a, b, c]
+    produces pure bees_trust_frame@enc_args_ints(xs) end
+}
+fn no_args() -> string {
+    sequence proc[mem(normal)]
+        xs: List[int64, mem(normal)] <- empty[int64, mem(normal)]()
+    produces pure bees_trust_frame@enc_args_ints(xs) end
+}
+fn strs1(s: string) -> string {
+    sequence proc[mem(normal), transport]
+        xs: List[string, mem(normal)] <- [s];
+        e: string <- encode((:etf), xs);
+        out: string <- byte_slice(e, 1, length_bytes(e))
+    produces pure out end
+}
+fn bs(xs: List[int64, mem(normal)]) -> string {
+    sequence proc[mem(normal), transport]
+        s: string <- bytes_of(xs)
+    produces pure s end
+}
+fn rep(b: int64, n: int64, acc: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    case n <= 0 of {
+        true -> acc;
+        false -> {
+            sequence proc[mem(normal)]
+                nxt: List[int64, mem(normal)] <- prepend[int64, mem(normal)](b, acc)
+            produces pure rep(b, n - 1, nxt) end
+        }
+    }
+}
+fn repeated(b: int64, n: int64) -> string {
+    sequence proc[mem(normal)]
+        e: List[int64, mem(normal)] <- empty[int64, mem(normal)]()
+    produces pure bs(rep(b, n, e)) end
+}
+fn cat(a: string, b: string) -> string { bees_trust_frame@cat2(a, b) }
+fn f4(body: string) -> string { bees_trust_frame@frame4(body) }
+// a value span as text: an integer or a binary (the demo's results); the language's decode
+fn value_text(v: string) -> string {
+    case bees_trust_frame@dec_int(v) of {
+        (:ok, n: int64) -> concat("int ", bees_trust_frame@int_text(n));
+        (:rejected, _w: atom) -> case bees_trust_frame@dec_str(v) of {
+            (:ok, s: string) -> concat("binary ", s);
+            (:rejected, _w2: atom) -> concat("bytes ", bees_trust_frame@int_text(length_bytes(v)))
+        }
+    }
+}
+fn outcome(r: { req: int64, what: atom, value: string }) -> string {
+    case r.what == bees_atoms@a_ok() of {
+        true -> concat("{ok, ", concat(value_text(r.value), "}"));
+        false -> case r.what == bees_atoms@a_cast() of {
+            true -> "{ok, cast}";
+            false -> case length_bytes(r.value) > 0 of {
+                true -> concat(concat("{error, ", bees_atoms@spelling(r.what)), concat("}, bytes received ", r.value));
+                false -> concat(concat("{error, ", bees_atoms@spelling(r.what)), "}")
+            }
+        }
+    }
+}
+// a raw peer (N4.1: on a TLS link, whose audit lines it prints): it owns a carrier to node a, sends its script (raw bytes: the stand-in fingerprint and frames) once connected,
+// counts what comes back, and tells the driver when the server closes (loud: also prints when bytes first arrive)
+fn raw_credit(c: dangerous_actor_ref) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(c, (:credit, 1) impl ActorMessage {})
+    produces pure ok end
+}
+fn raw_tell(st: { c: dangerous_actor_ref, tx: actor_ref, driver: actor_ref, step: int64, got: int64, done: boolean, loud: boolean, out: string }) -> boolean {
+    sequence proc[concurrency]
+        m: { req: int64, what: atom, value: string } <- { req: st.step, what: bees_atoms@a_closed(), value: bees_trust_frame@int_text(st.got) };
+        ok: boolean <- cast(st.driver, m impl ActorMessage {})
+    produces pure ok end
+}
+fn raw_event(msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | (:bees, int64, string, string, int64), st: { c: dangerous_actor_ref, tx: actor_ref, driver: actor_ref, step: int64, got: int64, done: boolean, loud: boolean, out: string }) -> int64 {
+    case msg of {
+        (:link_up, _i: string) -> {
+            sequence
+                _: boolean <- trust_raw_send(st.tx, st.out);
+                _: boolean <- raw_credit(st.c)
+            produces pure 0 end
+        };
+        (:rx, seg: string) -> {
+            sequence
+                _: boolean <- raw_credit(st.c);
+                _: atom <- case st.loud and st.got == 0 of { true -> say("raw peer: connected, the server answered hello"); false -> :ok }
+            produces pure length_bytes(seg) end
+        };
+        (:tx_credit, _n: int64) -> 0;
+        (:tx_failed, _w: atom) -> 0;
+        // over TLS the link's own audit lines come to its owner (an FFI worker may not print, E2103)
+        (:bees, _k: int64, ev: string, what: string, _z: int64) -> { sequence _: atom <- bees_trust_frame@audit(ev, "-", what, st.step) produces pure 0 end };
+        (:link_down, _w2: atom) -> case st.done of {
+            true -> 0;
+            false -> {
+                sequence
+                    _: atom <- case st.loud of { true -> say("raw peer: the server closed the connection"); false -> :ok };
+                    _: boolean <- raw_tell(st);
+                    _: boolean <- trust_raw_end(st.tx)
+                produces pure 0 - 1 end
+            }
+        }
+    }
+}
+fn raw(msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | (:bees, int64, string, string, int64), st: { c: dangerous_actor_ref, tx: actor_ref, driver: actor_ref, step: int64, got: int64, done: boolean, loud: boolean, out: string }) -> (:no_reply, { c: dangerous_actor_ref, tx: actor_ref, driver: actor_ref, step: int64, got: int64, done: boolean, loud: boolean, out: string }) {
+    sequence
+        n: int64 <- raw_event(msg, st)
+    produces pure (:no_reply, { c: st.c, tx: st.tx, driver: st.driver, step: st.step, got: case n > 0 of { true -> st.got + n; false -> st.got }, done: st.done or n < 0, loud: st.loud, out: st.out }) end
+}
+fn raw_open(step: int64, out: string, driver: actor_ref, loud: boolean) -> atom {
+    sequence proc[concurrency]
+        c: dangerous_actor_ref <- trust_link(carrier_new());
+        t: actor_ref <- trust_raw_writer(c);
+        r: actor_ref <- spawn({ c: c, tx: t, driver: driver, step: step, got: 0, done: false, loud: loud, out: out }, raw, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: boolean <- cast(c, (:open, r, server()) impl ActorMessage {})
+    produces pure :ok end
+}
+fn wake(me: actor_ref, ms: uint64, step: int64) -> atom {
+    sequence proc[concurrency]
+        m: { req: int64, what: atom, value: string } <- { req: step, what: bees_atoms@a_ok(), value: "go" };
+        t: timer_ref <- send_after(ms, me, m impl ActorMessage {})
+    produces pure :ok end
+}

@@ -1,0 +1,129 @@
+// BEES TRUST mode (N4.1): the Silica face of the TLS engine (native/tls/silica_bees_tls.c; sidecar
+// dangerous_exposure_source/tls/), over the programmer-installed OpenSSL (D40). The engine owns no transport: ciphertext in
+// (feed) and out (pull), plaintext in (write) and out (read), each through memory, so the language's (:tcp) carrier stays the
+// only transport and TLS sits between it and TRUST's framing (spike S12, R9). Every answer is the tagged result
+// { tag, value, error_code } (tag 0 ok, 1 error, 2 nothing yet, 3 closed by the peer); bytes come back through take/1 as a
+// string. The raw bindings are called only through the bound-first adapters below (SD-15), and the adapters only from the TLS
+// worker's external_danger sequence (dangerous_bees_tls@ttls), so every result is FFI-derived and tainted (SD-24).
+// TRUST's own edge: nothing here is shared with BEAM mode (D36).
+module dangerous_bees_tls_native;
+
+wrapper_meta "dangerous_exposure_source/tls/silica_bees_tls_wrapper.meta";
+
+export openssl_version/0;
+export open_conn/2;
+export feed/2;
+export write_plain/2;
+export pull/1;
+export read_plain/2;
+export facts/1;
+export peer_fp/1;
+export discard/1;
+export close_conn/1;
+export free_conn/1;
+export take/1;
+
+// The FFI carries a pointer-plus-length pair only as a binding's sole parameters, so the scalars go first (set_args; kept
+// per worker thread, used by the next call in the same dispatch).
+foreign c_wrapper "bees_tls_set_args"
+fn set_args_raw(a: int64, b: int64) -> { tag: int64, value: int64, error_code: int64 };
+foreign c_wrapper "bees_tls_version"
+fn version_raw(unused: int64) -> { tag: int64, value: int64, error_code: int64 };
+foreign c_wrapper "bees_tls_open"
+fn open_raw(spec_ptr: uint8, spec_len: uint64) -> { tag: int64, value: int64, error_code: int64 };
+foreign c_wrapper "bees_tls_feed"
+fn feed_raw(data_ptr: uint8, data_len: uint64) -> { tag: int64, value: int64, error_code: int64 };
+foreign c_wrapper "bees_tls_write"
+fn write_raw(data_ptr: uint8, data_len: uint64) -> { tag: int64, value: int64, error_code: int64 };
+foreign c_wrapper "bees_tls_pull"
+fn pull_raw(handle: int64) -> { tag: int64, value: int64, error_code: int64 };
+foreign c_wrapper "bees_tls_read"
+fn read_raw(handle: int64, max: int64) -> { tag: int64, value: int64, error_code: int64 };
+foreign c_wrapper "bees_tls_facts"
+fn facts_raw(handle: int64) -> { tag: int64, value: int64, error_code: int64 };
+foreign c_wrapper "bees_tls_peer_fp"
+fn peer_fp_raw(handle: int64) -> { tag: int64, value: int64, error_code: int64 };
+foreign c_wrapper "bees_tls_discard"
+fn discard_raw(handle: int64) -> { tag: int64, value: int64, error_code: int64 };
+foreign c_wrapper "bees_tls_close"
+fn close_raw(handle: int64) -> { tag: int64, value: int64, error_code: int64 };
+foreign c_wrapper "bees_tls_free"
+fn free_raw(handle: int64) -> { tag: int64, value: int64, error_code: int64 };
+foreign c_wrapper "bees_tls_take"
+fn take_raw(handle: int64) -> { tag: int64, text_ptr: uint8, text_len: uint64, error_code: int64 };
+
+// the installed OpenSSL's version number (0xMNNFFPPS); the link decides whether it may run (the stated minimum is 4.1.0)
+fn openssl_version() -> { tag: int64, value: int64, error_code: int64 } {
+    r: { tag: int64, value: int64, error_code: int64 } <- version_raw(0);
+    r
+}
+
+// role 1 client, 2 server; spec: certfile, keyfile and cacertfile, each ended by a NUL byte (bees_trust_conf@tls_server_spec,
+// tls_client_spec). A client's ClientHello is ready to pull at once. value: the connection's handle (the engine's address of it,
+// held only by the link and its writer).
+fn open_conn(role: int64, spec: string) -> { tag: int64, value: int64, error_code: int64 } {
+    _: { tag: int64, value: int64, error_code: int64 } <- set_args_raw(role, 0);
+    r: { tag: int64, value: int64, error_code: int64 } <- open_raw(spec);
+    r
+}
+
+// ciphertext from the peer; while the handshake runs it is driven. value: the status bits (silica_bees_tls.c)
+fn feed(h: int64, data: string) -> { tag: int64, value: int64, error_code: int64 } {
+    _: { tag: int64, value: int64, error_code: int64 } <- set_args_raw(h, 0);
+    r: { tag: int64, value: int64, error_code: int64 } <- feed_raw(data);
+    r
+}
+
+fn write_plain(h: int64, data: string) -> { tag: int64, value: int64, error_code: int64 } {
+    _: { tag: int64, value: int64, error_code: int64 } <- set_args_raw(h, 0);
+    r: { tag: int64, value: int64, error_code: int64 } <- write_raw(data);
+    r
+}
+
+// pending ciphertext for the peer into this thread's span; value: its length
+fn pull(h: int64) -> { tag: int64, value: int64, error_code: int64 } {
+    r: { tag: int64, value: int64, error_code: int64 } <- pull_raw(h);
+    r
+}
+
+// plaintext from the peer into this thread's span (a server's first answer is the peer's 64-byte fingerprint)
+fn read_plain(h: int64, max: int64) -> { tag: int64, value: int64, error_code: int64 } {
+    r: { tag: int64, value: int64, error_code: int64 } <- read_raw(h, max);
+    r
+}
+
+// what a finished handshake shows, packed: alpn_is_trust_1 + 2 * has_certificate + 4 * verify_result + 1024 * suite_id
+// + 2^26 * negotiated_group (silica_bees_tls.c); the link judges it
+fn facts(h: int64) -> { tag: int64, value: int64, error_code: int64 } {
+    r: { tag: int64, value: int64, error_code: int64 } <- facts_raw(h);
+    r
+}
+
+// the SHA-512 of the peer certificate's DER into this thread's span (value 64)
+fn peer_fp(h: int64) -> { tag: int64, value: int64, error_code: int64 } {
+    r: { tag: int64, value: int64, error_code: int64 } <- peer_fp_raw(h);
+    r
+}
+
+// drop the ciphertext not yet pulled (a client refusing the server keeps its Finished)
+fn discard(h: int64) -> { tag: int64, value: int64, error_code: int64 } {
+    r: { tag: int64, value: int64, error_code: int64 } <- discard_raw(h);
+    r
+}
+
+// close_notify into this thread's span (value: its length) and the connection freed
+fn close_conn(h: int64) -> { tag: int64, value: int64, error_code: int64 } {
+    r: { tag: int64, value: int64, error_code: int64 } <- close_raw(h);
+    r
+}
+
+fn free_conn(h: int64) -> { tag: int64, value: int64, error_code: int64 } {
+    r: { tag: int64, value: int64, error_code: int64 } <- free_raw(h);
+    r
+}
+
+// the bytes of the last pull, read or close on this worker
+fn take(h: int64) -> string {
+    out: string <- take_raw(h);
+    out
+}

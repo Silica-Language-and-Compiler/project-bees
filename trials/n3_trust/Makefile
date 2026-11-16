@@ -27,7 +27,7 @@ BOOTS := boot_missing|g1 boot_unreadable|g2
 
 SCEN_QUOTED := $(foreach s,$(SCENARIOS),'$(s)')
 BOOT_QUOTED := $(foreach s,$(BOOTS),'$(s)')
-CLEAN_OUT = sed -i '' -E -e 's/0x[0-9a-f]{6,}/0xADDR/g' -e '/^\[silica\] root actor exited/d'
+CLEAN_OUT = clean_out() { sed -i '' -E -e 's/0x[0-9a-f]{6,}/0xADDR/g' "$$@" && $(STRIP_ROOT_EXIT) "$$@"; }; clean_out
 .PHONY: build run integrate record-golden clean measure
 # a node leaf is built twice the first time: its root units are generated at parse time, after make has listed the entries
 build:

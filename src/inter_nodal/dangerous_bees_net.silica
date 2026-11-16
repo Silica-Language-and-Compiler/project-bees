@@ -136,7 +136,7 @@ fn asm(
     sequence
         un: (:more, { mode: atom, expected: int64, pending: string }) | (:frame, string, { mode: atom, expected: int64, pending: string }) | (:rejected, atom) <- case a.hs of {
             true -> bees_dist@unframe2(a.rx, seg, bees_dist@max_handshake());
-            false -> wireframe@unframe(a.rx, seg, bees_dist@max_body())
+            false -> wireframe@unframe(a.rx, seg, bees_peers@frame_max())
         };
         rx2: { mode: atom, expected: int64, pending: string } <- case un of {
             (:more, r1: { mode: atom, expected: int64, pending: string }) -> {

@@ -16,6 +16,7 @@ kit:
 	@python3 "$(BEES_ROOT)/tools/test_check_lowering_choices.py" 2>&1 | tail -3
 	@python3 "$(BEES_ROOT)/tools/test_bees_wire_gen.py" 2>&1 | tail -3
 	@python3 "$(BEES_ROOT)/tools/test_bees_dist.py" 2>&1 | tail -3
+	@python3 "$(BEES_ROOT)/tools/test_bees_conf.py" 2>&1 | tail -3
 
 record-golden: check-compiler
 	@$(MAKE) -C trials record-golden

@@ -1,0 +1,6 @@
+%% N1 node n: dials node a by the name localhost, resolved at boot by the BEES resolver edge (@IP@ is this machine's non-loopback IPv4 address, written by the leaf's Makefile)
+[ {mode, beam},
+  {node, [{name, "b@localhost"}]},
+  {beam, [{transport, tcp}, {auth, cookie}, {cookie_file, "../../../n2_dist/cookie"}, {listen_address, "127.0.0.1"},
+          {listen_port, 47463}, {epmd, none}, {frame_size_max, 4096},
+          {peers, [{"a@localhost", [{host, "localhost"}, {port, 47451}, {role, dial}]}]}]} ].

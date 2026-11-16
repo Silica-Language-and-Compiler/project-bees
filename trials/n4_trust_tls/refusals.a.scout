@@ -1,0 +1,28 @@
+[trust] transport: mutual TLS 1.3 over the programmer-installed OpenSSL; peer identity: the SHA-512 of its certificate
+[trust] mode trust, transport mutual TLS 1.3 (ALPN trust/1, X25519MLKEM768, peers by the SHA-512 of their certificate), listen 127.0.0.1:47601, whitelist 3 entries, pinned servers 0, frame_size_max 4096, args_len_max 4096, term_depth_max 32, call_timeout_ms 400, first_frame_timeout_ms 500, suspicion_limit 8, token_bytes 48, token_ttl_sec 300, one request per connection (B1)
+[trust] whitelist: certificate gone.pem is missing or unreadable, entry skipped (as SEMP does)
+[trust] listening on 127.0.0.1:47601
+case 1: no client certificate
+[trust audit] tls_verify_failed fp=- the peer presented no certificate, as server 0
+case 2: TLS 1.2 only
+[trust audit] tls_handshake_failed fp=- the TLS 1.3 handshake failed (alert, version, group, suite or signature outside the TRUST profile), as server 1
+case 3: classical key exchange only (X25519)
+[trust audit] tls_handshake_failed fp=- the TLS 1.3 handshake failed (alert, version, group, suite or signature outside the TRUST profile), as server 2
+case 4: ALPN h2 instead of trust/1
+[trust audit] alpn_mismatch fp=- the peer did not agree on ALPN trust/1, as server 3
+case 5: no ALPN
+[trust audit] alpn_mismatch fp=- the peer did not agree on ALPN trust/1, as server 4
+case 6: a certificate from another CA (r.pem)
+[trust audit] tls_verify_failed fp=- the peer certificate does not verify against cacertfile (another CA, expired or invalid), as server 5
+case 7: an expired certificate (x.pem)
+[trust audit] tls_verify_failed fp=- the peer certificate does not verify against cacertfile (another CA, expired or invalid), as server 6
+case 8: an RSA certificate (z.pem; the profile signs with Ed25519 or ECDSA P-256)
+[trust audit] tls_verify_failed fp=- the peer presented no certificate, as server 7
+case 9: a CA-signed certificate in no whitelist entry (u.pem)
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 8
+[trust audit] whitelist_reject fp=e31334560dfa956693f0a32ec1747cba8bc38bfce23b524b0fc51f5cd84b06bf85093671b3b23da296ea1adc085d5626f600dd7868d822095a4b5b5155d41f02 fingerprint not in the whitelist, connection closed 8
+case 10: a whitelisted ECDSA P-256 certificate (p.pem) that sends no TRUST frame
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 9
+[trust audit] timeout fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 stage first_frame 9
+[trust audit] suspicion fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 raised by timeout 1
+exit=0

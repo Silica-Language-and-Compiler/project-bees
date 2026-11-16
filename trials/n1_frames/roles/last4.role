@@ -1,0 +1,2 @@
+// all four frames: 64 KiB, 1 MiB, 8 MiB and the 10 MiB one above node a's cap
+fn last_seq() -> int64 { 4 }

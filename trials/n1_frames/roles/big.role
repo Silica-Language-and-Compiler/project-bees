@@ -1,0 +1,62 @@
+// ---- N1 node b: sends { seq, blob } to blobs (on node a) with blobs of 64 KiB, 1 MiB and 8 MiB, one at a time, each after the
+// previous answer came back whole; then one of 10 MiB, above node a's frame_size_max of 9 MiB, which node a must refuse before it
+// stores the frame (it closes the link; this node's proxies end). `time` lines (milliseconds from the cast to the answer) vary
+// between runs and are dropped from the golden by the trial's Makefile. last_seq() (last4.role, last2.role) says how many are sent:
+// 4 for the scenario, 2 (64 KiB and 1 MiB only) for the memory measurement of the small sizes.
+fn mk(s: string, n: int64) -> string {
+    case length_bytes(s) >= n of {
+        true -> substring(s, 0, n);
+        false -> mk(concat(s, s), n)
+    }
+}
+fn size_of(seq: int64) -> int64 {
+    case seq > last_seq() of {
+        true -> 0;
+        false -> case seq of { 1 -> 65536; 2 -> 1048576; 3 -> 8388608; 4 -> 10485760; _: int64 -> 0 }
+    }
+}
+fn answers(msg: { seq: int64, blob: string }, st: { t0: int64 }) -> (:no_reply, { t0: int64 }) {
+    sequence proc[concurrency]
+        now: int64 <- monotonic_time();
+        _: atom <- case msg.seq > 0 of {
+            true -> say_num("client: answer seq ", msg.seq);
+            false -> :ok
+        };
+        _: atom <- case msg.seq > 0 of {
+            true -> say_num("client: answer len ", length_bytes(msg.blob));
+            false -> :ok
+        };
+        _: atom <- case msg.seq > 0 of {
+            true -> say_num("time ms ", (now - st.t0) / 1000000);
+            false -> :ok
+        };
+        next: int64 <- msg.seq + 1;
+        blob: string <- mk("x", size_of(next));
+        m: { seq: int64, blob: string } <- { seq: next, blob: blob };
+        t1: int64 <- monotonic_time();
+        _: boolean <- case size_of(next) > 0 of {
+            true -> cast_registered(bees_atoms@a_blobs(), m impl ActorMessage {});
+            false -> true
+        };
+        _: atom <- case size_of(next) > 0 of {
+            true -> say_num("client: sent seq ", next);
+            false -> :ok
+        }
+    produces pure (:no_reply, { t0: t1 }) end
+}
+fn kick(msg: int64, st: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        m: { seq: int64, blob: string } <- { seq: 0, blob: "" };
+        _: boolean <- cast_registered(bees_atoms@a_answers(), m impl ActorMessage {})
+    produces pure (:no_reply, st + 1) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- start_reporter();
+        a: actor_ref <- spawn_registered({ t0: 0 }, answers, bees_atoms@a_answers(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        n: actor_ref <- node_start(open_ms(), io_ms(), tick_ms());
+        k: actor_ref <- spawn(0, kick, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: timer_ref <- send_after(1500, k, 0 impl ActorMessage {});
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

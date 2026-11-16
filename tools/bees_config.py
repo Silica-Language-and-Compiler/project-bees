@@ -3,7 +3,7 @@
 
 Commands
 
-    bees_config.py generate -o OUT_DIR MANIFEST...   everything below, from one manifest list
+    bees_config.py generate -o OUT_DIR [--config BEES_CONFIG] MANIFEST...   everything below, from one manifest list
     bees_config.py wire     -o OUT_DIR MANIFEST...   only the wire codecs (.wire manifests; bees_wire_gen.py)
     bees_config.py atoms    -o OUT_DIR MANIFEST...   only bees_atoms (D30)
     bees_config.py check    UNIT...                  atom-literal lint
@@ -29,7 +29,11 @@ A compiler writes manifests next to its units. Three kinds, told apart by extens
                    when a `.wire` manifest has a `node` line (M3: node, peer, remote and local lines; the peer table,
                    the proxies and the deliverers, and the message codecs over the language's derived
                    encode((:etf), value) / decode((:etf), frame, { limits }) as enc_<name> / dec_<name>; format in
-                   tools/bees_dist_gen.py).
+                   tools/bees_dist_gen.py). With --config the program's bees.config is read by the one reader,
+                   tools/bees_conf.py (N0.2, a BUILD-TIME STAND-IN for the boot-time reader): its values win over the
+                   manifest's (the link's address and role, the frame cap that becomes the decode limits and the
+                   unframe cap) and a violation stops the build with `bees.config:LINE: PATH: MESSAGE` (exit 1). Without
+                   it the node is auth none, a loopback-only test setting: a non-loopback peer host is refused (N1).
   bees_wire_tables.silica, bees_wire_ints.silica, bees_wire_msgs.silica
                    when a `.wire` file exists WITHOUT node lines (the m1_wire_* trials): the hand-written typed ETF
                    codec's byte tables, integer codecs and per-message encoders and decoders (enc_<name> / dec_<name>),
@@ -552,20 +556,34 @@ def gen_wire(out_dir, manifests):
     return 0
 
 
-def gen_peers(out_dir, wires):
-    """bees_peers.silica (M3) when a .wire manifest has a `node` line."""
+def gen_peers(out_dir, wires, cfg=None):
+    """bees_peers.silica (M3) when a .wire manifest has a `node` line; cfg: the program's bees.config or None."""
     import bees_dist_gen
+    import bees_conf
     if not bees_dist_gen.has_dist(wires):
         return 0
     try:
-        bees_dist_gen.generate(out_dir, wires)
+        d = bees_dist_gen.parse(wires)
+        bees_dist_gen.check(d, bees_dist_gen.W.collect(wires, warn=False))
+        conf = None
+        if cfg:
+            conf = bees_conf.validate(cfg, d)
+            if conf["mode"] != "beam":
+                raise bees_conf.ConfError(1, "mode", "trust, but this program's manifest has node lines (a BEAM-mode node)",
+                                          os.path.basename(cfg))
+        else:
+            bees_conf.manifest_only(d)
+        bees_dist_gen.generate(out_dir, wires, bees_conf.m3_link(conf, d))
+    except bees_conf.ConfError as e:
+        print(e.text, file=sys.stderr)
+        return 1
     except (bees_dist_gen.DistError, bees_dist_gen.W.WireError) as e:
         print("bees_config: " + str(e), file=sys.stderr)
         return 1
     return 0
 
 
-def generate(out_dir, manifests):
+def generate(out_dir, manifests, cfg=None):
     try:
         atoms, modules, pools = collect(manifests)
     except ManifestError as e:
@@ -597,7 +615,7 @@ def generate(out_dir, manifests):
         if not bees_dist_gen.has_dist(wires):
             rc = gen_wire(out_dir, manifests)
     if rc == 0:
-        rc = gen_peers(out_dir, wires)
+        rc = gen_peers(out_dir, wires, cfg)
     return rc
 
 
@@ -636,7 +654,10 @@ def main(argv):
             return 1
     if len(argv) >= 4 and argv[1] == "generate" and argv[2] == "-o":
         os.makedirs(argv[3], exist_ok=True)
-        return generate(argv[3], argv[4:])
+        rest, cfg = argv[4:], None
+        if len(rest) >= 2 and rest[0] == "--config":
+            cfg, rest = rest[1], rest[2:]
+        return generate(argv[3], rest, cfg)
     if len(argv) >= 4 and argv[1] == "wire" and argv[2] == "-o":
         return gen_wire(argv[3], argv[4:])
     if len(argv) >= 3 and argv[1] == "check":

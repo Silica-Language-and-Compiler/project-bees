@@ -1,0 +1,91 @@
+link_library: "silica_bees_tls"
+
+wrapper bees_tls_set_args {
+    symbol: "bees_tls_set_args"
+    result: "tagged_result"
+    error_domain: "dangerous_bees_tls_native"
+}
+
+wrapper bees_tls_version {
+    symbol: "bees_tls_version"
+    result: "tagged_result"
+    error_domain: "dangerous_bees_tls_native"
+}
+
+wrapper bees_tls_open {
+    symbol: "bees_tls_open"
+    result: "tagged_result"
+    error_domain: "dangerous_bees_tls_native"
+    arguments: [
+        { name: "spec_ptr", lifetime: "borrowed", retain: false },
+        { name: "spec_len", role: "length", length_of: "spec_ptr" }
+    ]
+}
+
+wrapper bees_tls_feed {
+    symbol: "bees_tls_feed"
+    result: "tagged_result"
+    error_domain: "dangerous_bees_tls_native"
+    arguments: [
+        { name: "data_ptr", lifetime: "borrowed", retain: false },
+        { name: "data_len", role: "length", length_of: "data_ptr" }
+    ]
+}
+
+wrapper bees_tls_write {
+    symbol: "bees_tls_write"
+    result: "tagged_result"
+    error_domain: "dangerous_bees_tls_native"
+    arguments: [
+        { name: "data_ptr", lifetime: "borrowed", retain: false },
+        { name: "data_len", role: "length", length_of: "data_ptr" }
+    ]
+}
+
+wrapper bees_tls_pull {
+    symbol: "bees_tls_pull"
+    result: "tagged_result"
+    error_domain: "dangerous_bees_tls_native"
+}
+
+wrapper bees_tls_read {
+    symbol: "bees_tls_read"
+    result: "tagged_result"
+    error_domain: "dangerous_bees_tls_native"
+}
+
+wrapper bees_tls_facts {
+    symbol: "bees_tls_facts"
+    result: "tagged_result"
+    error_domain: "dangerous_bees_tls_native"
+}
+
+wrapper bees_tls_peer_fp {
+    symbol: "bees_tls_peer_fp"
+    result: "tagged_result"
+    error_domain: "dangerous_bees_tls_native"
+}
+
+wrapper bees_tls_discard {
+    symbol: "bees_tls_discard"
+    result: "tagged_result"
+    error_domain: "dangerous_bees_tls_native"
+}
+
+wrapper bees_tls_close {
+    symbol: "bees_tls_close"
+    result: "tagged_result"
+    error_domain: "dangerous_bees_tls_native"
+}
+
+wrapper bees_tls_free {
+    symbol: "bees_tls_free"
+    result: "tagged_result"
+    error_domain: "dangerous_bees_tls_native"
+}
+
+wrapper bees_tls_take {
+    symbol: "bees_tls_take"
+    result: "struct"
+    error_domain: "dangerous_bees_tls_native"
+}

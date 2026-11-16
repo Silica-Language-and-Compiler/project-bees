@@ -1,0 +1,5 @@
+[bees] mode=beam node=b@localhost transport=tcp auth=cookie creation=1 epmd=none epmd_port=4369 net_tick io_ms=60000 tick_ms=15000 link=a@localhost role=dial frame_size_max=4096
+[bees] BEAM mode: Erlang cookie authentication, no encryption (transport tcp, 127.0.0.1); a downgrade from TRUST
+[bees] resolve no-such-host.invalid: dns_error nodename nor servname provided, or not known
+late: 4 s passed
+exit=0

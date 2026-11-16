@@ -1,0 +1,10 @@
+// ---- BEES TRUST link, plaintext_test_only (N3; TEST ONLY): pasted by tools/bees_trust_gen.py into the root unit of a TRUST node
+// whose bees.config sets {plaintext_test_only, true}. A connection's link is the language's (:tcp) carrier itself, and the peer
+// identity is the test-supplied stand-in for the certificate fingerprint (R5). The TLS node gets bees_trust_link_tls.part.
+fn trust_link(c: dangerous_actor_ref) -> dangerous_actor_ref { c }
+// the listening link is the listening carrier itself
+fn trust_listen_link(c: dangerous_actor_ref, l: actor_ref, spec: string) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(c, (:open, l, spec) impl ActorMessage {})
+    produces pure ok end
+}

@@ -13,6 +13,14 @@
 
 The programmer obtains and installs these. BEES neither downloads, vendors nor builds them.
 
+**Enforced, with no exception (user ruling 2026-11-12):** on hosted platforms an OpenSSL older than 4.1.0 is refused three ways.
+`native/tls/silica_bees_tls.c` stops at compile time (`OPENSSL_VERSION_NUMBER < 0x40100000L`); `native/Makefile` refuses to build
+the TLS engine and says which OpenSSL it found (`OPENSSL_PREFIX`, default Homebrew's `/opt/homebrew/opt/openssl`, then
+`openssl@4`) and that 4.1.0 is the minimum; and a TRUST node's TLS link refuses at run time when the OpenSSL library it loaded is
+older (the engine reports `OpenSSL_version_num()`, the link decides). The trials that need TLS fail with the Makefile's message;
+they do not skip. BEAM-mode and plaintext (`plaintext_test_only`) TRUST programs do not use the engine. Verified on macOS (Apple
+Silicon) with OpenSSL 4.1.0 (23 Oct 2026, Homebrew).
+
 ## 2. How the minimum is chosen
 
 - **Hosted platforms (Apple, Linux):** the minimum is **the latest release that supports X25519MLKEM768**, the hybrid post-quantum key exchange that TRUST's TLS profile requires (spike S12, requirement R3). It is not the oldest release that supports it. When a newer release that supports it ships, this page is updated to that release.

@@ -1,7 +1,6 @@
 # The BEES configuration file: `bees.config`
 
-**Status: DESIGN, 2026-11-06 (roadmap D37), revised the same day for six user rulings (R1 to R6, listed in section 10). Nothing in this document is implemented.** **Update 2026-11-10 (N3): the `mode` check and the whole `trust` section are implemented by `tools/bees_config_trust.py`, the TRUST half of the reader, as a stand-in that reads the file (and the whitelist, pins and certificates) when the program is built and compiles in the values or the boot error (Silica cannot read files yet); see [spikes/N3-trust.md](spikes/N3-trust.md). To be merged with N2's BEAM half into N0.2's reader.** There is no reader, no validator and no
-`bees.config` in any trial. Milestone N0 ([mvp.md](mvp.md) section 5) builds it. What exists today is only the build-time
+**Status: DESIGN, 2026-11-06 (roadmap D37), revised the same day for six user rulings (R1 to R6, listed in section 10). Update 2026-11-10 (N0.2, N1): ONE reader implements this document, `tools/bees_conf.py` (the beam half of N2 and the trust half of N3 merged; `tools/bees_config_beam.py` and `tools/bees_config_trust.py` are now only generators that call it). It is a BUILD-TIME STAND-IN: Silica cannot read a file at boot, so the file (and the whitelist, pin file, certificates and the cookie file's checks) is read when the program is built and the verdict is compiled in; the design's boot-time reading is NOT built. Section 11 says which options a boot-time reader could read with no change to generated code, which ones today's Silica fixes at build time whatever reads the file, and proposes a native-edge file reader. What was the 4096-byte "build limit until N1" is gone: frame caps up to BEAM's 4294967295 are accepted and become the generated limits (section 5.4, mvp.md N1).** Milestone N0 ([mvp.md](mvp.md) section 5) builds it. Before 2026-11-10 what existed was only the build-time
 manifest (`node`, `creation`, `timing`, `peer`, `remote`, `local`, `message` lines; compiler guide B1a, N1) and the M3 to M5
 node layer, which takes its timing and peer from that manifest. Companion documents: [roadmap.md](roadmap.md) (D26, D36,
 D37, D38), [inter-nodal-modes.md](inter-nodal-modes.md) (the two modes), [mvp.md](mvp.md) (milestones N0 to N5),
@@ -82,9 +81,10 @@ the other is chosen; only the selected section is acted on.
   then a TRUST **standalone** node (no whitelist, so it accepts no inbound connection, and it can still act as a client), which exposes nothing. A
   program that needs BEAM mode (every M3 to M5 demo does) needs a file that says `{mode, beam}`.
 - BEAM mode prints a downgrade banner at boot and periodically, and tags log lines `mode=beam` (inter-nodal-modes section 2).
-- While N4 (TLS) is not closed, a `trust` node needs `{plaintext_test_only, true}` to start at all (section 5.3), because the
-  secure transport does not exist; it then binds loopback only and prints a banner. A `trust` node without it fails at boot
-  with "TRUST's TLS is not built".
+- **Since N4.1 (2026-11-12)** a `trust` node without `{plaintext_test_only, true}` speaks TRUST over mutual TLS 1.3 (the engine over
+  the programmer-installed OpenSSL, D40) and needs `tls_opts` with `certfile`, `keyfile` and `cacertfile`; every pinned server's
+  certificate must be readable (it is the pin). With `{plaintext_test_only, true}` it binds loopback only and prints the test-only
+  banner, as before. (Until 2026-11-12 a `trust` node without it failed at boot with "TRUST's TLS is not built".)
 
 ## 4. The reader and the validation rules
 
@@ -125,8 +125,15 @@ repaired, rounded or defaulted around a bad value. The rules:
    and cookie files that are readable by group or others are an error on hosted targets (OTP refuses a loose
    `.erlang.cookie` for the same reason).
 9. **Not built yet** is an error, not a downgrade: `transport tls` before the TLS engine exists; a `plaintext_test_only`
-   value on a non-loopback address; `trust` without plaintext before N4; a `frame_size_max` or `args_len_max` above what the
-   build implements (4096 bytes until N1 lifts it, section 5.4) is "not built yet" and is never clamped.
+   value on a non-loopback address; (`trust` without plaintext before N4: built since N4.1, 2026-11-12); an address the language's carrier cannot bind or dial
+   (N1: it binds 127.0.0.1 or every IPv4 interface, written `"0.0.0.0"`, and dials IPv4 literals; a dial host that is a name is
+   resolved at boot by BEES's resolver edge; IPv6 and binding one specific address are requests to Silica, silica-defects.md
+   SR-1 and SR-2). **Changed 2026-11-10 (N1):** a `frame_size_max` or `args_len_max` above 4096 is no longer "not built yet";
+   every value up to BEAM's 4294967295 is built (section 5.4). Nothing is ever clamped.
+   **Test settings (N1):** `beam.auth none` and `trust.plaintext_test_only` give no authentication and no encryption, so a
+   node with either listens and dials loopback addresses only (`127.0.0.0/8`, `::1`, `localhost`); any other address is refused
+   at build (the stand-in's boot) with `... is not a loopback address, and auth none is a loopback-only test setting ...`. A
+   node built from the manifest alone (no `bees.config`, M3's node) is auth none and follows the same rule.
 10. **The node name** equals the manifest's `node` line (section 2).
 11. On success BEES logs a **sanitized summary** of the effective configuration (every value except file contents, cookies,
     tokens and key paths' contents). Secrets are never printed.
@@ -147,8 +154,8 @@ doc, **H** `include/semp.hrl`, or a file and line of `src/`. "BEES" means SEMP h
 ### 5.2 `beam` (BEAM mode, the OTP distribution protocol; D36)
 
 These are the `bees_dist` options of the earlier inter-nodal-modes section 1.3, plus what the cookie handshake, EPMD, ticks
-and the transport addresses need. None of the cookie, EPMD or non-loopback parts is built (N1, N2); today the node layer
-reads only the manifest.
+and the transport addresses need. The cookie and EPMD parts are built (N2); non-loopback addresses are built as far as the
+language's carrier allows (N1: rule 9). The values are read by `tools/bees_conf.py` at build time (section 11).
 
 | Option | Type | Default | Bounds | Notes |
 | --- | --- | --- | --- | --- |
@@ -164,7 +171,7 @@ reads only the manifest.
 | `peers` | list of `{"name@host", [{host, S}, {port, N or epmd}, {role, dial or listen}]}` | the manifest's `peer` lines | each name is listed in the manifest (D16); `port` 1 to 65535 or `epmd` | `epmd` as a port means look it up. Host is a literal or a name resolved through DNS (N1). |
 | `spawn` | `none`, `allowlist`, `any` | `none` | closed set | remote spawn, inter-nodal-modes 4.5; takes effect at L3 (B4, after 1.0); validated now. |
 | `spawn_allowlist` | list of `{Module, Function, Arity}` atoms and integer | `[]` | at most 1024 entries (B) | only with `spawn allowlist`. |
-| `frame_size_max` | integer (bytes) | 4294967295, BEAM's packet limit (E; R1) | 512 to 4294967295 (E) | Ruled 2026-11-06 (R1): the frame cap is **the same as BEAM's**. The cap is on the whole distribution packet (the `112` byte, the control message and the payload). Until N1 lifts the codec the build implements **4096** only, and a larger value is "not built yet" (section 5.4; the effective default before N1 is 4096, printed in the boot summary). Passed to `wireframe@unframe` and `decode`. |
+| `frame_size_max` | integer (bytes) | 4294967295, BEAM's packet limit (E; R1) | 512 to 4294967295 (E) | Ruled 2026-11-06 (R1): the frame cap is **the same as BEAM's**. The cap is on the whole distribution packet (the `112` byte, the control message and the payload). **Built 2026-11-10 (N1):** every value up to 4294967295 is built; it is the `wireframe@unframe` cap and the send cap of the proxies (run time) and the `max_bytes` and `max_length` of the generated `decode` calls (build time, section 11); nothing is allocated for the cap itself. Trials that need N2's old cap write `{frame_size_max, 4096}`. |
 
 There is **no `args_len_max` in `beam`**: BEAM has no separate argument cap, a message is bounded by the packet.
 
@@ -198,7 +205,7 @@ and comes from inter-nodal-modes 3.8 where that table already has one.
 | `connect_stagger_ms` | integer | 250 | 0 to 5000 (B) | R "~250ms stagger"; not in the code. |
 | `client_handshake_timeout` | integer (ms) | 5000 | 1000 to 30000 (B, inter-nodal-modes 3.8) | `trust_conn.erl:50`. The name says "client" but the code applies it to the **server's** `ssl:handshake`; BEES applies it to both ends. |
 | `first_frame_timeout_ms` | integer | 2000 | 100 to 10000 (B, inter-nodal-modes 3.8) | R "First frame after TLS: 2s"; `trust_conn.erl:166`. |
-| `frame_size_max` | integer (bytes) | 4294967295, BEAM's packet limit (E; R1) | 512 to 4294967295 (E) | **Ruled 2026-11-06 (R1): "The frame and argument caps are to be the same as BEAM."** Not SEMP's 8 MiB (R and `semp_util.erl:recv_frame`), not M's 1 MiB default and 64 KiB lower bound. The same transitional rule as `beam.frame_size_max`: 4096 is all the build implements until N1 (section 5.4). A smaller value is the operator's choice, never a default. |
+| `frame_size_max` | integer (bytes) | 4294967295, BEAM's packet limit (E; R1) | 512 to 4294967295 (E) | **Ruled 2026-11-06 (R1): "The frame and argument caps are to be the same as BEAM."** Not SEMP's 8 MiB (R and `semp_util.erl:recv_frame`), not M's 1 MiB default and 64 KiB lower bound. Built up to 4294967295 (N1, as `beam.frame_size_max`): the `unframe` cap at run time, and with `args_len_max` and `term_depth_max` the generated `decode` limits of the MFA table (`tools/bees_trust_gen.py mfa --config`). A smaller value is the operator's choice, never a default. |
 | `args_len_max` | integer (bytes) | equal to `frame_size_max` (E; R1) | 0 to `frame_size_max` | **Ruled (R1).** BEAM has no separate argument cap (a term is bounded by the packet), so the default is the frame cap. SEMP: M 64 KiB, R 4 MiB. Same transitional rule. **Open: under discussion with the user:** how TRUST's `args` (and the result `value`), which SEMP carries as any-type terms, are handled; this option bounds their encoded size either way. |
 | `term_depth_max` | integer | 32 | 1 to 128 (B, inter-nodal-modes 3.8) | BEES (`bees_ingress` limit). **BEAM has no nesting limit** (section 5.4); the R1 ruling names the frame and argument caps, so this stays BEES's own guard. Whether it should also follow BEAM is a question for the user. |
 | `session` | map of five keys | all five defaults below | below | M "Session Map Keys"; sys.config example in M. Effective from N5; before it the node serves one request per connection and prints a notice when the values differ from `max_inflight 1, max_calls 1`. |
@@ -228,25 +235,27 @@ were not compared with a second build. **There are no `doc/` files in the instal
 Verification marks: **[run]** a small `erl -noshell -eval` experiment on 2026-11-06; **[src]** read in the installed `kernel-10.0/src`;
 **argued, not checked** means from the ETF specification or knowledge of the emulator and not confirmed here.
 
-| Limit | BEAM's | How verified | BEES today (until N1) |
+| Limit | BEAM's | How verified | BEES (updated 2026-11-10 for N1; was: 4096, depth 16, 256 elements, 1024-byte binaries) |
 | --- | --- | --- | --- |
-| Distribution packet (frame): length prefix | **4 bytes, up to 4294967295** (4 GiB minus 1), no fragmentation needed; BEES offers neither fragments nor the distribution header | the `{packet, 4}` option of the connection after the handshake: **[src]** `inet_tcp_dist.erl` lines 112 and 118 (the handshake itself uses `{packet, 2}`, lines 141 and 493, so a handshake message is at most 65535 bytes). The 4 GiB figure is the width of a 4-byte prefix: **argued, not checked** (no 4 GiB packet was sent) | **4096 bytes**, below BEAM's: known gap, closed in N1 |
+| Distribution packet (frame): length prefix | **4 bytes, up to 4294967295** (4 GiB minus 1), no fragmentation needed; BEES offers neither fragments nor the distribution header | the `{packet, 4}` option of the connection after the handshake: **[src]** `inet_tcp_dist.erl` lines 112 and 118 (the handshake itself uses `{packet, 2}`, lines 141 and 493, so a handshake message is at most 65535 bytes). The 4 GiB figure is the width of a 4-byte prefix: **argued, not checked** (no 4 GiB packet was sent) | **configurable up to 4294967295** (`frame_size_max`); 64 KiB, 1 MiB and 8 MiB frames round-trip between two processes (`trials/n1_frames`); the cap is checked from the 4-byte length before a byte of the frame is stored (`trials/n1_limits`). Memory: a frame is held whole while it is assembled, about 75 times its size at the peak for 8 MiB (SD-35; mvp.md N1) |
 | Send-side buffering | 1,048,576 bytes busy limit (`dist_buf_busy_limit`), back-pressure on the sender, **not a message-size cap** | **[run]** `erlang:system_info(dist_buf_busy_limit)` | none |
 | Atom length | **255 characters** (a UTF-8 atom may take up to 1020 bytes; the length byte of SMALL_ATOM_UTF8 is at most 255 bytes) | **[run]** `list_to_atom` of 255 characters works, of 256 raises; `ATOM_UTF8_EXT` of 255 two-byte characters (510 bytes) accepted, of 256 characters refused; `ATOM_EXT` of 256 refused | 255 **bytes**, ASCII only: equal to BEAM's for ASCII text, below it for non-ASCII |
-| Tuple arity | **16777215** (2^24 minus 1) | **[run]** `make_tuple(16777215, 0)` works and round-trips through `term_to_binary`/`binary_to_term`; arity 16777216 raises `system_limit`/`badarg`, also as a `LARGE_TUPLE_EXT` | record fields only; a skipped tuple at most 256: below BEAM's |
-| List length | no fixed limit below memory; the ETF count is 32 bits (up to 4294967295) | **[run]** a 10,000,000-element list round-trips; a LIST_EXT count of 4294967295 with no elements behind it is refused. The 32-bit width: **argued, not checked** | **256** elements: below |
+| Tuple arity | **16777215** (2^24 minus 1) | **[run]** `make_tuple(16777215, 0)` works and round-trips through `term_to_binary`/`binary_to_term`; arity 16777216 raises `system_limit`/`badarg`, also as a `LARGE_TUPLE_EXT` | a typed message's tuples have their declared arity (the language's decode; the M1b codec's 256 for a skipped tuple no longer applies to node programs) |
+| List length | no fixed limit below memory; the ETF count is 32 bits (up to 4294967295) | **[run]** a 10,000,000-element list round-trips; a LIST_EXT count of 4294967295 with no elements behind it is refused. The 32-bit width: **argued, not checked** | N1: `max_length` of the generated decode is the frame cap, so a list is bounded only by the frame (a list longer than its frame cannot exist) |
 | Map size | no fixed limit below memory; 32-bit arity in ETF | **[run]** a 1,000,000-key map round-trips; larger and the width: **argued, not checked** | maps only as records of declared keys: below |
-| Binary size | up to the packet: a binary in a term is at most 4294967295 bytes (32-bit length) | **[run]** a 1 GiB binary encodes (1,073,741,830 bytes); above that **argued, not checked** | **1024** bytes: below |
-| Nesting depth | **no limit** other than memory | **[run]** 5,000,000 nested one-tuples round-trip | **16** levels: below; `term_depth_max` (TRUST, default 32) is BEES's own guard |
-| Big integer | **4,194,239 bits** in this build (2^4194239 minus 1 encodes, one more bit raises `system_limit`); in ETF `SMALL_BIG_EXT` carries up to 255 digit bytes and `LARGE_BIG_EXT` has a 32-bit count, which the VM limit overrides | **[run]** binary search with `term_to_binary`; `LARGE_BIG_EXT` of 16,777,216 digit bytes refused. The documented figure of the OTP reference: **not available locally, not checked** | 64 bits (8 digit bytes): below |
+| Binary size | up to the packet: a binary in a term is at most 4294967295 bytes (32-bit length) | **[run]** a 1 GiB binary encodes (1,073,741,830 bytes); above that **argued, not checked** | N1: up to the frame cap (`max_length` = `frame_size_max`); a string of exactly the cap minus its 14 bytes of framing decodes, one byte more is `too_large` (`trials/n1_limits`) |
+| Nesting depth | **no limit** other than memory | **[run]** 5,000,000 nested one-tuples round-trip | N1: BEAM mode: the declared type's own nesting plus one (a typed decode cannot go deeper than its type; BEAM has none); TRUST: `term_depth_max` (default 32), BEES's own guard, now also the generated `max_depth` of `args` |
+| Big integer | **4,194,239 bits** in this build (2^4194239 minus 1 encodes, one more bit raises `system_limit`); in ETF `SMALL_BIG_EXT` carries up to 255 digit bytes and `LARGE_BIG_EXT` has a 32-bit count, which the VM limit overrides | **[run]** binary search with `term_to_binary`; `LARGE_BIG_EXT` of 16,777,216 digit bytes refused. The documented figure of the OTP reference: **not available locally, not checked** | 64 bits: below, by the type (`int64` max round-trips, 2^63 is `out_of_range`: `trials/n1_limits`) |
 | Atom table | 1,048,576 atoms by default | **[run]** `system_info(atom_limit)` | BEES creates no atoms from the wire (D16) |
 | Fragments, distribution header, atom cache | optional features of the distribution | BEES sets neither flag (wire-v1 section 7) | not offered, by design |
 
 **Consequences for the options.** (1) `beam.frame_size_max` and `trust.frame_size_max` default to 4294967295 and are bounded by
-it; `trust.args_len_max` defaults to the frame cap. (2) **Until milestone N1 lifts the typed codec and the memory model, the build
-implements only 4096 bytes (and depth 16, 256 list elements, 1024-byte binaries).** Until then the effective default is 4096, the boot
-summary says so, and a configured value above what is built is "not built yet" (rule 9), never clamped. This is a **known gap**
-(wire-v1 section 5.2; mvp.md N1). (3) A cap above available memory is the operator's responsibility; a refusal still happens
+it; `trust.args_len_max` defaults to the frame cap. (2) **Updated 2026-11-10 (N1): the build implements every cap up to 4294967295.** The receive path is the language's
+`wireframe@unframe` (the cap is a run-time argument, checked against the 4-byte length before the body is stored) and `decode`
+(its `max_bytes` and `max_length` are the cap, written into the generated decoder at build time because the language takes the
+limits as literals). What remains below BEAM is memory and time, not a fixed number: a frame is held whole while it is assembled
+and the per-frame assembler's state copy (SD-35) makes the peak about 75 times the frame (8 MiB frame: 626 MiB on the receiver,
+`trials/n1_frames`); a 4 GiB frame is not practical. A cap above available memory is the operator's responsibility (3). (3) A cap above available memory is the operator's responsibility; a refusal still happens
 before anything is allocated for what the cap guards. (4) SEMP's 8 MiB (README, `semp_util:recv_frame`) and 4 MiB args, and the
 multiplexing design's 1 MiB and 64 KiB, are **not** BEES's defaults or bounds; an operator may choose them as values.
 (5) Any-type terms are not BEES's job (ruled 2026-11-05), so these limits apply to typed terms and to the opaque span of TRUST's
@@ -289,7 +298,7 @@ multiplexing design's 1 MiB and 64 KiB, are **not** BEES's defaults or bounds; a
     {client_handshake_timeout, 5000},
     {first_frame_timeout_ms, 2000},
 
-    {frame_size_max, 4_294_967_295},          %% BEAM's limit; the build implements 4096 until N1
+    {frame_size_max, 4_294_967_295},          %% BEAM's limit (built since N1)
     {args_len_max, 4_294_967_295},            %% default: equal to frame_size_max
     {term_depth_max, 32},
 
@@ -312,7 +321,7 @@ multiplexing design's 1 MiB and 64 KiB, are **not** BEES's defaults or bounds; a
     {peers, [{"billing@10.0.0.8", [{host, "10.0.0.8"}, {port, epmd}, {role, dial}]}]},
     {spawn, none},
     {spawn_allowlist, []},
-    {frame_size_max, 4_294_967_295}           %% BEAM's limit; the build implements 4096 until N1
+    {frame_size_max, 4_294_967_295}           %% BEAM's limit (built since N1)
   ]}
 ].
 ```
@@ -355,7 +364,7 @@ validation.
 | --- | --- | --- |
 | `port` | R `6464`; H `6469`; code: required | default 6469, range-checked |
 | Token TTL | R `token_ttl_ms 300000`; code key `token_ttl_sec` default 120; H 1200 s | `token_ttl_sec` 300 |
-| Frame cap | R 8 MiB (also hard-coded in `semp_util:recv_frame`); M default 1 MiB | **ruled (R1, 2026-11-06): the same as BEAM**: default and ceiling 4294967295 bytes (section 5.4); neither SEMP's 8 MiB nor M's 1 MiB. The build implements 4096 until N1 |
+| Frame cap | R 8 MiB (also hard-coded in `semp_util:recv_frame`); M default 1 MiB | **ruled (R1, 2026-11-06): the same as BEAM**: default and ceiling 4294967295 bytes (section 5.4); neither SEMP's 8 MiB nor M's 1 MiB. Built since N1 (2026-11-10) |
 | Args cap | R 4 MiB; M 64 KiB | **ruled (R1): the same as BEAM**: default equal to `frame_size_max`, ceiling `frame_size_max` |
 | Listen address | SEMP's `ssl:listen` binds every interface; no option | **ruled (R6): no built-in default**; required in the selected mode's section; trials write `127.0.0.1` |
 | Application name | `trust`, `semp`, `beam_semp`, `beam_trust` | one `trust` section |
@@ -389,3 +398,66 @@ validation.
 | R5 | "5) yes." (the test-only stand-in for the peer's certificate fingerprint) | `plaintext_test_only` |
 | R6 | "for trials, yes. no default in the code." (listen address) | both `listen_address` rows; validation rule 7; section 6; section 8 |
 | (drain) | the option the user called "drain" | `session.drain_ms` |
+
+## 11. When the file is read: the build-time stand-in, and a boot-time reader (added 2026-11-10, N0.2)
+
+**What is built.** `tools/bees_conf.py` is the one reader of this document: the grammar of section 4, every option of section 5 in
+one table (`OPTIONS`; `bees_conf.py defaults` prints it, and `tools/test_bees_conf.py` compares the defaults and bounds of the
+tables in section 5 with it), the precedence over the manifest (section 2), every validation rule and the one-line verdict
+`bees.config:LINE: PATH: MESSAGE`. **It runs when the program is built, not at boot** (a stand-in, marked as such in its header,
+in the generators and in every generated unit), because Silica cannot read a file at boot: specification 22.6 says `read_file` is
+not implemented, and a Silica program has no other way to get bytes from the file system. The verdict reaches the program in one
+of two forms, both before any actor starts: in TRUST mode it is compiled into `bees_trust_conf` and the node's startup prints it
+and exits 1 (`trials/n3_trust` (g)); in BEAM mode and for M3's auth-none node the build stops with the same line and exit 1.
+Consequences of the stand-in that the design does not have: a changed file needs a rebuild; "configured but missing at boot"
+is checked when the program is built, not when it starts (a whitelist deleted after the build is not noticed: R2 is met at build
+time only); a whitelist's counters are compiled in, not seeded at boot.
+
+**Options that today's Silica fixes at build time, whatever reads the file** (a boot-time reader could not change them without
+regenerating code):
+
+| Option | Why it is build-time |
+| --- | --- |
+| `node.name` | the node name is an atom the program must hold (D16) |
+| `beam.peers` | peer names are atoms of the manifest (D16); their host, port and role are boot values |
+| `beam.frame_size_max` | the language's decode takes its limits as a record literal of literals, baked into the derived decoder (transport design 4.1, E2402); wireframe@unframe's cap is a run-time argument |
+| `trust.whitelist_file` | the stand-in compiles the whitelist into the permission gate and one registered name per entry (atoms, D16); a boot reader needs a data-driven gate and a name pool |
+| `trust.whitelist_cert_dir` | read with the whitelist |
+| `trust.server_pins_file` | one registered client cache per pinned server (atoms) |
+| `trust.frame_size_max` | the language's decode takes its limits as a record literal of literals, baked into the derived decoder (transport design 4.1, E2402); wireframe@unframe's cap is a run-time argument |
+| `trust.args_len_max` | the language's decode takes its limits as a record literal of literals, baked into the derived decoder (transport design 4.1, E2402); wireframe@unframe's cap is a run-time argument |
+| `trust.term_depth_max` | the language's decode takes its limits as a record literal of literals, baked into the derived decoder (transport design 4.1, E2402); wireframe@unframe's cap is a run-time argument |
+
+**Options a boot-time reader could read with no change to generated code** (they are run-time values in the generated units today, compiled in as constants by the stand-in): `node.creation`, `beam.transport`, `beam.auth`, `beam.cookie_file`, `beam.listen_address`, `beam.listen_port`, `beam.epmd`, `beam.epmd_port`, `beam.net_ticktime_s`, `beam.open_timeout_ms`, `beam.spawn`, `beam.spawn_allowlist`, `trust.port`, `trust.listen_address`, `trust.tls_opts`, `trust.client_tls_opts`, `trust.whitelist_default_spec`, `trust.whitelist_autoload`, `trust.call_timeout_ms`, `trust.suspicion_limit`, `trust.token_bytes`, `trust.token_ttl_sec`, `trust.dns_ns_timeout_ms`, `trust.dns_total_timeout_ms`, `trust.connect_timeout_ms`, `trust.connect_stagger_ms`, `trust.client_handshake_timeout`, `trust.first_frame_timeout_ms`, `trust.session`, `trust.acceptors`, `trust.session_slots_max`, `trust.plaintext_test_only`, `trust.session.max_inflight`, `trust.session.max_age_ms`, `trust.session.idle_ms`, `trust.session.max_calls`, `trust.session.drain_ms`.
+
+Note on `frame_size_max`: its run-time half (the `unframe` cap and the send cap) is a boot value; only its use as the `decode`
+literal is build-time. A boot-time reader would keep the generated decode limits at the build's value and refuse at boot a file
+whose cap is above it (rule 9), the "not built yet" form of section 4.
+
+**Proposal: a native-edge file reader (not built; reported to the user as a decision).** What it would take, within BEES's rules
+(macOS system libraries only, no download, the FFI's taint rules):
+
+1. **The edge.** One C function in the BEES native archive, `bees_conf_read_etf(path)`: `open`, `fstat` (regular file, size at
+   most 64 KiB, for key and cookie files the mode check of rule 8), `read`, `close`; it answers ONE ETF binary term holding the
+   bytes, or `{error, Reason}` text with `errno`'s name, the same shape as the resolver edge (`native/src/silica_bees_resolve.c`).
+   About 60 lines; `getaddrinfo`'s edge is the precedent. A Silica face `dangerous_bees_conf_native` and a worker
+   `dangerous_bees_conf@read` (one request, one tainted cast to the requester, as `dangerous_bees_resolve@rslv`).
+2. **The conversion.** The requester decodes the term with the language's `decode((:etf), ...)` inside a `sequence ... produces
+   pure` block (mvp.md section 4), so the file's bytes become a pure string; the taint caveat SD-25 is the same as for every
+   other edge.
+3. **The reader in Silica.** The grammar of section 4 and the validation of section 4 written in Silica (`src/shim/bees_conf.silica`,
+   D26), producing the same verdict text. This is most of the work: a recursive-descent parser over a string (bounded depth,
+   64 KiB), a table of options, the cross-field rules. It must run before any actor of the node starts, so the node's startup
+   becomes: spawn the reader worker, wait for the verdict, then start or exit 1.
+4. **Which files.** `bees.config`; `trust.whitelist_file` and `trust.server_pins_file` (the same grammar); the certificates they
+   name (only their SHA-512 fingerprint is needed: a second edge call `bees_conf_sha512_der(path)` with CommonCrypto, the DER
+   inside a PEM file); `beam.cookie_file` is already read by the cookie edge at each handshake (N2) and needs only the mode check
+   moved to boot.
+5. **What stays build-time** (the table above): the decode literals, the atoms (node names, the registered names of whitelist
+   entries and pinned servers: a boot reader needs a fixed pool of such names, sized at build time, and a data-driven
+   permission gate instead of compiled `perm_i` functions).
+6. **Targets without a file system** (section 1): the same reader over the generated module `bees_conf_embedded`.
+
+**Not built, by the user's instruction (2026-11-10): the native-edge file reader is another agent's responsibility;** this
+section is the proposal only. It is also not small (step 3 is a parser and validator in Silica, and steps 4 and 5 change the
+TRUST units). The stand-in stays and is marked as such everywhere.

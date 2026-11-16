@@ -1,0 +1,144 @@
+// N1: the limits the build now implements, at and one above each, with no network. The frame cap is bees.config's
+// beam.frame_size_max (65536 here): the generated decode limits of bees_msgs (max_bytes and max_length, the language's decode)
+// and the unframe cap bees_peers@frame_max() (the language's wireframe@unframe) both come from it (tools/bees_conf.py, the one
+// reader, a build-time stand-in). Printed: each case and its result; then 200,000 refusals of a frame one byte above the cap,
+// in one dispatch (the peak resident memory is measured with /usr/bin/time -l, spikes/N1-addresses-and-limits.md).
+use bees_atoms;
+use bees_msgs;
+use bees_peers;
+use wireframe;
+use carrier;
+
+fn say(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+fn num(label: string, n: int64) -> atom {
+    sequence proc[device_io]
+        _: atom <- print_string(label);
+        _: atom <- print_string(" ");
+        _: atom <- print_int64(n);
+        _: atom <- println("")
+    produces pure :ok end
+}
+fn bs(xs: List[int64, mem(normal)]) -> string {
+    sequence proc[mem(normal), transport]
+        s: string <- bytes_of(xs)
+    produces pure s end
+}
+fn cat2(a: string, b: string) -> string {
+    sequence proc[mem(normal), transport]
+        parts: List[string, mem(normal)] <- [a, b];
+        s: string <- join_bytes(parts)
+    produces pure s end
+}
+fn mk(s: string, n: int64) -> string {
+    case length_bytes(s) >= n of {
+        true -> substring(s, 0, n);
+        false -> mk(concat(s, s), n)
+    }
+}
+// a 4-byte big-endian length
+fn be32(n: int64) -> string {
+    sequence proc[mem(normal)]
+        xs: List[int64, mem(normal)] <- [(n / 16777216) % 256, (n / 65536) % 256, (n / 256) % 256, n % 256]
+    produces pure bs(xs) end
+}
+fn why_unframe(r: (:more, { mode: atom, expected: int64, pending: string }) | (:frame, string, { mode: atom, expected: int64, pending: string }) | (:rejected, atom)) -> string {
+    case r of {
+        (:more, st: { mode: atom, expected: int64, pending: string }) -> concat("more, pending bytes ", int_text(length_bytes(st.pending)));
+        (:frame, f: string, _s: { mode: atom, expected: int64, pending: string }) -> concat("frame of ", int_text(length_bytes(f)));
+        (:rejected, w: atom) -> concat("rejected ", bees_atoms@spelling(w))
+    }
+}
+fn int_text(n: int64) -> string {
+    case n < 10 of {
+        true -> substring("0123456789", n, n + 1);
+        false -> concat(int_text(n / 10), substring("0123456789", n % 10, n % 10 + 1))
+    }
+}
+fn why_str(r: (:ok, { s: string }) | (:rejected, atom)) -> string {
+    case r of {
+        (:ok, v: { s: string }) -> concat("ok, string of ", int_text(length_bytes(v.s)));
+        (:rejected, w: atom) -> concat("rejected ", bees_atoms@spelling(w))
+    }
+}
+fn why_num(r: (:ok, { n: int64 }) | (:rejected, atom)) -> string {
+    case r of {
+        (:ok, v: { n: int64 }) -> concat("ok ", int_text(v.n));
+        (:rejected, w: atom) -> concat("rejected ", bees_atoms@spelling(w))
+    }
+}
+fn unframe_once(seg: string, cap: int64) -> string {
+    sequence
+        r: (:more, { mode: atom, expected: int64, pending: string }) | (:frame, string, { mode: atom, expected: int64, pending: string }) | (:rejected, atom) <- wireframe@unframe(wireframe@fresh(:stream), seg, cap)
+    produces pure why_unframe(r) end
+}
+fn refused(seg: string, cap: int64) -> int64 {
+    case wireframe@unframe(wireframe@fresh(:stream), seg, cap) of {
+        (:rejected, _w: atom) -> 1;
+        (:more, _r: { mode: atom, expected: int64, pending: string }) -> 0;
+        (:frame, _b: string, _r2: { mode: atom, expected: int64, pending: string }) -> 0
+    }
+}
+fn loop(i: int64, n: int64, ok: int64, seg: string, cap: int64) -> int64 {
+    case i >= n of {
+        true -> ok;
+        false -> loop(i + 1, n, ok + refused(seg, cap), seg, cap)
+    }
+}
+
+fn frames() -> atom {
+    sequence
+        cap: int64 <- bees_peers@frame_max();
+        _: atom <- num("frame_size_max (bees.config)", cap);
+        body: string <- mk("x", cap);
+        at_cap: string <- cat2(be32(cap), body);
+        _: atom <- say(concat("unframe, a frame of exactly the cap: ", unframe_once(at_cap, cap)));
+        // one byte above: only the 4-byte length is given, and the refusal comes from it, before any byte of the body exists
+        _: atom <- say(concat("unframe, the length of a frame one byte above the cap, alone: ", unframe_once(be32(cap + 1), cap)));
+        // BEAM's ceiling as the cap: a length of 4294967295 is accepted and nothing is allocated for it (pending holds the 4 bytes)
+        _: atom <- say(concat("unframe, cap 4294967295, the length 4294967295 alone: ", unframe_once(be32(4294967295), 4294967295)))
+    produces pure :ok end
+}
+
+// the record { s: string } in ETF: 131, MAP_EXT 116 with arity 1, the key SMALL_ATOM_UTF8 119 1 "s", BINARY_EXT 109 with a
+// 4-byte length: 14 bytes and the string, so a string of cap - 14 bytes makes a frame of exactly the cap
+fn decodes() -> atom {
+    sequence
+        cap: int64 <- bees_peers@frame_max();
+        v1: { s: string } <- { s: mk("y", cap - 14) };
+        f1: string <- bees_msgs@enc_str(v1);
+        _: atom <- num("encode, frame of { s } with a string of cap - 14 bytes", length_bytes(f1));
+        r1: (:ok, { s: string }) | (:rejected, atom) <- bees_msgs@dec_str(f1);
+        _: atom <- say(concat("decode at the cap: ", why_str(r1)));
+        v2: { s: string } <- { s: mk("y", cap - 13) };
+        f2: string <- bees_msgs@enc_str(v2);
+        _: atom <- num("encode, the same with one byte more", length_bytes(f2));
+        r2: (:ok, { s: string }) | (:rejected, atom) <- bees_msgs@dec_str(f2);
+        _: atom <- say(concat("decode one byte above the cap: ", why_str(r2)));
+        // int64: the largest value round-trips; 2^63 as a SMALL_BIG_EXT of 8 digit bytes is outside int64
+        v3: { n: int64 } <- { n: 9223372036854775807 };
+        r3: (:ok, { n: int64 }) | (:rejected, atom) <- bees_msgs@dec_num(bees_msgs@enc_num(v3));
+        _: atom <- say(concat("decode int64 max: ", why_num(r3)));
+        big: string <- bs([131, 116, 0, 0, 0, 1, 119, 1, 110, 110, 8, 0, 0, 0, 0, 0, 0, 0, 0, 128]);
+        r4: (:ok, { n: int64 }) | (:rejected, atom) <- bees_msgs@dec_num(big);
+        _: atom <- say(concat("decode 2^63 as int64: ", why_num(r4)))
+    produces pure :ok end
+}
+
+fn memory() -> atom {
+    sequence
+        cap: int64 <- bees_peers@frame_max();
+        n: int64 <- loop(0, 200000, 0, be32(cap + 1), cap)
+    produces pure say(concat("refused of 200000 frames one byte above the cap: ", int_text(n))) end
+}
+
+fn main() -> int64 {
+    sequence
+        _: atom <- frames();
+        _: atom <- decodes();
+        _: atom <- memory()
+    produces pure 0 end
+}

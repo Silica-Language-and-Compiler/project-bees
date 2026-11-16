@@ -1,0 +1,65 @@
+[trust] transport: mutual TLS 1.3 over the programmer-installed OpenSSL; peer identity: the SHA-512 of its certificate
+[trust] mode trust, transport mutual TLS 1.3 (ALPN trust/1, X25519MLKEM768, peers by the SHA-512 of their certificate), listen 127.0.0.1:47601, whitelist 3 entries, pinned servers 0, frame_size_max 4096, args_len_max 4096, term_depth_max 32, call_timeout_ms 400, first_frame_timeout_ms 500, suspicion_limit 8, token_bytes 48, token_ttl_sec 300, one request per connection (B1)
+[trust] whitelist: certificate gone.pem is missing or unreadable, entry skipped (as SEMP does)
+[trust] listening on 127.0.0.1:47601
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 0
+[trust audit] token_reject fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f token invalid, expired or revoked 0
+[trust audit] suspicion fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f raised by token_reject 1
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 1
+[trust audit] protocol_error fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f request before the token step, frame dropped: t=call 1
+[trust audit] suspicion fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f raised by protocol_error 2
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 2
+[trust audit] protocol_error fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f t or ver missing or wrong 2
+[trust audit] suspicion fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f raised by protocol_error 3
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 3
+[trust audit] token_issued fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f new token for this fingerprint (the token itself is never logged) 3
+[trust audit] protocol_error fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f truncated 3
+[trust audit] suspicion fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f raised by protocol_error 4
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 4
+[trust audit] token_issued fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f new token for this fingerprint (the token itself is never logged) 4
+[trust audit] protocol_error fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f frame refused before decoding: too_large 5 4
+[trust audit] suspicion fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f raised by protocol_error 5
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 5
+[trust audit] timeout fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f stage first_frame 5
+[trust audit] suspicion fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f raised by timeout 6
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 6
+[trust audit] token_issued fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f new token for this fingerprint (the token itself is never logged) 6
+[trust audit] forbidden_mfa fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f erlang:apply/3 6
+[trust audit] suspicion fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f raised by forbidden_mfa 7
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 7
+[trust audit] token_issued fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f new token for this fingerprint (the token itself is never logged) 7
+[trust audit] admitted fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f call demo:add/2 7
+[trust audit] suspicion fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f lowered by a permitted request 6
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 8
+[trust audit] token_accepted fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f fast path, no token_issue 8
+[trust audit] admitted fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f cast demo:note/1 8
+[demo] note got 7
+[trust audit] suspicion fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f lowered by a permitted request 5
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 9
+[trust audit] token_accepted fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f fast path, no token_issue 9
+[trust audit] forbidden_mfa fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f bees_trust_admin:reset/1 9
+[trust audit] suspicion fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f raised by forbidden_mfa 6
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 10
+[trust audit] token_issued fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f new token for this fingerprint (the token itself is never logged) 10
+[trust audit] permission_denied fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f demo:secret/0 10
+[trust audit] suspicion fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f raised by permission_denied 7
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 11
+[trust audit] token_issued fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f new token for this fingerprint (the token itself is never logged) 11
+[trust audit] admitted fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f call demo:crash/1 11
+[trust audit] user_code_error fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f badarith 11
+[trust audit] suspicion fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f raised by user_code_error 8
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 12
+[trust audit] token_issued fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f new token for this fingerprint (the token itself is never logged) 12
+[trust audit] admitted fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f call demo:slow/1 12
+[trust audit] timeout fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f stage call 12
+[trust audit] suspicion fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f raised by timeout 9
+[trust audit] quarantined fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f above suspicion_limit; token revoked, connections refused until an operator reset 9
+[trust audit] late_result_dropped fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f the call had timed out 12
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 13
+[trust audit] quarantined fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f connection refused 13
+[operator] reset of whitelist entry 0 (b.cert), local only
+[trust audit] reset fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f operator reset (local only): suspicion 0, quarantine lifted 0
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 14
+[trust audit] token_issued fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f new token for this fingerprint (the token itself is never logged) 14
+[trust audit] admitted fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f call demo:add/2 14
+exit=0

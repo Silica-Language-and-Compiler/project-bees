@@ -1,6 +1,8 @@
 # N3: TRUST logic over plaintext loopback
 
-**Status: built and run 2026-11-10 on `silica-999926-macos-applesilicon` (macOS, Apple Silicon only).** TRUST mode is its own
+**Status: built and run 2026-11-10 on `silica-999926-macos-applesilicon` (macOS, Apple Silicon only). Re-run 2026-11-12 on
+`silica-999925` with the carrier fixes of Silica 71009f96f8 and without the `remove_actor` workaround (section 3, item 5); the same
+logic now also runs over mutual TLS 1.3 (N4.1, [N4-silica-mtls-example.md](N4-silica-mtls-example.md), `trials/n4_trust_tls`).** TRUST mode is its own
 implementation (D36): nothing in it uses BEAM mode's distribution layer (`dangerous_bees_net`, `bees_dist`, `bees_peers`). **TEST
 ONLY:** there is no TLS (N4), the transport is plaintext on `127.0.0.1` (`plaintext_test_only`), and the peer's identity is a
 **test-supplied stand-in for the certificate fingerprint**: the first 64 bytes a client sends (R5, accepted by the user until TLS
@@ -65,7 +67,8 @@ standalone, pins `127.0.0.1:47501`). The stand-in certificates in `trials/n3_tru
 **(f) Rate and memory** (`make -C trials/n3_trust measure`; one run each, this machine, under heavy load from other work, not a
 benchmark): 2,000 calls one after another, each on its own connection (B1), the first by `hello`, the rest on the token fast path:
 **5.55 s and 5.75 s (about 350 requests per second)**, a third run 9.57 s with the load average near 40; **peak resident set 34 to
-38 MiB per node**. Before the closed carriers were removed (section 3, item 5) the same run peaked at **232 MiB per node**.
+38 MiB per node**. **2026-11-12, without the workaround (carriers end with their link): 5.12 s, 8.6 and 8.4 MiB; 6,000 calls 15.2 s,
+11.9 and 10.9 MiB.** Before the closed carriers were removed (section 3, item 5) the same run peaked at **232 MiB per node**.
 The same run with 6,000 calls: **15.8 s (380 requests per second), peak 37.8 and 35.8 MiB**: memory does not grow with the
 number of connections once closed carriers are removed (2,000 calls peaked at 34 to 38 MiB).
 
@@ -83,7 +86,10 @@ number of connections once closed carriers are removed (2,000 calls peaked at 34
    is started with the bytes that followed and drained only when the connection is ready), so the order is SEMP's.
 5. **Closed carriers are removed** with `remove_actor` by the connection actor when it is reaped: the language's carrier never ends
    after `:close`, and each one left behind kept about 100 KiB (232 MiB after 2,000 connections). `remove_actor` takes the
-   `dangerous_actor_ref` (it compiles and runs).
+   `dangerous_actor_ref` (it compiles and runs). **Removed 2026-11-12:** since Silica commit 71009f96f8 the carrier ends with its
+   link (after `:link_down`, on `:close` and on a peer close), so the workaround is gone; in its place, nothing casts to a carrier
+   after its `:link_down` (the send actor's kind 10 ends it without touching the carrier), because a cast to an ended carrier ends
+   the sender (SD-43). 2,000 calls then peak at 8.6 and 8.4 MiB per node (5.12 s), 6,000 calls at 11.9 and 10.9 MiB (15.2 s).
 6. **The client forgets a cached token** when a connection ends without its answer (a quarantine revokes the server's copy; a
    server restart forgets it).
 7. **Audit lines** end with the connection id; the token is never logged; `token_issued` and `token_accepted` are logged by the

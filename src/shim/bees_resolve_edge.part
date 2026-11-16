@@ -1,0 +1,47 @@
+
+// ---- BEES resolver edge (N1): pasted by tools/bees_edge_gen.py --resolve into the dangerous_ root unit of a node program
+// whose link dials a host NAME. The language's (:tcp) carrier dials IPv4 literals only (no resolver in the carrier, no IPv6:
+// spikes/N1-addresses-and-limits.md), so the dialer asks the resolver worker (dangerous_bees_resolve@rslv, getaddrinfo in the
+// BEES native edge) first and opens the carrier with the first IPv4 address. The answer arrives as one ETF binary from the
+// FFI worker and becomes a pure string with the language's decode((:etf), ...) in rdial's produces-pure block (mvp.md 4).
+// An unresolvable name (or a name with IPv6 addresses only) prints `[bees] resolve NAME: dns_error REASON` and the carrier is
+// never opened: no link, no crash; the program keeps running.
+fn rs_text_from(n: int64, acc: string) -> string {
+    case n < 10 of {
+        true -> concat(substring("0123456789", n, n + 1), acc);
+        false -> rs_text_from(n / 10, concat(substring("0123456789", n % 10, n % 10 + 1), acc))
+    }
+}
+fn rs_starts(s: string, p: string) -> boolean { length_bytes(s) >= length_bytes(p) and substring(s, 0, length_bytes(p)) == p }
+fn rs_body(msg: (:bees, int64, string)) -> string {
+    case msg of { (:bees, _k: int64, s: string) -> s }
+}
+fn rs_text(r: (:ok, string) | (:rejected, atom)) -> string {
+    case r of { (:ok, t: string) -> t; (:rejected, _w: atom) -> "dns_error undecodable_answer" }
+}
+fn rdial(msg: (:bees, int64, string), st: { c: dangerous_actor_ref, owner: actor_ref, host: string, port: int64 }) -> (:no_reply, { c: dangerous_actor_ref, owner: actor_ref, host: string, port: int64 }) {
+    sequence proc[concurrency, device_io, mem(normal), transport]
+        etf: string <- rs_body(msg);
+        r: (:ok, string) | (:rejected, atom) <- decode((:etf), etf, { max_bytes: 400, max_depth: 1, max_length: 390 });
+        text: string <- rs_text(r);
+        ok: boolean <- rs_starts(text, "ok ");
+        ip: string <- case ok of { true -> substring_until_char(text, 3, ' '); false -> "" };
+        line: string <- concat(concat(concat("[bees] resolve ", st.host), ": "), text);
+        _: atom <- println(line);
+        // the address is bound before the cast (SD-41: a string-returning call inline in a cast's tuple faulted the copy)
+        addr: string <- concat(concat(ip, ":"), rs_text_from(st.port, ""));
+        _: boolean <- case ok of {
+            true -> cast(st.c, (:open, st.owner, addr) impl ActorMessage {});
+            false -> true
+        };
+        _: atom <- stop_self(:normal)
+    produces pure (:no_reply, st) end
+}
+// net_resolve(c, owner, host, port): resolve host, then open the carrier c for owner at "<ipv4>:port"
+fn net_resolve(c: dangerous_actor_ref, owner: actor_ref, host: string, port: int64) -> boolean {
+    sequence proc[concurrency]
+        w: dangerous_actor_ref <- spawn_dangerous(0, dangerous_bees_resolve@rslv, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        d: actor_ref <- spawn({ c: c, owner: owner, host: host, port: port }, rdial, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        ok: boolean <- cast(w, (host, d) impl ActorMessage {})
+    produces pure ok end
+}

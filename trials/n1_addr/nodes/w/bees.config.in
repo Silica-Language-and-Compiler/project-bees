@@ -1,0 +1,6 @@
+%% N1 node w (OPT-IN, not run by make integrate): listens on every IPv4 interface ("0.0.0.0", the carrier's listen:any), with
+%% cookie authentication (a non-loopback listen needs authentication or TLS: auth none and plaintext_test_only are loopback-only)
+[ {mode, beam},
+  {node, [{name, "a@localhost"}]},
+  {beam, [{transport, tcp}, {auth, cookie}, {cookie_file, "../../../n2_dist/cookie"}, {listen_address, "0.0.0.0"},
+          {listen_port, 47459}, {epmd, none}, {frame_size_max, 4096}]} ].

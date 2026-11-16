@@ -140,7 +140,7 @@ are in [roadmap §6](roadmap.md#6-decisions), and every decision the ledger cite
 | Event loop; ports with `{active, once}` | `bees_io`, one loop per core | Absent | B (the S-22 wrappers) | A5 | 1.0 |
 | `file` | `bees_file`: BEES's own implementation, in Silica (D24), over Silica file operations and the native edge | `read_lines`, `append_file` and `delete_file` only | B, E | A5 | 1.0 |
 | Standard I/O and the I/O protocol | BEES I/O server | `print`/`println` | B | Stage 1 subset, A5 | 1.0 |
-| DNS | the `getaddrinfo` wrapper (S-22); until then, native `getaddrinfo`, whose results need re-creation (S-5) | Spec only | B (S-22 wrapper) | B1 | 1.0 |
+| DNS | **BEES's own native `getaddrinfo` edge (user ruling 2026-11-12: name resolution is BEES's, not Silica's), built in N1** (`native/src/silica_bees_resolve.c`); its results are decoded with the language's `decode` | Spec only | B (S-22 wrapper) | B1 | 1.0 |
 | `ssl` | Not provided in 1.0. TLS belongs to TRUST and BEAM-mode TLS, through the native edge. An `ssl`-compatible subset over the same edge comes after 1.0. | Absent | E, B | Post-1.0 | Post |
 
 ### 1.7 Scheduling and observability
@@ -261,7 +261,7 @@ records.
 | --- | --- | --- |
 | `clock_monotonic_ns`, `clock_system_ns`, `poll_wait(ms)` | Not needed for timers: Silica's clocks and timers (S-3) are delivered. `poll_wait` remains for the event loop (`bees_io`) until the transport wrappers (S-22) | S-3 (clock, delivered); S-22 (`poll_wait`) |
 | TCP and UDP transport calls; kqueue/epoll registration and wait | `bees_io`, `bees_inet` | the transport wrappers BEES creates (S-22) |
-| `getaddrinfo` (A/AAAA records only) | DNS | the `getaddrinfo` wrapper (S-22) |
+| `getaddrinfo` (A/AAAA records only) | DNS | BEES's own native edge (ruled 2026-11-12), built in N1; no Silica request |
 | File write, directory operations, file metadata | `bees_file` | Silica `device_io` completion |
 | TLS 1.3 session operations through OpenSSL on the hosted targets and Mbed TLS on the boards (D40), with no transports of its own: configure, handshake, read, write, peer certificate DER and its SHA-512, ALPN | TRUST, BEAM-mode TLS | A Silica TLS built-in (S-13; not planned at first, D17) |
 | SHA-2 family, MD5, HMAC | `crypto`, certificate fingerprints, the Erlang cookie challenge | S-14 (MD5 stays for as long as BEAM mode exists) |

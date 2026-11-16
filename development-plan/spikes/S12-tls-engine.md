@@ -1,7 +1,19 @@
 # Spike S12: The TLS Engine
 
 **Update 2026-11-10 (D40, user decision): the engines are OpenSSL (Apple platforms, Linux) and Mbed TLS (NUCLEO-L476RG and ESP32-S3), so this spike's rustls track is superseded: rerun its questions against OpenSSL and Mbed TLS, X25519MLKEM768 first. Fetching or building either still needs the user's explicit approval.**
-**Status:** planned, not run. This document specifies the spike. Nothing has been built yet.
+**Status 2026-11-12: the hosted half is built and run on macOS (Apple Silicon) against OpenSSL 4.1.0 (23 Oct 2026, installed
+by the user with Homebrew; BEES downloads and builds no TLS library). 4.1.0 is the minimum, with no exception: the C stops at
+compile time below it, `native/Makefile` refuses an older OpenSSL by name, and the TLS link refuses an older library at run time.**
+(The first runs, the same day, used Homebrew's 3.6.2 under a development allowance that the user then had removed.) The engine is `native/tls/silica_bees_tls.c` (memory BIOs: no transport, no callback, small integer
+status codes, flat byte outputs); its in-memory test is `native/tls/selftest` (`make -C native tls-selftest`, golden
+`trials/n4_trust_tls/selftest.scout`). Passed: R1 (a TLS 1.2-only client refused), R2 (no client certificate refused; a certificate
+from another CA refused; an expired one refused), R3 (X25519MLKEM768 negotiated; an X25519-only client refused), R4 (the
+configuration allows only AES-256-GCM and ChaCha20-Poly1305; AES-256-GCM negotiated), R5 (Ed25519 and ECDSA P-256 certificates
+complete; RSA refused), R6 (configuration: TLS 1.3 only, no tickets, no early data, no renegotiation, no compression), R7 (ALPN
+`trust/1` enforced; another ALPN and none refused), R8 (the peer's SHA-512 equals `openssl x509 -fingerprint -sha512`; client pins),
+R9, R10, R11, R15. Not run: R12 (Linux, boards), R13, R14 (boards), R16 (the BEAM-mode profile), the measurements of section 6. The C interface differs from section 3's sketch in its calls (Fifi's rules: a pointer-plus-length pair only as a
+binding's sole parameters, scalars passed first) but keeps its rules. See [N4-silica-mtls-example.md](N4-silica-mtls-example.md).
+Text of 2026-11-06: planned, not run. This document specifies the spike. Nothing has been built yet.
 **Update 2026-11-06 (roadmap D36, D38).** (1) **Running this spike needs the user's explicit approval** (milestone N4.0): the no-downloads rule blocks fetching or building any TLS engine, and the choice of engine is a user decision that runs in parallel with N2 and N3. (2) TRUST's TLS carries **TRUST's own frames** (a 4-byte length and one ETF map each); it is not wrapped around the Erlang distribution stream, which is how earlier text read. (3) BEAM mode's cookie authentication (N2) needs no TLS; its optional `inet_tls_dist`-compatible profile (D25) is a later use of the same engine. (4) Whatever the engine returns (plaintext, random bytes, digests) follows the conversion rule: handled in the `sequence` of a `sequence ... produces pure` block (mvp.md section 4).
 **Decision it confirms:** D40 (2026-11-10), which supersedes D6 (rustls, struck below): earlier, D6, revised 2026-09-17: rustls on the hosted targets, the board's Mbed TLS on the ESP32-S3, behind one C
 interface ([roadmap §6](../roadmap.md#6-decisions)).

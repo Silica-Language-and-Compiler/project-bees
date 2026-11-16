@@ -8,7 +8,7 @@ PRE_GEN := rm -f unreadable_whitelist.config && cp ../s/trust_whitelist.config u
 ROLES := $(BEES_ROOT)/trials/n3_trust/roles
 GEN := $(BEES_ROOT)/tools/bees_trust_gen.py
 CONF := $(BEES_ROOT)/tools/bees_config_trust.py
-_ := $(shell cd "$(LEAF_DIR)" && $(PRE_GEN) python3 "$(CONF)" conf -o lib bees.config && python3 "$(GEN)" mfa -o lib demo.trust && \
+_ := $(shell cd "$(LEAF_DIR)" && $(PRE_GEN) python3 "$(CONF)" conf -o lib bees.config && python3 "$(GEN)" mfa -o lib --config bees.config demo.trust && \
 	python3 "$(GEN)" edge dangerous_g_boot dangerous_g_boot.silica $(ROLES)/server.role $(ROLES)/operator_none.role)
 include $(BEES_ROOT)/tools/trial.mk
 

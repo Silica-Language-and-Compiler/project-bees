@@ -1,0 +1,17 @@
+// BEES N1: the resolver worker, a cast-only FFI worker behaviour installed with spawn_dangerous by a node's root unit
+// (src/shim/bees_resolve_edge.part; the spawn site stays in the root unit, SD-17). One request per message, naming the actor
+// to answer: (host, reply_to) -> reply_to gets (:bees, 30, etf_binary), where etf_binary is the resolver edge's one ETF
+// binary term (FFI-derived, decoded by reply_to with the language's decode((:etf), ...) inside a produces-pure block).
+module dangerous_bees_resolve;
+use dangerous_bees_resolve_native;
+
+export rslv/2;
+
+fn rslv(msg: (string, actor_ref), st: int64) -> (:no_reply, int64) {
+    sequence proc[external_danger, concurrency]
+        (host: string, reply_to: actor_ref) <- msg;
+        answer: string <- dangerous_bees_resolve_native@resolve_etf(host);
+        // one cast per message (the one FFI result cast a worker may make), to the requester the message names
+        _: boolean <- cast(reply_to, (:bees, 30, answer) impl ActorMessage {})
+    produces pure (:no_reply, st + 1) end
+}

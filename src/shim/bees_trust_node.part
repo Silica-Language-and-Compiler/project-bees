@@ -4,8 +4,10 @@
 // dangerous_ unit's function is allowed only inside an FFI worker (E4042), and the edge worker's spawn_dangerous site stays in
 // the root unit (SD-17), as for the language's carrier. TRUST mode only (D36).
 //
-// TEST ONLY until N4: plaintext transport on 127.0.0.1; the peer identity is a test-supplied stand-in for the certificate
-// fingerprint (R5). trust_boot prints that banner.
+// Two transports, chosen by bees.config (the link part pasted before this one: bees_trust_link_plain.part or
+// bees_trust_link_tls.part): plaintext_test_only (N3, TEST ONLY: plaintext on 127.0.0.1, the peer identity a test-supplied
+// stand-in for the certificate fingerprint, R5; trust_boot prints that banner), or mutual TLS 1.3 (N4.1: every connection's
+// link is a TLS worker over the carrier, and the peer identity is the SHA-512 of its certificate, D11).
 //
 // trust_boot() -> int64        FIRST in main: 0 to go on; 1 when bees.config (read at build time, tools/bees_config_trust.py)
 //                              gave a boot error: the error line is printed and nothing has been started (R2)
@@ -21,9 +23,9 @@
 // trust_reset(i) -> boolean     the operator's reset of whitelist entry i (D10): local only, a plain function of this program;
 //                              no peer can reach it (the forbidden guard blocks every bees_* and trust_* name and the MFA table
 //                              holds only what the .trust manifest lists)
-// trust_raw_writer(c) / trust_raw_send(tx, bytes) / trust_raw_frame(tx, body) / trust_raw_close(tx)
+// trust_raw_writer(c) / trust_raw_send(tx, bytes) / trust_raw_frame(tx, body) / trust_raw_close(tx) / trust_raw_end(tx)
 //                              for test programs that speak the wire directly (hostile peers): a send actor on a carrier the test
-//                              owns, raw bytes, a frame of a body as is, close
+//                              owns, raw bytes, a frame of a body as is, close, and end after :link_down (the carrier has ended)
 fn trust_say(s: string) -> atom {
     sequence proc[device_io]
         _: atom <- println(s)
@@ -45,7 +47,10 @@ fn trust_boot() -> int64 {
         };
         false -> {
             sequence
-                _: atom <- trust_say("[trust] TEST ONLY: plaintext transport, peer identity is a test-supplied stand-in for the certificate fingerprint");
+                _: atom <- case bees_trust_conf@tls() of {
+                    false -> trust_say("[trust] TEST ONLY: plaintext transport, peer identity is a test-supplied stand-in for the certificate fingerprint");
+                    true -> trust_say("[trust] transport: mutual TLS 1.3 over the programmer-installed OpenSSL; peer identity: the SHA-512 of its certificate")
+                };
                 _: atom <- trust_say(bees_trust_conf@summary());
                 _: int64 <- trust_notes(0)
             produces pure 0 end
@@ -76,7 +81,8 @@ fn trust_listen(e: dangerous_actor_ref) -> boolean {
     sequence proc[concurrency]
         c: dangerous_actor_ref <- carrier_new();
         l: actor_ref <- spawn({ edge: e, n: 0 }, dangerous_bees_trust@tlsn, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
-        ok: boolean <- cast(c, (:open, l, bees_trust_conf@listen_spec()) impl ActorMessage {})
+        sp: string <- bees_trust_conf@listen_spec();
+        ok: boolean <- trust_listen_link(c, l, sp)
     produces pure ok end
 }
 fn trust_start() -> atom {
@@ -123,7 +129,7 @@ fn trpc_request(kind: int64, addr: string, m: atom, f: atom, arity: int64, args:
         true -> trust_reply(reply_to, req, bees_atoms@a_server_not_pinned());
         false -> case trust_ipv4_char(addr, 0, length_bytes(addr), 0, false) of {
             false -> trust_reply(reply_to, req, bees_atoms@a_dns_error());
-            true -> case length_bytes(bees_trust_conf@self_fp()) == 64 of {
+            true -> case bees_trust_conf@tls() or length_bytes(bees_trust_conf@self_fp()) == 64 of {
                 false -> trust_reply(reply_to, req, bees_atoms@a_protocol_error());
                 true -> trpc_open(kind, addr, m, f, arity, args, reply_to, req)
             }
@@ -132,7 +138,7 @@ fn trpc_request(kind: int64, addr: string, m: atom, f: atom, arity: int64, args:
 }
 fn trpc_open(kind: int64, addr: string, m: atom, f: atom, arity: int64, args: string, reply_to: actor_ref, req: int64) -> atom {
     sequence proc[concurrency]
-        c: dangerous_actor_ref <- carrier_new();
+        c: dangerous_actor_ref <- trust_link(carrier_new());
         t: actor_ref <- spawn({ c: c, n: 0 }, dangerous_bees_trust@ttx, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
         k: actor_ref <- spawn({ asm: t, c: c, tx: t, phase: 1, live: false, replied: false, srv: bees_trust_conf@server_index(addr), kind: kind, req: req, reply_to: reply_to, req_id: concat("r", bees_trust_frame@int_text(req)), m: m, f: f, a: arity, args: args }, dangerous_bees_trust@tcli, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
         tm: timer_ref <- send_after(bees_trust_conf@connect_timeout_ms(), k, (:bees, 5, "", "", 0) impl ActorMessage {});
@@ -154,3 +160,5 @@ fn trust_raw_tx(tx: actor_ref, kind: int64, s1: string) -> boolean {
 fn trust_raw_send(tx: actor_ref, bytes_out: string) -> boolean { trust_raw_tx(tx, 4, bytes_out) }
 fn trust_raw_frame(tx: actor_ref, body: string) -> boolean { trust_raw_tx(tx, 9, body) }
 fn trust_raw_close(tx: actor_ref) -> boolean { trust_raw_tx(tx, 3, "") }
+// after :link_down: the carrier has ended with its link (Silica 71009f96f8), so the send actor ends without casting to it
+fn trust_raw_end(tx: actor_ref) -> boolean { trust_raw_tx(tx, 10, "") }

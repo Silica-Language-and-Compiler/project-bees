@@ -14,10 +14,7 @@ fn beam_pair(n: actor_ref, t: actor_ref) -> { conn: actor_ref, tx: actor_ref } {
 fn beam_banner() -> atom {
     sequence proc[device_io]
         _: atom <- println(beam_conf@summary());
-        _: atom <- println(case beam_conf@auth_cookie() of {
-            true -> "[bees] BEAM mode: Erlang cookie authentication, no encryption (transport tcp, 127.0.0.1); a downgrade from TRUST";
-            false -> "[bees] BEAM mode with auth none: TEST ONLY, no authentication, no encryption (127.0.0.1)"
-        })
+        _: atom <- println(beam_conf@banner())
     produces pure :ok end
 }
 fn auth_new(cookie: string) -> dangerous_actor_ref {
@@ -43,9 +40,13 @@ fn beam_dial(c: dangerous_actor_ref, ec: dangerous_actor_ref, a: dangerous_actor
         r: actor_ref <- beam_peers@start_proxies(t);
         _: boolean <- cast(t, (:who, r) impl ActorMessage {});
         n: actor_ref <- spawn({ asm: t, c: c, tx: t, auth: a, mode: 0, step: 0, peer: beam_conf@link_peer(), ok: 0, dropped: 0, ticks: 0, seen: 0, io_ms: io_ms, ch: 0, e0: 0 - 1, e1: 0, e2: 0, e3: 0, ctl: 0 }, dangerous_beam_net@conn, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        // N1: a dial host that is a name is resolved first (bees_resolve_edge.part), the carrier dials IPv4 literals only
         _: boolean <- case beam_conf@link_by_epmd() of {
             true -> beam_lookup(c, ec, n);
-            false -> cast(c, (:open, n, beam_conf@link_address()) impl ActorMessage {})
+            false -> case beam_conf@link_resolve() of {
+                true -> net_resolve(c, n, beam_conf@link_host(), beam_conf@link_port());
+                false -> cast(c, (:open, n, beam_conf@link_address()) impl ActorMessage {})
+            }
         };
         p: { conn: actor_ref, tx: actor_ref } <- beam_pair(n, t)
     produces pure p end
@@ -53,7 +54,7 @@ fn beam_dial(c: dangerous_actor_ref, ec: dangerous_actor_ref, a: dangerous_actor
 fn beam_lookup(c: dangerous_actor_ref, ec: dangerous_actor_ref, n: actor_ref) -> boolean {
     sequence proc[concurrency]
         e: actor_ref <- spawn({ c: ec, lcar: c, conn: n, kind: 2, port: 0, done: false, buf: "" }, dangerous_beam_net@epm, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
-        ok: boolean <- cast(ec, (:open, e, beam_conf@epmd_address()) impl ActorMessage {})
+        ok: boolean <- cast(ec, (:open, e, beam_conf@epmd_lookup_address()) impl ActorMessage {})
     produces pure ok end
 }
 fn beam_listen(c: dangerous_actor_ref, ec: dangerous_actor_ref, a: dangerous_actor_ref, me: actor_ref, io_ms: uint64, tick_ms: uint64) -> { conn: actor_ref, tx: actor_ref } {

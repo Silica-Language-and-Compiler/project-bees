@@ -1,9 +1,10 @@
 // the local operator (D10): 9 s after start it resets whitelist entry 0 (b.cert) with trust_reset, a plain function of this
-// program that no peer can reach
+// program that no peer can reach. It prints its line BEFORE it asks for the reset, so the line always comes before the
+// fingerprint actor's `reset` audit line (they were two actors racing to print: an occasional swap in the goldens)
 fn operator(msg: int64, st: int64) -> (:no_reply, int64) {
     sequence proc[device_io]
-        _: boolean <- trust_reset(0);
-        _: atom <- println("[operator] reset of whitelist entry 0 (b.cert), local only")
+        _: atom <- println("[operator] reset of whitelist entry 0 (b.cert), local only");
+        _: boolean <- trust_reset(0)
     produces pure (:no_reply, st + 1) end
 }
 fn operator_start() -> atom {
