@@ -1,0 +1,18 @@
+lookup localhost resolved kept=127.0.0.1 n=1 dropped=0 outside=0
+lookup 127.0.0.1 resolved kept=127.0.0.1 n=1 dropped=0 outside=0
+lookup [no-such-host.invalid] failed nxdomain
+lookup [] failed bad_name
+mixed any kept=10.0.0.8,127.0.0.1 n=2 dropped=8 outside=0
+mixed loopback-only kept=127.0.0.1 n=1 dropped=8 outside=1
+empty kept= n=0 dropped=0 outside=0
+quad 192.168.1.20 true
+quad 1.2.3.04 false
+quad billing.example false
+ipv6 ::1 true
+ipv6 fe80::1%en0 true
+ipv6 billing.example false
+first 10.0.0.8
+rest 10.0.0.9
+rest of one []
+done
+exit=0

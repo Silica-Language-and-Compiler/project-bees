@@ -20,3 +20,28 @@ int64_t bees_fixture_word(int64_t idx);
 
 /* The TCP entries of M2 and M3 (bees_tcp_*) are gone: the transport is the language's (:tcp) carrier over its own
  * socket wrappers (Silica's compiler/stdlib/net, sidecar under dangerous_exposure_source/sockets). */
+
+/* Host-name resolution, interim (spikes/S14 section 3, roadmap D42): the system resolver, IPv4 only. To be replaced by a
+ * Silica implementation (S14 section 9). bees_dns_resolve answers tag 0 with the number of addresses (then bees_dns_take
+ * gives them as dotted quads separated by ','), or tag 1 with one of the reasons below in error_code. */
+typedef struct bees_dns_tagged {
+    int64_t tag;
+    int64_t value;
+    int64_t error_code;
+} bees_dns_tagged;
+
+typedef struct bees_dns_bytes {
+    int64_t tag;
+    const uint8_t *text_ptr;
+    uint64_t text_len;
+    int64_t error_code;
+} bees_dns_bytes;
+
+#define BEES_DNS_NXDOMAIN 1   /* the name does not exist */
+#define BEES_DNS_NO_ADDRESS 2 /* the name exists but has no IPv4 address */
+#define BEES_DNS_TEMPORARY 3  /* the resolver could not answer now (EAI_AGAIN) */
+#define BEES_DNS_BAD_NAME 4   /* empty, too long (255 bytes or more), or holding a NUL */
+#define BEES_DNS_FAILED 5     /* any other failure */
+
+bees_dns_tagged bees_dns_resolve(const uint8_t *host_ptr, uint64_t host_len);
+bees_dns_bytes bees_dns_take(int64_t unused);

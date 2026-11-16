@@ -250,8 +250,9 @@ fn ttls(msg: (:open, actor_ref, string) | (:tx, string, actor_ref) | (:credit, i
             false -> st.w
         };
         has_w: boolean <- st.phase != 0 or do_dial or do_adopt;
+        ctext: string <- case do_adopt of { true -> ""; false -> concat(concat(text, ":"), bees_trust_conf@dial_text()) };
         _: boolean <- case fresh of {
-            true -> cast(st.car, (:open, me, case do_adopt of { true -> ""; false -> text }) impl ActorMessage {});
+            true -> cast(st.car, (:open, me, ctext) impl ActorMessage {});
             false -> true
         };
         srv: int64 <- case do_dial of { true -> bees_trust_conf@server_index(text); false -> st.srv };

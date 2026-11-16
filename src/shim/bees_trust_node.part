@@ -142,7 +142,8 @@ fn trpc_open(kind: int64, addr: string, m: atom, f: atom, arity: int64, args: st
         t: actor_ref <- spawn({ c: c, n: 0 }, dangerous_bees_trust@ttx, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
         k: actor_ref <- spawn({ asm: t, c: c, tx: t, phase: 1, live: false, replied: false, srv: bees_trust_conf@server_index(addr), kind: kind, req: req, reply_to: reply_to, req_id: concat("r", bees_trust_frame@int_text(req)), m: m, f: f, a: arity, args: args }, dangerous_bees_trust@tcli, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
         tm: timer_ref <- send_after(bees_trust_conf@connect_timeout_ms(), k, (:bees, 5, "", "", 0) impl ActorMessage {});
-        _: boolean <- cast(c, (:open, k, addr) impl ActorMessage {})
+        da: string <- trust_dial_address(addr);
+        _: boolean <- cast(c, (:open, k, da) impl ActorMessage {})
     produces pure :ok end
 }
 fn trpc_call(addr: string, m: atom, f: atom, arity: int64, args: string, reply_to: actor_ref, req: int64) -> atom { trpc_request(1, addr, m, f, arity, args, reply_to, req) }

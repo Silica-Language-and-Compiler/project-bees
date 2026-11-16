@@ -142,7 +142,8 @@ fn raw_open(step: int64, out: string, driver: actor_ref, loud: boolean) -> atom 
         c: dangerous_actor_ref <- carrier_new();
         t: actor_ref <- trust_raw_writer(c);
         r: actor_ref <- spawn({ c: c, tx: t, driver: driver, step: step, got: 0, done: false, loud: loud, out: out }, raw, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
-        _: boolean <- cast(c, (:open, r, server()) impl ActorMessage {})
+        da: string <- trust_dial_address(server());
+        _: boolean <- cast(c, (:open, r, da) impl ActorMessage {})
     produces pure :ok end
 }
 fn wake(me: actor_ref, ms: uint64, step: int64) -> atom {

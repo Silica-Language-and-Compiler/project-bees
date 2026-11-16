@@ -1,0 +1,16 @@
+# The atoms of host-name resolution (spikes/S14, D42): dangerous_bees_dns's request and answers, the reasons it answers
+# with, and the dial actor's failure reasons ({:dns, reason}). Listed so that every program that resolves holds them in its
+# atom table in one order (D30; a resolver is a library unit's FFI worker and SD-3 numbers atoms per unit otherwise).
+resolve
+resolved
+resolve_failed
+close
+nxdomain
+no_address
+temporary
+bad_name
+failed
+dns
+not_loopback
+no_usable_address
+not_built_yet

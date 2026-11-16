@@ -704,7 +704,8 @@ fn epm_look(st: { c: dangerous_actor_ref, lcar: dangerous_actor_ref, conn: actor
         0 -> {
             sequence proc[concurrency]
                 _: atom <- bees_ingress@audit("epmd: found, dialing", beam_conf@link_peer_short(), 0);
-                _: boolean <- cast(st.lcar, (:open, st.conn, concat(concat(beam_conf@link_host(), ":"), int_text(r.port))) impl ActorMessage {});
+                addr: string <- concat(concat(concat(concat(beam_conf@link_host(), ":"), int_text(r.port)), ":"), beam_conf@open_text());
+                _: boolean <- cast(st.lcar, (:open, st.conn, addr) impl ActorMessage {});
                 _: boolean <- close_link(st.c)
             produces pure true end
         };

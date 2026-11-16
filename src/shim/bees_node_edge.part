@@ -30,7 +30,7 @@ fn net_dial(c: dangerous_actor_ref, me: actor_ref, io_ms: uint64, tick_ms: uint6
         n: actor_ref <- spawn({ asm: t, c: c, tx: t, mode: 0, step: 0, peer: bees_peers@link_peer(), ok: 0, dropped: 0, ticks: 0, seen: 0, io_ms: io_ms }, dangerous_bees_net@conn, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
         // N1: a dial host that is a name is resolved first (bees_resolve_edge.part), the carrier dials IPv4 literals only
         _: boolean <- case bees_peers@link_resolve() of {
-            true -> net_resolve(c, n, bees_peers@link_host(), bees_peers@link_port());
+            true -> net_resolve(c, n, bees_peers@link_host(), bees_peers@link_port(), bees_peers@open_text());
             false -> cast(c, (:open, n, bees_peers@link_address()) impl ActorMessage {})
         };
         p: { conn: actor_ref, tx: actor_ref } <- net_pair(n, t)

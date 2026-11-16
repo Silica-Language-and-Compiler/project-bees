@@ -465,7 +465,7 @@ fn dec_token_term(etf: string) -> (:ok, string) | (:rejected, atom) {
 }
 
 // (every value a call returns as a tagged tuple is bound in a sequence before it is passed on: written inline as an argument,
-// such a value reached the derived atom decoder corrupted and faulted it, the SD-31 family; SD-40 in silica-defects.md)
+// such a value reached the derived atom decoder corrupted and faulted it, the SD-31 family; SD-44 in silica-defects.md)
 // ---- whole frames, as the connection actors read them: { code (0 ok, else a reason code or 20 a protocol error), what
 // (the reason, for the audit line), kind, and the decoded fields }. Every value goes through dec_* (the language's decode).
 fn atom_or(r: (:ok, atom) | (:rejected, atom)) -> atom { case r of { (:ok, a: atom) -> a; (:rejected, _w: atom) -> bees_atoms@a_error() } }

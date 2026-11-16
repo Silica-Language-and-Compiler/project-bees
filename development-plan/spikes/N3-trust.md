@@ -8,7 +8,7 @@ ONLY:** there is no TLS (N4), the transport is plaintext on `127.0.0.1` (`plaint
 **test-supplied stand-in for the certificate fingerprint**: the first 64 bytes a client sends (R5, accepted by the user until TLS
 exists; said in the code, here, and in the boot banner). Plan: [mvp.md](../mvp.md) section 5, N3; design:
 [inter-nodal-modes.md](../inter-nodal-modes.md) section 3; options: [bees-config-file.md](../bees-config-file.md) section 5.3.
-Compiler findings: [silica-defects.md](../silica-defects.md), the N3 section (SD-40, SD-41 and notes).
+Compiler findings: [silica-defects.md](../silica-defects.md), the N3 section (SD-44, SD-45 and notes).
 
 ## 1. What was built
 

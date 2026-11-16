@@ -23,3 +23,19 @@ wrapper bees_fixture_word {
     result: "scalar"
     error_domain: "dangerous_bees_native"
 }
+
+wrapper bees_dns_resolve {
+    symbol: "bees_dns_resolve"
+    result: "tagged_result"
+    error_domain: "dangerous_bees_dns"
+    arguments: [
+        { name: "host_ptr", lifetime: "borrowed", retain: false },
+        { name: "host_len", role: "length", length_of: "host_ptr" }
+    ]
+}
+
+wrapper bees_dns_take {
+    symbol: "bees_dns_take"
+    result: "struct"
+    error_domain: "dangerous_bees_dns"
+}

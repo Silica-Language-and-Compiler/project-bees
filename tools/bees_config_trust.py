@@ -75,7 +75,7 @@ def gen(out_dir, v, notes, err):
          "// transport: the peer identity is a test-supplied stand-in for the certificate fingerprint (R5).",
          "module bees_trust_conf;", "use bees_atoms;", ""]
     ex = ["boot_error/0", "note_count/0", "note/1", "summary/0", "active/0", "listens/0", "port/0", "listen_spec/0",
-          "call_timeout_ms/0", "first_frame_timeout_ms/0", "handshake_timeout_ms/0", "connect_timeout_ms/0",
+          "call_timeout_ms/0", "first_frame_timeout_ms/0", "handshake_timeout_ms/0", "connect_timeout_ms/0", "dial_text/0",
           "suspicion_limit/0", "token_bytes/0", "token_ttl_ns/0", "frame_size_max/0", "args_len_max/0", "term_depth_max/0",
           "peer_count/0", "peer_index/1", "peer_hex/1", "peer_name/1", "permitted/4",
           "server_count/0", "server_index/1", "server_name/1", "self_fp/0",
@@ -111,6 +111,7 @@ def gen(out_dir, v, notes, err):
     for name, key in (("call_timeout_ms", "call_timeout_ms"), ("first_frame_timeout_ms", "first_frame_timeout_ms"),
                       ("handshake_timeout_ms", "client_handshake_timeout"), ("connect_timeout_ms", "connect_timeout_ms")):
         L.append(f"fn {name}() -> uint64 {{ {g(key, 1000)} }}")
+    L.append(f"fn dial_text() -> string {{ {sstr(str(g('connect_timeout_ms', 1000)))} }}")
     L.append(f"fn suspicion_limit() -> int64 {{ {g('suspicion_limit', 0)} }}")
     L.append(f"fn token_bytes() -> int64 {{ {g('token_bytes', 48)} }}")
     L.append(f"fn token_ttl_ns() -> int64 {{ {g('token_ttl_sec', 300) * 1000000000} }}")

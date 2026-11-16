@@ -229,7 +229,7 @@ def generate(out_dir, paths, link=None):
           "// of this program's manifest (M3, over the language's transport). No BEAM atom literal: every registered name comes from",
           "// bees_atoms (D30); the :bees tag is dangerous_bees_net's actor-protocol tag.",
           "module bees_peers;", "use bees_atoms;", "use bees_msgs;", "use bees_dist;", ""]
-    ex = ["node_name/0", "node_creation/0", "open_ms/0", "io_ms/0", "tick_ms/0", "frame_max/0", "link_address/0", "link_dials/0",
+    ex = ["node_name/0", "node_creation/0", "open_ms/0", "io_ms/0", "tick_ms/0", "frame_max/0", "link_address/0", "open_text/0", "link_dials/0",
           "link_peer/0", "link_resolve/0", "link_host/0", "link_port/0", "peer_count/0", "peer_index/1", "peer_name/1", "local_index/1", "start_deliverer/1", "start_proxies/1"]
     ln += [f"export {e};" for e in ex] + [""]
     peers = d["peers"]
@@ -241,7 +241,9 @@ def generate(out_dir, paths, link=None):
     # the language's carrier addresses (transport design 6.2, 6.3): "host:port" connects, "listen:port" listens on 127.0.0.1,
     # "listen:any:port" on every IPv4 interface
     dials = link["link_dials"]
-    ln += [f"fn link_address() -> string {{ {lit(link['link_address'])} }}",
+    # the carrier's dial form is "host:port:timeout_ms" (silica 39b6a5a50b, E8): BEES's open_ms is the budget; no default exists
+    addr = link['link_address'] + (f":{o}" if dials and link['link_address'] else "")
+    ln += [f"fn link_address() -> string {{ {lit(addr)} }}", f"fn open_text() -> string {{ {lit(str(o))} }}",
            f"fn link_dials() -> boolean {{ {'true' if dials else 'false'} }}",
            f"fn link_peer() -> int64 {{ {0 if dials else -1} }}",
            f"fn link_resolve() -> boolean {{ {'true' if link.get('link_resolve') else 'false'} }}",

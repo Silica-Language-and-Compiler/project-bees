@@ -44,7 +44,7 @@ fn beam_dial(c: dangerous_actor_ref, ec: dangerous_actor_ref, a: dangerous_actor
         _: boolean <- case beam_conf@link_by_epmd() of {
             true -> beam_lookup(c, ec, n);
             false -> case beam_conf@link_resolve() of {
-                true -> net_resolve(c, n, beam_conf@link_host(), beam_conf@link_port());
+                true -> net_resolve(c, n, beam_conf@link_host(), beam_conf@link_port(), beam_conf@open_text());
                 false -> cast(c, (:open, n, beam_conf@link_address()) impl ActorMessage {})
             }
         };

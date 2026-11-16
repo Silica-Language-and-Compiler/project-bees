@@ -3,4 +3,6 @@ a link_down closed
 a link_up seen true
 a frames received 1, tx credit grants 2
 done
+
+
 exit=0

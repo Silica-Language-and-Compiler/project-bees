@@ -13,6 +13,8 @@ import subprocess
 import sys
 import time
 
+NOTICE = b"[silica] root actor exited (no supervisor)"
+
 
 def main(argv):
     exe, out_path, marker = argv[1], argv[2], argv[3]
@@ -34,7 +36,11 @@ def main(argv):
             if not data:
                 break
             chunks.append(data)
-            last = time.monotonic()
+            # The runtime's notice for each normal stop of an unsupervised actor (one-shot timers, resolvers) is not the
+            # program's output and every caller deletes it afterwards; it does not break the quiet wait, or a program whose
+            # short-lived actors stop more often than every IDLE seconds is never told to exit.
+            if data.replace(NOTICE, b"").strip():
+                last = time.monotonic()
             if marker.encode() in b"".join(chunks):
                 seen = True
         if proc.poll() is not None and not r:

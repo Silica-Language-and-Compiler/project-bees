@@ -101,7 +101,7 @@ class Reader(unittest.TestCase):
         self.assertIn('fn link_address() -> string { "listen:47500" }', conf)
         self.assertIn("fn io_ms() -> uint64 { 8000 }", conf)
         self.assertIn("fn tick_ms() -> uint64 { 2000 }", conf)
-        self.assertIn('fn epmd_address() -> string { "127.0.0.1:4399" }', conf)
+        self.assertIn('fn epmd_address() -> string { "127.0.0.1:4399:10000" }', conf)
         self.assertIn("fn register_epmd() -> boolean { true }", conf)
         self.assertNotIn("secret", conf)          # the cookie is never built in, only its path
         peers = read(os.path.join(d, "out", "beam_peers.silica"))

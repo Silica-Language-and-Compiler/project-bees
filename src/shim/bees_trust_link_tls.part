@@ -16,3 +16,5 @@ fn trust_listen_link(c: dangerous_actor_ref, l: actor_ref, spec: string) -> bool
         ok: boolean <- cast(ll, (:open, l, spec) impl ActorMessage {})
     produces pure ok end
 }
+// the TLS link adds the dial budget itself when it opens its carrier (dangerous_bees_tls@ttls), the pinned-server lookup needs "host:port"
+fn trust_dial_address(addr: string) -> string { addr }
