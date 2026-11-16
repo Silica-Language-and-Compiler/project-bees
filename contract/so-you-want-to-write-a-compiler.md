@@ -77,6 +77,10 @@ no bytecode is loaded.
   line (`<unit>.atoms`; `#` starts a comment). `bees_config generate` merges all manifests into one generated unit,
   `bees_atoms`, and also puts into it every symbol the module and pool manifests below name. Symbols must be
   identifiers (letters, digits and underscore, not starting with a digit); other spellings are not supported yet.
+  The manifest is also a permission: `bees_config check` lets the unit `X.silica` write, as literals, exactly the atoms
+  listed in the `X.atoms` beside the real path of `X.silica` (see A6.3). Every atom a node needs is in its compile-time
+  atom set (user ruling 2026-11-16): the manifest, or any use of the atom in code such as a check, puts it there; no atom is
+  created or learned at run time.
 - **A1.3** Emit a **module manifest** for each module that can be called by name or through a function value
   (section A7): a line-oriented file `<unit>.module`, one module per file. Lines, in any order after the first:
 
@@ -237,7 +241,11 @@ no bytecode is loaded.
   unit may write a symbol literal.** Obtain symbols from `bees_atoms` accessors, compare them with `==`, or switch on
   `bees_atoms@index(a)`. You may write a symbol pattern only for the symbols Silica itself interprets
   (`:ok`, `:normal`, `:no_reply`, restart policies, stack-policy names; the list is `FIXED_ATOMS` in
-  `tools/bees_config.py`). `bees_config check` enforces this.
+  `tools/bees_config.py`). `bees_config check` enforces this. One exception, for a language compiler's own units: the
+  atoms a unit's manifest lists (A1.2, the `X.atoms` beside the real path of `X.silica`) may be written as literals in
+  that unit. The listed atoms are unit-private to X: X must not pass atom values to or from another unit (SD-3, D30);
+  hand them across as text or numbers, or through `bees_atoms`. The list never extends `FIXED_ATOMS`, and BEES's own
+  units under `src/` get no such allowance.
 - **A6.4** Never create a symbol at run time. Converting text to a symbol is a lookup that fails when the program does
   not already hold the spelling. Silica has no type conversion, so converting a symbol to text, printing and encoding
   are lookups in `bees_atoms`.
@@ -370,7 +378,7 @@ local name. Nothing in the source mentions the network.
 | `node <name>` | this program's node name: ASCII letters, digits, `_ . @ -`, at most 255 bytes, for example `b@127.0.0.1`. **Required.** |
 | `creation <n>` | optional, 0 to 4294967295, default 1. A constant written into the handshake and into the sender's pid; the peer does not check it. **Your compiler chooses it** (BEES does not assign or increment it). |
 | `timing <open_ms> <io_ms> <tick_ms>` | optional, defaults 10000 60000 15000, each 1 to 60000 (`tick_ms` may be 0). `open_ms` bounds listening, accepting and connecting; a peer that sends nothing for `io_ms` is lost; a node that has written nothing for `tick_ms` sends a net tick. `tick_ms` 0 sends none (a test setting: the peer will drop you). Read the three values back with `bees_peers@open_ms()`, `io_ms()`, `tick_ms()`. |
-| `peer <name> <host> <port> <listen\|dial>` | a node this program may talk to. `<host>` must be `127.0.0.1`. **The first `peer` line is the program's one link**: `dial` connects to it, `listen` binds the port and accepts one connection, which must name a listed node. Other `peer` lines are table entries (names that may dial in). At least one `peer` line is required. |
+| `peer <name> <host> <port> <listen\|dial>` | a node this program may talk to. `<host>` must be `127.0.0.1`. **In BEAM mode every `peer` line is a link (N2b)**: a `dial` peer is dialed (its own carrier, writer, connection actor and proxies), and the `listen` peers share the node's one listener, which accepts one connection per peer line; each must name a listed node, and that peer's proxies start when its handshake names it. Replies to a remote name go over the link of the peer the name is declared `@`. The auth-none node of M3 (`dangerous_bees_net`) keeps the old rule: the first `peer` line is its one link and the others are table entries. At least one `peer` line is required. |
 | `remote <name> @ <peer> cast <type>` | a registered name that lives on `<peer>`. `bees_config` generates a **proxy actor**, registered under `<name>` on this node, whose message type is `<type>`. Your code casts to `<name>` exactly as to a local actor. |
 | `local <name> cast <type>` | a registered name on this node that the peer may cast to. `bees_config` generates the decoder and a short-lived deliverer that `cast_registered`s the decoded value to `<name>`. **Your program must register an actor under that name** (A4.1 still applies). |
 | `message <name> <type>` | a message type with no node line, for the codec alone (as before). |
@@ -495,7 +503,8 @@ Two rules apply to every program that crosses a node boundary, in both modes (us
 | Balancing and placement of actors across cores | planned |
 | Secure inter-node communication (TRUST: a separate implementation from BEAM mode, D36) | planned (N3 to N5); needs a TLS engine, which needs the user's explicit approval (D38). The unauthenticated BEAM-mode node layer exists (B1a) |
 | The BEES configuration file `bees.config` (D37) | designed (B1b, [development-plan/bees-config-file.md](../development-plan/bees-config-file.md)); not built (N0) |
-| Reconnect, more than one link per node, pids and links across nodes, stock Erlang interoperation | planned, none built |
+| More than one link per node | built in BEAM mode, N2b (trials/n2_multilink); not in the M3 auth-none node |
+| Reconnect of a peer, pids and links across nodes, stock Erlang interoperation | planned, none built (stock interoperation: see N2) |
 | Encoding and decoding of values for a wire (ETF), framing and transports | Silica is designing these as language features (`Transportable`, `encode`/`decode`, a carrier actor contract); BEES leaves typed values to them when they exist and supplies the distribution layer and foreign pids above them (terms of any shape are the compiler's, not BEES's). Until then BEES ships its own interim codec (B1) |
 
 ## B3. Not provided (yours or Silica's)
@@ -526,7 +535,7 @@ Two rules apply to every program that crosses a node boundary, in both modes (us
    second message; avoid that shape until it is fixed.
 7. Targets other than Apple Silicon macOS are unverified.
 8. The node layer (B1a): a supervised start that takes your supervisor and ids (N2.4); a generated startup (N2.2); a
-   non-failing send to a remote name (N3); reconnect; more than one link per node; TRUST's TLS; the receive step as
+   non-failing send to a remote name (N3); reconnect; more than one link per node in the M3 node; TRUST's TLS; the receive step as
    the language's `decode` instead of the stub (A8.2, N0.0); whether to add the OTP 25 digest shorthand flag
    (`0x400_0000`) to the flag set (`contract/wire-v1.md` section 3.3).
 

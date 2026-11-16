@@ -10,7 +10,7 @@ PART := $(BEES_ROOT)/src/shim/beam_node_edge.part
 USES := --use bees_msgs --use bees_dist --use bees_ingress --use bees_peers --use beam_dist --use beam_conf --use beam_peers --use dangerous_beam_auth --use dangerous_beam_net
 _ := $(shell $(MAKE) -s -C "$(BEES_ROOT)/trials/n2_live" cookies >/dev/null && cd "$(LEAF_DIR)" && \
 	"$(BEES_ROOT)/tools/bees_config_beam.py" generate --config bees.config -o lib node.wire 1>&2 && \
-	"$(EDGE_GEN)" dangerous_beesd dangerous_beesd.silica $(USES) $(PART) $(ROLES)/node.role $(ROLES)/cookie_conf.role $(ROLES)/timing_conf.role $(LROLES)/live_client.role)
+	"$(EDGE_GEN)" dangerous_beesd dangerous_beesd.silica $(USES) --resolve $(PART) $(ROLES)/node.role $(ROLES)/cookie_conf.role $(ROLES)/timing_conf.role $(LROLES)/live_client.role)
 include $(BEES_ROOT)/tools/trial.mk
 
 clean: clean-generated

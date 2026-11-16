@@ -17,8 +17,10 @@
    configuration writes certfile, keyfile and cacertfile, each ended by a NUL).
 
    Kept here: the SSL_CTX with the fixed TRUST profile (inter-nodal-modes 3.2: TLS 1.3 only; X25519MLKEM768 only, so a
-   classical-only peer is refused, D41 relaxing it only on the boards; TLS_AES_256_GCM_SHA384 or TLS_CHACHA20_POLY1305_SHA256;
-   Ed25519 or ECDSA P-256 signatures; both certificates, verified against cacertfile only, no system store, within their dates;
+   classical-only peer is refused at the handshake, unless the spec's flag says some whitelist entry is classical-allowed (D44,
+   boards, D41): then X25519 is also offered and BEES's Silica refuses a classical connection of any other peer; TLS_AES_256_GCM_SHA384 or TLS_CHACHA20_POLY1305_SHA256;
+   Ed25519 or ECDSA P-256 signatures; both certificates, verified against cacertfile only, no system store, within their dates, or, with no
+   cacertfile (D43), not chain-verified at all: the pin and the whitelist decide;
    ALPN trust/1 offered by the client and the only one the server selects; no tickets, resumption, 0-RTT, renegotiation or
    compression), the memory BIOs, the handshake with OpenSSL's reasons mapped to small codes, SSL_read and SSL_write, the SHA-512
    of the peer certificate's DER (D11), the ALPN callback, the per-connection lock (two workers use a connection), and freeing.
@@ -72,6 +74,14 @@ static int span_set(const uint8_t *p, uint64_t n) {
 static pthread_mutex_t ctx_lock = PTHREAD_MUTEX_INITIALIZER;
 static SSL_CTX *ctxs[3] = {0, 0, 0};
 
+/* D43: with no cacertfile the chain is not verified against any CA: a self-signed or any-issuer certificate, within or past its
+   dates, is accepted by the handshake and BEES's Silica judges the peer by the SHA-512 of its DER (D11) and the whitelist.
+   The certificate must still be presented (SSL_VERIFY_FAIL_IF_NO_PEER_CERT) and sign with Ed25519 or ECDSA P-256 (sigalgs). */
+static int accept_any_chain_cb(X509_STORE_CTX *store_ctx, void *arg) {
+    (void)store_ctx; (void)arg;
+    return 1;   /* the X509 verify result stays X509_V_OK: bees_tls_facts reports 0, as for a verified chain */
+}
+
 
 static int alpn_select(SSL *ssl, const unsigned char **out, unsigned char *outlen, const unsigned char *in,
                        unsigned int inlen, void *arg) {
@@ -90,24 +100,28 @@ static int alpn_select(SSL *ssl, const unsigned char **out, unsigned char *outle
     return SSL_TLSEXT_ERR_ALERT_FATAL;   /* no_application_protocol */
 }
 
-static SSL_CTX *make_ctx(int role, const char *cert, const char *key, const char *ca) {
+static SSL_CTX *make_ctx(int role, const char *cert, const char *key, const char *ca, int classical) {
     SSL_CTX *c = SSL_CTX_new(TLS_method());
     if (c == 0) return 0;
     int good = SSL_CTX_set_min_proto_version(c, TLS1_3_VERSION) == 1
         && SSL_CTX_set_max_proto_version(c, TLS1_3_VERSION) == 1
         && SSL_CTX_set_ciphersuites(c, "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256") == 1
-        && SSL_CTX_set1_groups_list(c, "X25519MLKEM768") == 1
+        /* D44: X25519MLKEM768 only, unless some whitelist entry is marked classical-allowed: then X25519 is also offered, and
+           BEES's Silica refuses, after the handshake, a classical connection whose peer is not such an entry */
+        && SSL_CTX_set1_groups_list(c, classical ? "X25519MLKEM768:X25519" : "X25519MLKEM768") == 1
         && SSL_CTX_set1_sigalgs_list(c, "ed25519:ecdsa_secp256r1_sha256") == 1
         && SSL_CTX_use_certificate_chain_file(c, cert) == 1
         && SSL_CTX_use_PrivateKey_file(c, key, SSL_FILETYPE_PEM) == 1
         && SSL_CTX_check_private_key(c) == 1
-        && SSL_CTX_load_verify_file(c, ca) == 1;   /* the configured CA only: no default paths, no system store */
+        && (ca[0] == 0 || SSL_CTX_load_verify_file(c, ca) == 1);   /* the configured CA only: no default paths, no system store */
     if (!good) { ERR_clear_error(); SSL_CTX_free(c); return 0; }
     SSL_CTX_set_options(c, SSL_OP_NO_COMPRESSION | SSL_OP_NO_RENEGOTIATION | SSL_OP_NO_TICKET);
     SSL_CTX_set_num_tickets(c, 0);
     SSL_CTX_set_max_early_data(c, 0);
     SSL_CTX_set_session_cache_mode(c, SSL_SESS_CACHE_OFF);
+    if (classical) SSL_CTX_set_options(c, SSL_OP_CIPHER_SERVER_PREFERENCE);   /* a server picks the hybrid group whenever the peer offers it */
     SSL_CTX_set_verify(c, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, 0);
+    if (ca[0] == 0) SSL_CTX_set_cert_verify_callback(c, accept_any_chain_cb, 0);
     SSL_CTX_set_verify_depth(c, 4);
     if (role == 1) {
         if (SSL_CTX_set_alpn_protos(c, ALPN_TRUST, sizeof ALPN_TRUST) != 0) { SSL_CTX_free(c); return 0; }
@@ -117,10 +131,10 @@ static SSL_CTX *make_ctx(int role, const char *cert, const char *key, const char
     return c;
 }
 
-static SSL_CTX *ctx_for(int role, const char *cert, const char *key, const char *ca) {
+static SSL_CTX *ctx_for(int role, const char *cert, const char *key, const char *ca, int classical) {
     SSL_CTX *c;
     pthread_mutex_lock(&ctx_lock);
-    if (ctxs[role] == 0) ctxs[role] = make_ctx(role, cert, key, ca);   /* a failure is retried at the next open */
+    if (ctxs[role] == 0) ctxs[role] = make_ctx(role, cert, key, ca, classical);   /* a failure is retried at the next open */
     c = ctxs[role];
     pthread_mutex_unlock(&ctx_lock);
     return c;
@@ -183,10 +197,11 @@ bees_tls_tagged bees_tls_version(int64_t unused) { (void)unused; return ok((int6
 
 bees_tls_tagged bees_tls_set_args(int64_t a, int64_t b) { (void)b; arg_a = a; return ok(0); }
 
-/* Opens a connection in role a (1 client, 2 server). spec: certfile, keyfile and cacertfile, each ended by a NUL byte (made by
-   BEES's generated configuration). A client's ClientHello is ready to pull at once. value: the handle. */
+/* Opens a connection in role a (1 client, 2 server). spec: certfile, keyfile and cacertfile (empty: no CA, D43 pins only) and an
+   optional flag "1" (D44), each ended by a NUL byte (made by BEES's generated configuration). A client's ClientHello is ready to pull at once. value: the handle. */
 bees_tls_tagged bees_tls_open(const uint8_t *spec_ptr, uint64_t spec_len) {
     const char *f[3];
+    int classical = 0;
     uint64_t at = 0;
     int role = (int)arg_a;
     if ((role != 1 && role != 2) || spec_ptr == 0) return fail(BEES_TLS_E_STATE);
@@ -196,7 +211,13 @@ bees_tls_tagged bees_tls_open(const uint8_t *spec_ptr, uint64_t spec_len) {
         f[i] = (const char *)spec_ptr + at;
         at = (uint64_t)(z - spec_ptr) + 1;
     }
-    SSL_CTX *ctx = ctx_for(role, f[0], f[1], f[2]);
+    /* an optional fourth field (D44): "1" offers X25519 beside X25519MLKEM768; absent or anything else, the hybrid only */
+    if (at < spec_len) {
+        const uint8_t *z = memchr(spec_ptr + at, 0, (size_t)(spec_len - at));
+        if (z == 0) return fail(BEES_TLS_E_IDENTITY);
+        classical = (z - (spec_ptr + at)) == 1 && spec_ptr[at] == '1';
+    }
+    SSL_CTX *ctx = ctx_for(role, f[0], f[1], f[2], classical);
     if (ctx == 0) return fail(BEES_TLS_E_IDENTITY);
     conn *c = (conn *)calloc(1, sizeof *c);
     if (c == 0) return fail(BEES_TLS_E_TABLE);

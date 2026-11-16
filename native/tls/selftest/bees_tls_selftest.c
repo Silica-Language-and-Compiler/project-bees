@@ -19,6 +19,8 @@
 void bees_tls_selftest_reset(void);
 static const char *D;
 static int failures = 0;
+static int g_no_ca = 0;       /* D43: open the engines with an empty cacertfile (pins only) */
+static int g_classical = 0;   /* D44: open the engines with the classical-allowed flag */
 
 static void path(char *out, const char *name) { snprintf(out, 1024, "%s/%s", D, name); }
 
@@ -38,7 +40,8 @@ static int64_t open_engine(int role, const char *who, const char *pin_cert) {
     path(c, cn); path(k, kn); path(ca, "ca.pem");
     if (pin_cert) fp_hex(pin_cert, pin);
     /* certfile, keyfile, cacertfile, each ended by a NUL (the pin is BEES's Silica's business, not the engine's) */
-    size_t n = (size_t)snprintf(spec, sizeof spec, "%s%c%s%c%s%c", c, 0, k, 0, ca, 0);
+    size_t n = (size_t)snprintf(spec, sizeof spec, "%s%c%s%c%s%c", c, 0, k, 0, g_no_ca ? "" : ca, 0);
+    if (g_classical) { spec[n++] = '1'; spec[n++] = 0; }
     (void)pin;
     bees_tls_set_args(role, 0);
     bees_tls_tagged r = bees_tls_open((const uint8_t *)spec, n);
@@ -185,6 +188,39 @@ int main(int argc, char **argv) {
     e = stock_client(0, 0, 0, "trust/1");
     snprintf(line, sizeof line, "server error %lld (3 = no certificate)", (long long)e);
     check("a client with no certificate is refused", e == BEES_TLS_E_NO_CERT, line);
+    /* D43: no cacertfile: the chain is not verified, whatever the issuer; the pin and the whitelist (BEES's Silica) decide */
+    g_no_ca = 1;
+    e = engine_pair("r", "a.pem", &bits, seen);
+    snprintf(line, sizeof line, "error %lld, verify %lld", (long long)e, (long long)((bits / 4) % 256));
+    check("no cacertfile: a certificate from another CA completes the handshake (verify result 0)", e == 0 && (bits / 4) % 256 == 0, line);
+    e = engine_pair("w", "a.pem", &bits, seen);
+    snprintf(line, sizeof line, "error %lld", (long long)e);
+    check("no cacertfile: a self-signed certificate (w.pem) completes the handshake", e == 0, line);
+    e = engine_pair("x", "a.pem", &bits, seen);
+    snprintf(line, sizeof line, "error %lld", (long long)e);
+    check("no cacertfile: an expired certificate completes the handshake (the pin decides)", e == 0, line);
+    e = engine_pair("z", "a.pem", &bits, seen);
+    snprintf(line, sizeof line, "error %lld", (long long)e);
+    check("no cacertfile: an RSA certificate is still refused (signature rule)", e != 0, line);
+    e = stock_client(0, 0, 0, "trust/1");
+    snprintf(line, sizeof line, "server error %lld (3 = no certificate)", (long long)e);
+    check("no cacertfile: a client with no certificate is still refused", e == BEES_TLS_E_NO_CERT, line);
+    e = stock_client("b", "X25519", 0, "trust/1");
+    snprintf(line, sizeof line, "server error %lld (1 = handshake)", (long long)e);
+    check("no cacertfile, no classical flag: a classical-only client is still refused by the engine", e == BEES_TLS_E_HANDSHAKE, line);
+    g_no_ca = 0;
+    /* D44: with the classical flag the engine also offers X25519; whether a peer may use it is BEES's Silica's judgement */
+    g_classical = 1;
+    e = stock_client("b", "X25519", 0, "trust/1");
+    snprintf(line, sizeof line, "server error %lld, group 0x%llx (NID 1034 is 0x40a)", (long long)e, (long long)(last_facts / 67108864));
+    check("classical flag: a classical-only client completes the handshake and the facts say X25519 (NID 1034)", e == 0 && last_facts / 67108864 == 1034, line);
+    e = engine_pair("b", "a.pem", &bits, seen);
+    snprintf(line, sizeof line, "error %lld, group 0x%llx", (long long)e, (long long)(bits / 67108864));
+    check("classical flag: two engines still negotiate X25519MLKEM768", e == 0 && bits / 67108864 == 0x10011ec, line);
+    e = stock_client("r", 0, 0, "trust/1");
+    snprintf(line, sizeof line, "server error %lld (2 = certificate)", (long long)e);
+    check("classical flag, CA configured: a certificate from another CA is still refused", e == BEES_TLS_E_CERT, line);
+    g_classical = 0;
     printf("OpenSSL %s; %d failure(s)\n", OpenSSL_version(OPENSSL_VERSION), failures);
     return failures ? 1 : 0;
 }

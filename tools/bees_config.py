@@ -115,6 +115,13 @@ any `:name` literal that is not one of the runtime's fixed atoms (which every un
 identically) and not inside a comment or string. It is a lint, not a parser: type unions such as
 `:reply | :no_reply` and `child_spec` fields are Silica-level atoms the compiler resolves, so
 they are on the fixed list below as well.
+
+A unit OUTSIDE this repository's src/ (a language compiler's printed unit) may also write the atoms listed in its own
+manifest, `X.atoms` beside the real path of `X.silica` (compiler guide A1.2); everything else is still reported and the
+fixed list is never extended from a manifest. The listed atoms are unit-private to X: X must not pass atom values to or
+from another unit (SD-3, D30). Every atom a node needs is in its compile-time set (manifests merge into bees_atoms); none
+is created at run time. Units under src/ get no such allowance even when they have a manifest (bees_dns.atoms,
+bees_wire.atoms, bees_exit.atoms exist for `generate` only).
 """
 import os
 import re
@@ -178,6 +185,12 @@ def manifest_lines(path):
             line = line.split("#", 1)[0].strip()
             if line:
                 yield n, line.split()
+
+
+def read_atoms_manifest(path):
+    """The spellings an `.atoms` manifest lists: one per line, `#` comments and blank lines skipped (the one parser,
+    used by `generate` and by `check`)."""
+    return [w[0] for _, w in manifest_lines(path)]
 
 
 def parse_module(path):
@@ -246,8 +259,7 @@ def collect(paths):
     atoms_f, mod_f, pool_f = split_manifests(paths)
     atoms = set()
     for p in atoms_f:
-        for _, w in manifest_lines(p):
-            atoms.add(w[0])
+        atoms.update(read_atoms_manifest(p))
     modules = sorted((parse_module(p) for p in mod_f), key=lambda m: m["module"])
     names = [m["module"] for m in modules]
     for a in set(names):
@@ -630,6 +642,24 @@ def strip_comments_and_strings(src):
     return src
 
 
+SRC_DIR = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
+
+
+def unit_private_atoms(unit):
+    """The atoms a unit may write as literals because its own manifest lists them: the `.atoms` file beside the REAL
+    path of the unit (a symlinked unit uses the manifest beside its target). Units under this repo's src/ get none:
+    hand-written BEES units stay inside the fixed list and bees_atoms (several have manifests only for `generate`).
+    The listed atoms are unit-private to the unit; it must not pass atom values to or from another unit (SD-3, D30).
+    Never added to FIXED_ATOMS."""
+    real = os.path.realpath(unit)
+    if os.path.commonpath([real, SRC_DIR]) == SRC_DIR:
+        return set()
+    manifest = os.path.splitext(real)[0] + ".atoms"
+    if not os.path.isfile(manifest):
+        return set()
+    return set(read_atoms_manifest(manifest))
+
+
 def check(units):
     rc = 0
     for u in units:
@@ -639,11 +669,12 @@ def check(units):
         # (:tcp) carrier and its host wrappers) are the compiler's, not BEES's; D30 governs only what BEES writes
         if "/compiler/stdlib/" in os.path.realpath(u):
             continue
+        listed = unit_private_atoms(u)
         with open(u) as fh:
             src = strip_comments_and_strings(fh.read())
         for lineno, line in enumerate(src.split("\n"), 1):
             for m in ATOM_RE.finditer(line):
-                if m.group(1) not in FIXED_ATOMS:
+                if m.group(1) not in FIXED_ATOMS and m.group(1) not in listed:
                     print(f"{u}:{lineno}: BEAM atom literal :{m.group(1)} outside bees_atoms (D30)")
                     rc = 1
     return rc

@@ -119,6 +119,18 @@ engine sets the group list to `X25519MLKEM768` alone, and its selftest shows a c
   Each step was followed by `trials/n4_trust_tls` (9 of 9 each time; the selftest golden was re-recorded once, after reading it,
   because its cases now check the reported facts rather than C-side refusals).
 
+## 5a. Update 2026-11-16 (D43, D44; built)
+
+The user ruled that TRUST's peer trust is the SHA-512 pin plus the whitelist, as in Silica's example, and that a hosted node admits
+classical X25519 only from a marked whitelist entry. Decision N4-1 is therefore closed: `cacertfile` is optional (the table row
+"Identity and the CA" above describes N4.1 as first built; the default is now pins only, and a configured CA still verifies the
+chain). Without a CA the engine installs a certificate-verify callback that accepts any chain (a self-signed or any-issuer
+certificate, dates unchecked); the certificate must still be presented and be Ed25519 or ECDSA P-256. For the key exchange row, the
+engine's spec has a fourth NUL-ended field, `1` when any entry is marked, and then offers `X25519MLKEM768:X25519` with
+server preference; the group is read after the handshake with the peer's fingerprint and judged in Silica (`group_allowed`,
+refusal code 8, audit `tls_group_refused`). Trials: node q (self-signed, no CA either side), refusals cases 3, 6, 7, 11 to 13, and
+the selftest's no-CA and classical-flag cases.
+
 ## 6. Linux and boards (deferred)
 
 The engine's C is POSIX and OpenSSL only (no macOS call); it has not been built on Linux. The boards' Mbed TLS engine (D40, D41) is

@@ -10,4 +10,13 @@ PASS a TLS 1.2-only client is refused: server error 1
 PASS a client offering another ALPN is refused: server error 4 (4 = ALPN)
 PASS a client offering no ALPN completes the handshake with facts saying no ALPN: server error 0, facts alpn bit 0 (BEES's Silica refuses alpn 0)
 PASS a client with no certificate is refused: server error 3 (3 = no certificate)
+PASS no cacertfile: a certificate from another CA completes the handshake (verify result 0): error 0, verify 0
+PASS no cacertfile: a self-signed certificate (w.pem) completes the handshake: error 0
+PASS no cacertfile: an expired certificate completes the handshake (the pin decides): error 0
+PASS no cacertfile: an RSA certificate is still refused (signature rule): error 1003
+PASS no cacertfile: a client with no certificate is still refused: server error 3 (3 = no certificate)
+PASS no cacertfile, no classical flag: a classical-only client is still refused by the engine: server error 1 (1 = handshake)
+PASS classical flag: a classical-only client completes the handshake and the facts say X25519 (NID 1034): server error 0, group 0x40a (NID 1034 is 0x40a)
+PASS classical flag: two engines still negotiate X25519MLKEM768: error 0, group 0x10011ec
+PASS classical flag, CA configured: a certificate from another CA is still refused: server error 2 (2 = certificate)
 exit=0

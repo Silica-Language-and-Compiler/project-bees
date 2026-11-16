@@ -236,6 +236,7 @@ TRUST_OPTS = {
     "whitelist_cert_dir": Opt("str", "certs", when="build", why="read with the whitelist"),
     "whitelist_default_spec": Opt("spec", "none"),
     "whitelist_autoload": Opt("bool", False),
+    "classical_allowed_certs": Opt("strlist", [], when="build", why="D44: the marker is compiled into the generated peer table with the whitelist"),
     "server_pins_file": Opt("path", when="build", why="one registered client cache per pinned server (atoms)"),
     "call_timeout_ms": Opt("int", 5000, 1, 600000),
     "suspicion_limit": Opt("int", 3, 0, 1000),
@@ -260,6 +261,7 @@ SESSION_OPTS = {
     "max_calls": ((1, 100000), 100), "drain_ms": ((0, 60000), 1000),
 }
 TLS_KEYS = ("certfile", "keyfile", "cacertfile")
+TLS_REQUIRED = ("certfile", "keyfile")   # D43: cacertfile is optional; without it peer trust is the pin and the whitelist alone
 SEMP_RENAMED = {"token_ttl_ms": "token_ttl_sec (seconds; bees-config-file.md section 7)",
                 "rpc_api": "nothing: the module table is built at build time", "host_app": "nothing: paths are relative to bees.config",
                 "unsafe": "nothing", "unsafe_cookie": "nothing", "alpn": "nothing: the ALPN is fixed at trust/1",
@@ -660,40 +662,55 @@ def beam_section(top, mode, manifest, base, E, sec_line):
         io_ms, tick_ms = v["net_ticktime_s"] * 1000, v["net_ticktime_s"] * 1000 // 4
     if "open_timeout_ms" in v:
         o_ms = v["open_timeout_ms"]
-    # the link: the manifest's first peer (M3: one live link per node), with bees.config over the manifest (section 2)
-    first = manifest["peers"][0]
-    d, dln = over.get(first[0], ({}, sl))
-    role = d.get("role", first[3])
-    host = d.get("host", first[1])
-    hline = d.get("host_line", dln)
-    port = d.get("port", first[2])
-    if role == "dial" and port == "epmd" and epmd == "none":
-        raise E(dln, f"beam.peers.{first[0]}.port", "epmd, but beam.epmd is none")
+    # the links (N2b): one per manifest peer line, in manifest order (the index is bees_peers@peer_index), with bees.config over
+    # the manifest (section 2). A dial-role peer is dialed; every listen-role peer is listened for on the node's ONE listener
+    # (beam.listen_port, else the first listen-role peer's manifest port), and a peer's link starts when its handshake names it.
     for pname, (pd, pl) in over.items():
         if "host" in pd and auth == "none":
             test_setting_rule(pd["host"], pd["host_line"], f"beam.peers.{pname}.host", "auth none")
-    if role == "dial":
-        hk = dial_check(host, hline, f"beam.peers.{first[0]}.host")
-        if auth == "none":
-            test_setting_rule(host, hline, f"beam.peers.{first[0]}.host", "auth none")
-        if port == "epmd" and hk == "name":
-            raise E(hline, f"beam.peers.{first[0]}.host", f"{host} is a name and the port is epmd: not built yet (the EPMD lookup "
-                    "dials the peer host's EPMD, and only a direct dial is resolved first; write the host's IPv4 literal)")
-        address = f"{host}:{port}" if port != "epmd" else ""
-        link_port = port if port != "epmd" else 0
-    else:
-        hk = "ipv4"
-        lp = lport if lport is not None else (first[2] if first[3] == "listen" else 0)
+    links = []
+    listen_first = None
+    for peer in manifest["peers"]:
+        d, dln = over.get(peer[0], ({}, sl))
+        role = d.get("role", peer[3])
+        host = d.get("host", peer[1])
+        hline = d.get("host_line", dln)
+        port = d.get("port", peer[2])
+        if role == "dial" and port == "epmd" and epmd == "none":
+            raise E(dln, f"beam.peers.{peer[0]}.port", "epmd, but beam.epmd is none")
+        if role == "dial":
+            hk = dial_check(host, hline, f"beam.peers.{peer[0]}.host")
+            if auth == "none":
+                test_setting_rule(host, hline, f"beam.peers.{peer[0]}.host", "auth none")
+            address = f"{host}:{port}" if port != "epmd" else ""
+            link_port = port if port != "epmd" else 0
+        else:
+            hk = "ipv4"
+            if listen_first is None:
+                listen_first = peer
+            address, link_port = None, None      # the listener's: set below
+        links.append({"name": peer[0], "dials": role == "dial", "by_epmd": role == "dial" and port == "epmd", "host": host,
+                      "host_kind": hk, "port": link_port, "address": address, "resolve": role == "dial" and hk == "name"})
+    lp = 0
+    listen_address = ""
+    if listen_first is not None:
+        lp = lport if lport is not None else listen_first[2]
         if lp == 0 and epmd != "external":
             raise E(sl, "beam.listen_port", "0 (ephemeral) needs epmd external")
-        address = f"{la_form}{lp}"
-        link_port = lp
+        listen_address = f"{la_form}{lp}"
+        for lk in links:
+            if not lk["dials"]:
+                lk["address"], lk["port"] = listen_address, lp
+    first = links[0]
     eff.update({
         "creation": None, "epmd": epmd, "epmd_port": v.get("epmd_port", 4369), "open_ms": o_ms, "io_ms": io_ms,
         "tick_ms": tick_ms, "frame_max": v.get("frame_size_max", BEAM_FRAME_MAX), "listen_address": la,
-        "link_dials": role == "dial", "link_peer": 0 if role == "dial" else -1, "link_address": address, "link_port": link_port,
-        "link_by_epmd": role == "dial" and port == "epmd", "link_host": host, "link_host_kind": hk,
-        "link_peer_name": first[0], "register_epmd": role == "listen" and epmd == "external", "node": manifest["node"],
+        "links": links, "listens": listen_first is not None, "listener_address": listen_address,
+        # the first link, as scalars (M3's node and the roles of the one-link trials read these)
+        "link_dials": first["dials"], "link_peer": 0 if first["dials"] else -1, "link_address": first["address"],
+        "link_port": first["port"], "link_by_epmd": first["by_epmd"], "link_host": first["host"],
+        "link_host_kind": first["host_kind"], "link_peer_name": first["name"],
+        "register_epmd": listen_first is not None and epmd == "external", "node": manifest["node"],
     })
     return eff
 
@@ -740,6 +757,13 @@ def trust_section(top, mode, base, E, sec_line, notes, fname):
             v[k] = want_r(want_bool, E, node, p)
         elif o.kind == "spec":
             v[k] = want_r(parse_spec, E, node, p)
+        elif o.kind == "strlist":
+            if node.kind != "list":
+                raise E(line, p, "expected a list of certificate names, for example [\"board.pem\"]")
+            names = [want_r(want_str, E, it, p) for it in node.value]
+            if len(set(names)) != len(names):
+                raise E(line, p, "a certificate is named twice")
+            v[k] = names
         elif o.kind == "tls":
             d = proplist_r(node, p, TLS_KEYS, E)
             v[k] = {kk: (want_r(want_str, E, vv, f"{p}.{kk}"), ln) for kk, (vv, ln) in d.items()}
@@ -788,12 +812,12 @@ def trust_section(top, mode, base, E, sec_line, notes, fname):
                 "authentication, no encryption)")
     if v["tls"]:
         if v["tls_opts"] is None:
-            raise E(sl, "trust.tls_opts", "required in mode trust unless plaintext_test_only (certfile, keyfile, cacertfile)")
+            raise E(sl, "trust.tls_opts", "required in mode trust unless plaintext_test_only (certfile and keyfile; cacertfile is optional, D43)")
         for k in ("tls_opts", "client_tls_opts"):
             if v[k] is not None:
-                missing = [kk for kk in TLS_KEYS if kk not in v[k]]
+                missing = [kk for kk in TLS_REQUIRED if kk not in v[k]]
                 if missing:
-                    raise E(lines.get(k, sl), f"trust.{k}", f"needs all three of certfile, keyfile, cacertfile ({', '.join(missing)} missing)")
+                    raise E(lines.get(k, sl), f"trust.{k}", f"needs certfile and keyfile ({', '.join(missing)} missing); cacertfile is optional")
     v["listen_prefix"] = listen_form(v["listen_address"], lines["listen_address"], "trust.listen_address")
     v["tls_paths"] = {}
     for k in ("tls_opts", "client_tls_opts"):
@@ -839,8 +863,18 @@ def trust_section(top, mode, base, E, sec_line, notes, fname):
                 continue
             seen[fp] = cert
             v["peers"].append((cert, fp, spec))
+        names = [c for c, _, _ in v["peers"]]
+        for c in v["classical_allowed_certs"]:
+            if c not in names:
+                raise E(lines["classical_allowed_certs"], "trust.classical_allowed_certs",
+                        f'"{c}" names no whitelist entry with a readable certificate (the marker is per whitelist entry, D44)')
     else:
+        if v["classical_allowed_certs"]:
+            raise E(lines["classical_allowed_certs"], "trust.classical_allowed_certs", "needs a whitelist_file to mark entries of (D44)")
         notes.append("TRUST standalone: no whitelist file configured, no inbound connections accepted")
+    if v["classical_allowed_certs"] and not v["tls"]:
+        raise E(lines["classical_allowed_certs"], "trust.classical_allowed_certs", "has no meaning under plaintext_test_only (no TLS)")
+    v["peer_classical"] = [c in v["classical_allowed_certs"] for c, _, _ in v["peers"]]
     v["servers"] = []
     if v["server_pins_file"] is not None:
         pf = check_file(base, v["server_pins_file"], lines["server_pins_file"], "trust.server_pins_file", "pin file")

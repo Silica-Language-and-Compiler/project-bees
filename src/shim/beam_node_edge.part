@@ -6,10 +6,10 @@
 // (normally beam_conf@io_ms(), beam_conf@tick_ms(), beam_conf@cookie_path()), so that a trial can run M3-style variants of one node. The state
 // literals are the behaviours' state types written out (SD-31: no record-returning call inline as an argument).
 //
-// beam_launch(c, io_ms, tick_ms, cookie): the node over the unopened (:tcp) carrier c. Starts the cookie worker and, for EPMD, a second carrier. A
-// dialing node starts tx, the proxies and conn at once and opens c (to the configured port, or through EPMD's answer: epm
-// opens c); a listening node starts lsn on c, which registers with EPMD once bound and starts the link on the first accepted
-// connection. Returns the connection actor and the writer on a dialing node (both fields are lsn on a listening node).
+// beam_launch(c, io_ms, tick_ms, cookie): the node over the unopened (:tcp) carrier c. Starts the cookie worker and, for EPMD, a second carrier. Every
+// dial peer starts tx, the proxies and conn at once and opens a carrier (c for the first one when the node does not listen; to the
+// configured port, or through EPMD's answer: epm opens it); a node with listen peers starts lsn on c, which registers with EPMD once
+// bound (once per node) and starts a link on each accepted connection (N2b: up to one per peer line). Returns the connection actor and the writer on a dialing node (both fields are lsn on a listening node).
 fn beam_pair(n: actor_ref, t: actor_ref) -> { conn: actor_ref, tx: actor_ref } { { conn: n, tx: t } }
 fn beam_banner() -> atom {
     sequence proc[device_io]
@@ -28,39 +28,72 @@ fn beam_launch(c: dangerous_actor_ref, io_ms: uint64, tick_ms: uint64, cookie: s
         me: actor_ref <- self();
         a: dangerous_actor_ref <- auth_new(cookie);
         ec: dangerous_actor_ref <- carrier_new();
-        p: { conn: actor_ref, tx: actor_ref } <- case beam_conf@link_dials() of {
-            true -> beam_dial(c, ec, a, me, io_ms, tick_ms);
-            false -> beam_listen(c, ec, a, me, io_ms, tick_ms)
+        p: { conn: actor_ref, tx: actor_ref } <- case beam_conf@listens() of {
+            true -> beam_listen_and_dial(c, ec, a, me, io_ms, tick_ms);
+            false -> beam_dials(0, c, true, a, me, io_ms, tick_ms)
         }
     produces pure p end
 }
-fn beam_dial(c: dangerous_actor_ref, ec: dangerous_actor_ref, a: dangerous_actor_ref, me: actor_ref, io_ms: uint64, tick_ms: uint64) -> { conn: actor_ref, tx: actor_ref } {
+// N2b: every peer line is a link. The node's ONE listener (when any peer's role is listen) takes c and, on each accepted connection,
+// starts that connection's own tx, conn and carrier (dangerous_beam_net@lsn); each dial peer gets its own carrier (the first dial
+// peer of a node that does not listen takes c), tx, conn, proxies and reaper. The pair returned is the listener's (lsn is both
+// fields), else the first dial link's.
+fn beam_listen_and_dial(c: dangerous_actor_ref, ec: dangerous_actor_ref, a: dangerous_actor_ref, me: actor_ref, io_ms: uint64, tick_ms: uint64) -> { conn: actor_ref, tx: actor_ref } {
+    sequence
+        p: { conn: actor_ref, tx: actor_ref } <- beam_listen(c, ec, a, me, io_ms, tick_ms);
+        _: { conn: actor_ref, tx: actor_ref } <- beam_dials(0, c, false, a, me, io_ms, tick_ms)
+    produces pure p end
+}
+fn beam_dials(i: int64, first: dangerous_actor_ref, use_first: boolean, a: dangerous_actor_ref, me: actor_ref, io_ms: uint64, tick_ms: uint64) -> { conn: actor_ref, tx: actor_ref } {
+    case i >= bees_peers@peer_count() of {
+        true -> beam_pair(me, me);
+        false -> case beam_conf@link_dials_of(i) of {
+            true -> beam_dial_next(i, first, use_first, a, me, io_ms, tick_ms);
+            false -> beam_dials(i + 1, first, use_first, a, me, io_ms, tick_ms)
+        }
+    }
+}
+fn beam_dial_next(i: int64, first: dangerous_actor_ref, use_first: boolean, a: dangerous_actor_ref, me: actor_ref, io_ms: uint64, tick_ms: uint64) -> { conn: actor_ref, tx: actor_ref } {
+    sequence
+        car: dangerous_actor_ref <- case use_first of { true -> first; false -> carrier_new() };
+        p: { conn: actor_ref, tx: actor_ref } <- beam_dial(i, car, a, me, io_ms, tick_ms);
+        _: { conn: actor_ref, tx: actor_ref } <- beam_dials(i + 1, first, false, a, me, io_ms, tick_ms)
+    produces pure p end
+}
+fn beam_dial(i: int64, c: dangerous_actor_ref, a: dangerous_actor_ref, me: actor_ref, io_ms: uint64, tick_ms: uint64) -> { conn: actor_ref, tx: actor_ref } {
     sequence proc[concurrency]
         t: actor_ref <- spawn({ c: c, up: false, sent: 0, reaper: me, tick_ms: tick_ms }, dangerous_beam_net@tx, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
-        r: actor_ref <- beam_peers@start_proxies(t);
+        r: actor_ref <- beam_peers@start_proxies(i, t);
         _: boolean <- cast(t, (:who, r) impl ActorMessage {});
-        n: actor_ref <- spawn({ asm: t, c: c, tx: t, auth: a, mode: 0, step: 0, peer: beam_conf@link_peer(), ok: 0, dropped: 0, ticks: 0, seen: 0, io_ms: io_ms, ch: 0, e0: 0 - 1, e1: 0, e2: 0, e3: 0, ctl: 0 }, dangerous_beam_net@conn, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        n: actor_ref <- spawn({ asm: t, c: c, tx: t, auth: a, mode: 0, step: 0, peer: i, ok: 0, dropped: 0, ticks: 0, seen: 0, io_ms: io_ms, dial: true, ch: 0, e0: 0 - 1, e1: 0, e2: 0, e3: 0, ctl: 0 }, dangerous_beam_net@conn, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
         // N1: a dial host that is a name is resolved first (bees_resolve_edge.part), the carrier dials IPv4 literals only
-        _: boolean <- case beam_conf@link_by_epmd() of {
-            true -> beam_lookup(c, ec, n);
-            false -> case beam_conf@link_resolve() of {
-                true -> net_resolve(c, n, beam_conf@link_host(), beam_conf@link_port(), beam_conf@open_text());
-                false -> cast(c, (:open, n, beam_conf@link_address()) impl ActorMessage {})
+        _: boolean <- case beam_conf@link_by_epmd_of(i) of {
+            true -> beam_lookup(c, n, i);
+            false -> case beam_conf@link_resolve_of(i) of {
+                true -> net_resolve(c, n, beam_conf@link_host_of(i), beam_conf@link_port_of(i), beam_conf@open_text());
+                false -> cast(c, (:open, n, beam_conf@link_address_of(i)) impl ActorMessage {})
             }
         };
         p: { conn: actor_ref, tx: actor_ref } <- beam_pair(n, t)
     produces pure p end
 }
-fn beam_lookup(c: dangerous_actor_ref, ec: dangerous_actor_ref, n: actor_ref) -> boolean {
+// the EPMD lookup of peer i: its own EPMD carrier (one epm per EPMD-dialed peer). A host that is a NAME is resolved first with the
+// same resolver edge as a direct dial (N2b): net_resolve opens the EPMD carrier at "<ipv4>:epmd_port:open_ms", and epm dials the
+// link at the address that carrier reports.
+fn beam_lookup(c: dangerous_actor_ref, n: actor_ref, i: int64) -> boolean {
     sequence proc[concurrency]
-        e: actor_ref <- spawn({ c: ec, lcar: c, conn: n, kind: 2, port: 0, done: false, buf: "" }, dangerous_beam_net@epm, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
-        ok: boolean <- cast(ec, (:open, e, beam_conf@epmd_lookup_address()) impl ActorMessage {})
+        ec: dangerous_actor_ref <- carrier_new();
+        e: actor_ref <- spawn({ c: ec, lcar: c, conn: n, kind: 2, port: 0, done: false, buf: "", peer: i, host: "" }, dangerous_beam_net@epm, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        ok: boolean <- case beam_conf@link_resolve_of(i) of {
+            true -> net_resolve(ec, e, beam_conf@link_host_of(i), beam_conf@epmd_port(), beam_conf@open_text());
+            false -> cast(ec, (:open, e, beam_conf@epmd_lookup_address_of(i)) impl ActorMessage {})
+        }
     produces pure ok end
 }
 fn beam_listen(c: dangerous_actor_ref, ec: dangerous_actor_ref, a: dangerous_actor_ref, me: actor_ref, io_ms: uint64, tick_ms: uint64) -> { conn: actor_ref, tx: actor_ref } {
     sequence proc[concurrency]
-        l: actor_ref <- spawn({ reaper: me, io_ms: io_ms, tick_ms: tick_ms, started: false, auth: a, ec: ec }, dangerous_beam_net@lsn, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
-        _: boolean <- cast(c, (:open, l, beam_conf@link_address()) impl ActorMessage {});
+        l: actor_ref <- spawn({ reaper: me, io_ms: io_ms, tick_ms: tick_ms, accepted: 0, auth: a, ec: ec }, dangerous_beam_net@lsn, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: boolean <- cast(c, (:open, l, beam_conf@listener_address()) impl ActorMessage {});
         p: { conn: actor_ref, tx: actor_ref } <- beam_pair(l, l)
     produces pure p end
 }

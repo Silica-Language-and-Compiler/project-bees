@@ -1,0 +1,19 @@
+// N4.1 node q (D43): a TRUST client with a self-signed certificate (w.pem) and no cacertfile. Neither side verifies a chain: node a
+// accepts w.pem because its SHA-512 is a whitelist entry, and node q accepts node a because the SHA-512 of a.pem is its pin.
+// The call is answered as in the CA trial.
+fn driver(r: { req: int64, what: atom, value: string }, step: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- say(concat("noca: call demo:add([1, 2]) with no cacertfile on either node: ", outcome(r)));
+        _: atom <- say("noca done")
+    produces pure (:no_reply, step + 1) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        b: int64 <- trust_boot();
+        _: atom <- start_reporter();
+        _: atom <- trust_start();
+        d: actor_ref <- spawn(0, driver, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: atom <- trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_add(), 2, ints2(1, 2), d, 1);
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

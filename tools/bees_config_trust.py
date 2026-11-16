@@ -77,7 +77,7 @@ def gen(out_dir, v, notes, err):
     ex = ["boot_error/0", "note_count/0", "note/1", "summary/0", "active/0", "listens/0", "port/0", "listen_spec/0",
           "call_timeout_ms/0", "first_frame_timeout_ms/0", "handshake_timeout_ms/0", "connect_timeout_ms/0", "dial_text/0",
           "suspicion_limit/0", "token_bytes/0", "token_ttl_ns/0", "frame_size_max/0", "args_len_max/0", "term_depth_max/0",
-          "peer_count/0", "peer_index/1", "peer_hex/1", "peer_name/1", "permitted/4",
+          "peer_count/0", "peer_index/1", "peer_hex/1", "peer_name/1", "peer_classical/1", "permitted/4",
           "server_count/0", "server_index/1", "server_name/1", "self_fp/0",
           "tls/0", "tls_server_spec/0", "tls_client_spec/0", "tls_server_pin/1"]
     L += [f"export {e};" for e in ex] + [""]
@@ -96,8 +96,14 @@ def gen(out_dir, v, notes, err):
     servers = g("servers", [])
     summ = ""
     if ok:
-        transport = ("transport mutual TLS 1.3 (ALPN trust/1, X25519MLKEM768, peers by the SHA-512 of their certificate), "
-                     if v.get("tls") else "")
+        tp = v.get("tls_paths", {})
+        ca_on = any(kk == "cacertfile" for (_, kk) in tp)
+        n_cl = sum(1 for c in v.get("peer_classical", []) if c)
+        trust_how = ("chain also verified against cacertfile" if ca_on else "pins only, no cacertfile")
+        group_how = ("X25519MLKEM768" if not n_cl else f"X25519MLKEM768, classical X25519 only for {n_cl} marked whitelist "
+                     f"entr{'y' if n_cl == 1 else 'ies'}")
+        transport = (f"transport mutual TLS 1.3 (ALPN trust/1, {group_how}, peers by the SHA-512 of their certificate, "
+                     f"{trust_how}), " if v.get("tls") else "")
         summ = (f"[trust] mode {v['mode']}, {transport}listen {v['listen_address']}:{v['port']}, whitelist {len(peers)} entries, "
                 f"pinned servers {len(servers)}, frame_size_max {v['frame_eff']}, "
                 f"args_len_max {v['args_eff']}, term_depth_max {v['term_depth_max']}, call_timeout_ms {v['call_timeout_ms']}, "
@@ -136,6 +142,13 @@ def gen(out_dir, v, notes, err):
     for i, (cert, _, spec) in enumerate(peers):
         L.append(f"// {i}: {cert}")
         L.append(f"fn perm_{i}(ms: string, fs: string, a: int64) -> boolean {{ {perm_expr(spec)} }}")
+    L.append("// D44: a peer whose whitelist entry is marked classical-allowed (bees.config classical_allowed_certs) may negotiate X25519")
+    L.append("fn peer_classical(i: int64) -> boolean {")
+    L.append("    case i of {")
+    for i, c in enumerate(g("peer_classical", [])):
+        L.append(f"        {i} -> {'true' if c else 'false'};")
+    L.append("        _: int64 -> false")
+    L += ["    }", "}"]
     L.append("fn permitted(i: int64, m: atom, f: atom, a: int64) -> boolean {")
     L.append("    case i of {")
     for i in range(len(peers)):
@@ -151,14 +164,17 @@ def gen(out_dir, v, notes, err):
     L.append("        _: int64 -> bees_atoms@a_error()")
     L += ["    }", "}"]
     # N4.1: TRUST over mutual TLS 1.3 unless plaintext_test_only. The engine (native/tls) is given the node's own paths, made
-    # absolute here: certfile, keyfile and cacertfile, each ended by a NUL byte (written as bytes: a string literal cannot hold
-    # NUL). The pins are not the engine's: the TLS link compares the server's fingerprint with tls_server_pin(i)
+    # absolute here: certfile, keyfile and cacertfile (empty when none is configured, D43: pins only) and a flag "1" when any
+    # whitelist entry is marked classical-allowed (D44: the engine then also offers X25519), each ended by a NUL byte (written
+    # as bytes: a string literal cannot hold NUL). The pins are not the engine's: the TLS link compares the server's fingerprint with tls_server_pin(i)
     tls_on = bool(ok and v.get("tls"))
     L.append(f"fn tls() -> boolean {{ {'true' if tls_on else 'false'} }}")
     paths = g("tls_paths", {})
     def spec_fn(name, which):
         k = which if (which, "certfile") in paths else "tls_opts"
         raw = b"".join(paths.get((k, kk), "").encode() + b"\0" for kk in ("certfile", "keyfile", "cacertfile")) if tls_on else b""
+        if raw:
+            raw += (b"1" if any(g("peer_classical", [])) else b"0") + b"\0"
         if not raw:
             return [f'fn {name}() -> string {{ "" }}']
         return [f"fn {name}() -> string {{", "    sequence proc[mem(normal), transport]",

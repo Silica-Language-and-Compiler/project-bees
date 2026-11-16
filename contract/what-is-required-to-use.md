@@ -48,7 +48,7 @@ Method: read-only web checks of the projects' own release pages and change logs.
 **Decided 2026-11-10 (user):** the X25519MLKEM768 requirement is relaxed for the NUCLEO-L476RG and ESP32-S3. They use classical X25519 key exchange in TLS 1.3; every other profile rule is unchanged. Hosted platforms keep X25519MLKEM768.
 
 Open consequences:
-1. A hosted node's TRUST profile refuses classical-only peers, so a board cannot connect to a hosted node unless the hosted side accepts X25519 for configured board peers. Not yet decided.
+1. A hosted node's TRUST profile refuses classical-only peers, so a board cannot connect to a hosted node unless the hosted side accepts X25519 for configured board peers. **Decided 2026-11-16 (D44): per-peer opt-in** (a whitelist entry marked classical-allowed, `classical_allowed_certs` in `bees.config`); built 2026-11-16. Peer trust is by pin and whitelist, and `cacertfile` is optional (D43, built).
 2. Revisit the relaxation when Mbed TLS adds the group.
 3. Each board's own SDK may pin its own Mbed TLS version (the ESP-IDF on the ESP32-S3 in particular); check the version a programmer actually gets.
 

@@ -15,6 +15,7 @@
 #   rogue_ca    another CA; r is signed by it (a certificate from the wrong CA)
 #   x           signed by ca but expired (2020 to 2021)
 #   z           signed by ca, RSA 2048: a signature kind the profile refuses
+#   w           SELF-SIGNED (Ed25519, no CA): a node with no cacertfile, trusted by its pin and the whitelist alone (D43)
 # The keys are test fixtures, mode 600, and belong to nobody; they are never a node's real identity.
 set -eu
 DIR=${1:?usage: bees_test_certs.sh DIR}
@@ -50,7 +51,10 @@ leaf p ca p256 $NB $NA 105
 leaf r rogue_ca ed25519 $NB $NA 106
 leaf x ca ed25519 20200101000000Z 20210101000000Z 107
 leaf z ca rsa $NB $NA 108
+"$OPENSSL" genpkey -algorithm ed25519 -out w-key.pem
+"$OPENSSL" req -x509 -new -key w-key.pem -subj "/CN=bees-test-w (self-signed)" -not_before $NB -not_after $NA \
+    -addext basicConstraints=critical,CA:FALSE -addext keyUsage=critical,digitalSignature -out w.pem
 chmod 600 ./*-key.pem
-for f in a b n u p r x z ca rogue_ca; do
+for f in a b n u p r x z w ca rogue_ca; do
     printf '%-9s sha512 %s\n' "$f" "$("$OPENSSL" x509 -in "$f.pem" -noout -fingerprint -sha512 | sed 's/^.*=//; s/://g' | tr A-F a-f)"
 done | tee fingerprints.txt

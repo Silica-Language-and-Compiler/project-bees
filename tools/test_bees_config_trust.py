@@ -199,7 +199,29 @@ class Conf(unittest.TestCase):
         # the pin is the TLS link's, not the engine's
         self.assertIn('0 -> "' + hashlib.sha512(b"certs/a.pem").hexdigest() + '"', unit)
         self.refused("""[{mode, trust}, {trust, [{listen_address, "127.0.0.1"}, {tls_opts, [{certfile, "node.pem"}]}]}].""",
-                     "trust.tls_opts", "needs all three")
+                     "trust.tls_opts", "needs certfile and keyfile")
+        # D43: no cacertfile is accepted; the engine's spec then has an empty third field and the summary says pins only
+        v, notes, err = self.verdict("""[{mode, trust}, {trust, [{listen_address, "0.0.0.0"}, {tls_opts, [{certfile, "node.pem"}, {keyfile, "node-key.pem"}]}]}].""")
+        self.assertIsNone(err)
+        B.gen(os.path.join(self.d, "lib2"), v, notes, err)
+        unit2 = slurp(os.path.join(self.d, "lib2", "bees_trust_conf.silica"))
+        self.assertIn("pins only, no cacertfile", unit2)
+        self.assertIn(", 0, 0, 48, 0]", unit2)      # key NUL, empty cacertfile NUL, flag "0" NUL
+        # D44: a marked whitelist entry turns the engine's flag on, and the generated peer table says which entry
+        self.write("certs/b.pem", "-----BEGIN CERTIFICATE-----\n" + base64.b64encode(b"b").decode() + "\n-----END CERTIFICATE-----\n")
+        self.write("wl.config", """#{"a.pem" => none, "b.pem" => any}.""")
+        base = """[{mode, trust}, {trust, [{listen_address, "0.0.0.0"}, {tls_opts, [{certfile, "node.pem"}, {keyfile, "node-key.pem"}]}, {whitelist_file, "wl.config"}, %s]}]."""
+        v, notes, err = self.verdict(base % '{classical_allowed_certs, ["b.pem"]}')
+        self.assertIsNone(err)
+        B.gen(os.path.join(self.d, "lib3"), v, notes, err)
+        unit3 = slurp(os.path.join(self.d, "lib3", "bees_trust_conf.silica"))
+        self.assertIn("fn peer_classical(i: int64) -> boolean {", unit3)
+        self.assertIn("        0 -> false;\n        1 -> true;", unit3)
+        self.assertIn(", 0, 49, 0]", unit3)         # empty cacertfile NUL, flag "1" NUL
+        self.assertIn("classical X25519 only for 1 marked whitelist entry", unit3)
+        self.refused(base % '{classical_allowed_certs, ["zz.pem"]}', "trust.classical_allowed_certs", "names no whitelist entry")
+        self.refused("""[{mode, trust}, {trust, [{listen_address, "0.0.0.0"}, {tls_opts, [{certfile, "node.pem"}, {keyfile, "node-key.pem"}]}, {classical_allowed_certs, ["b.pem"]}]}].""",
+                     "trust.classical_allowed_certs", "needs a whitelist_file")
         self.write("pins2.config", """#{"10.0.0.9:47601" => "gone.pem"}.""")
         v, _, err = self.verdict("""[{mode, trust}, {trust, [{listen_address, "127.0.0.1"}, %s, {server_pins_file, "pins2.config"}]}].""" % tls)
         self.assertIn("pinned certificate", err)

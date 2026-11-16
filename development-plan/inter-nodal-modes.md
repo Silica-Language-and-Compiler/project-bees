@@ -235,15 +235,15 @@ replaced by Silica TLS intrinsics (S-13) without a wire change.
 
 - TLS 1.3 only.
 - ALPN must be `trust/1`; anything else closes the connection.
-- Key exchange: hybrid X25519MLKEM768. Classical-only groups are refused. **Relaxed 2026-11-10 (D41) for the NUCLEO-L476RG and ESP32-S3 only**: Mbed TLS has no X25519MLKEM768, so those boards use classical X25519 (TLS 1.3). Hosted nodes keep the rule for hosted peers; whether a hosted node accepts a classical-only board peer is an open decision (D41).
+- Key exchange: hybrid X25519MLKEM768. Classical-only groups are refused. **Relaxed 2026-11-10 (D41) for the NUCLEO-L476RG and ESP32-S3 only**: Mbed TLS has no X25519MLKEM768, so those boards use classical X25519 (TLS 1.3). **D44 (2026-11-16, built): a hosted node stays X25519MLKEM768-only except for a peer whose whitelist entry is marked classical-allowed** (`classical_allowed_certs` in `bees.config`). The group list is fixed before the peer's certificate is known, so when any entry is marked the engine offers `X25519MLKEM768:X25519` (the server prefers the hybrid), and the TLS link, right after the handshake and before reading any TRUST byte, reads the negotiated group and the SHA-512 of the peer's certificate and refuses (audit `tls_group_refused`, connection closed) a classical connection unless that fingerprint is a marked whitelist entry. With no marked entry the engine offers the hybrid only and a classical-only peer fails inside the handshake. A downgrade by an attacker cannot succeed: the group is bound into the handshake transcript that both Finished messages and the certificate signatures cover, and the peer is authenticated by its certificate before TRUST reads anything.
 - Ciphers: AES-256-GCM or ChaCha20-Poly1305.
 - Certificates: Ed25519 or ECDSA P-256. Client certificates are required.
 - No 0-RTT, no renegotiation, no compression.
-- The client CA must be configured explicitly; there is no implicit system trust store.
+- Peer trust is the SHA-512 pin of the peer certificate's DER (D11) plus the whitelist (**D43, 2026-11-16, built**). `cacertfile` is optional: with none, no chain is verified against any CA (a self-signed or any-issuer certificate is accepted by the handshake, its dates are not checked, and the pin or whitelist decides); with one, the chain is also verified against it, and there is still no implicit system trust store.
 
 **Status 2026-11-12 (N4.1):** this profile is built for hosted nodes in `native/tls/silica_bees_tls.c` (OpenSSL, D40) and run on
 macOS between BEES nodes on 127.0.0.1 (`trials/n4_trust_tls`; mvp.md N4). TLS sits between the language's `(:tcp)` carrier and
-TRUST's framing and owns no transport (spike S12). Open for the user: whether the CA (`cacertfile`) stays beside the SHA-512
+TRUST's framing and owns no transport (spike S12). **Decided and built 2026-11-16 (D43, D44): pins only by default, `cacertfile` optional; classical X25519 per marked whitelist entry.** Was open: whether the CA (`cacertfile`) stays beside the SHA-512
 whitelist and pins (Silica's `ethernet_direct_mtls` example trusts by pin alone), and D41's board peers.
 
 

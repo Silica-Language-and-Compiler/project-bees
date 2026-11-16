@@ -176,6 +176,7 @@ fn refusal_event(code: int64) -> string {
         4 -> "alpn_mismatch";
         5 -> "server_not_pinned";
         6 -> "tls_identity_error";
+        8 -> "tls_group_refused";
         9 -> "tls_engine_refused";
         _: int64 -> "tls_handshake_failed"
     }
@@ -183,11 +184,12 @@ fn refusal_event(code: int64) -> string {
 fn refusal_text(code: int64) -> string {
     case code of {
         1 -> "the TLS 1.3 handshake failed (alert, version, group, suite or signature outside the TRUST profile)";
-        2 -> "the peer certificate does not verify against cacertfile (another CA, expired or invalid)";
+        2 -> "the peer certificate does not verify against cacertfile (another CA, expired or invalid; only when a cacertfile is configured, D43)";
         3 -> "the peer presented no certificate";
         4 -> "the peer did not agree on ALPN trust/1";
         5 -> "the server's certificate fingerprint is not the one pinned for this address";
         6 -> "this node's certfile, keyfile or cacertfile could not be loaded";
+        8 -> "the connection negotiated a key exchange the peer's whitelist entry does not allow (classical X25519 needs the entry marked classical-allowed, D44; X25519MLKEM768 is the profile)";
         7 -> "the connection table is full";
         9 -> "the OpenSSL found at run time is older than 4.1.0, the minimum";
         _: int64 -> "engine error"
@@ -200,15 +202,23 @@ fn group_text(g: int64) -> string { case g of { 16781804 -> "X25519MLKEM768"; 10
 fn suite_text(s: int64) -> string { case s of { 4866 -> "TLS_AES_256_GCM_SHA384"; 4867 -> "TLS_CHACHA20_POLY1305_SHA256"; _: int64 -> "other-suite" } }
 fn role_text(r: int64) -> string { case r == 2 of { true -> "server"; false -> "client" } }
 // what a finished handshake must show (inter-nodal-modes 3.2, 3.3), judged here on the engine's facts: 0 accepted, or the refusal
-// code (4 not ALPN trust/1, 3 no peer certificate, 2 a chain that did not verify, 5 a client whose server is not the pinned one)
-fn post_handshake_code(facts: int64, is_client: boolean, pin_ok: boolean) -> int64 {
+// code (4 not ALPN trust/1, 3 no peer certificate, 2 a chain that did not verify (only with a cacertfile), 8 a group the peer's
+// whitelist entry does not allow, 5 a client whose server is not the pinned one)
+// D44: X25519MLKEM768 always; classical X25519 only when the peer's certificate is a whitelist entry marked classical-allowed
+fn group_allowed(group: int64, class_ok: boolean) -> boolean {
+    case group == 16781804 of { true -> true; false -> group == 1034 and class_ok }
+}
+fn post_handshake_code(facts: int64, is_client: boolean, pin_ok: boolean, class_ok: boolean) -> int64 {
     case facts % 2 == 0 of {
         true -> 4;
         false -> case (facts / 2) % 2 == 0 of {
             true -> 3;
             false -> case (facts / 4) % 256 != 0 of {
                 true -> 2;
-                false -> case is_client and pin_ok == false of { true -> 5; false -> 0 }
+                false -> case group_allowed(facts / 67108864, class_ok) == false of {
+                    true -> 8;
+                    false -> case is_client and pin_ok == false of { true -> 5; false -> 0 }
+                }
             }
         }
     }
@@ -310,7 +320,7 @@ fn ttls(msg: (:open, actor_ref, string) | (:tx, string, actor_ref) | (:credit, i
         credit1: int64 <- st.credit + m_count(msg);
         do_read: boolean <- st.phase == 3 and credit1 > 0 and (kind == :credit or kind == :poll or do_feed);
         read_fp: boolean <- do_read and st.role == 2 and st.fp_sent == false;
-        res_fp: { tag: int64, value: int64, error_code: int64 } <- case need_pin or read_fp of {
+        res_fp: { tag: int64, value: int64, error_code: int64 } <- case hs_finished or read_fp of {
             true -> dangerous_bees_tls_native@peer_fp(h);
             false -> none_res()
         };
@@ -327,14 +337,17 @@ fn ttls(msg: (:open, actor_ref, string) | (:tx, string, actor_ref) | (:credit, i
         need_cipher: boolean <- do_plain and read_tag == 2;
         peer_ended: boolean <- do_plain and (read_tag == 1 or read_tag == 3);
         // ---- the one take of this worker: the plaintext for the owner, or (client) the server's fingerprint for the pin
-        bytes_in: string <- case got_plain or (need_pin and fp_tag == 0) of {
+        bytes_in: string <- case got_plain or (hs_finished and fp_tag == 0) of {
             true -> dangerous_bees_tls_native@take(h);
             false -> ""
         };
         // the client's pin (server_pins_file): the server's SHA-512, in hex, against the pinned one (both public values)
         pin_raw: int64 <- case need_pin and fp_tag == 0 and bees_trust_frame@hex(bytes_in) == bees_trust_conf@tls_server_pin(st.srv) of { true -> 1; false -> 0 };
         pin_ok: boolean <- pure_int(recreate(pin_raw)) == 1;
-        post_code: int64 <- case hs_finished of { true -> post_handshake_code(facts, st.role != 2, pin_ok); false -> 0 };
+        // D44: the group is judged against the peer's whitelist entry, found by the peer certificate's SHA-512 (both roles)
+        class_raw: int64 <- case hs_finished and fp_tag == 0 and bees_trust_conf@peer_classical(bees_trust_conf@peer_index(bees_trust_frame@hex(bytes_in))) of { true -> 1; false -> 0 };
+        class_ok: boolean <- pure_int(recreate(class_raw)) == 1;
+        post_code: int64 <- case hs_finished of { true -> post_handshake_code(facts, st.role != 2, pin_ok, class_ok); false -> 0 };
         post_refused: boolean <- hs_finished and post_code != 0;
         hs_done_now: boolean <- hs_finished and post_code == 0;
         // a client that refuses its server does not send its Finished: the server never completes the handshake

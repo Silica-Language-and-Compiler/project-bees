@@ -42,7 +42,7 @@ generated: which atoms exist (D16: a node name must be an atom the program holds
 | `node <name>` | The name (it puts the atom into `bees_atoms`). | `node.name` may repeat it; any other value is a **boot error** (the atom would not exist, D16). |
 | `creation <n>` | The compiled default (1 if absent). | `node.creation` overrides it; in BEAM mode `epmd` takes the creation EPMD assigns, as OTP does. |
 | `timing <open_ms> <io_ms> <tick_ms>` | The compiled defaults (10000, 60000, 15000). | `beam.net_ticktime_s` and `beam.open_timeout_ms` override them (section 5.2). The `tick_ms 0` test setting is manifest-only. |
-| `peer <name> <host> <port> <listen\|dial>` | Which peer **names** exist, and the first line as the one link (M3). | `beam.peers` may give each listed name its address and role. A name not in the manifest is a **boot error**. |
+| `peer <name> <host> <port> <listen\|dial>` | Which peer **names** exist. **Every peer line is a link (N2b, BEAM mode):** a `dial` peer is dialed, and all `listen` peers share the node's one listener (`beam.listen_port`, else the first listen peer's port) and start when their handshake names them. (The auth-none M3 node, `dangerous_bees_net`, still uses the first line only.) | `beam.peers` may give each listed name its address and role. A name not in the manifest is a **boot error**. |
 | `remote <name> @ <peer> cast <type>`, `local <name> cast <type>` | All of it: names and types. | Nothing. They exist only for BEAM mode (the names are `REG_SEND` targets); a manifest that has them and a `bees.config` with `mode trust` is a **boot error**. |
 | `message <name> <type>` | All of it. | Nothing. |
 
@@ -82,7 +82,7 @@ the other is chosen; only the selected section is acted on.
   program that needs BEAM mode (every M3 to M5 demo does) needs a file that says `{mode, beam}`.
 - BEAM mode prints a downgrade banner at boot and periodically, and tags log lines `mode=beam` (inter-nodal-modes section 2).
 - **Since N4.1 (2026-11-12)** a `trust` node without `{plaintext_test_only, true}` speaks TRUST over mutual TLS 1.3 (the engine over
-  the programmer-installed OpenSSL, D40) and needs `tls_opts` with `certfile`, `keyfile` and `cacertfile`; every pinned server's
+  the programmer-installed OpenSSL, D40) and needs `tls_opts` with `certfile` and `keyfile` (**`cacertfile` is optional since D43**: see section 5.3 `tls_opts`); every pinned server's
   certificate must be readable (it is the pin). With `{plaintext_test_only, true}` it binds loopback only and prints the test-only
   banner, as before. (Until 2026-11-12 a `trust` node without it failed at boot with "TRUST's TLS is not built".)
 
@@ -128,7 +128,8 @@ repaired, rounded or defaulted around a bad value. The rules:
    value on a non-loopback address; (`trust` without plaintext before N4: built since N4.1, 2026-11-12); an address the language's carrier cannot bind or dial
    (N1: it binds 127.0.0.1 or every IPv4 interface, written `"0.0.0.0"`, and dials IPv4 literals; a dial host that is a name is
    resolved at boot by BEES's resolver edge; IPv6 and binding one specific address are requests to Silica, silica-defects.md
-   SR-1 and SR-2). **Changed 2026-11-10 (N1):** a `frame_size_max` or `args_len_max` above 4096 is no longer "not built yet";
+   SR-1 and SR-2). **Changed 2026-11-16 (N2b):** a peer whose host is a name and whose port is `epmd` is built: the name is resolved first
+   by the same resolver edge, then the peer host's EPMD is dialed at the IPv4 literal (trial n2_live, bees_dials). **Changed 2026-11-10 (N1):** a `frame_size_max` or `args_len_max` above 4096 is no longer "not built yet";
    every value up to BEAM's 4294967295 is built (section 5.4). Nothing is ever clamped.
    **Test settings (N1):** `beam.auth none` and `trust.plaintext_test_only` give no authentication and no encryption, so a
    node with either listens and dials loopback addresses only (`127.0.0.0/8`, `::1`, `localhost`); any other address is refused
@@ -188,11 +189,12 @@ and comes from inter-nodal-modes 3.8 where that table already has one.
 | --- | --- | --- | --- | --- |
 | `port` | integer | 6469 | 1 to 65535 (B) | R example `6464`; H `DEFAULT_PORT 6469`; `trust_listener.erl:96` reads it and **errors if unset**. Sources disagree (section 8). |
 | `listen_address` | string | **none: required** (R6) | literal or name (resolved at boot, IPv4 only: D42) | BEES. **No built-in default** (ruled 2026-11-06). SEMP's `ssl:listen` binds every interface and needs no address; BEES requires an explicit one. The trial configs write `"127.0.0.1"`. |
-| `tls_opts` | list of `{certfile, S}`, `{keyfile, S}`, `{cacertfile, S}` | none | exactly these three keys, all required unless `plaintext_test_only` | R example; `trust_listener.erl:148`. SEMP passes **any** `ssl` option through; BEES accepts only these three (the profile fixes everything else). `cacertfile` is the CA of client certificates. |
+| `tls_opts` | list of `{certfile, S}`, `{keyfile, S}` and optionally `{cacertfile, S}` | none | those three keys only; `certfile` and `keyfile` required unless `plaintext_test_only`, `cacertfile` **optional (D43)** | R example; `trust_listener.erl:148`. SEMP passes **any** `ssl` option through; BEES accepts only these three (the profile fixes everything else). **D43 (2026-11-16): peer trust is the SHA-512 pin of the peer certificate's DER (D11) plus the whitelist.** With **no `cacertfile`** (the default) no chain is verified against any CA: a self-signed or any-issuer certificate (and one outside its dates) is accepted by the handshake and the pin or the whitelist decides; it must still be presented and be Ed25519 or ECDSA P-256. **With a `cacertfile`** the chain is also verified against it, and the pin or whitelist still applies (the CA path of N4.1, kept). The boot summary says which. |
 | `client_tls_opts` | same | the value of `tls_opts` | same keys | `trpc.erl:480` (SEMP default `[]`; BEES defaults to the node's own pair so one node can be both). |
 | `whitelist_file` | string (path) | unset (explicit, bannered standalone) | readable, parseable file; **configured and missing or unreadable is a boot error** (R2) | R; `semp_whitelist.erl:275`. SEMP resolves it inside the host app's `priv/` and **silently** runs standalone when it is missing; BEES resolves it relative to the directory of `bees.config` and never runs silently without it (validation rule 8). |
 | `whitelist_cert_dir` | string (path) | `"certs"` | existing directory | BEES. SEMP reads certificates from `priv/certs/` of the host app (`semp_whitelist.erl:425`). |
 | `whitelist_default_spec` | `none`, `any`, or a list `[{Module, any}` or `{Module, [{Fun, Arity}]}]` | `none` | closed forms | R example `none`; `semp_whitelist.erl:193` default `[]` (which normalizes to "nothing permitted", the same effect); `beam_semp.app.src` `[]`. |
+| `classical_allowed_certs` | list of strings (certificate names) | `[]` | each names a whitelist entry whose certificate is readable; needs `whitelist_file` and TLS (a boot error otherwise) | BEES, **D44 (2026-11-16)**. SEMP's whitelist file is unchanged; the marker is here. Only a peer whose certificate is one of these entries may negotiate classical X25519 (as a NUCLEO-L476RG or ESP32-S3 peer must, D41); every other peer must negotiate X25519MLKEM768. When the list is empty the engine offers X25519MLKEM768 only and a classical-only peer is refused inside the handshake; when it is not, the engine also offers X25519 and the TLS link refuses, right after the handshake and before any TRUST byte is read, a classical connection whose peer is not marked (audit `tls_group_refused`). The check applies in both roles: a node dialing a server must have that server's certificate in its whitelist, marked, to accept a classical server. |
 | `whitelist_autoload` | boolean | `false` | closed set | `semp_whitelist.erl:190` reads it from the `semp` environment with default `false`; `beam_semp.app.src` sets `true`. Sources disagree (section 8). BEES takes the safe value. |
 | `server_pins_file` | string (path) | unset | readable file | BEES (inter-nodal-modes 3.3; new relative to SEMP). Unset = no server is pinned = every `trpc` call returns `server_not_pinned`; a node that only serves needs none. |
 | `call_timeout_ms` | integer | 5000 | 1 to 600000 (B, inter-nodal-modes 3.8) | R; `trust_conn.erl:244`. |
@@ -279,7 +281,7 @@ multiplexing design's 1 MiB and 64 KiB, are **not** BEES's defaults or bounds; a
     {listen_address, "10.0.0.7"},             %% required, no default (a trial config writes "127.0.0.1")
     {tls_opts, [{certfile,   "certs/node.pem"},
                 {keyfile,    "certs/node-key.pem"},
-                {cacertfile, "certs/ca.pem"}]},
+                {cacertfile, "certs/ca.pem"}]},        %% optional (D43): omit it and peers are trusted by pin and whitelist only
     {whitelist_file, "trust_whitelist.config"},
     {whitelist_cert_dir, "certs"},
     {whitelist_default_spec, none},
@@ -345,7 +347,7 @@ A BEAM-mode node to test against a stock `erl -sname` node (N2) needs only:
    number of seconds is an error); the multiplexing doc's `session` map is kept as written.
 3. **Dropped:** `kernel` (`dist_auto_connect`, `logger_level`), `rpc_api`, `host_app`, `unsafe`, `unsafe_cookie`, `alpn`.
 4. **Paths** lose their `priv/` prefix and are relative to the directory of `bees.config`.
-5. **`tls_opts` and `client_tls_opts`** keep only `certfile`, `keyfile`, `cacertfile`; any other `ssl` option is an error
+5. **`tls_opts` and `client_tls_opts`** keep only `certfile`, `keyfile` and the optional `cacertfile` (D43); any other `ssl` option is an error
    (the profile fixes version, ALPN, verification and key exchange).
 6. **The whitelist file** keeps SEMP's form (`#{"client-cert.pem" => Spec}`); certificate names resolve against
    `whitelist_cert_dir`. Specs are accepted as the list form the code reads or the map form the README writes (section 8).

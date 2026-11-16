@@ -309,8 +309,20 @@ class N1(Base):
         self.assertEqual(C.m3_link({"beam": b}, None)["link_resolve"], True)  # a name: resolved at boot by the edge
         self.refused(cookie % ', {peers, [{"peer@localhost", [{host, "::1"}, {port, 4370}]}]}', "beam.peers.peer@localhost.host",
                      "dials IPv4 literals only")
-        self.refused(cookie % ', {peers, [{"peer@localhost", [{host, "localhost"}, {port, epmd}]}]}',
-                     "beam.peers.peer@localhost.host", "is a name and the port is epmd")
+        # N2b: a name host with port epmd works: the name is resolved first, then the peer host's EPMD is dialed at the IPv4 literal
+        b = self.conf(cookie % ', {peers, [{"peer@localhost", [{host, "localhost"}, {port, epmd}]}]}')["beam"]
+        self.assertEqual((b["link_by_epmd"], b["links"][0]["resolve"], b["links"][0]["host_kind"]), (True, True, "name"))
+
+    def test_one_link_per_peer_line(self):
+        two = MANIFEST + "peer   other@localhost 127.0.0.1 47501 listen\n"
+        cookie = BEAM.replace("{auth, none}", '{auth, cookie}, {cookie_file, "cookie"}')
+        self.write("cookie", "c", 0o600)
+        b = self.conf(cookie % ", {epmd, none}, {listen_port, 47600}", manifest=self.manifest(two))["beam"]
+        self.assertEqual([(k["name"], k["dials"], k["address"]) for k in b["links"]],
+                         [("peer@localhost", True, "127.0.0.1:47500"), ("other@localhost", False, "listen:47600")])
+        self.assertTrue(b["listens"])
+        self.assertEqual(b["listener_address"], "listen:47600")
+        self.assertEqual((b["link_dials"], b["link_address"]), (True, "127.0.0.1:47500"))   # the scalars are the first link's
 
     def test_manifest_only_node_is_loopback_only(self):
         C.manifest_only(self.manifest())
@@ -323,6 +335,135 @@ class N1(Base):
         self.assertEqual(T.limits(self.write("bees.config", TRUST % ", {frame_size_max, 65536}, {args_len_max, 1024}, "
                                                                  "{term_depth_max, 5}")),
                          "{ max_bytes: 1025, max_depth: 5, max_length: 1024 }")
+
+
+class CheckAtomManifestTests(unittest.TestCase):
+    """`bees_config.py check`: a unit outside src/ may write the atoms its own manifest lists (guide A1.2); nothing else."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d)
+        import bees_config as BC
+        self.BC = BC
+
+    def put(self, name, text, d=None):
+        path = os.path.join(d or self.d, name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write(text)
+        return path
+
+    def run_check(self, *units):
+        import io
+        import contextlib
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = self.BC.check(list(units))
+        return rc, buf.getvalue()
+
+    UNIT = "module x;\nfn f() -> atom { :hub_in }\n"
+
+    def test_listed_literal_passes(self):
+        u = self.put("x.silica", self.UNIT)
+        self.put("x.atoms", "# the unit's symbols\n\n  hub_in  # trailing\n")
+        self.assertEqual(self.run_check(u), (0, ""))
+
+    def test_unlisted_literal_fails(self):
+        u = self.put("x.silica", self.UNIT + "fn g() -> atom { :other }\n")
+        self.put("x.atoms", "hub_in\n")
+        rc, out = self.run_check(u)
+        self.assertEqual(rc, 1)
+        self.assertIn(":other", out)
+        self.assertNotIn(":hub_in", out)
+
+    def test_no_manifest_fails(self):
+        rc, out = self.run_check(self.put("x.silica", self.UNIT))
+        self.assertEqual(rc, 1)
+        self.assertIn(":hub_in", out)
+
+    def test_manifest_beside_another_unit_does_not_leak(self):
+        u = self.put("x.silica", self.UNIT)
+        self.put("y.silica", "module y;\n")
+        self.put("y.atoms", "hub_in\n")
+        self.assertEqual(self.run_check(u)[0], 1)
+
+    def test_symlinked_unit_uses_manifest_beside_the_real_path(self):
+        real = self.put("real/x.silica", self.UNIT)
+        self.put("real/x.atoms", "hub_in\n")
+        link = os.path.join(self.d, "linkdir", "x.silica")
+        os.makedirs(os.path.dirname(link))
+        os.symlink(real, link)
+        self.assertEqual(self.run_check(link), (0, ""))
+        # a manifest beside the link only (not beside the real file) does not count
+        real2 = self.put("real2/z.silica", self.UNIT)
+        link2 = os.path.join(self.d, "linkdir", "z.silica")
+        os.symlink(real2, link2)
+        self.put("linkdir/z.atoms", "hub_in\n")
+        self.assertEqual(self.run_check(link2)[0], 1)
+
+    def test_unit_under_src_with_manifest_still_fails(self):
+        unit = os.path.join(ROOT, "src", "shim", "zz_check_probe.silica")
+        manifest = os.path.join(ROOT, "src", "shim", "zz_check_probe.atoms")
+        try:
+            with open(unit, "w") as fh:
+                fh.write(self.UNIT)
+            with open(manifest, "w") as fh:
+                fh.write("hub_in\n")
+            self.assertEqual(self.run_check(unit)[0], 1)
+            # and through a symlink from outside src/
+            link = os.path.join(self.d, "zz_check_probe.silica")
+            os.symlink(unit, link)
+            self.assertEqual(self.run_check(link)[0], 1)
+        finally:
+            for f in (unit, manifest):
+                if os.path.exists(f):
+                    os.remove(f)
+
+    def test_fixed_atoms_not_extended_and_output_deterministic(self):
+        before = set(self.BC.FIXED_ATOMS)
+        u = self.put("x.silica", self.UNIT + "fn g() -> atom { :b_one }\nfn h() -> atom { :a_two }\n")
+        self.put("x.atoms", "hub_in\n")
+        first = self.run_check(u)
+        self.assertEqual(first, self.run_check(u))
+        self.assertEqual(set(self.BC.FIXED_ATOMS), before)
+        self.assertLess(first[1].index(":b_one"), first[1].index(":a_two"))  # source order, not hash order
+
+
+class MultiLinkGenerationTests(unittest.TestCase):
+    """N2b: the hub of trials/n2_multilink generates per-peer proxies, and every registered name is in bees_atoms at compile time"""
+
+    def test_hub_generation(self):
+        hub = os.path.join(ROOT, "trials", "n2_multilink", "nodes", "hub")
+        with tempfile.TemporaryDirectory() as d:
+            cookie = os.path.join(d, "cookie")
+            with open(cookie, "w") as f:
+                f.write("c\n")
+            os.chmod(cookie, 0o600)
+            cfg = os.path.join(d, "bees.config")
+            with open(os.path.join(hub, "bees.config")) as f:
+                text = f.read().replace("../../cookie", cookie)
+            with open(cfg, "w") as f:
+                f.write(text)
+            wire = os.path.join(hub, "node.wire")
+            out = os.path.join(d, "out")
+            os.makedirs(out)
+            r = subprocess.run([sys.executable, os.path.join(HERE, "bees_config_beam.py"), "generate", "--config", cfg, "-o", out, wire],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            peers = open(os.path.join(out, "beam_peers.silica")).read()
+            self.assertIn("fn start_proxies_p0(tx: actor_ref)", peers)
+            self.assertIn("proxy_ans_a, bees_atoms@a_ans_a()", peers.split("fn start_proxies_p1")[0])
+            self.assertIn("proxy_ans_c, bees_atoms@a_ans_c()", peers.split("fn start_proxies_p1")[1])
+            self.assertNotIn("proxy_ans_c", peers.split("fn start_proxies_p1")[0].split("fn start_proxies_p0")[1])
+            conf = open(os.path.join(out, "beam_conf.silica")).read()
+            self.assertIn("fn listens() -> boolean { true }", conf)
+            self.assertIn('fn listener_address() -> string { "listen:47441" }', conf)
+            r = subprocess.run([sys.executable, os.path.join(HERE, "bees_config.py"), "generate", "-o", out, "--config", cfg, wire,
+                                os.path.join(hub, "node.atoms")], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            atoms = open(os.path.join(out, "bees_atoms.index")).read()
+            for name in ("ans_a", "ans_c", "req_a", "req_c"):
+                self.assertRegex(atoms, r"\t" + name + r"\n")
 
 
 if __name__ == "__main__":

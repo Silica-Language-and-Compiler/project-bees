@@ -28,7 +28,7 @@ exercises, and `make integrate` at the root builds and runs everything (see `too
   (the bindings of `native/tls/silica_bees_tls.c`, a thin C shim over the programmer-installed OpenSSL, 4.1.0 or later with no
   exception (compile-time `#error`, a `native/Makefile` refusal naming the version found, and a run-time refusal in the link): memory buffers only, the
   TRUST profile fixed: TLS 1.3, X25519MLKEM768 only, AES-256-GCM or ChaCha20-Poly1305, Ed25519 or ECDSA P-256, both certificates,
-  the chain against `cacertfile` only, the SHA-512 of the peer certificate's DER (D11)). `shim/bees_trust_link_tls.part` / `shim/bees_trust_link_plain.part` are
+  the chain against `cacertfile` only when one is configured (D43: otherwise pins and whitelist alone), X25519 also only for whitelist entries marked classical-allowed (D44), the SHA-512 of the peer certificate's DER (D11)). `shim/bees_trust_link_tls.part` / `shim/bees_trust_link_plain.part` are
   pasted by `tools/bees_trust_gen.py` from the node's generated configuration, so a plaintext node needs no OpenSSL. See
   development-plan/spikes/N4-silica-mtls-example.md and the N4 row of development-plan/mvp.md.
   **Since Silica commit 71009f96f8** the language's carriers end with their link and a write to a gone peer is a failed write,

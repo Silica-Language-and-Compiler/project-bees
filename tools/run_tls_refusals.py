@@ -22,14 +22,17 @@ from run_trust_pair import Proc  # noqa: E402
 CASES = [
     ("no client certificate", ["-tls1_3", "-alpn", "trust/1", "-groups", "X25519MLKEM768"]),
     ("TLS 1.2 only", ["-tls1_2", "-alpn", "trust/1", "-cert", "b.pem", "-key", "b-key.pem"]),
-    ("classical key exchange only (X25519)", ["-tls1_3", "-alpn", "trust/1", "-groups", "X25519", "-cert", "b.pem", "-key", "b-key.pem"]),
+    ("classical key exchange only (X25519), b.pem not marked classical-allowed (D44)", ["-tls1_3", "-alpn", "trust/1", "-groups", "X25519", "-cert", "b.pem", "-key", "b-key.pem"]),
     ("ALPN h2 instead of trust/1", ["-tls1_3", "-alpn", "h2", "-cert", "b.pem", "-key", "b-key.pem"]),
     ("no ALPN", ["-tls1_3", "-cert", "b.pem", "-key", "b-key.pem"]),
-    ("a certificate from another CA (r.pem)", ["-tls1_3", "-alpn", "trust/1", "-cert", "r.pem", "-key", "r-key.pem"]),
-    ("an expired certificate (x.pem)", ["-tls1_3", "-alpn", "trust/1", "-cert", "x.pem", "-key", "x-key.pem"]),
+    ("a certificate from another CA (r.pem): no cacertfile (D43), so the whitelist refuses it", ["-tls1_3", "-alpn", "trust/1", "-cert", "r.pem", "-key", "r-key.pem"]),
+    ("an expired certificate (x.pem): not checked without a cacertfile (D43), the whitelist refuses it", ["-tls1_3", "-alpn", "trust/1", "-cert", "x.pem", "-key", "x-key.pem"]),
     ("an RSA certificate (z.pem; the profile signs with Ed25519 or ECDSA P-256)", ["-tls1_3", "-alpn", "trust/1", "-cert", "z.pem", "-key", "z-key.pem"]),
-    ("a CA-signed certificate in no whitelist entry (u.pem)", ["-tls1_3", "-alpn", "trust/1", "-cert", "u.pem", "-key", "u-key.pem"]),
+    ("a certificate in no whitelist entry, so unpinned (u.pem)", ["-tls1_3", "-alpn", "trust/1", "-cert", "u.pem", "-key", "u-key.pem"]),
     ("a whitelisted ECDSA P-256 certificate (p.pem) that sends no TRUST frame", ["-tls1_3", "-alpn", "trust/1", "-cert", "p.pem", "-key", "p-key.pem"]),
+    ("classical key exchange only (X25519), p.pem marked classical-allowed (D44), sends no TRUST frame", ["-tls1_3", "-alpn", "trust/1", "-groups", "X25519", "-cert", "p.pem", "-key", "p-key.pem"]),
+    ("classical key exchange only (X25519), u.pem in no whitelist entry (D44)", ["-tls1_3", "-alpn", "trust/1", "-groups", "X25519", "-cert", "u.pem", "-key", "u-key.pem"]),
+    ("hybrid offered first, classical second, b.pem not marked: the hybrid is chosen and the peer is admitted (D44)", ["-tls1_3", "-alpn", "trust/1", "-groups", "X25519MLKEM768:X25519", "-cert", "b.pem", "-key", "b-key.pem"]),
 ]
 
 
