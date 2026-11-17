@@ -117,3 +117,13 @@ number of connections once closed carriers are removed (2,000 calls peaked at 34
   the checker raises nothing, with SD-25's caveat (that handler is not checked), as for N0.1.
 - **Interoperation with the Erlang reference** is not promised (inter-nodal-modes 3.13); `erl` reads BEES's frames, and BEES's key
   order is the language's (name order), not `term_to_binary`'s.
+
+
+## 2026-11-17: the per-connection growth, measured to 20,000 calls (N2c, user: "for a long-lived TRUST node that is a leak")
+
+`make measure` in trials/n3_trust now runs 2,000, 6,000 and 20,000 calls (CALLS_LIST; one connection per call; not part of integrate). Peak resident set:
+server 8.49, 12.24, 24.08 MiB; client 8.29, 11.34, 19.78 MiB; so 0.85 KiB per call on the server and 0.59 KiB on the client between 6,000 and 20,000. Every
+connection actor of TRUST ends (tconn at phase 10, ttx at kind 3 or 10, tasm per frame, twork by stop_self), so the growth is not an idle actor. A
+reproduction without any BEES actor (trials/n2_carrier_leak) shows 0.52 KiB per ended (:tcp) carrier: that is SD-46, Silica's, and it accounts for almost all
+of the client's growth and 60 percent of the server's. About 0.3 KiB per call on the server is not attributed (candidate: the edge worker's FFI dispatches
+for the constant-time token check; not isolated). Nothing in BEES's TRUST units could be removed.

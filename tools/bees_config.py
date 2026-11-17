@@ -116,12 +116,12 @@ identically) and not inside a comment or string. It is a lint, not a parser: typ
 `:reply | :no_reply` and `child_spec` fields are Silica-level atoms the compiler resolves, so
 they are on the fixed list below as well.
 
-A unit OUTSIDE this repository's src/ (a language compiler's printed unit) may also write the atoms listed in its own
+Any unit (a language compiler's printed unit, or a BEES unit under src/; user ruling 2026-11-17) may also write the atoms listed in its own
 manifest, `X.atoms` beside the real path of `X.silica` (compiler guide A1.2); everything else is still reported and the
 fixed list is never extended from a manifest. The listed atoms are unit-private to X: X must not pass atom values to or
 from another unit (SD-3, D30). Every atom a node needs is in its compile-time set (manifests merge into bees_atoms); none
-is created at run time. Units under src/ get no such allowance even when they have a manifest (bees_dns.atoms,
-bees_wire.atoms, bees_exit.atoms exist for `generate` only).
+is created at run time. The allowance applies to units under src/ too (the 2026-11-16 restriction is lifted): a manifest beside a
+BEES unit (bees_dns.atoms, bees_wire.atoms, bees_exit.atoms, ...) now also lets that unit write its listed atoms as literals.
 """
 import os
 import re
@@ -642,18 +642,13 @@ def strip_comments_and_strings(src):
     return src
 
 
-SRC_DIR = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
-
-
 def unit_private_atoms(unit):
     """The atoms a unit may write as literals because its own manifest lists them: the `.atoms` file beside the REAL
-    path of the unit (a symlinked unit uses the manifest beside its target). Units under this repo's src/ get none:
-    hand-written BEES units stay inside the fixed list and bees_atoms (several have manifests only for `generate`).
+    path of the unit (a symlinked unit uses the manifest beside its target). The allowance applies to every unit,
+    including units under this repo's src/ (user ruling 2026-11-17, lifting the earlier src/ restriction).
     The listed atoms are unit-private to the unit; it must not pass atom values to or from another unit (SD-3, D30).
     Never added to FIXED_ATOMS."""
     real = os.path.realpath(unit)
-    if os.path.commonpath([real, SRC_DIR]) == SRC_DIR:
-        return set()
     manifest = os.path.splitext(real)[0] + ".atoms"
     if not os.path.isfile(manifest):
         return set()

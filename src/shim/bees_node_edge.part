@@ -6,45 +6,173 @@
 // accepted), are therefore spawned here by reference, and the messages to them are cast from here. The
 // state literals below are the behaviours' state types, written out (the SD-31 rule: no record-returning call inline).
 //
-// net_launch(c, io_ms, tick_ms): the node's side of the link over the carrier actor c (carrier_new(): the language's (:tcp)
+// net_launch(c, io_ms, tick_ms): the node's side of its links over the carrier actor c (carrier_new(): the language's (:tcp)
 // carrier, not yet opened). io_ms is the longest the peer may be silent; tick_ms the idle interval after which a net tick is
-// written (0: never, a test setting). Returns the connection actor and the writer (tx) on a dialing node: the writer is
-// returned so that a test program can inject a raw frame into a live link (M4); a node program uses net_start.
+// written (0: never, a test setting). N2c (spikes/N2b-multi-link.md): every peer line is a link, as in BEAM mode. The node's ONE listener
+// (when any peer's role is listen: bees_peers@listener_address()) takes c and, on each accepted connection, starts that connection's own tx,
+// conn and carrier (dangerous_bees_net@lsn); each dial peer gets its own carrier (the first one of a node that does not listen takes
+// c), tx, conn, proxies and reaper, and a redial actor that dials it again when its link is lost. Returns the connection actor and
+// the writer (tx) of the first dial link: the writer is returned so that a test program can inject a raw frame into a live link (M4);
+// a listening node returns its listen actor in both fields. A node program uses net_start.
 fn net_pair(n: actor_ref, t: actor_ref) -> { conn: actor_ref, tx: actor_ref } { { conn: n, tx: t } }
 fn net_launch(c: dangerous_actor_ref, io_ms: uint64, tick_ms: uint64) -> { conn: actor_ref, tx: actor_ref } {
     sequence proc[concurrency]
         _: atom <- bees_ingress@banner();
         me: actor_ref <- self();
-        p: { conn: actor_ref, tx: actor_ref } <- case bees_peers@link_dials() of {
-            true -> net_dial(c, me, io_ms, tick_ms);
-            false -> net_listen(c, me, io_ms, tick_ms)
+        p: { conn: actor_ref, tx: actor_ref } <- case bees_peers@listens() of {
+            true -> net_listen_and_dial(c, me, io_ms, tick_ms);
+            false -> net_dials(0, c, true, me, io_ms, tick_ms)
         }
     produces pure p end
 }
-// a dialer: the link is started on its carrier at once and the carrier is opened with conn as owner
-fn net_dial(c: dangerous_actor_ref, me: actor_ref, io_ms: uint64, tick_ms: uint64) -> { conn: actor_ref, tx: actor_ref } {
+fn net_listen_and_dial(c: dangerous_actor_ref, me: actor_ref, io_ms: uint64, tick_ms: uint64) -> { conn: actor_ref, tx: actor_ref } {
+    sequence
+        sl: actor_ref <- node_slots(0, me);
+        p: { conn: actor_ref, tx: actor_ref } <- net_listen(c, sl, me, io_ms, tick_ms);
+        _: { conn: actor_ref, tx: actor_ref } <- net_dials(0, c, false, me, io_ms, tick_ms)
+    produces pure p end
+}
+fn net_dials(i: int64, first: dangerous_actor_ref, use_first: boolean, me: actor_ref, io_ms: uint64, tick_ms: uint64) -> { conn: actor_ref, tx: actor_ref } {
+    case i >= bees_peers@peer_count() of {
+        true -> net_pair(me, me);
+        false -> case bees_peers@link_dials_of(i) of {
+            true -> net_dial_next(i, first, use_first, me, io_ms, tick_ms);
+            false -> net_dials(i + 1, first, use_first, me, io_ms, tick_ms)
+        }
+    }
+}
+fn net_dial_next(i: int64, first: dangerous_actor_ref, use_first: boolean, me: actor_ref, io_ms: uint64, tick_ms: uint64) -> { conn: actor_ref, tx: actor_ref } {
+    sequence
+        car: dangerous_actor_ref <- case use_first of { true -> first; false -> carrier_new() };
+        rd: actor_ref <- nrd_new(i, first, me, io_ms, tick_ms);
+        p: { conn: actor_ref, tx: actor_ref } <- net_dial_link(i, car, rd, me, io_ms, tick_ms);
+        _: { conn: actor_ref, tx: actor_ref } <- net_dials(i + 1, first, false, me, io_ms, tick_ms)
+    produces pure p end
+}
+// one link to dial peer i: its writer, proxies (reaper reports to rd) and connection actor, started on the carrier c at once; the carrier is
+// opened with conn as owner. rd is told the link started (a redial's, too: node_redial_link).
+fn net_dial_link(i: int64, c: dangerous_actor_ref, rd: actor_ref, me: actor_ref, io_ms: uint64, tick_ms: uint64) -> { conn: actor_ref, tx: actor_ref } {
     sequence proc[concurrency]
-        t: actor_ref <- spawn({ c: c, up: false, sent: 0, reaper: me, tick_ms: tick_ms }, dangerous_bees_net@tx, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
-        r: actor_ref <- bees_peers@start_proxies(t);
+        t: actor_ref <- spawn({ c: c, up: false, sent: 0, reaper: me, cn: me, tick_ms: tick_ms }, dangerous_bees_net@tx, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        r: actor_ref <- bees_peers@start_proxies(i, t, rd);
         _: boolean <- cast(t, (:who, r) impl ActorMessage {});
-        n: actor_ref <- spawn({ asm: t, c: c, tx: t, mode: 0, step: 0, peer: bees_peers@link_peer(), ok: 0, dropped: 0, ticks: 0, seen: 0, io_ms: io_ms }, dangerous_bees_net@conn, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        n: actor_ref <- spawn({ asm: t, c: c, tx: t, mode: 0, step: 0, peer: i, ok: 0, dropped: 0, ticks: 0, seen: 0, io_ms: io_ms, dial: true, lt: rd }, dangerous_bees_net@conn, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: boolean <- cast(t, (:car, n) impl ActorMessage {});
         // N1: a dial host that is a name is resolved first (bees_resolve_edge.part), the carrier dials IPv4 literals only
-        _: boolean <- case bees_peers@link_resolve() of {
-            true -> net_resolve(c, n, bees_peers@link_host(), bees_peers@link_port(), bees_peers@open_text());
-            false -> cast(c, (:open, n, bees_peers@link_address()) impl ActorMessage {})
+        _: boolean <- case bees_peers@link_resolve_of(i) of {
+            true -> net_resolve(c, n, bees_peers@link_host_of(i), bees_peers@link_port_of(i), bees_peers@open_text());
+            false -> cast(c, (:open, n, bees_peers@link_address_of(i)) impl ActorMessage {})
         };
+        _: boolean <- cast(rd, (:bees, 6, 0, t, n) impl ActorMessage {});
         p: { conn: actor_ref, tx: actor_ref } <- net_pair(n, t)
     produces pure p end
 }
-// a listener: the listening carrier's owner is dangerous_bees_net's lsn, which starts the link on the first accepted
-// connection (tx and conn are spawned only once their carrier is known: SD-39). Until then there is no writer, so both fields
-// of the result are the listen actor; a program that needs the writer (to inject raw frames) must be the dialing node.
-fn net_listen(c: dangerous_actor_ref, me: actor_ref, io_ms: uint64, tick_ms: uint64) -> { conn: actor_ref, tx: actor_ref } {
+// a listener: the listening carrier's owner is dangerous_bees_net's lsn, which starts a link on every accepted connection (tx and conn
+// are spawned only once their carrier is known: SD-39). Until then there is no writer, so both fields of the result are the listen
+// actor; a program that needs the writer (to inject raw frames) must be the dialing node. sl is the head of the slot chain.
+fn net_listen(c: dangerous_actor_ref, sl: actor_ref, me: actor_ref, io_ms: uint64, tick_ms: uint64) -> { conn: actor_ref, tx: actor_ref } {
     sequence proc[concurrency]
-        l: actor_ref <- spawn({ reaper: me, io_ms: io_ms, tick_ms: tick_ms, started: false }, dangerous_bees_net@lsn, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
-        _: boolean <- cast(c, (:open, l, bees_peers@link_address()) impl ActorMessage {});
+        l: actor_ref <- spawn({ reaper: me, io_ms: io_ms, tick_ms: tick_ms, accepted: 0, slot: sl }, dangerous_bees_net@lsn, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: boolean <- cast(c, (:open, l, bees_peers@listener_address()) impl ActorMessage {});
         p: { conn: actor_ref, tx: actor_ref } <- net_pair(l, l)
     produces pure p end
+}
+// the redial settings and a redial's link (nrd, below)
+fn node_redial_on() -> boolean { bees_peers@redial_on() }
+fn node_redial_initial() -> int64 { bees_peers@redial_initial_ms() }
+fn node_redial_max() -> int64 { bees_peers@redial_max_ms() }
+fn node_redial_link(i: int64, c: dangerous_actor_ref, aux: dangerous_actor_ref, rd: actor_ref, me: actor_ref, io_ms: uint64, tick_ms: uint64) -> { conn: actor_ref, tx: actor_ref } {
+    net_dial_link(i, c, rd, me, io_ms, tick_ms)
+}
+
+// ---- N2c: redial. One redial actor (`nrd`) per dial-role peer, spawned with the peer's first link. It is told (:bees, op, arg, who, who):
+//   6 started   a link of this peer was started (the first, or a redial's): the generation counts up and a "stable" timer is armed
+//   2 gone      from the reaper of that link's proxies (after it ended them): the link is lost. With redial on, the next attempt is
+//               scheduled after initial_ms * 2^(attempts - 1), at most max_ms, and an audit line says so; with it off the peer stays down (silently: nothing is retried)
+//   3 dial      the timer: an audit line, then a NEW carrier, tx, proxies and conn for the peer (the old link's actors are never reused)
+//   5 stable    a link that lived max_ms (its generation is still the current one and it was not lost) resets the attempt count to 0
+// nrd is the only retry loop and every attempt is an audit line (never silent); the delay doubles to max_ms and stays there. A peer
+// whose name cannot be resolved at all (the resolver edge printed dns_error) never opens a carrier and so is not retried.
+fn nrd_delay(n: int64, d: int64, cap: int64) -> int64 {
+    case d >= cap of { true -> cap; false -> case n <= 1 of { true -> d; false -> nrd_delay(n - 1, d * 2, cap) } }
+}
+fn nrd_after(me: actor_ref, ms: int64, op: int64, arg: int64) -> boolean {
+    sequence proc[concurrency]
+        t: timer_ref <- send_after(to_uint64(ms), me, (:bees, op, arg, me, me) impl ActorMessage {})
+    produces pure true end
+}
+// the link's connection actor may end now: nothing here holds it any more (kind 9)
+fn nrd_release(c: actor_ref) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(c, (:bees, 9, "", "", :ok) impl ActorMessage {})
+    produces pure ok end
+}
+fn nrd_lost(st: { peer: int64, attempt: int64, gen: int64, alive: boolean, aux: dangerous_actor_ref, root: actor_ref, io_ms: uint64, tick_ms: uint64 }, me: actor_ref) -> { attempt: int64, gen: int64, alive: boolean } {
+    case node_redial_on() of {
+        false -> { attempt: st.attempt, gen: st.gen, alive: false };
+        true -> {
+            sequence
+                d: int64 <- nrd_delay(st.attempt + 1, node_redial_initial(), node_redial_max());
+                _: atom <- bees_ingress@audit("link lost; redial scheduled, delay in ms", bees_peers@peer_name(st.peer), d);
+                _: boolean <- nrd_after(me, d, 3, 0)
+            produces pure { attempt: st.attempt + 1, gen: st.gen, alive: false } end
+        }
+    }
+}
+fn nrd_lost_rel(st: { peer: int64, attempt: int64, gen: int64, alive: boolean, aux: dangerous_actor_ref, root: actor_ref, io_ms: uint64, tick_ms: uint64 }, me: actor_ref, c: actor_ref) -> { attempt: int64, gen: int64, alive: boolean } {
+    sequence
+        _: boolean <- nrd_release(c);
+        r: { attempt: int64, gen: int64, alive: boolean } <- nrd_lost(st, me)
+    produces pure r end
+}
+fn nrd_started(st: { peer: int64, attempt: int64, gen: int64, alive: boolean, aux: dangerous_actor_ref, root: actor_ref, io_ms: uint64, tick_ms: uint64 }, me: actor_ref) -> { attempt: int64, gen: int64, alive: boolean } {
+    sequence
+        _: boolean <- nrd_after(me, node_redial_max(), 5, st.gen + 1)
+    produces pure { attempt: st.attempt, gen: st.gen + 1, alive: true } end
+}
+fn nrd_dial(st: { peer: int64, attempt: int64, gen: int64, alive: boolean, aux: dangerous_actor_ref, root: actor_ref, io_ms: uint64, tick_ms: uint64 }, me: actor_ref) -> { attempt: int64, gen: int64, alive: boolean } {
+    sequence
+        _: atom <- bees_ingress@audit("redial attempt", bees_peers@peer_name(st.peer), st.attempt);
+        car: dangerous_actor_ref <- carrier_new();
+        _: { conn: actor_ref, tx: actor_ref } <- node_redial_link(st.peer, car, st.aux, me, st.root, st.io_ms, st.tick_ms)
+    produces pure { attempt: st.attempt, gen: st.gen, alive: st.alive } end
+}
+fn nrd_do(st: { peer: int64, attempt: int64, gen: int64, alive: boolean, aux: dangerous_actor_ref, root: actor_ref, io_ms: uint64, tick_ms: uint64 }, me: actor_ref, op: int64, arg: int64, c: actor_ref) -> { attempt: int64, gen: int64, alive: boolean } {
+    case op of {
+        6 -> nrd_started(st, me);
+        2 -> nrd_lost_rel(st, me, c);
+        3 -> nrd_dial(st, me);
+        5 -> case arg == st.gen and st.alive of { true -> { attempt: 0, gen: st.gen, alive: st.alive }; false -> { attempt: st.attempt, gen: st.gen, alive: st.alive } };
+        _: int64 -> { attempt: st.attempt, gen: st.gen, alive: st.alive }
+    }
+}
+fn nrd(msg: (:bees, int64, int64, actor_ref, actor_ref), st: { peer: int64, attempt: int64, gen: int64, alive: boolean, aux: dangerous_actor_ref, root: actor_ref, io_ms: uint64, tick_ms: uint64 }) -> (:no_reply, { peer: int64, attempt: int64, gen: int64, alive: boolean, aux: dangerous_actor_ref, root: actor_ref, io_ms: uint64, tick_ms: uint64 }) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        s: { attempt: int64, gen: int64, alive: boolean } <- case msg of { (:bees, op: int64, arg: int64, _t: actor_ref, c: actor_ref) -> nrd_do(st, me, op, arg, c) }
+    produces pure (:no_reply, { peer: st.peer, attempt: s.attempt, gen: s.gen, alive: s.alive, aux: st.aux, root: st.root, io_ms: st.io_ms, tick_ms: st.tick_ms }) end
+}
+fn nrd_new(i: int64, aux: dangerous_actor_ref, me: actor_ref, io_ms: uint64, tick_ms: uint64) -> actor_ref {
+    sequence proc[concurrency]
+        r: actor_ref <- spawn({ peer: i, attempt: 0, gen: 0, alive: false, aux: aux, root: me, io_ms: io_ms, tick_ms: tick_ms }, nrd, stack_policy(0, :keep_last_message), state_policy(:keep_state_area))
+    produces pure r end
+}
+// the chain of slots (dangerous_*_net@slot), one per peer line, for a node that listens: the head is returned
+fn node_slot(k: int64, next: actor_ref, last: boolean) -> actor_ref {
+    sequence proc[concurrency]
+        a: actor_ref <- spawn({ k: k, next: next, last: last, ct: next, cc: next, pt: next, pc: next, live: false, pend: false }, dangerous_bees_net@slot, stack_policy(0, :keep_last_message), state_policy(:keep_state_area))
+    produces pure a end
+}
+fn node_slots(k: int64, me: actor_ref) -> actor_ref {
+    case k >= bees_peers@peer_count() - 1 of {
+        true -> node_slot(k, me, true);
+        false -> {
+            sequence
+                nxt: actor_ref <- node_slots(k + 1, me);
+                h: actor_ref <- node_slot(k, nxt, false)
+            produces pure h end
+        }
+    }
 }
 // net_start(c, io_ms, tick_ms): net_launch, returning the connection actor only.
 fn net_start(c: dangerous_actor_ref, io_ms: uint64, tick_ms: uint64) -> actor_ref {
@@ -57,7 +185,7 @@ fn net_start(c: dangerous_actor_ref, io_ms: uint64, tick_ms: uint64) -> actor_re
 fn net_raw_writer(c: dangerous_actor_ref) -> actor_ref {
     sequence proc[concurrency]
         me: actor_ref <- self();
-        t: actor_ref <- spawn({ c: c, up: false, sent: 0, reaper: me, tick_ms: 0 }, dangerous_bees_net@tx, stack_policy(0, :keep_last_message), state_policy(:keep_state_area))
+        t: actor_ref <- spawn({ c: c, up: false, sent: 0, reaper: me, cn: me, tick_ms: 0 }, dangerous_bees_net@tx, stack_policy(0, :keep_last_message), state_policy(:keep_state_area))
     produces pure t end
 }
 // net_send_raw(tx, seg): a framed segment through the writer tx, written whether or not the link is up (tx's message kind 1)

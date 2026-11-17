@@ -225,6 +225,12 @@ BEAM_OPTS = {
     "spawn": Opt("atom", "none", choices=("none", "allowlist", "any")),
     "spawn_allowlist": Opt("allowlist", [], 0, 1024),
     "frame_size_max": Opt("int", BEAM_FRAME_MAX, 512, BEAM_FRAME_MAX, when="build", why=DECODE_WHY),
+    # N2c: re-dialing a dial-role peer whose link went down (spikes/N2b-multi-link.md, "Reconnect")
+    # no defaults (user ruling 2026-11-17): required on a node with a dial-role peer; redial_*_ms required when redial is true,
+    # rejected when it is false; the whole group is rejected on a node with no dial-role peer
+    "redial": Opt("bool", required="on a node with a dial-role peer", when="build", why="a constant of the generated beam_conf and bees_peers (build-time stand-in)"),
+    "redial_initial_ms": Opt("int", None, 10, 60000, required="when redial is true", when="build", why="a constant of the generated beam_conf and bees_peers"),
+    "redial_max_ms": Opt("int", None, 10, 600000, required="when redial is true", when="build", why="a constant of the generated beam_conf and bees_peers"),
 }
 TRUST_OPTS = {
     "port": Opt("int", 6469, 1, 65535),
@@ -574,6 +580,10 @@ def beam_section(top, mode, manifest, base, E, sec_line):
             v[k] = want_r(want_atom, E, node, p, o.choices)
         elif o.kind in ("str", "path"):
             v[k] = want_r(want_str, E, node, p)
+        elif o.kind == "bool":
+            v[k] = want_r(want_bool, E, node, p)
+    if "redial_initial_ms" in v and "redial_max_ms" in v and v["redial_initial_ms"] > v["redial_max_ms"]:
+        raise E(bl("redial_initial_ms"), "beam.redial_initial_ms", f"{v['redial_initial_ms']} is above redial_max_ms {v['redial_max_ms']}")
     transport = v.get("transport", "tls")
     auth = v.get("auth", "cookie")
     eff = {"mode": mode, "auth": auth, "transport": transport, "cookie_path": ""}
@@ -701,11 +711,35 @@ def beam_section(top, mode, manifest, base, E, sec_line):
         for lk in links:
             if not lk["dials"]:
                 lk["address"], lk["port"] = listen_address, lp
+    # redial (user ruling 2026-11-17: no default): stated on a node with a dial-role peer, meaningless (rejected) on one without
+    has_dial = any(lk["dials"] for lk in links)
+    if manifest.get("redial"):
+        raise E(sl, "beam.redial", "is stated in bees.config; remove the manifest's `redial` line (a node with a bees.config takes it from the file only)")
+    group = [k for k in ("redial", "redial_initial_ms", "redial_max_ms") if k in v]
+    if not has_dial:
+        if group:
+            raise E(bl(group[0]), f"beam.{group[0]}", "this node has no dial-role peer, so nothing is dialed again: remove redial, "
+                    "redial_initial_ms and redial_max_ms (the options are for dialing nodes only)")
+        redial = False
+    else:
+        if "redial" not in v:
+            raise E(sl, "beam.redial", "required: this node dials a peer, so write {redial, true} (dial again, with redial_initial_ms and "
+                    "redial_max_ms) or {redial, false} (a lost link stays down); there is no default")
+        redial = v["redial"]
+        if redial:
+            for k in ("redial_initial_ms", "redial_max_ms"):
+                if k not in v:
+                    raise E(bl("redial"), f"beam.{k}", f"required when redial is true (no default); write {{{k}, N}}")
+        else:
+            for k in ("redial_initial_ms", "redial_max_ms"):
+                if k in v:
+                    raise E(bl(k), f"beam.{k}", "redial is false, so there is no delay to set: remove it (or write {redial, true})")
     first = links[0]
     eff.update({
         "creation": None, "epmd": epmd, "epmd_port": v.get("epmd_port", 4369), "open_ms": o_ms, "io_ms": io_ms,
         "tick_ms": tick_ms, "frame_max": v.get("frame_size_max", BEAM_FRAME_MAX), "listen_address": la,
         "links": links, "listens": listen_first is not None, "listener_address": listen_address,
+        "redial": redial, "redial_initial_ms": v.get("redial_initial_ms", 0), "redial_max_ms": v.get("redial_max_ms", 0),
         # the first link, as scalars (M3's node and the roles of the one-link trials read these)
         "link_dials": first["dials"], "link_peer": 0 if first["dials"] else -1, "link_address": first["address"],
         "link_port": first["port"], "link_by_epmd": first["by_epmd"], "link_host": first["host"],
@@ -908,6 +942,12 @@ def trust_section(top, mode, base, E, sec_line, notes, fname):
 def manifest_only(manifest):
     """The M3 node with no bees.config: auth none, the loopback-only test setting. The manifest's peer hosts must be loopback
     (N1 (3)); the frame cap is BEAM's default (R1). -> the same shape bees_dist_gen takes from a Conf."""
+    has_dial = any(p[3] == "dial" for p in manifest["peers"])
+    if has_dial and not manifest.get("redial"):
+        raise ConfError(1, "redial", "required: this node dials a peer, so the manifest needs a `redial off` line (a lost link stays down) or "
+                        "`redial <initial_ms> <max_ms>` (dial again); there is no default", "(manifest)")
+    if manifest.get("redial") and not has_dial:
+        raise ConfError(1, "redial", "this node has no dial-role peer, so nothing is dialed again: remove the `redial` line", "(manifest)")
     for name, host, port, role in manifest["peers"]:
         kind = addr_kind(host)
         where = f"peer {name}"
@@ -922,17 +962,37 @@ def manifest_only(manifest):
 
 
 def m3_link(conf, manifest):
-    """the link and the frame cap of a node's bees_peers (tools/bees_dist_gen.py) from a Conf, or from the manifest alone"""
+    """the links and the frame cap of a node's bees_peers (tools/bees_dist_gen.py) from a Conf, or from the manifest alone.
+    Keys: frame_max; the first link's scalars (link_dials, link_address, link_host, link_port, link_resolve); `links` (one per peer
+    line: dials, address, host, port, resolve), `listens`, `listener_address`; `redial`, `redial_initial_ms`, `redial_max_ms`."""
     if conf is None:
-        first = manifest["peers"][0]
-        dials = first[3] == "dial"
-        return {"frame_max": BEAM_FRAME_MAX, "link_dials": dials, "link_host": first[1], "link_port": first[2],
-                "link_address": f"{first[1]}:{first[2]}" if dials else f"listen:{first[2]}",
-                "link_resolve": dials and addr_kind(first[1]) == "name"}
+        links, listen_first = [], None
+        for name, host, port, role in manifest["peers"]:
+            dials = role == "dial"
+            if not dials and listen_first is None:
+                listen_first = port
+            links.append({"name": name, "dials": dials, "host": host, "port": port, "address": f"{host}:{port}" if dials else None,
+                          "resolve": dials and addr_kind(host) == "name"})
+        laddr = f"listen:{listen_first}" if listen_first is not None else ""
+        for k in links:
+            if not k["dials"]:
+                k["address"] = laddr
+        first = links[0]
+        return {"frame_max": BEAM_FRAME_MAX, "link_dials": first["dials"], "link_host": first["host"], "link_port": first["port"],
+                "link_address": first["address"], "link_resolve": first["resolve"], "links": links,
+                "listens": listen_first is not None, "listener_address": laddr,
+                "redial": bool(manifest.get("redial")) and manifest["redial"][0] != "off",
+                "redial_initial_ms": manifest["redial"][0] if manifest.get("redial") and manifest["redial"][0] != "off" else 0,
+                "redial_max_ms": manifest["redial"][1] if manifest.get("redial") and manifest["redial"][0] != "off" else 0}
     b = conf["beam"]
+    first = b["links"][0] if "links" in b else None
+    links = [dict(k) for k in b["links"]] if first else [{"name": "", "dials": b["link_dials"], "host": b["link_host"], "port": b["link_port"],
+                                                          "address": b["link_address"], "resolve": b["link_dials"] and b["link_host_kind"] == "name"}]
     return {"frame_max": b["frame_max"], "link_address": b["link_address"], "link_dials": b["link_dials"],
             "link_host": b["link_host"], "link_port": b["link_port"],
-            "link_resolve": b["link_dials"] and b["link_host_kind"] == "name"}
+            "link_resolve": b["link_dials"] and b["link_host_kind"] == "name", "links": links,
+            "listens": b.get("listens", not b["link_dials"]), "listener_address": b.get("listener_address", "" if b["link_dials"] else b["link_address"]),
+            "redial": b.get("redial", False), "redial_initial_ms": b.get("redial_initial_ms", 0), "redial_max_ms": b.get("redial_max_ms", 0)}
 
 
 # ---------------------------------------------------------------- command line

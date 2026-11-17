@@ -37,6 +37,21 @@ Silica provides the **language and toolchain** including actors and supervisors;
 
 BEES ships no TLS library; see [contract/what-is-required-to-use.md](contract/what-is-required-to-use.md).
 
+## BEES is an implementation of SEMP
+
+SEMP is a secure communication overlay for distributed systems. It has two parts: TRUST, for nodes that stay up, and TEMPUS, for nodes that come and go. BEES is an implementation of SEMP, and its default mode, the mode a program gets unless it asks for something else, is SEMP's. The documents directory explains each part in plain words: [documents/semp.md](documents/semp.md), [documents/trust.md](documents/trust.md) and [documents/tempus.md](documents/tempus.md).
+
+Being an implementation of SEMP has consequences for anyone who builds on BEES:
+
+- Every node has a certificate. Nodes are identified by the SHA-512 fingerprint of their certificate, and every connection is TLS 1.3 with certificates on both sides. A node you have not listed is closed on without an answer.
+- Nothing is allowed unless it has been granted. Each peer in the whitelist may run nothing, anything, or a stated list of modules and functions. Some functions are never allowed to any peer.
+- Each remote call is one request on its own connection. There is no fully connected mesh and no long-lived channel between nodes in this mode.
+- There is no EPMD and no shared cookie. A caller connects to an explicit host and port.
+- A refused peer is told nothing. Failures are written to the receiving node's own log, and a peer that keeps failing is quarantined until an operator resets it.
+- The settings live in a configuration file, bees.config, and the certificates, whitelist and pins are files you provide. BEES does not ship a TLS library: see [contract/what-is-required-to-use.md](contract/what-is-required-to-use.md).
+
+Status: TRUST is built in BEES. TEMPUS is planned for after the first release and is not built yet.
+
 ## Status
 
 Currently BEES is in its inception phase.
@@ -48,3 +63,7 @@ Project BEES is licensed under the **Apache License, Version 2.0**.
 ## Contributing & heritage
 
 When describing BEES publicly, it helps to **credit the BEAM and its origins** in one line, for example: *inspired by Bogdan and Björn’s Erlang Abstract Machine and the Erlang/OTP community.*
+
+## BEES and standard BEAM nodes
+
+BEES can also be used to connect to standard BEAM nodes, but no single node can be both a BEAM node and a SEMP node. A node runs in one mode or the other. To make one node do both would leave the entire network of nodes open to the same security weaknesses as pure BEAM node networks, because a network of nodes is only as secure as its least secure node. A node that speaks both would be a way into the SEMP network for anything that can reach it as a BEAM node. Forking BEES to add such a bridge is highly discouraged for security reasons.

@@ -70,10 +70,27 @@ bees_atoms:
 silica.config: bees_atoms
 	@cd "$(LEAF)" && "$(TOPO)" "$(LEAF)" | grep -Ev '^(dangerous_)?fail_' > silica.config
 
-build: silica.config
-	@cd "$(LEAF)" && rm -f *.sams *.iface *.o lib/*.sams lib/*.iface lib/*.o \
+# Stale products of an earlier build, and the compiler's crash records (silica.compile.crashed, .inprogress), which survive
+# between batches unless removed (Silica's own Makefile removes them too).
+CLEAN_BUILD = rm -f *.sams *.iface *.o lib/*.sams lib/*.iface lib/*.o \
 		silica.compile.order silica.compile.crashed silica.compile.inprogress silica.needs_runtime silica.link __silica_runtime.sams
-	@cd "$(LEAF)" && echo "[$(LEAF_NAME)] compiling $$(grep -c . silica.config) units" && $(RUN_SILICA_COMPILER)
+
+# Compile with one retry (the "Flakes" section of development-plan/silica-defects.md): the compiler now and then dies on a unit with no diagnostic (silica-999925, once in a
+# full `make integrate`: m1_wire_types_lists_b, lib/bees_wire_tables.silica; the same leaf then passed every time alone). Its
+# crash record is the line "Error: the compiler crashed while compiling ..." and exit 1. When, and only when, that line is in the
+# output, the build is cleaned and compiled once more, and the retry is announced with a line starting "RETRY"; a second crash
+# fails the build, and a real compile error (diagnostics, no crash line) is never retried or hidden. Each attempt's output is
+# shown in full.
+build: silica.config
+	@cd "$(LEAF)" && $(CLEAN_BUILD)
+	@cd "$(LEAF)" && echo "[$(LEAF_NAME)] compiling $$(grep -c . silica.config) units" && attempt=1 && while true; do \
+		( $(RUN_SILICA_COMPILER) ) > silica.compile.attempt.log 2>&1; rc=$$?; cat silica.compile.attempt.log; \
+		if [ $$rc -eq 0 ]; then break; fi; \
+		if [ $$attempt -eq 1 ] && grep -q 'the compiler crashed while compiling' silica.compile.attempt.log; then \
+			echo "RETRY: [$(LEAF_NAME)] the compiler crashed (a known transient, see the Flakes section of development-plan/silica-defects.md); cleaning and compiling once more"; \
+			attempt=2; $(CLEAN_BUILD); continue; fi; \
+		rm -f silica.compile.attempt.log; exit $$rc; \
+	done; rm -f silica.compile.attempt.log
 	@cd "$(LEAF)" && for sams in *.sams lib/*.sams; do \
 		[ -f "$$sams" ] || continue; \
 		$(CLANG) $(ASFLAGS) -c -x assembler "$$sams" -o "$${sams%.sams}.o" || exit 1; \

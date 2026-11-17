@@ -8,6 +8,10 @@
 #         Until Silica commit 71009f96f8 (SO_NOSIGPIPE on the carrier's sockets) b was killed by SIGPIPE here (exit=-13, a
 #         flaky golden; SD-42 in development-plan/silica-defects.md, now resolved); the golden was re-recorded 2026-11-12 after
 #         four identical runs.
+# Post-processing (the same idea as Silica's trial filters for timing): `net ticks seen ... - 0|1` is rewritten to `- N`. A tick
+# (an idle-keepalive frame) may or may not arrive on the link before the program is stopped, and megabytes of frames take a
+# machine-dependent time; whether ticks flow is checked by m3_dist/n2_dist ticks_alive and ticks_absent, not here, where the
+# trial checks the frame caps (the round trips, the refusal, the link-down reasons), none of which the tick line carries.
 # The `time ms` lines (the round-trip time of each frame) vary and are moved out of the golden into big.times; `make measure`
 # runs the scenario once under /usr/bin/time -l (peak resident set of each program) and writes measure.txt.
 BEES_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../..)
@@ -19,8 +23,9 @@ build:
 	@for n in $(NODES); do ($(MAKE) -C "$(HERE)/nodes/$$n" build || $(MAKE) -C "$(HERE)/nodes/$$n" build) || exit 1; $(MAKE) -C "$(HERE)/nodes/$$n" build > /dev/null || exit 1; done
 
 run: build
-	@cd "$(HERE)" && "$(BEES_ROOT)/tools/run_pair.py" nodes/a/dangerous_a_echo big.a.sout "link closed" nodes/b/dangerous_b_big big.b.sout "killed)" 0.5 300 || echo "pair big: a run failed"; \
+	@cd "$(HERE)" && "$(BEES_ROOT)/tools/run_pair.py" nodes/a/dangerous_a_echo big.a.sout "killed)" nodes/b/dangerous_b_big big.b.sout "killed)" 0.5 300 || echo "pair big: a run failed"; \
 		sed -i '' -E -e 's/0x[0-9a-f]{6,}/0xADDR/g' big.a.sout big.b.sout; $(STRIP_ROOT_EXIT) big.a.sout big.b.sout; \
+		sed -i '' -E 's/^(\[bees audit\] net ticks seen \(1 yes, 0 no\) - )[01]$$/\1N/' big.a.sout big.b.sout; \
 		grep '^time ' big.b.sout > big.times; sed -i '' -e '/^time /d' big.b.sout
 
 integrate: run

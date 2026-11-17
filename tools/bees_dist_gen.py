@@ -13,15 +13,19 @@ lines read here are:
                                                      ticks (a test setting: the peer will drop this node after its io_ms).
                                                      open_ms is kept for the manifest's shape; the language's (:tcp) carrier
                                                      connects or fails at once and has no accept timeout (N1 note)
+    redial   off | <initial_ms> <max_ms>             REQUIRED when a peer is `dial` and the program has no bees.config (no default): `off` leaves
+                                                     a lost link down; the numbers dial again, the delay doubling from initial to max (a node
+                                                     with a bees.config states beam.redial there instead, and this line is refused)
     peer     <name> <host> <port> <listen|dial>      a node this program may talk to; host is an IPv4 literal or a host name
                                                      (N1). Built from the manifest alone the node is auth none, a loopback-only
                                                      test setting, so only loopback hosts pass (tools/bees_conf.py manifest_only)
     remote   <name> @ <peer name> cast <type>        a registered name on that peer: a proxy is registered here
     local    <name> cast <type>                      a registered name here that a peer may send to: a deliverer
 
-The first `peer` line gives the program's one link (M3: one live link per node): `dial` connects to it ("host:port", the
-language's carrier address), `listen` binds its port on 127.0.0.1 ("listen:port") and the first accepted connection becomes the
-link; it must name a node of the table. Every other `peer` line is a table entry (a node that may dial in). With a bees.config
+Every `peer` line is a link (N2c, as in BEAM mode): a `dial` peer is connected to ("host:port", the language's carrier address) and,
+when its link is lost, dialed again (bees.config's redial options); the node has ONE listener when any peer is `listen` (the first
+listen peer's port, on 127.0.0.1 as "listen:port"), and a peer's link starts when its handshake names it; a peer that connects again
+replaces its old link (spikes/N2b-multi-link.md, "N2c"). With a bees.config
 (tools/bees_conf.py, the one reader, a build-time stand-in) the file's values win over the manifest's (bees-config-file.md
 section 2): the link's address, its role, and the frame cap `beam.frame_size_max`.
 
@@ -38,12 +42,14 @@ Silica-level atoms, allowed by `bees_config check`):
                         than its type). They are literals because the language's decode bakes its limits into the derived
                         decoder (transport design 4.1, E2402): a build-time value whatever reads the file.
     bees_peers.silica   node_name, node_creation, open_ms, io_ms, tick_ms, frame_max (the unframe cap and the send cap),
-                        link_address, link_dials, link_peer, link_resolve, link_host, link_port (a dial host that is a name is
-                        turned into an IPv4 literal at boot by the resolver edge, N1), peer_count,
+                        link_address, link_dials, link_peer, link_resolve, link_host, link_port (the first link's; a dial host that is a name is
+                        turned into an IPv4 literal at boot by the resolver edge, N1), the same per peer (link_dials_of(i), link_resolve_of,
+                        link_host_of, link_port_of, link_address_of), listens, listener_address, redial_on, redial_initial_ms,
+                        redial_max_ms (N2c), peer_count,
                         peer_index, peer_name, local_index (a registered name -> its index, -1 when no peer may send to it),
                         start_deliverer (a short-lived actor that decodes a payload with bees_msgs@dec_<name> and delivers it with
-                        cast_registered, then ends), start_proxies (one proxy per remote name, registered under it, and a reaper
-                        that ends them: kill_abnormal), the proxies and the deliverers themselves. A proxy encodes with
+                        cast_registered, then ends), start_proxies(peer, tx, mgr) (per peer: one proxy per remote name, registered under it, and a reaper
+                        that ends them: kill_abnormal, and then reports to mgr), the proxies and the deliverers themselves. A proxy encodes with
                         bees_msgs@enc_<name>, builds the REG_SEND body (bees_dist@reg_send_body), frames it (bees_dist@frame4)
                         and casts the segment to the writer as (:bees, 0, segment).
 """
@@ -66,7 +72,7 @@ class DistError(Exception):
 
 def parse(paths):
     """-> dict with node, creation, timing, peers [(name, host, port, mode)], remotes [(name, peer, where)], locals."""
-    d = {"node": None, "creation": 1, "timing": (10000, 60000, 15000), "peers": [], "remotes": [], "locals": []}
+    d = {"node": None, "creation": 1, "timing": (10000, 60000, 15000), "peers": [], "remotes": [], "locals": [], "redial": None}
     for path in paths:
         with open(path) as fh:
             for n, line in enumerate(fh, 1):
@@ -93,6 +99,17 @@ def parse(paths):
                     if not (1 <= o <= 60000 and 1 <= i <= 60000 and 0 <= tk <= 60000):
                         raise DistError(f"{where}: timing values are 1..60000 ms (tick_ms may be 0)")
                     d["timing"] = (o, i, tk)
+                elif k == "redial":
+                    ok = (len(t) == 2 and t[1] == "off") or (len(t) == 3 and t[1].isdigit() and t[2].isdigit())
+                    if not ok or d["redial"] is not None:
+                        raise DistError(f"{where}: expected once: redial off | redial <initial_ms> <max_ms>")
+                    if t[1] == "off":
+                        d["redial"] = ("off",)
+                    else:
+                        i0, m0 = int(t[1]), int(t[2])
+                        if not (10 <= i0 <= 60000 and 10 <= m0 <= 600000 and i0 <= m0):
+                            raise DistError(f"{where}: redial: initial_ms 10..60000, max_ms 10..600000, not below the initial")
+                        d["redial"] = (i0, m0)
                 elif k == "peer":
                     if len(t) != 5 or not NODE_RE.fullmatch(t[1]) or t[4] not in ("listen", "dial") or not t[3].isdigit():
                         raise DistError(f"{where}: expected: peer <name> <host> <port> <listen|dial>")
@@ -178,6 +195,42 @@ def limits_arg(ty, frame_max):
 def result_type(st):
     return f"(:ok, {st}) | (:rejected, atom)"
 
+MSG = "(:bees, int64, int64, actor_ref, actor_ref)"
+
+
+def per_peer_proxies(peers, remotes):
+    """N2c: the per-peer reapers and start_proxies, shared by bees_peers (this tool) and beam_peers (bees_config_beam.py); both units
+    define proxy_<name> as above. peers: [name]; remotes: [(name, peer name)] in the manifest's order (a proxy's id is its index).
+
+    reaper_p<i>(msg, st): the one actor of peer i's link that ends its proxies (kill_abnormal) when the link is lost (the writer's
+        message (:bees, 1, 0, tx, conn)), and only AFTER the last kill reports (:bees, 2, i, tx, conn) to its manager `mgr` and ends
+        itself (stop_self: nothing casts to it again; N2c teardown): the slot of a
+        listening node, the redial actor of a dialing one. A registered name is free when kill_abnormal has returned, so a manager
+        that starts the next link's proxies on that report never clashes (SD-33).
+    start_proxies_p<i>(tx, mgr) -> reaper; start_proxies(idx, tx, mgr) picks by the peer's index."""
+    ln = [f"fn rp_tx(msg: {MSG}) -> actor_ref {{ case msg of {{ (:bees, _a: int64, _b: int64, t: actor_ref, _c: actor_ref) -> t }} }}",
+          f"fn rp_cn(msg: {MSG}) -> actor_ref {{ case msg of {{ (:bees, _a: int64, _b: int64, _t: actor_ref, c: actor_ref) -> c }} }}", ""]
+    byp = [[(k, n) for k, (n, pe) in enumerate(remotes) if pe == pn] for pn in peers]
+    for pi, mine in enumerate(byp):
+        fields = ", ".join(["n: int64", "mgr: actor_ref"] + [f"p{j}: actor_ref" for j in range(len(mine))])
+        body = ["        t: actor_ref <- rp_tx(msg)", "        c: actor_ref <- rp_cn(msg)"] + [f"        _: atom <- kill_abnormal(st.p{j})" for j in range(len(mine))] + \
+               [f"        _: boolean <- cast(st.mgr, (:bees, 2, {pi}, t, c) impl ActorMessage {{}})",
+                "        _: atom <- stop_self(:normal)"]
+        ln += [f"fn reaper_p{pi}(msg: {MSG}, st: {{ {fields} }}) -> (:no_reply, {{ {fields} }}) {{",
+               "    sequence proc[concurrency]", ";\n".join(body),
+               "    produces pure (:no_reply, st) end", "}", ""]
+        sp = [f"        p{j}: actor_ref <- spawn_registered({{ tx: tx, id: {k} }}, proxy_{n}, bees_atoms@a_{n}(), {POL});" for j, (k, n) in enumerate(mine)]
+        init = ", ".join(["n: " + str(len(mine)), "mgr: mgr"] + [f"p{j}: p{j}" for j in range(len(mine))])
+        ln += [f"// peer {pi} ({peers[pi]}): its proxies, and the reaper that ends them when its link is lost; the reaper is the one value returned",
+               f"fn start_proxies_p{pi}(tx: actor_ref, mgr: actor_ref) -> actor_ref {{", "    sequence proc[concurrency]"] + sp + \
+              [f"        r: actor_ref <- spawn({{ {init} }}, reaper_p{pi}, {POL})", "    produces pure r end", "}", ""]
+    e = f"start_proxies_p{len(peers) - 1}(tx, mgr)"
+    for pi in reversed(range(len(peers) - 1)):
+        e = f"case idx == {pi} of {{ true -> start_proxies_p{pi}(tx, mgr); false -> {e} }}"
+    ln += ["// start_proxies(peer, tx, mgr): the proxies of the peer with that index (peer_index); callers pass 0 <= peer < peer_count",
+           f"fn start_proxies(idx: int64, tx: actor_ref, mgr: actor_ref) -> actor_ref {{ {e} }}", ""]
+    return ln
+
 
 def generate_msgs(out_dir, msgs, frame_max=BEAM_FRAME_MAX):
     """bees_msgs.silica: the two-function shape per message over the language's derived encode and decode."""
@@ -220,17 +273,18 @@ def generate(out_dir, paths, link=None):
     d = parse(paths)
     msgs = check(d, W.collect(paths, warn=False))
     if link is None:
-        first = d["peers"][0]
-        link = {"frame_max": BEAM_FRAME_MAX, "link_dials": first[3] == "dial", "link_host": first[1],
-                "link_address": f"listen:{first[2]}" if first[3] == "listen" else f"{first[1]}:{first[2]}",
-                "link_port": first[2], "link_resolve": False}
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import bees_conf
+        link = bees_conf.m3_link(None, d)
     generate_msgs(out_dir, [(n, msgs[n]) for n in sorted(msgs)], link["frame_max"])
     ln = ["// Generated by tools/bees_dist_gen.py (bees_config generate). Do not edit. The peer table, the proxies and the deliverers",
           "// of this program's manifest (M3, over the language's transport). No BEAM atom literal: every registered name comes from",
           "// bees_atoms (D30); the :bees tag is dangerous_bees_net's actor-protocol tag.",
           "module bees_peers;", "use bees_atoms;", "use bees_msgs;", "use bees_dist;", ""]
     ex = ["node_name/0", "node_creation/0", "open_ms/0", "io_ms/0", "tick_ms/0", "frame_max/0", "link_address/0", "open_text/0", "link_dials/0",
-          "link_peer/0", "link_resolve/0", "link_host/0", "link_port/0", "peer_count/0", "peer_index/1", "peer_name/1", "local_index/1", "start_deliverer/1", "start_proxies/1"]
+          "link_peer/0", "link_resolve/0", "link_host/0", "link_port/0", "peer_count/0", "peer_index/1", "peer_name/1", "local_index/1", "start_deliverer/1", "start_proxies/3",
+          "listens/0", "listener_address/0", "link_dials_of/1", "link_resolve_of/1", "link_host_of/1", "link_port_of/1", "link_address_of/1",
+          "redial_on/0", "redial_initial_ms/0", "redial_max_ms/0"]
     ln += [f"export {e};" for e in ex] + [""]
     peers = d["peers"]
     o, i, t = d["timing"]
@@ -250,6 +304,21 @@ def generate(out_dir, paths, link=None):
            f"fn link_host() -> string {{ {lit(link['link_host'])} }}",
            f"fn link_port() -> int64 {{ {link.get('link_port', 0)} }}",
            f"fn peer_count() -> int64 {{ {len(peers)} }}"]
+    # N2c: one entry per peer line (the first link's values above are the scalars), the node's one listener, and the redial settings
+    # (tools/bees_conf.py m3_link: bees.config's beam.redial, redial_initial_ms, redial_max_ms, or the manifest's `redial` line; no default)
+    links = link["links"]
+    tf = lambda v: "true" if v else "false"  # noqa: E731
+    ln += [f"fn listens() -> boolean {{ {tf(link['listens'])} }}", f"fn listener_address() -> string {{ {lit(link['listener_address'])} }}",
+           f"fn redial_on() -> boolean {{ {tf(link['redial'])} }}", f"fn redial_initial_ms() -> int64 {{ {link['redial_initial_ms']} }}",
+           f"fn redial_max_ms() -> int64 {{ {link['redial_max_ms']} }}"]
+    for name, ty, vals, dflt in [
+            ("link_dials_of", "boolean", [tf(k["dials"]) for k in links], "false"),
+            ("link_resolve_of", "boolean", [tf(k["resolve"]) for k in links], "false"),
+            ("link_host_of", "string", [lit(k["host"]) for k in links], '""'),
+            ("link_port_of", "int64", [str(k["port"] or 0) for k in links], "0"),
+            ("link_address_of", "string", [lit(k["address"] + (f":{o}" if k["dials"] and k["address"] else "")) for k in links], '""')]:
+        arms = "".join(f"        {n} -> {v};\n" for n, v in enumerate(vals))
+        ln += [f"fn {name}(i: int64) -> {ty} {{", "    case i of {", arms + f"        _: int64 -> {dflt}", "    }", "}"]
     arms = "".join(f"        {lit(p[0])} -> {k};\n" for k, p in enumerate(peers))
     ln += ["fn peer_index(name: string) -> int64 {", "    case name of {", arms + "        _: string -> -1", "    }", "}"]
     arms = "".join(f"        {k} -> {lit(p[0])};\n" for k, p in enumerate(peers))
@@ -291,19 +360,7 @@ def generate(out_dir, paths, link=None):
                "        seg: string <- bees_dist@frame4(body);",
                "        _: boolean <- case length_bytes(body) > 0 of { true -> cast(st.tx, (:bees, 0, seg) impl ActorMessage {}); false -> true }",
                "    produces pure (:no_reply, st) end", "}", ""]
-    fields = ", ".join(["n: int64"] + [f"p{k}: actor_ref" for k in range(len(rems))])
-    kills = "".join(f"        _: atom <- kill_abnormal(st.p{k});\n" for k in range(len(rems)))
-    if rems:
-        ln += [f"fn reaper(msg: int64, st: {{ {fields} }}) -> (:no_reply, {{ {fields} }}) {{",
-               "    sequence proc[concurrency]", kills.rstrip().rstrip(";"),
-               "    produces pure (:no_reply, st) end", "}", ""]
-    else:
-        ln += [f"fn reaper(msg: int64, st: {{ {fields} }}) -> (:no_reply, {{ {fields} }}) {{ (:no_reply, st) }}", ""]
-    sp = [f"        p{k}: actor_ref <- spawn_registered({{ tx: tx, id: {k} }}, proxy_{n}, bees_atoms@a_{n}(), {POL});" for k, (n, _) in enumerate(rems)]
-    init = ", ".join(["n: " + str(len(rems))] + [f"p{k}: p{k}" for k in range(len(rems))])
-    ln += ["// the reaper ends every proxy of the link (kill_abnormal) when the link is lost; it is the one value start_proxies returns",
-           "fn start_proxies(tx: actor_ref) -> actor_ref {", "    sequence proc[concurrency]"] + sp + \
-          [f"        r: actor_ref <- spawn({{ {init} }}, reaper, {POL})", "    produces pure r end", "}", ""]
+    ln += per_peer_proxies([p[0] for p in peers], rems)
     with open(os.path.join(out_dir, "bees_peers.silica"), "w") as out:
         out.write("\n".join(ln))
     return d
@@ -313,7 +370,7 @@ def has_dist(paths):
     for p in paths:
         with open(p) as fh:
             for line in fh:
-                if line.split("#", 1)[0].split()[:1] in (["node"], ["peer"], ["remote"], ["local"], ["creation"], ["timing"]):
+                if line.split("#", 1)[0].split()[:1] in (["node"], ["peer"], ["remote"], ["local"], ["creation"], ["timing"], ["redial"]):
                     return True
     return False
 

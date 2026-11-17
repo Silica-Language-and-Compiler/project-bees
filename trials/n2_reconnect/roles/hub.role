@@ -1,0 +1,37 @@
+// ---- the hub's program (N2c reconnect): two registered request handlers, one per peer. Each answers by casting to the registered name of
+// ITS peer (ans_e, ans_d): those names are proxies of different peers, so each answer leaves over that peer's own link.
+//   req_e   peer e: counts its requests (e1 asks once, then e2, the same node name connected again, asks once more) and prints
+//           "hub: all answered" after the second: the marker of the replace scenario
+//   req_d   peer d: prints "hub: ans_d sent" after each answer: the marker of the redial scenario (this program runs twice, h1 and h2)
+fn num_text(n: int64) -> string {
+    case n of {
+        21 -> "21"; 34 -> "34"; 42 -> "42"; 68 -> "68";
+        _: int64 -> "?"
+    }
+}
+fn req_e(msg: { op: atom, n: int64 }, st: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        _: atom <- say(concat("hub: req_e n=", num_text(msg.n)));
+        m: { op: atom, n: int64 } <- { op: bees_atoms@a_dbl(), n: msg.n * 2 };
+        _: boolean <- cast_registered(bees_atoms@a_ans_e(), m impl ActorMessage {});
+        _: atom <- say("hub: ans_e sent");
+        _: atom <- case st + 1 == 2 of { true -> say("hub: all answered"); false -> :ok }
+    produces pure (:no_reply, st + 1) end
+}
+fn req_d(msg: { op: atom, n: int64 }, st: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        _: atom <- say(concat("hub: req_d n=", num_text(msg.n)));
+        m: { op: atom, n: int64 } <- { op: bees_atoms@a_dbl(), n: msg.n * 2 };
+        _: boolean <- cast_registered(bees_atoms@a_ans_d(), m impl ActorMessage {});
+        _: atom <- say("hub: ans_d sent")
+    produces pure (:no_reply, st + 1) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- start_reporter();
+        a: actor_ref <- spawn_registered(0, req_e, bees_atoms@a_req_e(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        c: actor_ref <- spawn_registered(0, req_d, bees_atoms@a_req_d(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        n: actor_ref <- node_start(io_ms(), tick_ms());
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

@@ -1,0 +1,10 @@
+# N2b hub: listens ONCE for both edges (two listen-role peers share the one listener, port 47441). It does not know which edge has
+# connected until the handshake names it; that peer's proxy (ans_a or ans_c) starts then. Each edge's request has its own local name
+# (req_a, req_c), and the answer goes back over the link of the peer that name belongs to.
+node   hub@localhost
+peer   ea@localhost 127.0.0.1 47441 listen
+peer   ec@localhost 127.0.0.1 47441 listen
+remote ans_a @ ea@localhost cast { op: atom, n: int64 }
+remote ans_c @ ec@localhost cast { op: atom, n: int64 }
+local  req_a cast { op: atom, n: int64 }
+local  req_c cast { op: atom, n: int64 }

@@ -1,0 +1,33 @@
+// ---- the hub's program: two registered request handlers, one per edge. Each answers by casting to the registered name of ITS edge
+// (ans_a, ans_c): those names are proxies of different peers, so each answer leaves over that peer's own link.
+fn num_text(n: int64) -> string {
+    case n of {
+        21 -> "21"; 34 -> "34"; 42 -> "42"; 68 -> "68";
+        _: int64 -> "?"
+    }
+}
+fn req_a(msg: { op: atom, n: int64 }, st: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        _: atom <- say(concat("hub: req_a n=", num_text(msg.n)));
+        m: { op: atom, n: int64 } <- { op: bees_atoms@a_dbl(), n: msg.n * 2 };
+        _: boolean <- cast_registered(bees_atoms@a_ans_a(), m impl ActorMessage {});
+        _: atom <- say("hub: ans_a sent")
+    produces pure (:no_reply, st + 1) end
+}
+fn req_c(msg: { op: atom, n: int64 }, st: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        _: atom <- say(concat("hub: req_c n=", num_text(msg.n)));
+        m: { op: atom, n: int64 } <- { op: bees_atoms@a_dbl(), n: msg.n * 2 };
+        _: boolean <- cast_registered(bees_atoms@a_ans_c(), m impl ActorMessage {});
+        _: atom <- say("hub: ans_c sent")
+    produces pure (:no_reply, st + 1) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- start_reporter();
+        a: actor_ref <- spawn_registered(0, req_a, bees_atoms@a_req_a(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        c: actor_ref <- spawn_registered(0, req_c, bees_atoms@a_req_c(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        n: actor_ref <- node_start(io_ms(), tick_ms());
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

@@ -60,10 +60,15 @@ record-golden: run
 		cp "$$name.b.sout" "$$name.b.scout"; if [ "$$ag" = 1 ]; then cp "$$name.a.sout" "$$name.a.scout"; fi; done; \
 	for s in $(BOOT_QUOTED); do sc=$${s%%|*}; cp "$$sc.sout" "$$sc.scout"; done; echo "[n3_trust] goldens recorded"
 
-# (f) the rate and memory run: one run, this machine, each program under /usr/bin/time -l (peak resident set size)
+# (f) the rate and memory run: one run per call count (CALLS_LIST, default 2000 6000 20000), this machine, each program under /usr/bin/time -l
+# (peak resident set size). N2c: a long-lived node must stay flat, so the growth per call between the counts is what is read, not the peak.
+CALLS_LIST ?= 2000 6000 20000
 measure: build
-	@cd "$(HERE)" && "$(PAIR)" nodes/s/dangerous_s_main rate.a.out "$(READY)" nodes/c/dangerous_c_rate rate.b.out "ok answers of" --time --cap 600 && \
-		{ grep '^rate:' rate.b.out; for f in rate.a.out rate.b.out; do printf '%s peak resident set (bytes): ' "$$f"; awk '/maximum resident set size/ { print $$1 }' "$$f.rusage"; done; } | tee measure.txt
+	@cd "$(HERE)" && : > measure.txt && for n in $(CALLS_LIST); do \
+		$(MAKE) -C "$(HERE)/nodes/c" build CALLS=$$n > /dev/null 2>&1 || $(MAKE) -C "$(HERE)/nodes/c" build CALLS=$$n > /dev/null 2>&1; \
+		"$(PAIR)" nodes/s/dangerous_s_main rate.a.out "$(READY)" nodes/c/dangerous_c_rate rate.b.out "ok answers of" --time --cap 900 && \
+		{ echo "== $$n calls"; grep '^rate:' rate.b.out; for f in rate.a.out rate.b.out; do printf '%s peak resident set (bytes): ' "$$f"; awk '/maximum resident set size/ { print $$1 }' "$$f.rusage"; done; } | tee -a measure.txt; \
+	done
 
 clean:
 	@for n in $(NODES); do $(MAKE) -C "$(HERE)/nodes/$$n" clean; done; cd "$(HERE)" && rm -f *.sout .integrate_counts rate.*.out* measure.txt

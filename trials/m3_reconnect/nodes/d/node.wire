@@ -1,0 +1,5 @@
+# N2c M3 reconnect, node d: dials the hub and casts req_d; redial on (the options below), so when the hub is restarted d dials it again.
+node   d@localhost
+peer   h@localhost 127.0.0.1 47471 dial
+remote req_d @ h@localhost cast { op: atom, n: int64 }
+local  ans_d cast { op: atom, n: int64 }

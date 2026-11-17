@@ -1,0 +1,5 @@
+[bees] TEST ONLY: no authentication, no encryption on this transport (127.0.0.1); TRUST's TLS is not built yet
+[bees audit] handshake complete with hub@localhost 0
+edge a: request sent
+edge a: got answer 42
+exit=0

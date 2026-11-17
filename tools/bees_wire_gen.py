@@ -257,7 +257,7 @@ def min_size(ty):
 
 
 
-DIST_LINES = ("node", "creation", "timing", "peer", "remote", "local")
+DIST_LINES = ("node", "creation", "timing", "redial", "peer", "remote", "local")
 
 
 def parse_dist_message_line(line, where):

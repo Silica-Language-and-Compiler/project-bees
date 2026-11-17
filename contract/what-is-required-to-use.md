@@ -21,6 +21,18 @@ older (the engine reports `OpenSSL_version_num()`, the link decides). The trials
 they do not skip. BEAM-mode and plaintext (`plaintext_test_only`) TRUST programs do not use the engine. Verified on macOS (Apple
 Silicon) with OpenSSL 4.1.0 (23 Oct 2026, Homebrew).
 
+### Linux: getting OpenSSL 4.1.0 (usage note, 2026-11-17)
+
+Distribution packages lag. **Until `apt` (or the package tool your distribution uses) offers OpenSSL 4.1.0 or later, you must build
+and install OpenSSL yourself, following OpenSSL's own instructions** (<https://github.com/openssl/openssl/blob/master/INSTALL.md>:
+download the 4.1.0 or later release, `./Configure --prefix=/opt/openssl --libdir=lib`, `make`, `make install`). BEES does not do
+this for you (it ships and builds no TLS library). Then tell BEES where it is with `OPENSSL_PREFIX` (for example
+`make -C native OPENSSL_PREFIX=/opt/openssl`); BEES refuses an OpenSSL older than 4.1.0 at compile time, at build time and at run
+time, so a distribution's older package is never used by accident. The runtime also has to find the library: install it where the
+loader looks, or set `LD_LIBRARY_PATH=/opt/openssl/lib` (or link statically; `libssl.a` is built too). Check the version with
+`/opt/openssl/bin/openssl version`. As of 2026-11-17 Ubuntu 25.10's package is OpenSSL 3.5.3, which is below the minimum.
+Verified install on the Linux test machine: OpenSSL 4.1.0 at `/opt/openssl`.
+
 ## 2. How the minimum is chosen
 
 - **Hosted platforms (Apple, Linux):** the minimum is **the latest release that supports X25519MLKEM768**, the hybrid post-quantum key exchange that TRUST's TLS profile requires (spike S12, requirement R3). It is not the oldest release that supports it. When a newer release that supports it ships, this page is updated to that release.

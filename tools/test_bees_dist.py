@@ -45,7 +45,7 @@ def golden():
     return out
 
 
-NODE = "node b@127.0.0.1\npeer a@127.0.0.1 127.0.0.1 7001 dial\n"
+NODE = "node b@127.0.0.1\nredial off\npeer a@127.0.0.1 127.0.0.1 7001 dial\n"
 MSG = "{ op: atom, n: int64 }"
 
 
@@ -95,10 +95,10 @@ class Manifest(unittest.TestCase):
         # N1: a manifest-only node is auth none, a loopback-only test setting: non-loopback hosts are refused, loopback ones
         # (127.0.0.0/8, localhost: resolved at boot by the resolver edge) pass the reader
         for host in ("localhost", "127.0.0.2"):
-            r, _ = self.gen(f"node b@127.0.0.1\npeer a@127.0.0.1 {host} 7001 dial\nremote x @ a@127.0.0.1 cast {MSG}\n")
+            r, _ = self.gen(f"node b@127.0.0.1\nredial off\npeer a@127.0.0.1 {host} 7001 dial\nremote x @ a@127.0.0.1 cast {MSG}\n")
             self.assertEqual(r.returncode, 0, host + r.stderr)
         for host in ("0.0.0.0", "10.0.0.1"):
-            r, _ = self.gen(f"node b@127.0.0.1\npeer a@127.0.0.1 {host} 7001 dial\n")
+            r, _ = self.gen(f"node b@127.0.0.1\nredial off\npeer a@127.0.0.1 {host} 7001 dial\n")
             self.assertNotEqual(r.returncode, 0, host)
             self.assertIn("is not a loopback address: a node built from the manifest alone is auth none", r.stderr)   # N1: the test-setting rule
 

@@ -12,6 +12,7 @@ export a_link_down/0;
 export a_link_up/0;
 export a_no_credit/0;
 export a_open/0;
+export a_replaced/0;
 export a_reset/0;
 export a_rx/0;
 export a_timeout/0;
@@ -35,6 +36,7 @@ fn a_link_down() -> atom { :link_down }
 fn a_link_up() -> atom { :link_up }
 fn a_no_credit() -> atom { :no_credit }
 fn a_open() -> atom { :open }
+fn a_replaced() -> atom { :replaced }
 fn a_reset() -> atom { :reset }
 fn a_rx() -> atom { :rx }
 fn a_timeout() -> atom { :timeout }
@@ -56,6 +58,7 @@ fn spelling(a: atom) -> string {
         :link_up -> "link_up";
         :no_credit -> "no_credit";
         :open -> "open";
+        :replaced -> "replaced";
         :reset -> "reset";
         :rx -> "rx";
         :timeout -> "timeout";
@@ -80,23 +83,24 @@ fn index(a: atom) -> int64 {
         :link_up -> 8;
         :no_credit -> 9;
         :open -> 10;
-        :reset -> 11;
-        :rx -> 12;
-        :timeout -> 13;
-        :tx -> 14;
-        :tx_credit -> 15;
-        :tx_failed -> 16;
-        :who -> 17;
+        :replaced -> 11;
+        :reset -> 12;
+        :rx -> 13;
+        :timeout -> 14;
+        :tx -> 15;
+        :tx_credit -> 16;
+        :tx_failed -> 17;
+        :who -> 18;
         _: atom -> -1
     }
 }
 
 fn from_spelling_0(s: string) -> { found: boolean, value: atom } {
-    case s == "accepted" of { true -> { found: true, value: :accepted }; false -> case s == "bees" of { true -> { found: true, value: :bees }; false -> case s == "car" of { true -> { found: true, value: :car }; false -> case s == "close" of { true -> { found: true, value: :close }; false -> case s == "closed" of { true -> { found: true, value: :closed }; false -> case s == "credit" of { true -> { found: true, value: :credit }; false -> case s == "fault" of { true -> { found: true, value: :fault }; false -> case s == "link_down" of { true -> { found: true, value: :link_down }; false -> case s == "link_up" of { true -> { found: true, value: :link_up }; false -> case s == "no_credit" of { true -> { found: true, value: :no_credit }; false -> case s == "open" of { true -> { found: true, value: :open }; false -> case s == "reset" of { true -> { found: true, value: :reset }; false -> case s == "rx" of { true -> { found: true, value: :rx }; false -> case s == "timeout" of { true -> { found: true, value: :timeout }; false -> case s == "tx" of { true -> { found: true, value: :tx }; false -> case s == "tx_credit" of { true -> { found: true, value: :tx_credit }; false -> case s == "tx_failed" of { true -> { found: true, value: :tx_failed }; false -> case s == "who" of { true -> { found: true, value: :who }; false -> { found: false, value: :unknown } } } } } } } } } } } } } } } } } } }
+    case s == "accepted" of { true -> { found: true, value: :accepted }; false -> case s == "bees" of { true -> { found: true, value: :bees }; false -> case s == "car" of { true -> { found: true, value: :car }; false -> case s == "close" of { true -> { found: true, value: :close }; false -> case s == "closed" of { true -> { found: true, value: :closed }; false -> case s == "credit" of { true -> { found: true, value: :credit }; false -> case s == "fault" of { true -> { found: true, value: :fault }; false -> case s == "link_down" of { true -> { found: true, value: :link_down }; false -> case s == "link_up" of { true -> { found: true, value: :link_up }; false -> case s == "no_credit" of { true -> { found: true, value: :no_credit }; false -> case s == "open" of { true -> { found: true, value: :open }; false -> case s == "replaced" of { true -> { found: true, value: :replaced }; false -> case s == "reset" of { true -> { found: true, value: :reset }; false -> case s == "rx" of { true -> { found: true, value: :rx }; false -> case s == "timeout" of { true -> { found: true, value: :timeout }; false -> case s == "tx" of { true -> { found: true, value: :tx }; false -> case s == "tx_credit" of { true -> { found: true, value: :tx_credit }; false -> case s == "tx_failed" of { true -> { found: true, value: :tx_failed }; false -> case s == "who" of { true -> { found: true, value: :who }; false -> { found: false, value: :unknown } } } } } } } } } } } } } } } } } } } }
 }
 
 fn from_spelling(s: string) -> { found: boolean, value: atom } {
     from_spelling_0(s)
 }
 
-fn count() -> int64 { 18 }
+fn count() -> int64 { 19 }

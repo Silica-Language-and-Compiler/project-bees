@@ -36,7 +36,7 @@ local  inbox cast { op: atom, n: int64 }
 """
 BEAM = """[ {mode, beam},
   {node, [{name, "bees@localhost"}]},
-  {beam, [{transport, tcp}, {auth, none}, {listen_address, "127.0.0.1"}%s]} ]."""
+  {beam, [{transport, tcp}, {auth, none}, {listen_address, "127.0.0.1"}, {redial, false}%s]} ]."""
 TRUST = """[{mode, trust}, {trust, [{port, 47501}, {listen_address, "127.0.0.1"}, {plaintext_test_only, true}%s]}]."""
 
 
@@ -250,6 +250,61 @@ class Rules(Base):
         self.write("wl.config", "#{}.", mode=0o000)
         self.refused(TRUST % ', {whitelist_file, "wl.config"}', "trust.whitelist_file", "not readable", manifest=None)
 
+    def test_redial_options(self):
+        """N2c, no defaults (user ruling 2026-11-17): redial is required on a node with a dial-role peer and must be a boolean;
+        redial_initial_ms and redial_max_ms are required when it is true and refused when it is false; a node with no dial-role peer
+        refuses all three."""
+        nored = BEAM.replace(", {redial, false}", "")
+        self.refused(nored % "", "beam.redial", "required: this node dials a peer, so write {redial, true}")
+        self.refused(nored % "", "beam.redial", "there is no default")
+        self.refused(nored % ", {redial, maybe}", "beam.redial", "expected true or false")
+        self.refused(nored % ", {redial, 1}", "beam.redial", "expected true or false")
+        self.refused(nored % ", {redial, true}", "beam.redial_initial_ms", "required when redial is true")
+        self.refused(nored % ", {redial, true}, {redial_initial_ms, 100}", "beam.redial_max_ms", "required when redial is true")
+        b = self.conf(nored % ", {redial, true}, {redial_initial_ms, 100}, {redial_max_ms, 800}")["beam"]
+        self.assertEqual((b["redial"], b["redial_initial_ms"], b["redial_max_ms"]), (True, 100, 800))
+        b = self.conf(BEAM % "")["beam"]
+        self.assertEqual((b["redial"], b["redial_initial_ms"], b["redial_max_ms"]), (False, 0, 0))
+        self.refused(BEAM % ", {redial_initial_ms, 100}", "beam.redial_initial_ms", "redial is false, so there is no delay to set")
+        self.refused(nored % ", {redial, true}, {redial_initial_ms, 5}, {redial_max_ms, 800}", "beam.redial_initial_ms", "5 is below 10")
+        self.refused(nored % ", {redial, true}, {redial_initial_ms, 100}, {redial_max_ms, 600001}", "beam.redial_max_ms", "600001 is above 600000")
+        self.refused(nored % ", {redial, true}, {redial_initial_ms, 900}, {redial_max_ms, 800}", "beam.redial_initial_ms", "900 is above redial_max_ms 800")
+        m3 = C.m3_link({"beam": self.conf(nored % ", {redial, true}, {redial_initial_ms, 100}, {redial_max_ms, 800}")["beam"]}, None)
+        self.assertEqual((m3["redial"], m3["redial_initial_ms"], m3["redial_max_ms"]), (True, 100, 800))
+
+    def test_redial_listen_only_node(self):
+        """a node with no dial-role peer refuses the redial options: they would be meaningless, and a stray one is more likely a
+        mistake (a dialing peer meant, or a copied file) than a wish; the stricter rule is still friendly: the message says to remove them"""
+        listen = MANIFEST.replace("47500 dial", "47500 listen")
+        nored = BEAM.replace(", {redial, false}", "")
+        self.conf(nored % ", {epmd, none}, {listen_port, 47500}", manifest=self.manifest(listen))
+        self.refused(BEAM % ", {epmd, none}, {listen_port, 47500}", "beam.redial", "no dial-role peer", manifest=self.manifest(listen))
+        # a config can also turn a manifest listen peer into a dial peer: then redial is required again
+        over = nored % ', {epmd, none}, {listen_port, 47500}, {peers, [{"peer@localhost", [{role, dial}]}]}'
+        self.refused(over, "beam.redial", "required", manifest=self.manifest(listen))
+
+    def test_redial_manifest_line(self):
+        """the manifest-only node states redial in the manifest (`redial off` or `redial <initial> <max>`); no default; a program with a
+        bees.config states it there only"""
+        with self.assertRaises(C.ConfError) as cm:
+            C.manifest_only(self.manifest())
+        self.assertIn("`redial off` line", cm.exception.text)
+        self.assertIn("no default", cm.exception.text)
+        m = self.manifest("redial 100 800\n" + MANIFEST)
+        self.assertEqual(m["redial"], (100, 800))
+        l = C.m3_link(None, m)
+        self.assertEqual((l["redial"], l["redial_initial_ms"], l["redial_max_ms"]), (True, 100, 800))
+        l = C.m3_link(None, self.manifest("redial off\n" + MANIFEST))
+        self.assertEqual((l["redial"], l["redial_initial_ms"], l["redial_max_ms"]), (False, 0, 0))
+        with self.assertRaises(C.ConfError) as cm:
+            C.manifest_only(self.manifest("redial off\n" + MANIFEST.replace("47500 dial", "47500 listen")))
+        self.assertIn("no dial-role peer", cm.exception.text)
+        with self.assertRaises(D.DistError):
+            self.manifest("redial 900 800\n" + MANIFEST)
+        with self.assertRaises(D.DistError):
+            self.manifest("redial on\n" + MANIFEST)
+        self.refused(BEAM % "", "beam.redial", "stated in bees.config", manifest=self.manifest("redial off\n" + MANIFEST))
+
     def test_9_not_built_yet(self):
         self.refused(BEAM.replace("{transport, tcp}, ", "") % "", "beam.transport", "tls (the default, D25) is not built yet")
         self.refused(BEAM % ", {spawn, any}", "beam.spawn", "any is not built yet")
@@ -294,11 +349,12 @@ class N1(Base):
     def test_carrier_address_forms_with_cookie(self):
         self.write("cookie", "secret\n", mode=0o600)
         cookie = BEAM.replace("{auth, none}", '{auth, cookie}, {cookie_file, "cookie"}')
+        nodial = cookie.replace(", {redial, false}", "")     # a listen-only node states no redial option
         listen = MANIFEST.replace("47500 dial", "47500 listen")
-        b = self.conf(cookie.replace('"127.0.0.1"', '"0.0.0.0"') % ", {epmd, none}, {listen_port, 47500}",
+        b = self.conf(nodial.replace('"127.0.0.1"', '"0.0.0.0"') % ", {epmd, none}, {listen_port, 47500}",
                       manifest=self.manifest(listen))["beam"]
         self.assertEqual(b["link_address"], "listen:any:47500")            # every IPv4 interface: the carrier's listen:any
-        b = self.conf(cookie % ", {epmd, none}, {listen_port, 47500}", manifest=self.manifest(listen))["beam"]
+        b = self.conf(nodial % ", {epmd, none}, {listen_port, 47500}", manifest=self.manifest(listen))["beam"]
         self.assertEqual(b["link_address"], "listen:47500")                # 127.0.0.1
         self.refused(cookie.replace('"127.0.0.1"', '"192.168.1.20"') % "", "beam.listen_address",
                      "192.168.1.20 is not built yet: the language's (:tcp) carrier binds only 127.0.0.1")
@@ -325,9 +381,10 @@ class N1(Base):
         self.assertEqual((b["link_dials"], b["link_address"]), (True, "127.0.0.1:47500"))   # the scalars are the first link's
 
     def test_manifest_only_node_is_loopback_only(self):
-        C.manifest_only(self.manifest())
+        R = "redial off\n"
+        C.manifest_only(self.manifest(R + MANIFEST))
         with self.assertRaises(C.ConfError) as cm:
-            C.manifest_only(self.manifest(MANIFEST.replace("127.0.0.1 47500", "192.168.1.20 47500")))
+            C.manifest_only(self.manifest(R + MANIFEST.replace("127.0.0.1 47500", "192.168.1.20 47500")))
         self.assertIn("auth none, a loopback-only test setting", cm.exception.text)
 
     def test_trust_args_limits_reach_the_mfa_table(self):
@@ -338,7 +395,7 @@ class N1(Base):
 
 
 class CheckAtomManifestTests(unittest.TestCase):
-    """`bees_config.py check`: a unit outside src/ may write the atoms its own manifest lists (guide A1.2); nothing else."""
+    """`bees_config.py check`: any unit, under src/ or not, may write the atoms its own manifest lists (guide A1.2); nothing else."""
 
     def setUp(self):
         self.d = tempfile.mkdtemp()
@@ -401,7 +458,7 @@ class CheckAtomManifestTests(unittest.TestCase):
         self.put("linkdir/z.atoms", "hub_in\n")
         self.assertEqual(self.run_check(link2)[0], 1)
 
-    def test_unit_under_src_with_manifest_still_fails(self):
+    def test_unit_under_src_with_manifest_passes(self):
         unit = os.path.join(ROOT, "src", "shim", "zz_check_probe.silica")
         manifest = os.path.join(ROOT, "src", "shim", "zz_check_probe.atoms")
         try:
@@ -409,8 +466,14 @@ class CheckAtomManifestTests(unittest.TestCase):
                 fh.write(self.UNIT)
             with open(manifest, "w") as fh:
                 fh.write("hub_in\n")
-            self.assertEqual(self.run_check(unit)[0], 1)
-            # and through a symlink from outside src/
+            self.assertEqual(self.run_check(unit), (0, ""))
+            # an atom the manifest does not list still fails there
+            with open(unit, "a") as fh:
+                fh.write("fn g() -> atom { :other }\n")
+            rc, out = self.run_check(unit)
+            self.assertEqual(rc, 1)
+            self.assertIn(":other", out)
+            # and through a symlink from outside src/ (the manifest beside the real path counts)
             link = os.path.join(self.d, "zz_check_probe.silica")
             os.symlink(unit, link)
             self.assertEqual(self.run_check(link)[0], 1)
@@ -451,7 +514,7 @@ class MultiLinkGenerationTests(unittest.TestCase):
                                capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stderr)
             peers = open(os.path.join(out, "beam_peers.silica")).read()
-            self.assertIn("fn start_proxies_p0(tx: actor_ref)", peers)
+            self.assertIn("fn start_proxies_p0(tx: actor_ref, mgr: actor_ref)", peers)
             self.assertIn("proxy_ans_a, bees_atoms@a_ans_a()", peers.split("fn start_proxies_p1")[0])
             self.assertIn("proxy_ans_c, bees_atoms@a_ans_c()", peers.split("fn start_proxies_p1")[1])
             self.assertNotIn("proxy_ans_c", peers.split("fn start_proxies_p1")[0].split("fn start_proxies_p0")[1])
@@ -464,6 +527,28 @@ class MultiLinkGenerationTests(unittest.TestCase):
             atoms = open(os.path.join(out, "bees_atoms.index")).read()
             for name in ("ans_a", "ans_c", "req_a", "req_c"):
                 self.assertRegex(atoms, r"\t" + name + r"\n")
+
+
+    def test_m3_hub_generation(self):
+        """N2c: the M3 node's bees_peers has one link per peer line, the listener, per-peer reapers that report to a manager"""
+        hub = os.path.join(ROOT, "trials", "m3_multilink", "nodes", "hub")
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "out")
+            os.makedirs(out)
+            r = subprocess.run([sys.executable, os.path.join(HERE, "bees_config.py"), "generate", "-o", out, "--config",
+                                os.path.join(hub, "bees.config"), os.path.join(hub, "node.wire"), os.path.join(hub, "node.atoms")],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            peers = open(os.path.join(out, "bees_peers.silica")).read()
+            self.assertIn("fn listens() -> boolean { true }", peers)
+            self.assertIn('fn listener_address() -> string { "listen:47451" }', peers)
+            self.assertIn("fn start_proxies_p1(tx: actor_ref, mgr: actor_ref)", peers)
+            self.assertIn("fn start_proxies(idx: int64, tx: actor_ref, mgr: actor_ref)", peers)
+            self.assertIn("cast(st.mgr, (:bees, 2, 1, t, c)", peers)
+            self.assertIn("stop_self(:normal)", peers.split("fn reaper_p1")[1].split("fn start_proxies_p1")[0])
+            self.assertIn("fn link_dials_of(i: int64) -> boolean {", peers)
+            self.assertIn("fn redial_on() -> boolean { false }", peers)
+            self.assertNotIn("fn start_proxies(tx: actor_ref)", peers)
 
 
 if __name__ == "__main__":

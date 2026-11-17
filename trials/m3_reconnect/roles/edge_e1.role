@@ -1,0 +1,31 @@
+// ---- edge e, first run (e1): after 0.7 s casts req_e (21) to the hub and prints its answer; then it stays up. When the hub replaces its
+// link (e2, the same node name, connected), the proxy of req_e is ended by the reaper and the reporter prints "proxy ended (killed)":
+// the marker of this program.
+fn num_text(n: int64) -> string {
+    case n of {
+        21 -> "21"; 42 -> "42";
+        _: int64 -> "?"
+    }
+}
+fn ans_e(msg: { op: atom, n: int64 }, st: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- say(concat("edge e1: got answer ", num_text(msg.n)))
+    produces pure (:no_reply, st + 1) end
+}
+fn sender(msg: int64, st: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        m: { op: atom, n: int64 } <- { op: bees_atoms@a_inc(), n: 21 };
+        _: boolean <- cast_registered(bees_atoms@a_req_e(), m impl ActorMessage {});
+        _: atom <- say("edge e1: request sent")
+    produces pure (:no_reply, st + 1) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- start_reporter();
+        a: actor_ref <- spawn_registered(0, ans_e, bees_atoms@a_ans_e(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        n: actor_ref <- node_start(io_ms(), tick_ms());
+        s: actor_ref <- spawn(0, sender, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        t: timer_ref <- send_after(700, s, 0 impl ActorMessage {});
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

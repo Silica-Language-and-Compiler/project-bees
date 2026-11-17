@@ -41,7 +41,11 @@ def main(argv):
             # short-lived actors stop more often than every IDLE seconds is never told to exit.
             if data.replace(NOTICE, b"").strip():
                 last = time.monotonic()
-            if marker.encode() in b"".join(chunks):
+            # The marker counts only once its own line is complete (a newline follows it): a program stopped between the
+            # marker's first bytes and the end of its line leaves a cut-off last line in the output (a02_exit_listener).
+            whole = b"".join(chunks)
+            i = whole.find(marker.encode())
+            if i >= 0 and b"\n" in whole[i:]:
                 seen = True
         if proc.poll() is not None and not r:
             break

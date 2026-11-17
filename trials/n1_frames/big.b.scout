@@ -13,6 +13,6 @@ client: sent seq 4
 [bees audit] link down, proxies ended; reason link_down 3
 [bees audit] frames delivered - 3
 [bees audit] frames dropped - 0
-[bees audit] net ticks seen (1 yes, 0 no) - 0
+[bees audit] net ticks seen (1 yes, 0 no) - N
 proxy ended (killed)
 exit=0

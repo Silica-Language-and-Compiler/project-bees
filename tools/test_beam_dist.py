@@ -63,7 +63,7 @@ local  inbox cast { op: atom, n: int64 }
 GOOD = """[ {mode, beam},
   {node, [{name, "bees@localhost"}]},
   {beam, [{transport, tcp}, {cookie_file, "cookie"}, {listen_address, "127.0.0.1"}, {listen_port, 47500},
-          {epmd_port, 4399}, {net_ticktime_s, 8}]} ].
+          {epmd_port, 4399}, {net_ticktime_s, 8}, {redial, false}]} ].
 """
 
 
