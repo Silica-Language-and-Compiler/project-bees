@@ -58,12 +58,12 @@ fn beam_dial_next(i: int64, first: dangerous_actor_ref, use_first: boolean, a: d
     sequence
         car: dangerous_actor_ref <- case use_first of { true -> first; false -> carrier_new() };
         rd: actor_ref <- nrd_new(i, a, me, io_ms, tick_ms);
-        p: { conn: actor_ref, tx: actor_ref } <- beam_dial(i, car, a, rd, me, io_ms, tick_ms);
+        p: { conn: actor_ref, tx: actor_ref } <- beam_dial(i, car, a, rd, me, io_ms, tick_ms, 0);
         _: { conn: actor_ref, tx: actor_ref } <- beam_dials(i + 1, first, false, a, me, io_ms, tick_ms)
     produces pure p end
 }
 // one link to dial peer i (a redial's too): its writer, proxies (their reaper reports to rd), connection actor and carrier c
-fn beam_dial(i: int64, c: dangerous_actor_ref, a: dangerous_actor_ref, rd: actor_ref, me: actor_ref, io_ms: uint64, tick_ms: uint64) -> { conn: actor_ref, tx: actor_ref } {
+fn beam_dial(i: int64, c: dangerous_actor_ref, a: dangerous_actor_ref, rd: actor_ref, me: actor_ref, io_ms: uint64, tick_ms: uint64, k: int64) -> { conn: actor_ref, tx: actor_ref } {
     sequence proc[concurrency]
         t: actor_ref <- spawn({ c: c, up: false, sent: 0, reaper: me, cn: me, tick_ms: tick_ms }, dangerous_beam_net@tx, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
         r: actor_ref <- beam_peers@start_proxies(i, t, rd);
@@ -72,9 +72,9 @@ fn beam_dial(i: int64, c: dangerous_actor_ref, a: dangerous_actor_ref, rd: actor
         _: boolean <- cast(t, (:car, n) impl ActorMessage {});
         // N1: a dial host that is a name is resolved first (bees_resolve_edge.part), the carrier dials IPv4 literals only
         _: boolean <- case beam_conf@link_by_epmd_of(i) of {
-            true -> beam_lookup(c, n, i);
+            true -> beam_lookup(c, n, i, k);
             false -> case beam_conf@link_resolve_of(i) of {
-                true -> net_resolve(c, n, beam_conf@link_host_of(i), beam_conf@link_port_of(i), beam_conf@open_text());
+                true -> net_resolve(c, n, beam_conf@link_host_of(i), beam_conf@link_port_of(i), beam_conf@open_ms(), k, not beam_conf@auth_cookie());
                 false -> cast(c, (:open, n, beam_conf@link_address_of(i)) impl ActorMessage {})
             }
         };
@@ -86,8 +86,8 @@ fn beam_dial(i: int64, c: dangerous_actor_ref, a: dangerous_actor_ref, rd: actor
 fn node_redial_on() -> boolean { beam_conf@redial() }
 fn node_redial_initial() -> int64 { beam_conf@redial_initial_ms() }
 fn node_redial_max() -> int64 { beam_conf@redial_max_ms() }
-fn node_redial_link(i: int64, c: dangerous_actor_ref, aux: dangerous_actor_ref, rd: actor_ref, me: actor_ref, io_ms: uint64, tick_ms: uint64) -> { conn: actor_ref, tx: actor_ref } {
-    beam_dial(i, c, aux, rd, me, io_ms, tick_ms)
+fn node_redial_link(i: int64, c: dangerous_actor_ref, aux: dangerous_actor_ref, rd: actor_ref, me: actor_ref, io_ms: uint64, tick_ms: uint64, k: int64) -> { conn: actor_ref, tx: actor_ref } {
+    beam_dial(i, c, aux, rd, me, io_ms, tick_ms, k)
 }
 
 // ---- N2c: redial. One redial actor (`nrd`) per dial-role peer, spawned with the peer's first link. It is told (:bees, op, arg, who, who):
@@ -97,7 +97,7 @@ fn node_redial_link(i: int64, c: dangerous_actor_ref, aux: dangerous_actor_ref, 
 //   3 dial      the timer: an audit line, then a NEW carrier, tx, proxies and conn for the peer (the old link's actors are never reused)
 //   5 stable    a link that lived max_ms (its generation is still the current one and it was not lost) resets the attempt count to 0
 // nrd is the only retry loop and every attempt is an audit line (never silent); the delay doubles to max_ms and stays there. A peer
-// whose name cannot be resolved at all (the resolver edge printed dns_error) never opens a carrier and so is not retried.
+// whose name cannot be resolved at all (the resolver edge printed dns_error) never opens a carrier and so is not retried. The redial's attempt number is also the dial attempt k: a name with several addresses is tried address by address (bees_resolve_edge.part); the EPMD lookup and the dial of one attempt take the same address.
 fn nrd_delay(n: int64, d: int64, cap: int64) -> int64 {
     case d >= cap of { true -> cap; false -> case n <= 1 of { true -> d; false -> nrd_delay(n - 1, d * 2, cap) } }
 }
@@ -139,7 +139,7 @@ fn nrd_dial(st: { peer: int64, attempt: int64, gen: int64, alive: boolean, aux: 
     sequence
         _: atom <- bees_ingress@audit("redial attempt", bees_peers@peer_name(st.peer), st.attempt);
         car: dangerous_actor_ref <- carrier_new();
-        _: { conn: actor_ref, tx: actor_ref } <- node_redial_link(st.peer, car, st.aux, me, st.root, st.io_ms, st.tick_ms)
+        _: { conn: actor_ref, tx: actor_ref } <- node_redial_link(st.peer, car, st.aux, me, st.root, st.io_ms, st.tick_ms, st.attempt)
     produces pure { attempt: st.attempt, gen: st.gen, alive: st.alive } end
 }
 fn nrd_do(st: { peer: int64, attempt: int64, gen: int64, alive: boolean, aux: dangerous_actor_ref, root: actor_ref, io_ms: uint64, tick_ms: uint64 }, me: actor_ref, op: int64, arg: int64, c: actor_ref) -> { attempt: int64, gen: int64, alive: boolean } {
@@ -182,12 +182,12 @@ fn node_slots(k: int64, me: actor_ref) -> actor_ref {
 // the EPMD lookup of peer i: its own EPMD carrier (one epm per EPMD-dialed peer). A host that is a NAME is resolved first with the
 // same resolver edge as a direct dial (N2b): net_resolve opens the EPMD carrier at "<ipv4>:epmd_port:open_ms", and epm dials the
 // link at the address that carrier reports.
-fn beam_lookup(c: dangerous_actor_ref, n: actor_ref, i: int64) -> boolean {
+fn beam_lookup(c: dangerous_actor_ref, n: actor_ref, i: int64, k: int64) -> boolean {
     sequence proc[concurrency]
         ec: dangerous_actor_ref <- carrier_new();
         e: actor_ref <- spawn({ c: ec, lcar: c, conn: n, kind: 2, port: 0, done: false, buf: "", peer: i, host: "" }, dangerous_beam_net@epm, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
         ok: boolean <- case beam_conf@link_resolve_of(i) of {
-            true -> net_resolve(ec, e, beam_conf@link_host_of(i), beam_conf@epmd_port(), beam_conf@open_text());
+            true -> net_resolve(ec, e, beam_conf@link_host_of(i), beam_conf@epmd_port(), beam_conf@open_ms(), k, not beam_conf@auth_cookie());
             false -> cast(ec, (:open, e, beam_conf@epmd_lookup_address_of(i)) impl ActorMessage {})
         }
     produces pure ok end

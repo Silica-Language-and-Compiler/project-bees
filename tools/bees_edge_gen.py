@@ -12,10 +12,13 @@ its root unit carries the prefix; this tool writes that unit:
     <src/shim/bees_node_edge.part>       with --use dangerous_bees_net: net_launch, net_start, net_raw_writer, net_send_raw
     <role files, in order: the program's own code>
 
-    bees_edge_gen.py NAME OUT_FILE [--use UNIT]... [--resolve] ROLE_FILE...
+    bees_edge_gen.py NAME OUT_FILE [--use UNIT]... [--resolve | --resolve-stub] ROLE_FILE...
 
-`--resolve` (N1) pastes src/shim/bees_resolve_edge.part (and uses dangerous_bees_resolve, wire_etf): a node whose link dials a
-host name resolves it at boot through the BEES resolver edge; without it a node program gets bees_resolve_none.part.
+`--resolve` (N1) pastes src/shim/bees_resolve_edge.part (and uses dangerous_bees_resolve, bees_addr, wire_etf): a node whose link
+dials a host name resolves it on every dial through the BEES resolver edge, the ONE resolver of BEES (answers screened by bees_addr);
+without it a node program gets bees_resolve_none.part. `--resolve-stub` is `--resolve` with the worker dangerous_bees_resolve_stub
+(fixed answers for two.stub, dup.stub, slow.stub and localhost, native/src/silica_bees_resolve.c): a trial's test hook, never a
+node's.
 
 `--use UNIT` adds `use UNIT;` to the unit's header (dangerous_bees_net, bees_peers, ... for a node program). The leaf's lib/
 must link the stdlib units carrier, wireframe, wire_etf, dangerous_sockets and dangerous_tcp_carrier (tools/silica.mk,
@@ -35,7 +38,9 @@ NODE_USES = ["bees_ingress", "bees_peers"]
 # --resolve (a dial host that is a name; the language's carrier dials IPv4 literals only), else a stub that refuses loudly.
 RESOLVE_PART = os.path.join(HERE, "..", "src", "shim", "bees_resolve_edge.part")
 RESOLVE_NONE = os.path.join(HERE, "..", "src", "shim", "bees_resolve_none.part")
-RESOLVE_USES = ["wire_etf", "dangerous_bees_resolve"]
+RESOLVE_USES = ["wire_etf", "bees_addr", "dangerous_bees_resolve"]
+# --resolve-stub (a trial's build-time test hook): the worker is dangerous_bees_resolve_stub, fixed answers for a few names
+RESOLVE_STUB_USES = ["wire_etf", "bees_addr", "dangerous_bees_resolve_stub"]
 HEADER_USES = ["bees_reporter", "bees_atoms", "carrier", "wireframe", "dangerous_sockets", "dangerous_tcp_carrier"]
 
 
@@ -44,10 +49,11 @@ def main(argv):
         print(__doc__)
         return 2
     name, out, rest = argv[1], argv[2], argv[3:]
-    uses, roles, resolve = [], [], False
+    uses, roles, resolve, stub = [], [], False, False
     while rest:
-        if rest[0] == "--resolve":
+        if rest[0] in ("--resolve", "--resolve-stub"):
             resolve = True
+            stub = rest[0] == "--resolve-stub"
             rest = rest[1:]
         elif rest[0] == "--use" and len(rest) > 1:
             uses.append(rest[1])
@@ -84,14 +90,15 @@ def main(argv):
         uses = uses + [u for u in NODE_USES if u not in uses]
     any_node = node or "dangerous_beam_net" in uses
     if any_node and resolve:
-        uses = uses + [u for u in RESOLVE_USES if u not in uses]
+        uses = uses + [u for u in (RESOLVE_STUB_USES if stub else RESOLVE_USES) if u not in uses]
     text += "".join("use %s;\n" % u for u in uses if u not in HEADER_USES)
     text += "module %s;\n\n" % name
     text += open(PART).read()
     if node:
         text += open(NODE_PART).read()
     if any_node:
-        text += open(RESOLVE_PART if resolve else RESOLVE_NONE).read()
+        part = open(RESOLVE_PART if resolve else RESOLVE_NONE).read()
+        text += part.replace("dangerous_bees_resolve@", "dangerous_bees_resolve_stub@") if stub else part
     for r in roles:
         text += "\n" + open(r).read()
     with open(out, "w") as f:

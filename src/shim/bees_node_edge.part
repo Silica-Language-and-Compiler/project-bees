@@ -45,13 +45,13 @@ fn net_dial_next(i: int64, first: dangerous_actor_ref, use_first: boolean, me: a
     sequence
         car: dangerous_actor_ref <- case use_first of { true -> first; false -> carrier_new() };
         rd: actor_ref <- nrd_new(i, first, me, io_ms, tick_ms);
-        p: { conn: actor_ref, tx: actor_ref } <- net_dial_link(i, car, rd, me, io_ms, tick_ms);
+        p: { conn: actor_ref, tx: actor_ref } <- net_dial_link(i, car, rd, me, io_ms, tick_ms, 0);
         _: { conn: actor_ref, tx: actor_ref } <- net_dials(i + 1, first, false, me, io_ms, tick_ms)
     produces pure p end
 }
 // one link to dial peer i: its writer, proxies (reaper reports to rd) and connection actor, started on the carrier c at once; the carrier is
-// opened with conn as owner. rd is told the link started (a redial's, too: node_redial_link).
-fn net_dial_link(i: int64, c: dangerous_actor_ref, rd: actor_ref, me: actor_ref, io_ms: uint64, tick_ms: uint64) -> { conn: actor_ref, tx: actor_ref } {
+// opened with conn as owner. k is the dial attempt (0 for the first, the redial attempt for a redial: which of a name's addresses is tried, bees_resolve_edge.part). rd is told the link started (a redial's, too: node_redial_link).
+fn net_dial_link(i: int64, c: dangerous_actor_ref, rd: actor_ref, me: actor_ref, io_ms: uint64, tick_ms: uint64, k: int64) -> { conn: actor_ref, tx: actor_ref } {
     sequence proc[concurrency]
         t: actor_ref <- spawn({ c: c, up: false, sent: 0, reaper: me, cn: me, tick_ms: tick_ms }, dangerous_bees_net@tx, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
         r: actor_ref <- bees_peers@start_proxies(i, t, rd);
@@ -60,7 +60,7 @@ fn net_dial_link(i: int64, c: dangerous_actor_ref, rd: actor_ref, me: actor_ref,
         _: boolean <- cast(t, (:car, n) impl ActorMessage {});
         // N1: a dial host that is a name is resolved first (bees_resolve_edge.part), the carrier dials IPv4 literals only
         _: boolean <- case bees_peers@link_resolve_of(i) of {
-            true -> net_resolve(c, n, bees_peers@link_host_of(i), bees_peers@link_port_of(i), bees_peers@open_text());
+            true -> net_resolve(c, n, bees_peers@link_host_of(i), bees_peers@link_port_of(i), bees_peers@open_ms(), k, true);
             false -> cast(c, (:open, n, bees_peers@link_address_of(i)) impl ActorMessage {})
         };
         _: boolean <- cast(rd, (:bees, 6, 0, t, n) impl ActorMessage {});
@@ -81,8 +81,8 @@ fn net_listen(c: dangerous_actor_ref, sl: actor_ref, me: actor_ref, io_ms: uint6
 fn node_redial_on() -> boolean { bees_peers@redial_on() }
 fn node_redial_initial() -> int64 { bees_peers@redial_initial_ms() }
 fn node_redial_max() -> int64 { bees_peers@redial_max_ms() }
-fn node_redial_link(i: int64, c: dangerous_actor_ref, aux: dangerous_actor_ref, rd: actor_ref, me: actor_ref, io_ms: uint64, tick_ms: uint64) -> { conn: actor_ref, tx: actor_ref } {
-    net_dial_link(i, c, rd, me, io_ms, tick_ms)
+fn node_redial_link(i: int64, c: dangerous_actor_ref, aux: dangerous_actor_ref, rd: actor_ref, me: actor_ref, io_ms: uint64, tick_ms: uint64, k: int64) -> { conn: actor_ref, tx: actor_ref } {
+    net_dial_link(i, c, rd, me, io_ms, tick_ms, k)
 }
 
 // ---- N2c: redial. One redial actor (`nrd`) per dial-role peer, spawned with the peer's first link. It is told (:bees, op, arg, who, who):
@@ -92,7 +92,7 @@ fn node_redial_link(i: int64, c: dangerous_actor_ref, aux: dangerous_actor_ref, 
 //   3 dial      the timer: an audit line, then a NEW carrier, tx, proxies and conn for the peer (the old link's actors are never reused)
 //   5 stable    a link that lived max_ms (its generation is still the current one and it was not lost) resets the attempt count to 0
 // nrd is the only retry loop and every attempt is an audit line (never silent); the delay doubles to max_ms and stays there. A peer
-// whose name cannot be resolved at all (the resolver edge printed dns_error) never opens a carrier and so is not retried.
+// whose name cannot be resolved at all (the resolver edge printed dns_error) never opens a carrier and so is not retried. The redial's attempt number is also the dial attempt k: a name with several addresses is tried address by address (bees_resolve_edge.part).
 fn nrd_delay(n: int64, d: int64, cap: int64) -> int64 {
     case d >= cap of { true -> cap; false -> case n <= 1 of { true -> d; false -> nrd_delay(n - 1, d * 2, cap) } }
 }
@@ -134,7 +134,7 @@ fn nrd_dial(st: { peer: int64, attempt: int64, gen: int64, alive: boolean, aux: 
     sequence
         _: atom <- bees_ingress@audit("redial attempt", bees_peers@peer_name(st.peer), st.attempt);
         car: dangerous_actor_ref <- carrier_new();
-        _: { conn: actor_ref, tx: actor_ref } <- node_redial_link(st.peer, car, st.aux, me, st.root, st.io_ms, st.tick_ms)
+        _: { conn: actor_ref, tx: actor_ref } <- node_redial_link(st.peer, car, st.aux, me, st.root, st.io_ms, st.tick_ms, st.attempt)
     produces pure { attempt: st.attempt, gen: st.gen, alive: st.alive } end
 }
 fn nrd_do(st: { peer: int64, attempt: int64, gen: int64, alive: boolean, aux: dangerous_actor_ref, root: actor_ref, io_ms: uint64, tick_ms: uint64 }, me: actor_ref, op: int64, arg: int64, c: actor_ref) -> { attempt: int64, gen: int64, alive: boolean } {

@@ -435,6 +435,9 @@ def is_loopback(a):
 CARRIER_LISTEN = ('the language\'s (:tcp) carrier binds only 127.0.0.1 ("listen:PORT") or every IPv4 interface ("listen:any:PORT", '
                   'written "0.0.0.0" here); binding one other address, an IPv6 address or a name needs interface binding in '
                   'the carrier (a request to Silica, silica-defects.md SR-1)')
+CARRIER_LISTEN_V6 = ("the language's (:tcp) carrier binds and dials IPv4 only (inet_pton AF_INET); IPv6 needs the carrier (a request to "
+                     "Silica, silica-defects.md SR-2; binding one specific address is SR-1). BEES neither ignores an IPv6 literal nor "
+                     "rewrites it to an IPv4 address (S14 section 7, D42)")
 CARRIER_DIAL_V6 = ("the language's (:tcp) carrier dials IPv4 literals only (inet_pton AF_INET, and its \"host:port\" address "
                    "splits at the first ':'); IPv6 needs the carrier (a request to Silica, silica-defects.md SR-2)")
 
@@ -448,6 +451,8 @@ def listen_form(a, line, path):
         return "listen:"
     if a == "0.0.0.0":
         return "listen:any:"
+    if kind == "ipv6":
+        raise ConfError(line, path, f"{a} is not built yet: {CARRIER_LISTEN_V6}")
     raise ConfError(line, path, f"{a} is not built yet: {CARRIER_LISTEN}")
 
 

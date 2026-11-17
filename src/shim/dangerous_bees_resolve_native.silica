@@ -13,7 +13,8 @@ export resolve_etf/1;
 foreign c_wrapper "bees_resolve_etf"
 fn resolve_etf_raw(host_ptr: uint8, host_len: uint64) -> { tag: int64, text_ptr: uint8, text_len: uint64, error_code: int64 };
 
-// the answer for host as one ETF binary term: "ok <ipv4> <n4> <n6>" or "dns_error <reason>"
+// the answer for host as one ETF binary term: "ok <a.b.c.d>[,<a.b.c.d>...] <n6>" or "err <reason>" (reasons: nxdomain, no_address,
+// temporary, bad_name, failed; native/dangerous_exposure_source/bees/silica_bees_resolve_wrapper.h)
 fn resolve_etf(host: string) -> string {
     out: string <- resolve_etf_raw(host);
     out

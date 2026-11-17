@@ -52,7 +52,7 @@ Consequences applied below: (a) the compile-time facts (atoms, `bees_build`, the
    (or any unit) may not **call** any function of a `dangerous_*` unit outside an FFI worker (E4042, probe `n1`: even a function that does
    `x + 1`). What a root **can** do is *spawn a `dangerous_*` unit's behaviour by reference and cast to it*. A behaviour of a
    `dangerous_*` library unit can itself call `spawn_dangerous` (carrier: probe `p1a`; BEES's own native-edge FFI worker
-   `dangerous_bees_dns@resolver` with its C: probe `p4`) and cast to what it spawned. So BEES's start-up code can live in the library as
+   `dangerous_bees_dns@resolver` (retired 2026-11-17, folded into `dangerous_bees_resolve@rslv`; the probe stands) with its C: probe `p4`) and cast to what it spawned. So BEES's start-up code can live in the library as
    **node actors** that the app starts by reference and talks to by message. Today's root-unit functions (`net_launch`, `trust_start`,
    `trpc_call`, `trust_reset`) become messages; their return values become reply messages.
 2. **A typed config record travels** as a function parameter, a function result, and an actor message value, including a list of 1000
@@ -66,7 +66,7 @@ Consequences applied below: (a) the compile-time facts (atoms, `bees_build`, the
 5. **A side fact (kept, no longer used): `read_lines` links only with the runtime shim.** A program that uses the intrinsic `read_lines`
    compiles (no taint complaint, from a plain unit, `proc[device_io]`) but does not link under BEES's `trial.mk` link line:
    `Undefined symbols: _silica_read_file_path`; linking `compiler/src/silica_rt_shim.s` fixed it (probe `p3`). The user ruled that `read_lines` is **not used**, so this is not a BEES issue and the matching Silica request is dropped.
-6. The old SD-17 row ("FFI workers cannot live in a library unit") is **stale for this layout**: `dangerous_bees_dns@resolver`
+6. The old SD-17 row ("FFI workers cannot live in a library unit") is **stale for this layout**: `dangerous_bees_dns@resolver` (retired 2026-11-17, folded into `dangerous_bees_resolve@rslv`; the probe stands)
    (a worker in a library unit, with `external_danger`) was spawned by `spawn_dangerous` from a *different* library unit's behaviour
    and ran (probe `p4`). SD-17 survives only as: the worker's behaviour and its `spawn_dangerous` call must both be in `dangerous_*` units.
 

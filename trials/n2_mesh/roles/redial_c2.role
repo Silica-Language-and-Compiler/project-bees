@@ -1,0 +1,6 @@
+// ---- timing of node c: c2 (c again, started at 10 s) sends nothing; done at 15 s (5 s after its start)
+fn arm(s0: actor_ref, s1: actor_ref, d: actor_ref) -> atom {
+    sequence proc[concurrency]
+        t1: timer_ref <- send_after(5000, d, 0 impl ActorMessage {})
+    produces pure :ok end
+}

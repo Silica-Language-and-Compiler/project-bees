@@ -1,0 +1,63 @@
+// ---- node b of the mesh: answers the requests of a and c (rq_<from><to>, each answer goes to an_<from><to>, the registered name of the
+// ASKER, so it leaves over the link of the peer the name belongs to), and sends one request to each of them per timer (arm, in the timing role).
+// The request value encodes the pair and the round (100 * round + 10 * from + to; a=1 b=2 c=3); the answer is 10 * request + responder.
+fn rq_ab(msg: { op: atom, n: int64 }, st: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        _: atom <- say_num("b: request from a n=", msg.n);
+        m: { op: atom, n: int64 } <- { op: bees_atoms@a_dbl(), n: msg.n * 10 + 2 };
+        _: boolean <- cast_registered(bees_atoms@a_an_ab(), m impl ActorMessage {});
+        _: atom <- say("b: answer to a sent")
+    produces pure (:no_reply, st + 1) end
+}
+fn rq_cb(msg: { op: atom, n: int64 }, st: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        _: atom <- say_num("b: request from c n=", msg.n);
+        m: { op: atom, n: int64 } <- { op: bees_atoms@a_dbl(), n: msg.n * 10 + 2 };
+        _: boolean <- cast_registered(bees_atoms@a_an_cb(), m impl ActorMessage {});
+        _: atom <- say("b: answer to c sent")
+    produces pure (:no_reply, st + 1) end
+}
+fn an_ba(msg: { op: atom, n: int64 }, st: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- say_num("b: answer from a n=", msg.n)
+    produces pure (:no_reply, st + 1) end
+}
+fn send_a(msg: int64, st: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        _: atom <- say_num("b: request to a n=", st * 100 + 21);
+        m: { op: atom, n: int64 } <- { op: bees_atoms@a_inc(), n: st * 100 + 21 };
+        _: boolean <- cast_registered(bees_atoms@a_rq_ba(), m impl ActorMessage {})
+    produces pure (:no_reply, st + 1) end
+}
+fn an_bc(msg: { op: atom, n: int64 }, st: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- say_num("b: answer from c n=", msg.n)
+    produces pure (:no_reply, st + 1) end
+}
+fn send_c(msg: int64, st: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        _: atom <- say_num("b: request to c n=", st * 100 + 23);
+        m: { op: atom, n: int64 } <- { op: bees_atoms@a_inc(), n: st * 100 + 23 };
+        _: boolean <- cast_registered(bees_atoms@a_rq_bc(), m impl ActorMessage {})
+    produces pure (:no_reply, st + 1) end
+}
+fn done(msg: int64, st: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- say("b: done")
+    produces pure (:no_reply, st + 1) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- start_reporter();
+        ra: actor_ref <- spawn_registered(0, rq_ab, bees_atoms@a_rq_ab(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        na: actor_ref <- spawn_registered(0, an_ba, bees_atoms@a_an_ba(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        rc: actor_ref <- spawn_registered(0, rq_cb, bees_atoms@a_rq_cb(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        nc: actor_ref <- spawn_registered(0, an_bc, bees_atoms@a_an_bc(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        n: actor_ref <- node_start(io_ms(), tick_ms());
+        sa: actor_ref <- spawn(0, send_a, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        sc: actor_ref <- spawn(0, send_c, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        d: actor_ref <- spawn(0, done, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: atom <- arm(sa, sc, d);
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

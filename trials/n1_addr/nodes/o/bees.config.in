@@ -1,0 +1,6 @@
+%% N1 node o: dials the name two.stub (the resolver's test stub: 127.0.0.2, then 127.0.0.1) with redial on and a 1 s connect budget: the first address does not answer within the budget, the redial takes the second
+[ {mode, beam},
+  {node, [{name, "b@localhost"}]},
+  {beam, [{transport, tcp}, {auth, cookie}, {cookie_file, "../../../n2_dist/cookie"}, {listen_address, "127.0.0.1"},
+          {listen_port, 21614}, {epmd, none}, {frame_size_max, 4096}, {open_timeout_ms, 1000},
+          {peers, [{"a@localhost", [{host, "two.stub"}, {port, 21600}, {role, dial}]}]}, {redial, true}, {redial_initial_ms, 250}, {redial_max_ms, 4000}]} ].

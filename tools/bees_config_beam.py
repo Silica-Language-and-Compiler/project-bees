@@ -99,6 +99,7 @@ def gen_conf(out_dir, eff, cfg_path):
         ("epmd_external", "boolean", b(eff["epmd"] == "external")),
         ("epmd_address", "string", lit(f"127.0.0.1:{eff['epmd_port']}:{eff['open_ms']}")),
         ("open_text", "string", lit(str(eff["open_ms"]))),
+        ("open_ms", "int64", str(eff["open_ms"])),
         ("epmd_port", "int64", str(eff["epmd_port"])),
         ("epmd_lookup_address", "string", lit(f"{eff['link_host']}:{eff['epmd_port']}:{eff['open_ms']}")),
         ("io_ms", "uint64", str(eff["io_ms"])),

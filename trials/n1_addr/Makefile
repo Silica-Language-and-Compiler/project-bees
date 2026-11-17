@@ -6,19 +6,34 @@
 #               a sees nothing (the listener is not reachable over the non-loopback address)
 #   name        a listens and n dials the name localhost: the BEES resolver edge (getaddrinfo) answers 127.0.0.1, the cookie
 #               handshake completes and the cast to inbox arrives
-#   dns_error   e dials no-such-host.invalid: the resolver answers dns_error, nothing is dialed, nothing crashes; a sees nothing
+#   dns_error   e dials no-such-host.invalid: the resolver answers dns_error nxdomain, nothing is dialed, nothing crashes; a sees nothing
+# The next three use the resolver's TEST STUB (built in with bees_edge_gen.py --resolve-stub: fixed answers for two.stub, slow.stub and
+# localhost, native/src/silica_bees_resolve.c), because getaddrinfo cannot give several addresses, a slow answer or a non-loopback
+# `localhost` on demand (S14 folded into the one resolver, spikes/S14-name-resolution.md):
+#   order        o dials two.stub = 127.0.0.2, 127.0.0.1 with redial on and a 1 s budget: 127.0.0.2 is not on macOS's loopback interface
+#                and does not answer, the connect budget ends the first attempt, the redial takes the second address (a fresh carrier, tx
+#                and conn) and the cookie handshake completes; the cast to inbox arrives
+#   slow_lookup  s dials slow.stub, which answers after 2 s, with a 1 s budget: dns_error timeout at 1 s, nothing dialed; the late
+#                answer is dropped by its tag
+#   not_loopback l (M3's node, auth none, a loopback-only test setting) dials localhost, which the stub answers 10.0.0.8,127.0.0.1:
+#                refused (dns_error not_loopback), nothing dialed
 # OPT-IN, not part of `make integrate` (`make any_ip`): w listens on 0.0.0.0 (the carrier's listen:any) and v dials the
 # non-loopback address. A listener on every interface is reachable from the machine's networks while it runs, so it is run only
 # when the user asks (the sandbox of the 2026-11-10 session refused to start it).
 BEES_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../..)
 HERE := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 include $(BEES_ROOT)/tools/silica.mk
-NODES := a b n e
+NODES := a b n e o s l
 SCENARIOS := \
  loop_only|a/dangerous_a_late|late:|b/dangerous_b_watch|late:|0 \
  name|a/dangerous_a_slow|got|n/dangerous_n_slow|sent|1 \
- dns_error|a/dangerous_a_late|late:|e/dangerous_e_watch|late:|0
+ dns_error|a/dangerous_a_late|late:|e/dangerous_e_watch|late:|0 \
+ order|a/dangerous_a_slow|got|o/dangerous_o_slow|sent|1 \
+ slow_lookup|a/dangerous_a_late|late:|s/dangerous_s_watch|late:|0 \
+ not_loopback|a/dangerous_a_late|late:|l/dangerous_l_watch|late:|0
 
+# the racy audit lines of the link that timed out (their order against the redial varies; trials/n2_reconnect drops the same ones)
+RACY := link down, proxies ended|frames delivered|frames dropped|control messages counted|net ticks seen
 SCEN_QUOTED := $(foreach s,$(SCENARIOS),'$(s)')
 .PHONY: build run integrate record-golden clean cookies
 # a node leaf is built until it succeeds (once more on a transient compiler crash, SD-29 family) and then once more, because the
@@ -35,6 +50,7 @@ run: build
 			awk -v m="$$ma" 'done { if ($$0 ~ /^exit=/) print; next } { print } index($$0, m) { done = 1 }' "$$sc.a.sout" > "$$sc.a.tmp" && mv "$$sc.a.tmp" "$$sc.a.sout"; \
 			awk -v m="$$mb" 'done { if ($$0 ~ /^exit=/) print; next } { print } index($$0, m) { done = 1 }' "$$sc.b.sout" > "$$sc.b.tmp" && mv "$$sc.b.tmp" "$$sc.b.sout"; \
 		fi; \
+		if [ "$$sc" = order ]; then grep -v -E '$(RACY)|^proxy ended' "$$sc.b.sout" > "$$sc.b.tmp"; mv "$$sc.b.tmp" "$$sc.b.sout"; fi; \
 	done
 
 integrate: run

@@ -14,5 +14,27 @@ ipv6 billing.example false
 first 10.0.0.8
 rest 10.0.0.9
 rest of one []
+repeat outside, loopback-only kept=127.0.0.1 n=1 dropped=1 outside=1
+repeat loopback, loopback-only kept=127.0.0.1 n=1 dropped=1 outside=0
+repeat outside, any kept=10.0.0.8 n=1 dropped=1 outside=0
+loopback block, loopback-only kept=127.0.0.2,127.255.255.254 n=2 dropped=0 outside=1
+reserved and multicast kept=223.255.255.255 n=1 dropped=4 outside=0
+count 3
+count of none 0
+nth 0 10.0.0.1
+nth 1 10.0.0.2
+nth 2 10.0.0.3
+nth 3 wraps 10.0.0.1
+nth 4 wraps 10.0.0.2
+nth of none []
+ans ok true
+ans ok of err false
+ans csv 10.0.0.1,10.0.0.2
+ans reason nxdomain nxdomain
+ans reason no_address no_address
+ans reason temporary temporary
+ans reason bad_name bad_name
+ans reason unknown failed
+ans reason of garbage failed
 done
 exit=0

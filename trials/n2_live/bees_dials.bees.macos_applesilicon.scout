@@ -1,6 +1,6 @@
 [bees] mode=beam node=beesd@localhost transport=tcp auth=cookie creation=1 epmd=external epmd_port=22090 net_tick io_ms=8000 tick_ms=2000 link=stock@localhost role=dial via epmd frame_size_max=4096
 [bees] BEAM mode: Erlang cookie authentication, no encryption (transport tcp, 127.0.0.1); a downgrade from TRUST
-[bees] resolve localhost: ok 127.0.0.1 1 1
+[bees] resolve localhost: ok 127.0.0.1
 [bees audit] epmd: found, dialing stock 0
 [bees audit] cookie digest accepted from stock@localhost 0
 [bees audit] handshake complete with stock@localhost 0

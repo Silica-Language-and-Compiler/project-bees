@@ -1,0 +1,6 @@
+%% N1 node s: dials the name slow.stub (the resolver's test stub answers after 2 s) with a 1 s budget: the lookup is abandoned at 1 s and the late answer is dropped by its tag
+[ {mode, beam},
+  {node, [{name, "b@localhost"}]},
+  {beam, [{transport, tcp}, {auth, cookie}, {cookie_file, "../../../n2_dist/cookie"}, {listen_address, "127.0.0.1"},
+          {listen_port, 21615}, {epmd, none}, {frame_size_max, 4096}, {open_timeout_ms, 1000},
+          {peers, [{"a@localhost", [{host, "slow.stub"}, {port, 21600}, {role, dial}]}]}, {redial, false}]} ].

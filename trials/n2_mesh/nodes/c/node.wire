@@ -1,0 +1,12 @@
+# n2_mesh node c: a link per peer line; every link is ONE connection with one dialer and one listener. Roles: a dials b and c; b listens for a and dials c; c listens for a and b.
+node   c@localhost
+peer   a@localhost 127.0.0.1 22602 listen
+peer   b@localhost 127.0.0.1 22602 listen
+remote rq_ca @ a@localhost cast { op: atom, n: int64 }
+remote an_ac @ a@localhost cast { op: atom, n: int64 }
+remote rq_cb @ b@localhost cast { op: atom, n: int64 }
+remote an_bc @ b@localhost cast { op: atom, n: int64 }
+local  rq_ac cast { op: atom, n: int64 }
+local  an_ca cast { op: atom, n: int64 }
+local  rq_bc cast { op: atom, n: int64 }
+local  an_cb cast { op: atom, n: int64 }

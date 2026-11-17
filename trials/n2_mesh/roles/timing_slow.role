@@ -1,0 +1,3 @@
+// slow timing: a peer silent for 3 s is lost; a tick after 1 s of idleness
+fn io_ms() -> uint64 { 3000 }
+fn tick_ms() -> uint64 { 1000 }

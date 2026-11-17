@@ -1,23 +1,47 @@
 # Spike S14: Host-Name Resolution for the Transport
 
-**Status:** design, not built (2026-11-12, branch `domain-addition-work`). This document specifies how a host name in
-`bees.config` (or given to TRUST's `trpc:call` at run time) becomes the IPv4 address that BEES hands to the language's `(:tcp)`
-carrier. Nothing here is implemented. **Decision:** roadmap D42 (user rulings of 2026-11-12, section 8).
+**STATED GOAL (D42, user ruling 2026-11-12, kept 2026-11-17): host-name resolution is to move fully to Silica.** The system resolver
+(`getaddrinfo` behind one FFI worker) is an interim. It is to be **replaced by a Silica implementation** of name resolution, with no C
+of BEES's own, and the contract of section 3 stays so that nothing that calls it changes. Silica must offer first: **dialing IPv6
+literals** (silica-defects.md SR-2: `silica_sockets_tcp_connect` parses with `inet_pton(AF_INET, ...)` and the carrier splits
+`"host:port"` at the first `:`), and **a resolver-capable transport** (a `(:udp)` carrier a DNS stub client can speak over, which must also
+read `/etc/hosts` and the system's resolver configuration, or a resolver in the language's standard library; section 9).
 
-> **Progress 2026-11-12 (step 1 built, on silica-999919):** the resolver (section 3) and the pure checks (section 5) exist and
-> pass `trials/name_resolution`: `native/src/silica_bees_dns.c` (two entries in BEES's native archive),
-> `src/inter_nodal/dangerous_bees_dns.silica` (the one-shot FFI worker, contract as section 3), `src/inter_nodal/bees_addr.silica`
-> (dotted-quad parsing, the drop rules, repeats dropped before the loopback rule, IPv6-literal detection), and
-> `src/inter_nodal/bees_dns.atoms` (D30: the resolver is a library unit's worker, so SD-3 applies). The trial resolves
-> `localhost` (127.0.0.1), a literal, `no-such-host.invalid` (`nxdomain`) and `""` (`bad_name`) and checks the filter on fixed
-> inputs. New defect SD-40 (a foreign string argument written as a call expression reaches C as 1 byte) is worked around by
-> binding the host first. **Not built yet:** the dial actor `dlr` and the node-edge change (section 4), the boot-time
-> `listen_address` check, and the config reader's IPv6 refusal (section 7). `dlr` needs the node trials to compile again, which
-> they will not until `carrier_new()` gains the stdlib carrier's new `link_spec` field and the pin moves (silica-defects.md,
-> 2026-11-12).
+**Status (2026-11-17): folded into the N1 resolver; one resolver, built and tested.** BEES had two resolvers, this spike's step 1
+(`dangerous_bees_dns`, built 2026-11-12, never wired into a node) and the N1 resolver (`dangerous_bees_resolve`, live in the node edges).
+The user ruled (Option 1) that the N1 one is the one and everything of this spike's behaviour is folded into it. **What is built:**
 
-**Stated goal for later (D42):** the system resolver used first (section 3) is an interim. It is to be **replaced by a Silica
-implementation** of name resolution, with no C of BEES's own, once the language offers what that needs (section 9).
+| Section | Where it is now |
+| --- | --- |
+| 3 the contract | `dangerous_bees_resolve@rslv` (a cast-only one-shot FFI worker, `src/shim/dangerous_bees_resolve.silica`; C: `native/src/silica_bees_resolve.c`, `getaddrinfo`, `AF_UNSPEC` so that a name with only AAAA records is told apart from a name that does not exist). In: `(host, reply_to, tag)`. Out: `(:bees, tag, etf)` with the tag echoed; the ETF binary's text is `ok <a.b.c.d>[,...] <n6>` or `err <reason>`, reason one of **nxdomain, no_address, temporary, bad_name, failed** (a NUL in the name is bad_name). The worker ends after its one answer. The answer is FFI-derived and tainted (SD-24): the owner de-taints it with `decode((:etf), ...)` in a produces-pure block (the S14 draft cast a tainted string tuple directly), which is why the text rides in an ETF binary |
+| 3 one lookup per resolver, the owner holds the budget | `net_resolve` (`src/shim/bees_resolve_edge.part`) spawns a worker per lookup and an owner `rdial`, and starts a timer of the node's dial budget `open_ms` (not TRUST's `dns_total_timeout_ms`, which has no node using it). When the timer fires first: `dns_error timeout`, nothing is dialled |
+| 3 the tag echo | `rdial` accepts only an answer whose tag is its own and only while its budget is not spent; any other answer is dropped with the line `late answer dropped, tag T`. The tag is the dial attempt number plus 1 |
+| 5 checking the answer | `bees_addr` (now `src/shim/bees_addr.silica`, pure; the ONE filter): parse as strict dotted quads, drop `0.0.0.0/8`, `255.255.255.255`, `224.0.0.0/4`, `240.0.0.0/4`, drop repeats **before** the loopback rule, and the loopback rule (a loopback-only setting refuses a name that resolves to any address outside `127.0.0.0/8`: `dns_error not_loopback`, nothing dialled); an answer with nothing usable is `dns_error no_usable_address`. Applied by `rdial` to every answer of the dial path |
+| 4 try each address | in turn, one per dial attempt: attempt `k` takes the `(k mod n)`th screened address, on a fresh carrier with fresh `tx`, proxies and `conn` (the redial actor already builds all of them anew). **Built only that far**; see "What is left" below |
+| 7 IPv6 | the config reader refuses an IPv6 literal in `listen_address` and in a peer's `host` as "not built yet" with the SR-2 reason (`tools/bees_conf.py`, unit-tested); `net_resolve` refuses an IPv6 literal at run time (`dns_error not_built_yet`); a name with only AAAA answers is `no_address` |
+| 2 constraint SD-40 | the C entry takes the host as a pointer and length bound first, and the worker binds the host to a name before the foreign call (SD-40 workaround, silica-defects.md; unchanged) |
+| the loopback rule at the reader | unchanged: `beam.auth none` and `trust.plaintext_test_only` accept only `localhost` or a loopback literal as a host at build time (bees-config-file.md rule 9); at run time the rule above holds for the address `localhost` resolves to |
+
+Retired: `native/src/silica_bees_dns.c` and its wrapper entries (`bees_dns_resolve`, `bees_dns_take`), `src/inter_nodal/dangerous_bees_dns.silica`
+and `src/inter_nodal/bees_dns.atoms`. Kept and moved: `bees_addr` (to `src/shim`, with `count_of`, `nth_of` and the `ans_*` parsers
+added). The D30 atoms: nothing of the resolver's reasons crosses a unit as an atom (the reasons are text inside the ETF answer, validated by
+`bees_addr@ans_reason`), so no resolver manifest is needed. Trials: `trials/name_resolution` (the pure checks and the worker's answers)
+and `trials/n1_addr` (`name`, `dns_error`, and the cases that need the resolver's test stub: `order`, `slow_lookup`, `not_loopback`).
+
+**What is left (precisely).** (a) Section 4's dial actor `dlr` is **not** built as written, because it cannot be made sound with this
+code: a dialed carrier's owner is fixed by its `(:open, owner, address)`, so `conn` must own it from the start and `tx` and `conn`
+are spawned with it (SD-39); "start the link actors only after one attempt is up" works for `lsn` only because an accepted carrier waits
+for an adopting `(:open, owner, "")`. What is built instead: each dial attempt is a whole new link (the redial actor's own design), and
+the next address is taken at the next attempt. So the next address is tried after the connect budget and the redial back-off
+(`redial_initial_ms`), not 250 ms later, and only for a peer with redial on; a peer with redial off tries the first address once. There
+is no staggered parallel attempt and no `closing every other carrier`. (b) A node that cannot be a dialer at all for want of a first
+attempt (a lookup that failed, `dns_error ...`) is still not retried, as before. (c) TRUST: no TRUST node dials a name today (its
+peers are pinned addresses); the resolver edge is part of the BEAM-mode and M3 node edges only. A TRUST dial by name will use the same
+`net_resolve` and filter. (d) The boot-time `listen_address` match against an interface address (section 4 table) and the TRUST pin
+keys (section 6) are not built. (e) The 2 s per-name-server budget cannot be enforced through `getaddrinfo`.
+
+**The sections below are the design as written on 2026-11-12;** where they say `dangerous_bees_dns`, `bees_dns_edge.part` or `dlr`, read the
+table above.
 
 ---
 

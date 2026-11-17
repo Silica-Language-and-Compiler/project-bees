@@ -36,7 +36,7 @@ TABLE = {
     "m3_multilink": (21300, "+0 the hub's one listener"),
     "m3_reconnect": (21400, "+0 the hub's one listener"),
     "m4_demo": (21500, "+0 the service node's listener"),
-    "n1_addr": (21600, "+0 a, +8 w, +10 b, +11 v, +12 n, +13 e (listen_port of each node)"),
+    "n1_addr": (21600, "+0 a, +8 w, +10 b, +11 v, +12 n, +13 e, +14 o, +15 s (listen_port of each node; l has no TCP listener port of its own)"),
     "n1_frames": (21700, "+0 the node a/b link"),
     "n1_limits": (21800, "data only (the manifest names a peer port; nothing listens)"),
     "n2_dist": (21900, "+0 a, +1 b, +2 x"),
@@ -46,8 +46,10 @@ TABLE = {
     "n2_soak": (22300, "+0 m3l, +1 m3d, +2 bl, +3 bd (a measurement; make measure)"),
     "n3_trust": (22400, "+0 s, +1 c, +2 g1, +3 g2"),
     "n4_trust_tls": (22500, "+0 s, +1 c, +2 m, +3 q"),
+    "n2_mesh": (22600, "+0 a (dials only), +1 b's listener (a dials it), +2 c's one listener (a and b dial it)"),
+    "m3_mesh": (22700, "+0 a (dials only), +1 b's listener (a dials it), +2 c's one listener (a and b dial it)"),
 }
-NEXT_BASE = 22600
+NEXT_BASE = 22800
 
 # leaves that never bind a port but whose files may carry a port number as DATA (a frame's field): not checked for literals
 DATA_ONLY = {"n2_frames": "the EPMD ALIVE2 frame carries port 47500 as a value; nothing listens"}

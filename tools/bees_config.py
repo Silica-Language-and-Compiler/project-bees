@@ -121,7 +121,7 @@ manifest, `X.atoms` beside the real path of `X.silica` (compiler guide A1.2); ev
 fixed list is never extended from a manifest. The listed atoms are unit-private to X: X must not pass atom values to or
 from another unit (SD-3, D30). Every atom a node needs is in its compile-time set (manifests merge into bees_atoms); none
 is created at run time. The allowance applies to units under src/ too (the 2026-11-16 restriction is lifted): a manifest beside a
-BEES unit (bees_dns.atoms, bees_wire.atoms, bees_exit.atoms, ...) now also lets that unit write its listed atoms as literals.
+BEES unit (bees_wire.atoms, bees_exit.atoms, ...) now also lets that unit write its listed atoms as literals.
 """
 import os
 import re
@@ -155,10 +155,6 @@ FIXED_ATOMS = {
     "unsupported",
     # dangerous_bees_net's own actor-protocol tags (never on the wire): (:bees, ...) between its actors, (:car, c) and (:who, r) to its writer
     "bees", "car", "who",
-    # host-name resolution (spikes/S14, D42; never on the wire): dangerous_bees_dns's request and answers, its reasons, and the
-    # dial actor's failure reasons ({:dns, reason})
-    "resolve", "resolved", "resolve_failed", "nxdomain", "no_address", "bad_name", "failed",
-    "dns", "not_loopback", "no_usable_address", "not_built_yet",
 }
 
 # Arms per generated `case` (Silica rejects 512). BEES_TIER lowers it so a trial can cross the tier boundary with few entries.

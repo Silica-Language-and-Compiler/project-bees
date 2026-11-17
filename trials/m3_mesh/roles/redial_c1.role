@@ -1,0 +1,6 @@
+// ---- timing of node c: c1 sends nothing; it is ended by the harness after answering b (about 4.6 s)
+fn arm(s0: actor_ref, s1: actor_ref, d: actor_ref) -> atom {
+    sequence proc[concurrency]
+        t1: timer_ref <- send_after(60000, d, 0 impl ActorMessage {})
+    produces pure :ok end
+}

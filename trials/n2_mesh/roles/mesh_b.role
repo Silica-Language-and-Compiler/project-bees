@@ -1,0 +1,8 @@
+// ---- timing of node b: to a at 4.2 s, to c at 4.8 s (this node starts 1 s after c), done 8 s after its start
+fn arm(s0: actor_ref, s1: actor_ref, d: actor_ref) -> atom {
+    sequence proc[concurrency]
+        t1: timer_ref <- send_after(4200, s0, 0 impl ActorMessage {});
+        t2: timer_ref <- send_after(4800, s1, 0 impl ActorMessage {});
+        t3: timer_ref <- send_after(8000, d, 0 impl ActorMessage {})
+    produces pure :ok end
+}

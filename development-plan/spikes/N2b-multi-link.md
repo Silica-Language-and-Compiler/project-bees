@@ -215,3 +215,35 @@ Files: trials/n2_soak/measure_before_teardown.txt, measure_after_teardown.txt (t
 0.5 to 0.6 KiB per link in M3; 1.2 to 1.5 KiB in BEAM mode, where the extra 0.7 KiB is not explained: the sample is taken 4 s after the last cycle, so links waiting out the 2 s
 cookie grace are gone, and the python peer never starts a handshake, so no cookie worker call is involved) is not any BEES actor that is still alive: `trials/n2_carrier_leak`
 shows the same growth with NO BEES actor at all (SD-46 in silica-defects.md: a refused (:tcp) carrier leaves 0.52 KiB behind).
+
+# N2d (2026-11-17): the three-node mesh (no hub), both modes
+
+User question: is there an exercise for the non-hub three-node system? Until now every multi-link trial was a hub (the hub listens for two peers, two edges dial it), so no node both listened for one peer and dialed another. `trials/n2_mesh` (BEAM mode, cookie, epmd none) and `trials/m3_mesh` (the M3 auth-none node) are the triangle.
+
+## Role layout (one connection per link, one dialer and one listener; every node has a mixed role)
+
+| link | dialer | listener | port |
+|---|---|---|---|
+| a-b | a | b | b's listener (base + 1) |
+| a-c | a | c | c's one listener (base + 2) |
+| b-c | b | c | the same listener of c (base + 2) |
+
+a dials b and c (two dial peers, no listener use); b listens for a and dials c (listen peer plus dial peer); c listens ONCE for a and b (both peer lines carry c's port). Bases 22600 (n2_mesh) and 22700 (m3_mesh), `tools/trial_ports.py`. Leaves: `a`, `b`, `c` (entries `cm` mesh, `c1`, `c2` redial) and `ar`, `br` (a and b with `{redial, true}`, 250 ms doubling to 2000 ms; c has no dial peer and so states no redial).
+
+Requests: node X casts `rq_XY` to Y (value 100 * round + 10 * X + Y, a=1 b=2 c=3) and receives its own answer on `an_XY` (10 * request + Y). The responder casts the answer to the registered name of the ASKER, so it leaves over that peer's link; a misrouted reply would carry the wrong sender or responder digit. Registered proxy names are per peer (`rq_XY`, `an_YX`), so the two links of one node never clash.
+
+## Scenario mesh
+
+Stagger 1 s (c, b, a; the listeners first, nobody redials); six requests at 0.6 s intervals, then every node prints `done`. Proves: a node that listens for one peer and dials another works in both roles at once; each of the three nodes asks both others and is answered by each, over the right link, in both modes. The `*.check` file records that no node printed a failure (`no case arm matched`, `actor_not_found`, `failure report`, `not_allowed`). A node that is not linked to another is not reachable (no forwarding) by construction: there is no `remote` line, so there is no name to cast to; not exercised separately.
+
+## Scenario redial
+
+c1, b, a (stagger 1 s), then c2 (the same node c, same port) at 10 s. Round 0: a asks b and c, b asks c, all answered; c1 is ended by the harness. a and b lose their c link and redial (a and b each log redial attempts; check file: attempts logged, first delay 250 ms). During the outage the OTHER link, a-b (a dialed, b listens), keeps answering in both directions (6.5 s and 7.0 s). c2 comes up; a and b dial it again and are answered over the NEW links (12.5 s and 13.0 s) while a-b still answers (13.5 s and 14.0 s). Proves: a listen link and a dial link of the same node are independent (b listens for a and redials c while a's link stays up), and the redialed link's proxies start without a registered-name clash.
+
+## Determinism
+
+Requests are spaced 0.5 s or more apart in time, so each node's own lines are in a fixed order. What races: a node that dials two peers at once (a) completes the two handshakes in either order, and in the redial scenario a and b redial c2 independently. The Makefile therefore sorts every run of consecutive `[bees audit]` lines (the handshake lines carry the peer's manifest index, so none is lost); the link-down blocks, the reaper lines and the redial-attempt lines are dropped as in n2_reconnect, and their content is recorded in `redial.check`.
+
+## What had to change
+
+See the report of the change: the config reader (`bees_conf.py`, `bees_config_beam.py`), `bees_dist_gen.py`, `bees_edge_gen.py` and the net code accepted the mixed-role nodes as they were (listener for the listen peers, a carrier per dial peer, one `register_epmd` per node); no source change.

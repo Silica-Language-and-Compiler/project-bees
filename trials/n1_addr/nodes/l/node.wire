@@ -1,0 +1,5 @@
+# N1 node l (M3-style, auth none): dials the NAME localhost, which the resolver's test stub answers with an address outside loopback
+node   l@localhost
+peer   a@localhost localhost 21600 dial
+remote inbox @ a@localhost cast { op: atom, n: int64 }
+local  outbox cast { op: atom, n: int64 }

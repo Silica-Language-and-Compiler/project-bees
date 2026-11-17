@@ -6,7 +6,7 @@ The BEES native edge: the C that sits behind the `dangerous_exposure_source` wra
 native/
   bees_platform.h                 the internal platform interface: bees_platform_random, bees_platform_md5
   Makefile                        builds the archives into dangerous_exposure_source/lib/ for BEES_PLATFORM
-  src/                            COMMON: clock and poll (silica_bees_native.c), DNS, resolver, BEAM-mode cookie edge (silica_bees_beam.c)
+  src/                            COMMON: clock and poll (silica_bees_native.c), the ONE resolver (silica_bees_resolve.c, with its test stub), BEAM-mode cookie edge (silica_bees_beam.c)
   tls/                            COMMON: the TLS engine over OpenSSL (silica_bees_tls.c), selftest/
   trust/                          COMMON: TRUST-mode random ETF and constant-time compare (silica_bees_trust.c)
   dangerous_exposure_source/      the wrapper headers and .meta files Silica reads (bees/ beam/ trust/ tls/ resolve/), lib/ (built

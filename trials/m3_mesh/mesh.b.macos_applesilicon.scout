@@ -1,0 +1,13 @@
+[bees] TEST ONLY: no authentication, no encryption on this transport (127.0.0.1); TRUST's TLS is not built yet
+[bees audit] handshake complete with a@localhost 0
+[bees audit] handshake complete with c@localhost 1
+b: request from c n=32
+b: answer to c sent
+b: request to a n=21
+b: answer from a n=211
+b: request to c n=23
+b: answer from c n=233
+b: request from a n=12
+b: answer to a sent
+b: done
+exit=0

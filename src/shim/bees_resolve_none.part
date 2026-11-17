@@ -2,7 +2,7 @@
 // ---- BEES resolver edge, absent (N1): pasted by tools/bees_edge_gen.py into a node program built WITHOUT --resolve. A link
 // whose dial host is a name needs the resolver (src/shim/bees_resolve_edge.part); here it is refused loudly and the carrier is
 // never opened.
-fn net_resolve(c: dangerous_actor_ref, owner: actor_ref, host: string, port: int64, ms: string) -> boolean {
+fn net_resolve(c: dangerous_actor_ref, owner: actor_ref, host: string, port: int64, budget: int64, k: int64, lo: boolean) -> boolean {
     sequence proc[device_io]
         _: atom <- println(concat(concat("[bees] resolve ", host), ": not built into this program (tools/bees_edge_gen.py --resolve)"))
     produces pure false end

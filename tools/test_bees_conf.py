@@ -360,6 +360,7 @@ class N1(Base):
         self.refused(cookie.replace('"127.0.0.1"', '"192.168.1.20"') % "", "beam.listen_address",
                      "192.168.1.20 is not built yet: the language's (:tcp) carrier binds only 127.0.0.1")
         self.refused(cookie.replace('"127.0.0.1"', '"::1"') % "", "beam.listen_address", "is not built yet")
+        self.refused(cookie.replace('"127.0.0.1"', '"fe80::1"') % "", "beam.listen_address", "silica-defects.md SR-2")
         b = self.conf(cookie % ', {peers, [{"peer@localhost", [{host, "192.168.1.20"}, {port, 4370}]}]}')["beam"]
         self.assertEqual((b["link_address"], b["link_host_kind"]), ("192.168.1.20:4370", "ipv4"))
         b = self.conf(cookie % ', {peers, [{"peer@localhost", [{host, "localhost"}, {port, 4370}]}]}')["beam"]

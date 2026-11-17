@@ -22,6 +22,12 @@ int64_t bees_poll_wait_ms(int64_t ms) {
     return bees_clock_monotonic_ns() - start;
 }
 
+/* Test fixture for the SD-40 reproducer (trials/silica_defects): the byte length of the string argument as C received it. */
+int64_t bees_fixture_string_len(const uint8_t *ptr, uint64_t len) {
+    (void)ptr;
+    return (int64_t)len;
+}
+
 int64_t bees_fixture_word(int64_t idx) {
     static const unsigned char frame[24] = {
         0, 0, 0, 0, 0, 0, 0, 42,

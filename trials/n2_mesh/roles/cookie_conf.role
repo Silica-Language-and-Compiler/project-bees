@@ -1,0 +1,2 @@
+// the cookie file of bees.config (beam.cookie_file)
+fn cookie() -> string { beam_conf@cookie_path() }

@@ -1,47 +1,148 @@
 
-// ---- BEES resolver edge (N1): pasted by tools/bees_edge_gen.py --resolve into the dangerous_ root unit of a node program
-// whose link dials a host NAME. The language's (:tcp) carrier dials IPv4 literals only (no resolver in the carrier, no IPv6:
-// spikes/N1-addresses-and-limits.md), so the dialer asks the resolver worker (dangerous_bees_resolve@rslv, getaddrinfo in the
-// BEES native edge) first and opens the carrier with the first IPv4 address. The answer arrives as one ETF binary from the
-// FFI worker and becomes a pure string with the language's decode((:etf), ...) in rdial's produces-pure block (mvp.md 4).
-// An unresolvable name (or a name with IPv6 addresses only) prints `[bees] resolve NAME: dns_error REASON` and the carrier is
-// never opened: no link, no crash; the program keeps running.
+// ---- BEES resolver edge (N1): the ONE host-name resolver of BEES (the S14 resolver was folded into it, 2026-11-17: development-plan/
+// spikes/S14-name-resolution.md). Pasted by tools/bees_edge_gen.py --resolve into the dangerous_ root unit of a node program whose link
+// dials a host NAME. The language's (:tcp) carrier dials IPv4 literals only (no resolver in the carrier, no IPv6: spikes/N1-addresses-
+// and-limits.md), so the dialer asks the resolver worker (dangerous_bees_resolve@rslv, getaddrinfo in the BEES native edge) first and
+// opens the carrier with one of the addresses it gets back.
+//
+// STATED GOAL (D42): the system resolver behind the worker is an interim; it is to be replaced by a Silica implementation of name
+// resolution, with no C of BEES's own, once the language offers IPv6 literal dialing (SR-2) and a resolver-capable transport. The
+// contract below does not change then.
+//
+// The contract (S14 section 3): rdial is the owner of one lookup. It casts the worker (host, rdial, tag) and gets back
+// (:bees, tag, etf), the tag echoed. The answer is one ETF binary from the FFI worker ("ok <csv> <n6>" or "err <reason>, reason one of
+// nxdomain no_address temporary bad_name failed") that becomes a pure string with the language's decode((:etf), ...) in rs_answer's
+// produces-pure block and is then screened by bees_addr, the ONE filter: unparseable parts, this-network, limited broadcast,
+// multicast and reserved addresses are dropped, a repeat is dropped before the loopback rule, and under a loopback-only setting
+// (beam.auth none; M3's node) a name that resolves to ANY address outside 127.0.0.0/8 is refused (not_loopback), never dialled.
+// Failures print `[bees] resolve NAME: dns_error REASON` (the reasons above, plus timeout, not_loopback, no_usable_address,
+// not_built_yet) and the carrier is never opened: no link, no crash, and a name that could not be resolved is not retried.
+// The BUDGET is held here, by the owner: net_resolve starts a timer of the dial budget (open_ms); when it fires first the lookup
+// is abandoned (`dns_error timeout`) and the late answer, when it comes, is dropped by its tag (the worker's thread is held
+// until the system gives up: getaddrinfo has no timeout).
+// Several addresses are tried IN TURN, one per dial attempt: attempt k (0 for the first dial, the redial attempt number for a
+// redial: nrd) takes the (k mod n)th address of the screened answer, with a fresh carrier, tx and conn each time (SD-39: tx and
+// conn never change carrier), so an address that does not answer within the budget is followed by the next one at the redial.
 fn rs_text_from(n: int64, acc: string) -> string {
     case n < 10 of {
         true -> concat(substring("0123456789", n, n + 1), acc);
         false -> rs_text_from(n / 10, concat(substring("0123456789", n % 10, n % 10 + 1), acc))
     }
 }
-fn rs_starts(s: string, p: string) -> boolean { length_bytes(s) >= length_bytes(p) and substring(s, 0, length_bytes(p)) == p }
+fn rs_tag(msg: (:bees, int64, string)) -> int64 {
+    case msg of { (:bees, t: int64, _s: string) -> t }
+}
 fn rs_body(msg: (:bees, int64, string)) -> string {
-    case msg of { (:bees, _k: int64, s: string) -> s }
+    case msg of { (:bees, _t: int64, s: string) -> s }
 }
 fn rs_text(r: (:ok, string) | (:rejected, atom)) -> string {
-    case r of { (:ok, t: string) -> t; (:rejected, _w: atom) -> "dns_error undecodable_answer" }
+    case r of { (:ok, t: string) -> t; (:rejected, _w: atom) -> "err failed" }
 }
-fn rdial(msg: (:bees, int64, string), st: { c: dangerous_actor_ref, owner: actor_ref, host: string, port: int64, ms: string }) -> (:no_reply, { c: dangerous_actor_ref, owner: actor_ref, host: string, port: int64, ms: string }) {
-    sequence proc[concurrency, device_io, mem(normal), transport]
-        etf: string <- rs_body(msg);
-        r: (:ok, string) | (:rejected, atom) <- decode((:etf), etf, { max_bytes: 400, max_depth: 1, max_length: 390 });
+fn rs_say(host: string, what: string) -> atom {
+    sequence proc[device_io]
+        line: string <- concat(concat(concat("[bees] resolve ", host), ": "), what);
+        _: atom <- println(line)
+    produces pure :ok end
+}
+// what the screened answer says: 0 dial, 1 the resolver said err, 2 not loopback, 3 nothing usable
+fn rs_verdict(ok: boolean, outside: int64, n: int64) -> int64 {
+    case ok of {
+        false -> 1;
+        true -> case outside > 0 of { true -> 2; false -> case n == 0 of { true -> 3; false -> 0 } }
+    }
+}
+fn rs_why(code: int64, text: string) -> string {
+    case code of {
+        1 -> concat("dns_error ", bees_addr@ans_reason(text));
+        2 -> "dns_error not_loopback";
+        _: int64 -> "dns_error no_usable_address"
+    }
+}
+fn rs_open(c: dangerous_actor_ref, owner: actor_ref, addr: string) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(c, (:open, owner, addr) impl ActorMessage {})
+    produces pure ok end
+}
+// the answer of the lookup this rdial owns: decode, screen, say what happened, open the carrier at the (k mod n)th address
+fn rs_answer(st: { c: dangerous_actor_ref, owner: actor_ref, host: string, port: int64, ms: string, tag: int64, k: int64, lo: boolean, done: boolean }, etf: string) -> int64 {
+    sequence proc[mem(normal), transport]
+        r: (:ok, string) | (:rejected, atom) <- decode((:etf), etf, { max_bytes: 700, max_depth: 1, max_length: 690 });
         text: string <- rs_text(r);
-        ok: boolean <- rs_starts(text, "ok ");
-        ip: string <- case ok of { true -> substring_until_char(text, 3, ' '); false -> "" };
-        line: string <- concat(concat(concat("[bees] resolve ", st.host), ": "), text);
-        _: atom <- println(line);
+        ok: boolean <- bees_addr@ans_ok(text);
+        csv: string <- bees_addr@ans_csv(text);
+        u: { kept: string, n: int64, dropped: int64, outside: int64 } <- bees_addr@usable(csv, st.lo);
+        code: int64 <- rs_verdict(ok, u.outside, u.n);
+        ip: string <- bees_addr@nth_of(u.kept, st.k);
+        nth: int64 <- case u.n > 0 of { true -> st.k % u.n + 1; false -> 0 };
+        said: string <- case code == 0 of {
+            true -> case u.n > 1 of {
+                true -> concat(concat(concat(concat(concat("ok ", ip), " (address "), rs_text_from(nth, "")), " of "), concat(rs_text_from(u.n, ""), ")"));
+                false -> concat("ok ", ip)
+            };
+            false -> rs_why(code, text)
+        };
+        _: atom <- rs_say(st.host, said);
         // the address is bound before the cast (SD-45: a string-returning call inline in a cast's tuple faulted the copy)
         addr: string <- concat(concat(concat(concat(ip, ":"), rs_text_from(st.port, "")), ":"), st.ms);
-        _: boolean <- case ok of {
-            true -> cast(st.c, (:open, st.owner, addr) impl ActorMessage {});
+        _: boolean <- case code == 0 of {
+            true -> rs_open(st.c, st.owner, addr);
             false -> true
-        };
-        _: atom <- stop_self(:normal)
-    produces pure (:no_reply, st) end
+        }
+    produces pure 1 end
 }
-// net_resolve(c, owner, host, port): resolve host, then open the carrier c for owner at "<ipv4>:port:ms" (ms: the dial budget, silica 39b6a5a50b)
-fn net_resolve(c: dangerous_actor_ref, owner: actor_ref, host: string, port: int64, ms: string) -> boolean {
+// -> 1 when this rdial is finished, 0 when it waits on (after the budget ran out: for the late answer, to drop it)
+fn rs_event(t: int64, etf: string, st: { c: dangerous_actor_ref, owner: actor_ref, host: string, port: int64, ms: string, tag: int64, k: int64, lo: boolean, done: boolean }) -> int64 {
+    case t == 0 - 1 of {
+        true -> case st.done of {
+            true -> 0;
+            false -> {
+                sequence
+                    _: atom <- rs_say(st.host, "dns_error timeout")
+                produces pure 0 end
+            }
+        };
+        false -> case t == st.tag and not st.done of {
+            true -> rs_answer(st, etf);
+            false -> {
+                sequence
+                    _: atom <- rs_say(st.host, concat("late answer dropped, tag ", rs_text_from(t, "")))
+                produces pure 1 end
+            }
+        }
+    }
+}
+fn rdial(msg: (:bees, int64, string), st: { c: dangerous_actor_ref, owner: actor_ref, host: string, port: int64, ms: string, tag: int64, k: int64, lo: boolean, done: boolean }) -> (:no_reply, { c: dangerous_actor_ref, owner: actor_ref, host: string, port: int64, ms: string, tag: int64, k: int64, lo: boolean, done: boolean }) {
     sequence proc[concurrency]
+        t: int64 <- rs_tag(msg);
+        etf: string <- rs_body(msg);
+        fin: int64 <- rs_event(t, etf, st);
+        _: atom <- case fin == 1 of { true -> stop_self(:normal); false -> :ok }
+    produces pure (:no_reply, { c: st.c, owner: st.owner, host: st.host, port: st.port, ms: st.ms, tag: st.tag, k: st.k, lo: st.lo, done: st.done or t == 0 - 1 }) end
+}
+fn rs_timer(me: actor_ref, budget: int64) -> boolean {
+    sequence proc[concurrency]
+        t: timer_ref <- send_after(to_uint64(budget), me, (:bees, 0 - 1, "") impl ActorMessage {})
+    produces pure true end
+}
+fn rs_start(c: dangerous_actor_ref, owner: actor_ref, host: string, port: int64, budget: int64, k: int64, lo: boolean) -> boolean {
+    sequence proc[concurrency]
+        ms: string <- rs_text_from(budget, "");
         w: dangerous_actor_ref <- spawn_dangerous(0, dangerous_bees_resolve@rslv, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
-        d: actor_ref <- spawn({ c: c, owner: owner, host: host, port: port, ms: ms }, rdial, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
-        ok: boolean <- cast(w, (host, d) impl ActorMessage {})
+        d: actor_ref <- spawn({ c: c, owner: owner, host: host, port: port, ms: ms, tag: k + 1, k: k, lo: lo, done: false }, rdial, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: boolean <- rs_timer(d, budget);
+        ok: boolean <- cast(w, (host, d, k + 1) impl ActorMessage {})
     produces pure ok end
+}
+// net_resolve(c, owner, host, port, budget, k, lo): resolve host, then open the carrier c for owner at "<ipv4>:port:budget" (budget:
+// the dial budget open_ms, also the lookup's; k: the dial attempt, 0 for the first and the redial's number for a redial, which picks
+// the (k mod n)th address; lo: a loopback-only setting). An IPv6 literal is never looked up: not built yet (SR-2).
+fn net_resolve(c: dangerous_actor_ref, owner: actor_ref, host: string, port: int64, budget: int64, k: int64, lo: boolean) -> boolean {
+    case bees_addr@is_ipv6_literal(host) of {
+        true -> {
+            sequence
+                _: atom <- rs_say(host, "dns_error not_built_yet")
+            produces pure false end
+        };
+        false -> rs_start(c, owner, host, port, budget, k, lo)
+    }
 }

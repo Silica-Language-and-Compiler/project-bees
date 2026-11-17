@@ -12,12 +12,16 @@ typedef struct bees_resolve_bytes {
 
 /* Resolves the host name (1 to 253 bytes) with getaddrinfo(AF_UNSPEC, SOCK_STREAM) and answers ONE ETF term, a binary
  * (131 109 len(4, big-endian) text), so that the receiving handler makes it a pure value with the language's
- * decode((:etf), ...) (mvp.md section 4). The text is one of:
- *   "ok <a.b.c.d> <n4> <n6>"            the first IPv4 address (an A record or /etc/hosts), and how many IPv4 and IPv6
- *                                      addresses the name has (the carrier can dial only the IPv4 ones)
- *   "dns_error no_ipv4 <n6>"            the name has only IPv6 addresses (AAAA), which the carrier cannot dial
- *   "dns_error <reason>"               getaddrinfo failed: gai_strerror's text, spaces kept (EAI_NONAME: "nodename nor
- *                                      servname provided, or not known")
- * getaddrinfo blocks the calling thread (a dangerous worker is its own thread); no timeout is applied (trust.dns_* are not
- * used here, a gap noted in spikes/N1-addresses-and-limits.md). */
+ * decode((:etf), ...) (mvp.md section 4). The text is one of (the resolver contract of S14 section 3, folded in 2026-11-17):
+ *   "ok <a.b.c.d>[,<a.b.c.d>...] <n6>"  the IPv4 addresses in the order the system returned them (at most 24; an A record or
+ *                                      /etc/hosts), and how many IPv6 addresses the name has (the carrier dials only IPv4)
+ *   "err <reason>"                     reason: nxdomain (EAI_NONAME), no_address (the name exists, no A record: only AAAA, or
+ *                                      EAI_NODATA), temporary (EAI_AGAIN), bad_name (empty or over 253 bytes), failed
+ * The answer is FFI output and untrusted: the owner parses and filters it with bees_addr (the one answer filter). getaddrinfo
+ * blocks the calling thread (a dangerous worker is its own thread) and has no timeout: the owner holds the budget and drops a
+ * late answer by its tag (src/shim/bees_resolve_edge.part). */
 bees_resolve_bytes bees_resolve_etf(const uint8_t *host_ptr, uint64_t host_len);
+
+/* The test stub of the resolver (see silica_bees_resolve.c): the same shape of answer, fixed for a few names. Selected only by
+ * building a program with the resolver edge's --resolve-stub. */
+bees_resolve_bytes bees_resolve_stub_etf(const uint8_t *host_ptr, uint64_t host_len);

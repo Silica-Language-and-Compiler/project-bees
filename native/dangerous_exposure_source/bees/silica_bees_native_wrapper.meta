@@ -24,18 +24,12 @@ wrapper bees_fixture_word {
     error_domain: "dangerous_bees_native"
 }
 
-wrapper bees_dns_resolve {
-    symbol: "bees_dns_resolve"
-    result: "tagged_result"
-    error_domain: "dangerous_bees_dns"
+wrapper bees_fixture_string_len {
+    symbol: "bees_fixture_string_len"
+    result: "scalar"
+    error_domain: "dangerous_sd40"
     arguments: [
-        { name: "host_ptr", lifetime: "borrowed", retain: false },
-        { name: "host_len", role: "length", length_of: "host_ptr" }
+        { name: "ptr", lifetime: "borrowed", retain: false },
+        { name: "len", role: "length", length_of: "ptr" }
     ]
-}
-
-wrapper bees_dns_take {
-    symbol: "bees_dns_take"
-    result: "struct"
-    error_domain: "dangerous_bees_dns"
 }

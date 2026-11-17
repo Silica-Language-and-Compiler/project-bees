@@ -1,0 +1,24 @@
+[bees] mode=beam node=a@localhost transport=tcp auth=cookie creation=1 epmd=none epmd_port=4369 net_tick io_ms=60000 tick_ms=15000 links=2 b@localhost:dial,c@localhost:dial frame_size_max=4294967295
+[bees] BEAM mode: Erlang cookie authentication, no encryption (transport tcp, 127.0.0.1); a downgrade from TRUST
+[bees audit] cookie digest accepted from b@localhost 0
+[bees audit] cookie digest accepted from c@localhost 0
+[bees audit] handshake complete with b@localhost 0
+[bees audit] handshake complete with c@localhost 1
+a: request to b n=12
+a: answer from b n=122
+a: request to c n=13
+a: answer from c n=133
+a: request to b n=112
+a: answer from b n=1122
+a: request from b n=21
+a: answer to b sent
+[bees audit] cookie digest accepted from c@localhost 0
+[bees audit] handshake complete with c@localhost 1
+a: request to c n=113
+a: answer from c n=1133
+a: request to b n=212
+a: answer from b n=2122
+a: request from b n=121
+a: answer to b sent
+a: done
+exit=0
