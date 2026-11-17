@@ -270,3 +270,4 @@ trials/n1_frames/measure_*
 # The parallel runner (tools/run_all_trials.sh): the machines file is local (no keys or passwords, ever), the logs are generated
 /.bees_build_hosts
 /trial_runs/
+.claude/worktrees/
