@@ -1,4 +1,4 @@
-// ---- node a: listens on 127.0.0.1:47311 (the language's "listen:port" address) and sends frame A.
+// ---- node a: listens on 127.0.0.1:21000 (the language's "listen:port" address) and sends frame A.
 fn label() -> string { "a" }
-fn address() -> string { "listen:47311" }
+fn address() -> string { "listen:21000" }
 fn frame_text() -> string { "frame A: 3 42 hello!!! -1" }

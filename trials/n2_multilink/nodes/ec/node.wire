@@ -1,5 +1,5 @@
 # N2b edge c: dials the hub, sends req_c (34) and receives its own answer on ans_c (68)
 node   ec@localhost
-peer   hub@localhost 127.0.0.1 47441 dial
+peer   hub@localhost 127.0.0.1 22100 dial
 remote req_c @ hub@localhost cast { op: atom, n: int64 }
 local  ans_c cast { op: atom, n: int64 }

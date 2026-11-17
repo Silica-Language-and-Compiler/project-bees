@@ -3,7 +3,7 @@
 
     n2_live.py LEAF_DIR SCENARIO...
 
-Everything stays on 127.0.0.1. A private EPMD is started on 127.0.0.1:4399 (`epmd -port 4399 -address 127.0.0.1 -daemon`)
+Everything stays on 127.0.0.1. A private EPMD is started on 127.0.0.1:22090 (tools/trial_ports.py: n2_live +90; `epmd -port 22090 -address 127.0.0.1 -daemon`)
 and both sides are pointed at it (ERL_EPMD_PORT for erl; bees.config's epmd_port for BEES); it is killed at the end. The stock
 side is LEAF_DIR/stock_driver.erl, compiled with the installed erlc into LEAF_DIR/build. The stock node runs with
 net_ticktime 8 and its distribution listener on 127.0.0.1 (inet_dist_use_interface). Nothing is downloaded.
@@ -24,7 +24,10 @@ import sys
 import threading
 import time
 
-EPMD_PORT = "4399"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import trial_ports  # noqa: E402
+
+EPMD_PORT = str(trial_ports.port("n2_live", 90))   # the table: tools/trial_ports.py
 TICK = "8"
 GOOD = "n2-live-cookie"
 WRONG = "another-cookie"

@@ -412,7 +412,7 @@ compiler projects can start.
   - Source layout: `src/shim/`, `src/inter_nodal/`, `src/contracts/`, `contract/` (the specification and the
     conformance kit), `native/`, `trials/`, `tools/`.
   - A trial harness mirroring Silica's `trials/silica_compiler.mk` (the exit-75 reclaim loop, `.scout` and
-    `.golden_fail` goldens).
+    `.golden_fail` goldens; since 2026-11-17 `NAME.<platform id>.scout`, one set per platform, see `tools/README.md`).
   - `bees_config`, first as the generator of `bees_atoms` (D30).
 - **R0.2 Feasibility spikes.** Each produces a short findings note under `development-plan/spikes/` and at least one
   trial.

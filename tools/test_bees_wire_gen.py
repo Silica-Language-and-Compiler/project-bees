@@ -19,6 +19,7 @@ CONFIG = os.path.join(HERE, "bees_config.py")
 sys.path.insert(0, HERE)
 import bees_wire_gen as W  # noqa: E402
 import etf_cases as C  # noqa: E402
+import platform_id as P  # noqa: E402
 
 
 def run(args):
@@ -256,7 +257,7 @@ class Oracle(unittest.TestCase):
                 self.assertLessEqual(len(idxs), C.CHUNK)
 
     def check_leaf(self, dname, idxs, cases, vec, name, expect_of, enc_hex):
-        path = os.path.join(ROOT, "trials", dname, "main.scout")
+        path = os.path.join(ROOT, "trials", dname, P.golden_name("main.scout"))
         if not os.path.exists(path):
             self.skipTest(f"{dname}: golden not recorded yet")
         got = parse_golden(path)

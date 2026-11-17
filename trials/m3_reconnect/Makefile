@@ -1,6 +1,6 @@
 # N2c: a peer that connects again (spikes/N2b-multi-link.md, "Reconnect"), the auth-none M3 node (dangerous_bees_net), BEES to BEES over 127.0.0.1. Three leaves
 # under nodes/ (one manifest, one bees.config, generated bees_peers, entry programs):
-#   h  the hub: listens ONCE (port 47471) for two listen-role peers, e and d
+#   h  the hub: listens ONCE (port 21400) for two listen-role peers, e and d
 #   e  dials the hub, redial false; entries e1 and e2 are the same node (e@localhost) started twice
 #   d  dials the hub, redial on (250 ms doubling to 4000 ms)
 # Scenario replace (stagger 2 s: h, e1, e2): e1 casts req_e (21) and gets 42, and stays up. e2 starts and connects while e1's link is
@@ -27,7 +27,7 @@ run: build
 	@cd "$(HERE)" && \
 	"$(BEES_ROOT)/tools/run_trio.py" nodes/h/dangerous_h replace.h.sout "all answered" nodes/e/dangerous_e1 replace.e1.sout "proxy ended" nodes/e/dangerous_e2 replace.e2.sout "got answer" 2.0 90 || echo "trio: a run failed"; \
 	"$(BEES_ROOT)/tools/run_trio.py" nodes/h/dangerous_h redial.h1.sout "ans_d sent" nodes/d/dangerous_d redial.d.sout "got answer 68" nodes/h/dangerous_h redial.h2.sout "ans_d sent" 2.5 90 || echo "trio: a run failed"; \
-	sed -i '' -E -e 's/0x[0-9a-f]{6,}/0xADDR/g' replace.*.sout redial.*.sout; $(STRIP_ROOT_EXIT) replace.h.sout replace.e1.sout replace.e2.sout redial.h1.sout redial.d.sout redial.h2.sout; \
+	$(SED_I) -E -e 's/0x[0-9a-f]{6,}/0xADDR/g' replace.*.sout redial.*.sout; $(STRIP_ROOT_EXIT) replace.h.sout replace.e1.sout replace.e2.sout redial.h1.sout redial.d.sout redial.h2.sout; \
 	printf 'links replaced by the hub: %s\n' "$$(grep -c 'reason replaced' replace.h.sout)" > replace.check; \
 	printf 'd logged a redial attempt: %s\n' "$$(grep -c 'redial attempt' redial.d.sout | sed -E 's/^[1-9][0-9]*$$/yes/')" > redial.check; \
 	printf 'd first delay 250 ms: %s\n' "$$(grep -c 'delay in ms h@localhost 250$$' redial.d.sout | sed -E 's/^[1-9][0-9]*$$/yes/')" >> redial.check; \
@@ -38,14 +38,14 @@ run: build
 	done
 
 integrate: run
-	@cd "$(HERE)" && ok=0; ko=0; for out in $(OUTS); do gold="$${out%.*}.scout"; case "$$out" in *.check) gold="$$out.scout";; esac; \
-		if [ ! -f "$$gold" ]; then echo "MISSING golden: [m3_reconnect] $$gold"; ko=$$((ko+1)); \
+	@cd "$(HERE)" && ok=0; ko=0; for out in $(OUTS); do gold="$${out%.*}$(GOLD_SUFFIX).scout"; case "$$out" in *.check) gold="$$out$(GOLD_SUFFIX).scout";; esac; \
+		if [ ! -f "$$gold" ]; then echo "MISSING golden for $(BEES_PLATFORM_ID) (record one on this platform with make record-golden): [m3_reconnect] $$gold"; ko=$$((ko+1)); \
 		elif diff -Bw -q "$$out" "$$gold" > /dev/null; then ok=$$((ok+1)); \
 		else echo "DIFF: [m3_reconnect] $$out"; diff -Bw "$$gold" "$$out" || true; ko=$$((ko+1)); fi; \
 	done; printf '%d %d\n' "$$ok" "$$ko" > .integrate_counts; echo "[m3_reconnect] $$ok passed, $$ko failed"; [ "$$ko" -eq 0 ]
 
 record-golden: run
-	@cd "$(HERE)" && for out in $(OUTS); do gold="$${out%.*}.scout"; case "$$out" in *.check) gold="$$out.scout";; esac; cp "$$out" "$$gold"; done; echo "[m3_reconnect] goldens recorded"
+	@cd "$(HERE)" && for out in $(OUTS); do gold="$${out%.*}$(GOLD_SUFFIX).scout"; case "$$out" in *.check) gold="$$out$(GOLD_SUFFIX).scout";; esac; cp "$$out" "$$gold"; done; echo "[m3_reconnect] goldens recorded"
 
 clean:
 	@for n in $(NODES); do $(MAKE) -C "$(HERE)/nodes/$$n" clean; done; cd "$(HERE)" && rm -f replace.*.sout redial.*.sout *.check .integrate_counts

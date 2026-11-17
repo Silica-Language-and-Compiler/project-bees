@@ -17,7 +17,9 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 CONFIG = os.path.join(HERE, "bees_config.py")
-GOLDEN = os.path.join(ROOT, "trials", "m3_dist_frames", "main.scout")
+sys.path.insert(0, HERE)
+import platform_id as P  # noqa: E402
+GOLDEN = os.path.join(ROOT, "trials", "m3_dist_frames", P.golden_name("main.scout"))
 FLAGS = 0x4_0307_0F94
 
 

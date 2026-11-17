@@ -3,7 +3,7 @@
 
     conformance.py list
     conformance.py check-kit                 every program's `compare` reference lowering, taken from the
-                                             recorded golden (.scout) of its trial leaf, passes the filter and
+                                             recorded golden (NAME.<platform id>.scout, this platform's) of its trial leaf, passes the filter and
                                              equals expected.out. No build, no run. Run it after changing the
                                              kit or a reference lowering.
     conformance.py run LEAF ENTRY PROGRAM    build and run ENTRY in the trial-style leaf directory LEAF
@@ -24,6 +24,8 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 PROGRAMS = os.path.join(ROOT, "contract", "conformance", "programs")
+sys.path.insert(0, HERE)
+import platform_id as P  # noqa: E402
 
 
 def programs():
@@ -103,14 +105,14 @@ def check_kit():
         compared = 0
         for role, leaf, entry in references(pdir):
             src = os.path.join(ROOT, leaf, entry + ".silica")
-            gold = os.path.join(ROOT, leaf, entry + ".scout")
+            gold = os.path.join(ROOT, leaf, P.golden_name(entry + ".scout"))
             if not os.path.exists(src):
                 print(f"{name}: reference lowering {leaf}/{entry}.silica does not exist")
                 bad += 1
             if role == "compare":
                 compared += 1
                 if not os.path.exists(gold):
-                    print(f"{name}: no golden {leaf}/{entry}.scout")
+                    print(f"{name}: no golden for {P.current_id()}: {leaf}/{P.golden_name(entry + '.scout')} (record one on this platform: make record-golden)")
                     bad += 1
                     continue
                 with open(gold) as fh:

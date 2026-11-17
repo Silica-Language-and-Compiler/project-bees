@@ -26,6 +26,7 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 import bees_conf as C  # noqa: E402
 import bees_dist_gen as D  # noqa: E402
+import trial_ports  # noqa: E402
 
 SPEC = os.path.join(ROOT, "development-plan", "bees-config-file.md")
 
@@ -520,7 +521,7 @@ class MultiLinkGenerationTests(unittest.TestCase):
             self.assertNotIn("proxy_ans_c", peers.split("fn start_proxies_p1")[0].split("fn start_proxies_p0")[1])
             conf = open(os.path.join(out, "beam_conf.silica")).read()
             self.assertIn("fn listens() -> boolean { true }", conf)
-            self.assertIn('fn listener_address() -> string { "listen:47441" }', conf)
+            self.assertIn('fn listener_address() -> string { "listen:%d" }' % trial_ports.port("n2_multilink"), conf)
             r = subprocess.run([sys.executable, os.path.join(HERE, "bees_config.py"), "generate", "-o", out, "--config", cfg, wire,
                                 os.path.join(hub, "node.atoms")], capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stderr)
@@ -541,7 +542,7 @@ class MultiLinkGenerationTests(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr)
             peers = open(os.path.join(out, "bees_peers.silica")).read()
             self.assertIn("fn listens() -> boolean { true }", peers)
-            self.assertIn('fn listener_address() -> string { "listen:47451" }', peers)
+            self.assertIn('fn listener_address() -> string { "listen:%d" }' % trial_ports.port("m3_multilink"), peers)
             self.assertIn("fn start_proxies_p1(tx: actor_ref, mgr: actor_ref)", peers)
             self.assertIn("fn start_proxies(idx: int64, tx: actor_ref, mgr: actor_ref)", peers)
             self.assertIn("cast(st.mgr, (:bees, 2, 1, t, c)", peers)

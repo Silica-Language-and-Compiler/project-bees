@@ -86,7 +86,7 @@ message) and is, on the sender's side, the manifest's `node` line (letters, digi
 - **Step 1 and step 3 layouts equal the messages `dist_util` writes in OTP 28** (`<<$N, Flags:64, Creation:32, NameLen:16>>`
   and `<<$N, Flags:64, Challenge:32, Creation:32, NameLen:16>>` with `{packet, 2}` framing): **[oracle]**
   `tools/test_bees_dist.py` `test_n_messages_as_dist_util_writes_them` lays the two messages out in a live `erl` and
-  compares them with the bytes the Silica trial `m3_dist_frames` printed (`trials/m3_dist_frames/main.scout`), and
+  compares them with the bytes the Silica trial `m3_dist_frames` printed (`trials/m3_dist_frames/main.macos_applesilicon.scout`), and
   `test_n_init` / `test_n_acc` / `test_s_ok` compare the same bytes with an independent Python writer (**[test]**).
 - **Flags**: the sender writes the constant `0x4_0307_0F94` (section 3.3) in both `N` messages. A receiver MUST check that
   its peer's flags **contain every bit** of that constant; extra bits are ignored (nothing optional is used) [code:
@@ -195,8 +195,8 @@ BEES accepts:** a body of up to 4096 bytes **[code]**; a body of exactly 4096 by
   `timeout_ms` for each chunk"]. Any received byte (a tick, part of a frame) counts as life.
 - **Tested:** `ticks_alive` (both nodes idle 4.5 s with `io_ms` 1.5 s and `tick_ms` 0.5 s: the link stays up and a cast sent
   afterwards arrives) and `ticks_absent` (a peer that sends no ticks: node a prints `link down, proxies ended; reason
-  timeout` and `proxy ended (killed)` after 1.5 s) **[test]** (`trials/m3_dist/ticks_alive.*.scout`,
-  `ticks_absent.*.scout`). The **count** of received ticks being non-zero is in the code but **not in any golden** (the
+  timeout` and `proxy ended (killed)` after 1.5 s) **[test]** (`trials/m3_dist/ticks_alive.*.macos_applesilicon.scout`,
+  `ticks_absent.*.macos_applesilicon.scout`). The **count** of received ticks being non-zero is in the code but **not in any golden** (the
   output after the marker of `ticks_alive` is dropped by the harness). OTP's own detection (a sampling of the received
   byte count each quarter of `net_ticktime`) is **not reproduced**; the defaults are OTP's values (60 s and a tick each
   15 s) and the rule is a read timeout [argued about OTP].

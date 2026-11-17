@@ -16,6 +16,34 @@ The rulings this plan serves (user, 2026-11-18):
 3. The library is **source only**: "This library is not a pre-compiled library." The app's own build compiles BEES's Silica
    sources with the app's units (linked through `lib/` as the trial leaves do) and compiles the native C itself; BEES ships no binary.
 
+## Rulings (user, 2026-11-18)
+
+The user accepted all eleven suggestions of section 9 and defined the compilation model. Text elsewhere in this document that assumed
+otherwise is marked **Superseded** or rewritten; what the probes proved is kept.
+
+**One compilation unit (the user's definition, verbatim):** "A single compilation unit is all the source files and one execution of the
+silica compiler against all those files. That means they are all listed in the silica.config file in the application's directory.
+Copying and duplication of the files is not needed since paths can be listed in silica.config or links in the directory." (This matches
+`/Users/yenrab/silica/compiler/design_documents/APPLICATION_IS_ONE_COMPILATION_UNIT.md`.) So BEES's units are **listed by path in the
+app's `silica.config`** (or linked into its directory); nothing is copied, no unit is compiled by itself, nothing is pre-compiled.
+
+| # | Decision | Ruling |
+| --- | --- | --- |
+| 1 | API shape | **Accepted.** One source unit, one compile; BEES's node actors are started by reference and driven by messages (the only shape the rules allow without pasting) |
+| 2 | Message tags | **Accepted: no integer opcodes; atoms, shared.** Messages carry atoms (`(:start, ...)`, `(:started, ...)`). Because of the atoms finding (section 10) BEES's atom list must be **registered by an expression literal in an earlier-listed unit** until Silica fixes it |
+| 3 | First example's configuration source | **Accepted, and changed:** the example reads its config through Silica's **local storage transport**, **not `read_lines`**. A small Python **packer** validates `bees.config` at deploy time (with `tools/bees_conf.py` as the oracle) and writes a storage record whose value is an **ETF-encoded config term**; the app reads the record through the storage carrier and `decode((:etf), ...)`s it into a typed record. **No Silica text parser. `decode` de-taints.** |
+| 4 | Validation messages | **Accepted:** byte for byte `bees.config:LINE: PATH: MESSAGE`. The file-mode and "does not exist" wording lives in the packer and the examples |
+| 5 | Secrets | **Accepted:** BEES guarantees **no retention and no logging**. **Ruled 2026-11-18 (user): when Silica releases memory it will zero it (planned, not today), so scrubbing is not a request.** Until then the guarantee stays as stated; when it lands, BEES documents that secrets are cleared on release and tests it |
+| 6 | Fingerprints | **Accepted:** the whitelist carries **hex fingerprints computed by the packer** (no SHA-512 in Silica) |
+| 7 | Link kinds | **Accepted:** plain and TLS links are **two source fragments the app chooses** in `silica.config`, not a run-time flag |
+| 8 | Pool sizes | **Accepted:** stated by the **app at build time** (`bees_build`) |
+| 9 | Silica requests | **To draft:** run-time decode limits, a stated taint status of the storage carrier. **Struck 2026-11-18 (user): `int_to_string`/`string_to_int` and a way to name a record shape (hard no), and zeroisation (Silica will zero on release).** **`read_lines` is NOT to be used, so its requests (runtime shim in the link line, taint status) are dropped.** One new defect is drafted in section 10 (tuple-tag atoms) |
+| 10 | "N2T" | **BEAM-mode TLS** (an `inet_tls_dist`-compatible profile), **after the Linux port** |
+| 11 | Sequencing | **Accepted as proposed:** L1 and L2 start after the multi-link/reconnect/`make integrate` work has landed and is committed |
+
+Consequences applied below: (a) the compile-time facts (atoms, `bees_build`, the generated per-peer and MFA units) are **source files the app lists in its `silica.config`**, produced by BEES's Python tool or written from BEES's templates; (b) the
+`.part` pasting question is a source-composition question, answered in 1.3 (no pasting needed); (c) versioning is by source revision, no ABI; (d) the config packer is a deploy-time Python tool, so BEES needs **no Silica text parser** and no `read_lines`; (e) native C is chosen per platform by the app's build.
+
 ## 0. Findings in one page
 
 1. **The `.part` pasting is not forced by E4026/E4042, but the shape of the API is.** Three rules decide it, all proven by probes:
@@ -32,14 +60,12 @@ The rulings this plan serves (user, 2026-11-18):
    actor's **state** costs about 100 times the CPU per dispatch (SD-35, measured: 2.9 s against 0.03 s for 30000 messages), so the
    list is consumed at the message, not kept in state.
 3. **No pre-compiled anything is needed, and the compile-time facts become source the app owns.** The genuinely build-time items are
-   the atom table (D30; probe `p1a` re-proved SD-3: a tuple atom sent across units without the shared atoms unit hits "no case arm
-   matched"), the module table, the per-peer/per-link code of BEAM mode, the decode limits (E2402 proven by probe `p5`: a non-literal limits record is a
+   the atom table (D30; re-proved and narrowed in section 10: a tuple-tag atom that a receiving unit uses only in a type and a pattern is not registered, so a receiver listed before its sender mismatches at run time), the module table, the per-peer/per-link code of BEAM mode, the decode limits (E2402 proven by probe `p5`: a non-literal limits record is a
    compile error), and the pool sizes of registered names. Everything else in `bees.config` can be a run-time value (section 3).
 4. **Bytes instead of paths is a small C change** in both engines (OpenSSL memory BIOs, Mbed TLS buffer parsers; the cookie as a value), inside the existing FFI shapes (section 4). Nothing was built; the cost is a plan, not a measurement.
-5. **A new fact found while probing: `read_lines` links only with the runtime shim.** A program that uses the intrinsic `read_lines`
+5. **A side fact (kept, no longer used): `read_lines` links only with the runtime shim.** A program that uses the intrinsic `read_lines`
    compiles (no taint complaint, from a plain unit, `proc[device_io]`) but does not link under BEES's `trial.mk` link line:
-   `Undefined symbols: _silica_read_file_path`. Linking `compiler/src/silica_rt_shim.s` assembled to an object fixed it, and the
-   program then read the file (probe `p3`). The app's build must add that object (a Silica packaging gap to report, not a BEES defect).
+   `Undefined symbols: _silica_read_file_path`; linking `compiler/src/silica_rt_shim.s` fixed it (probe `p3`). The user ruled that `read_lines` is **not used**, so this is not a BEES issue and the matching Silica request is dropped.
 6. The old SD-17 row ("FFI workers cannot live in a library unit") is **stale for this layout**: `dangerous_bees_dns@resolver`
    (a worker in a library unit, with `external_danger`) was spawned by `spawn_dangerous` from a *different* library unit's behaviour
    and ran (probe `p4`). SD-17 survives only as: the worker's behaviour and its `spawn_dangerous` call must both be in `dangerous_*` units.
@@ -97,9 +123,8 @@ Two shape consequences the probes exposed:
   `int64` (spawn with `0`) keeps that out of the app; I did not probe a record state spelled across units but the existing `.part` code
   spells whole state records in the root (`net_dial_link`), which is the coupling to avoid. *(Recommendation, not probed with a library
   node: scalar initial state `0`; the node keeps its real state after its first message.)*
-* **Atoms in the API messages need D30** (probe `p1a`: the same program fails with "no case arm matched" until a `probe_atoms` unit,
-  `use`d by both sides, holds the atoms). Either the API messages carry **integer opcodes** (no atom crosses the boundary; recommended, section 5) or the app's `bees_atoms` contains the
-  API atoms, which BEES ships as a manifest (`bees_api.atoms`).
+* **Atoms in the API messages need the shared atom table to be filled before the receiver is compiled** (probe `p1a`: the same program fails with "no case arm matched" until a `probe_atoms` unit,
+  listed before the receiver and holding the atoms as expression literals, exists; section 10 narrows the condition). **Ruled (2026-11-18): no integer opcodes; atoms, shared**, so the app's `silica.config` lists BEES's atom unit first.
 
 ## 2. Q2: config records as parameters and as message values
 
@@ -119,24 +144,17 @@ Not settled: a single **1 MiB** string in a record. The probe faulted (`[silica]
 quadratic (it concatenated 1024-byte pieces 1024 times and committed 270 MB), so the fault says nothing about messages. *(open)* PEM
 chains are a few KiB, so it does not matter to this plan; a 64 KiB `bees.config` file (the doc's cap) is covered by the 256 KiB pass.
 
-### 2.2 Taint: what the app's file bytes are
+### 2.2 Taint: what the app's config bytes are (rewritten for the rulings)
 
-* The taint checker seeds taint only on calls **qualified with a `dangerous_*` module inside a worker's `external_danger` sequence**
-  (silica-defects SD-24, SD-25, memory note `silica-ffi-taint-copy-rule`). A value returned by the **intrinsic `read_lines`** is not
-  such a call: probe `p3` read a file in a plain unit under `proc[device_io]`, kept it as a `string`, took `substring`, passed it to
-  `println` and into message casts, and the FFI-taint pass did not object. So **the app's file read with `read_lines` needs no
-  `decode`**: the string is an ordinary pure string and can be passed to the validator and the parser (both pure). That is evidence
-  that it is *not tainted by the compiler's model*; the spec's own wording on the intrinsic's trust status I did not find *(open: ask Silica to state it, N0b SR-C)*.
-* Bytes that arrive from a **foreign call** (the storage carrier `(:rx, record)`, any BEES native-edge worker) are tainted and are
+* **Superseded:** the first draft said the app reads files with `read_lines` and needs no `decode`. Probe `p3` did show that `read_lines` output passes the FFI-taint pass and links only with the runtime shim (`silica_rt_shim.s`), but the user ruled that **`read_lines` is not used** (it has no error cause, no size cap and no mode check, and its taint status is not stated). That evidence is kept as a fact, not as the plan.
+* **The plan:** the config arrives from the **storage carrier**, a foreign call. Bytes that arrive from a foreign call (the carrier's `(:rx, record)` cast, any BEES native-edge worker) are tainted and are
   de-tainted only by `decode((:etf), ...)` inside `sequence ... produces pure` with literal limits (the resolver edge does this today:
-  `rs_text` in `bees_resolve_edge.part`, proven in trial `n1_addr`). **For an app that reads its file through a carrier or a C helper, `decode((:etf), frame, {literal limits})` is the way back to a pure value**; an app that reads by `read_lines`
-  skips it. The example documents both.
-* `read_lines` has no error cause and no size cap and no mode check (N0b 1.2), so the **0600 check on a key/cookie file and the typed
-  errors ("does not exist", "not readable (permissions)", "readable by group or others") cannot be had from it**. An example that wants those
-  uses a C helper (the shape of `bees_beam_load_cookie`: `open(O_NOFOLLOW)`, `fstat`, mode test) returning bytes to an app unit through
-  an ETF binary and `decode`. The library itself checks no file.
+  `rs_text` in `bees_resolve_edge.part`, proven in trial `n1_addr`). **Yes: the app's file bytes need `decode((:etf), ...)` to become pure before they are passed to BEES.** The packer therefore writes an **ETF** term, so that `decode` produces the typed record directly; no byte of
+  config is parsed by hand, which would not de-taint it (a hand rebuild is rejected, E2100, spike S8).
+* The checker seeds taint only on calls **qualified with a `dangerous_*` module inside a worker's `external_danger` sequence**, and does not check the handler that receives the cast (SD-24, SD-25, memory note `silica-ffi-taint-copy-rule`): the compiler would accept an un-`decode`d forward, the specification forbids it, and BEES must not rely on the gap.
+* The file-system checks (0600 mode, regular file, "does not exist", "not readable (permissions)", "readable by group or others") are done by the **packer** (Python), with the existing wording; the library checks no file.
 * The app's bytes that **go into** an FFI call (the PEM or cookie string handed to C) are ordinary strings: no taint rule restricts
-  arguments. SD-40 applies: bind a string to a variable before the foreign call (string argument written as a call expression reaches C with the wrong pointer, N0b/silica-defects row SD-40).
+  arguments. SD-40 applies: bind a string to a variable before the foreign call (a string argument written as a call expression reaches C with the wrong pointer, silica-defects row SD-40).
 
 ### 2.3 Other inline-call defects
 
@@ -177,21 +195,20 @@ Where the old N0b table said "c: build-time generated" the new question (source-
 Source-only means: no `.a`, no `.o`, no generated unit checked in as a binary-compatible interface. BEES ships **source that the app's
 build assembles**:
 
-1. **Silica units**, compiled by the app's compiler run: `lib/` symlinks (or copies) of BEES's `src/inter_nodal/*`, `src/shim/*.silica`,
-   `src/trust/*` that the app uses, and the Silica stdlib units BEES needs (`carrier`, `dangerous_sockets`, `dangerous_tcp_carrier`,
-   `wire_etf`, `wireframe`, `Supervisor` if used). Exactly as `trials/*/lib` does today; the pin file's role (a source revision) is the version.
+1. **Silica units**, compiled by **one execution of the compiler** against the app's `silica.config` (the user's definition of a compilation unit, "Rulings"): that file lists, by path or through links in the app's directory, BEES's `src/inter_nodal/*`, `src/shim/*.silica`,
+   `src/trust/*` that the app uses, and the Silica stdlib units BEES needs (`carrier`, `dangerous_sockets`, `dangerous_tcp_carrier`, `dangerous_store*`/`storelog` for the storage example,
+   `wire_etf`, `wireframe`, `Supervisor` if used). Nothing is copied or duplicated; in use-dependency order (`tools/topo_silica_config.sh` today). The pin file's role (a source revision) is the version.
 2. **One generated unit set the app owns**, produced by BEES's Python source tool from manifests the app and its compiler write:
-   `bees_atoms` (+`.index`), and, BEAM mode, `bees_peers`/`bees_msgs`/`bees_modules`/`bees_ids`; TRUST, `bees_trust_mfa`. Today's
+   `bees_atoms` (+`.index`), listed **first** (section 10), and, BEAM mode, `bees_peers`/`bees_msgs`/`bees_modules`/`bees_ids`; TRUST, `bees_trust_mfa`. Today's
    `tools/bees_config.py generate -o lib MANIFEST...` does all of it already; the **change is that it no longer reads `bees.config`**.
    (A pure-Silica alternative would put the atoms in a hand-written unit; the 256-arm `case` tiering `bees_config` does makes that impractical by hand for a large program.)
 3. **A tiny app-owned unit `bees_build`** (BEES ships a template, `src/api/bees_build.silica.in`) with the build facts the library
-   needs as constants: `frame_max_built`, `args_len_max_built`, `term_depth_max_built`, `whitelist_slots_max`, `pinned_servers_max`.
-   The decode limits in BEES's derived decoders `use` these. Hand-written, five lines; no generator needed. (Whether
-   a unit's literal limits can come from another unit's function: **no**, E2402 wants literals; so the decode call sites that carry
-   the built limits are themselves generated from the template, or the template **is** the unit that contains those `decode` calls. This is the one place where a generated unit is unavoidable: **the generator writes it from the app's `bees_build` numbers.** *(read: tools/bees_config_beam.py `gen_conf`, tools/bees_trust_gen.py)*)
+   needs as constants: `frame_max_built`, `args_len_max_built`, `term_depth_max_built`, `whitelist_slots_max`, `pinned_servers_max` and the config record's `max_bytes` (5.5).
+   The decode limits in BEES's derived decoders must be **record literals of literals** (E2402; a unit's function cannot supply them), so the decode call sites that carry
+   these numbers are written into a generated unit by the generator, from the app's `bees_build` numbers. This is the one place where a generated unit is unavoidable. *(read: tools/bees_config_beam.py `gen_conf`, tools/bees_trust_gen.py)*
 4. **Native C**, compiled by the app's build: `native/Makefile` pieces per platform (macOS: CommonCrypto, OpenSSL; Linux; ESP32-S3 and NUCLEO with
-   Mbed TLS, D40); the `silica.link` archive paths in the app's tree (`dangerous_exposure_source/...`).
-5. **The runtime shim object** for `read_lines` (finding 5), if the app uses it.
+   Mbed TLS, D40; the user's platform directories native/macos, linux, esp32s3, nucleo are chosen by the app's build); the `silica.link` archive paths in the app's tree.
+5. **(Dropped)** the runtime-shim object for `read_lines`: `read_lines` is not used (ruling 3).
 
 BEES may ship: the Python source tool, the templates, a Makefile fragment (the app's `include`: today's `tools/silica.mk`, `trial.mk`
 become `bees.mk`), and a **checker** (`bees_config.py check`) that the app's build runs. All of it is source; none is a binary.
@@ -255,7 +272,7 @@ The library's check is on the value only: printable ASCII, 1 to 255 bytes (tag 3
 ### 5.1 Shape of the whole
 
 ```
-app root (dangerous_<app>.silica)         BEES units (copied/linked into lib/)
+app root (dangerous_<app>.silica)         BEES units (listed by path in the app's silica.config; nothing copied)
   main()                                    bees_cfg        PLAIN:  record groups, defaults, validate, banner, text rendering
    reporter start                           bees_cfg_text   PLAIN, optional: parse bees.config text (Silica), or a Python tool
    read files (example units)               dangerous_bees_beam_node   behaviours: node actor, tx, conn, lsn, nrd ... (today's .part code)
@@ -267,19 +284,18 @@ app root (dangerous_<app>.silica)         BEES units (copied/linked into lib/)
 
 The only functions the app **calls** are plain (`bees_cfg@...`); everything started is **spawned by reference and cast to**.
 
-### 5.2 Config groups (plain unit `bees_cfg`; each at most 5 fields at top level, nested for more)
+### 5.2 Config groups (plain unit `bees_cfg`; each record at most 4 fields, nested for more: SD-37 limits the derived decoder to four)
 
 Silica has no aliases, so BEES publishes the shapes as a text file next to the unit (`bees_cfg.shapes`) and the examples spell them; the
 validator's parameter lists use them verbatim. TRUST mode (the larger one):
 
-```
-net:     { listen_address: string, port: int64, connect_timeout_ms: int64, call_timeout_ms: int64, acceptors: int64 }
-tuning:  { suspicion_limit: int64, token_bytes: int64, token_ttl_sec: int64, connect_stagger_ms: int64, frame: { frame_size_max: int64, args_len_max: int64, term_depth_max: int64 } }
-session: { max_inflight: int64, max_age_ms: int64, idle_ms: int64, max_calls: int64, drain_ms: int64 }
-tls:     { cert_pem: string, key_pem_secret: string, ca_pem: string, classical_any: boolean }     // bytes; paths variant below
-whitelist: List[{ fp: string, spec: string, classical: boolean }, mem(normal)]                    // fp: 128 lowercase hex characters
+net:      { listen_address: string, port: int64, connect_timeout_ms: int64, call_timeout_ms: int64 }
+limits:   { frame_size_max: int64, args_len_max: int64, term_depth_max: int64, acceptors: int64 }
+tuning:   { suspicion_limit: int64, token_bytes: int64, token_ttl_sec: int64, connect_stagger_ms: int64 }
+session:  { max_inflight: int64, max_age_ms: int64, idle_ms: int64, more: { max_calls: int64, drain_ms: int64 } }
+tls:      { cert_pem: string, key_pem_secret: string, ca_pem: string, classical_any: boolean }       // bytes; paths variant below
+whitelist: List[{ fp: string, spec: string, classical: boolean }, mem(normal)]                      // fp: 128 lowercase hex characters (computed by the packer)
 pins:      List[{ addr: string, fp: string }, mem(normal)]
-```
 
 BEAM mode: `net` (`name`, `creation`, `listen_address`, `listen_port`, `epmd_port`, `net_ticktime_s`, `open_timeout_ms`),
 `auth` (`cookie_secret`, `transport`, `auth`), `redial` (`on`, `initial_ms`, `max_ms`), `links: List[{ peer: string, host: string, port: int64, role: int64 }]`
@@ -294,8 +310,7 @@ bees_cfg@validate_beam(...)                                                -> (:
 ```
 
 (`ValidCfg` is the same groups after defaults and clamps, so the caller keeps one value.) The reason is a record, not one string, so the
-caller may log `text` or branch on `path`. `text` is **byte-identical to the Python reader's** `bees.config:LINE: PATH: MESSAGE` when the
-caller gives a line (the optional parser supplies `line`; otherwise `text` is `PATH: MESSAGE`). The oracle is `tools/bees_conf.py`
+caller may log `text` or branch on `path`. `text` is `PATH: MESSAGE`. **As ruled (4), the byte-for-byte `bees.config:LINE: PATH: MESSAGE` is produced by the packer** (it runs the Python reader, which knows the lines); the library's check is the second, line-less one, and the example may carry the packer's line in a `line` field of the record if it has one. The oracle is `tools/bees_conf.py`
 (`validate`, `proplist`, `want_int/str/bool/atom`, `parse_spec`, `beam_section` 565-750, `trust_section` 775-940: about 700 lines of rules) and the vectors of
 `tools/test_bees_conf.py` (34 tests: `Document` checks the options table against `bees-config-file.md`, `Rules`, `N1`). The differential test (section 6, phase 2) runs
 the same cases through both.
@@ -306,50 +321,55 @@ build's pool sizes, frame limits against the built limits.
 
 ### 5.4 Starting a node, and what the app gets back
 
-```
 n: actor_ref <- spawn(0, dangerous_bees_trust_node@node, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
-cast(n, (1, 2, me, tuning_etc...) impl ActorMessage {})        // (opcode 1 = start, api_version 2, reply_to, groups)
+cast(n, (:start, 2, me, net, tuning, session, tls, whitelist, pins) impl ActorMessage {})      // 2 = api_version, me = reply_to
 ```
 
-Message set (integer opcodes, so no atom crosses the API; each opcode is a constant of `bees_cfg`):
+**Superseded:** the first draft of this table used integer opcodes. The user ruled **no opcodes; atoms, shared** (ruling 2). The atoms below are ordinary atoms of BEES's `.atoms` manifest, registered in the unit the app lists first (section 10).
 
-| Opcode | Direction | Shape | Replaces |
+Message set:
+
+| Message | Direction | Shape | Replaces |
 | --- | --- | --- | --- |
-| 1 start | app to node | `(1, api_version, reply_to, net, tuning, session, tls, whitelist, pins)` (nine elements; a **cast** payload, not a function: E1070 does not apply) | `trust_boot` + `trust_start`, `net_start` |
-| 2 started | node to `reply_to` | `(2, lines)`: `lines` is the **boot banner and summary** as `List[string]` (today's `[trust] mode trust, ...`, `[trust] <note>`) for the app to print | `trust_notes`, the `[bees] mode=beam ...` lines |
-| 3 refused | node to `reply_to` | `(3, path, line, text)` | `trust_boot`'s "boot refused" |
-| 10 call / 11 cast | app to node | `(10, addr, m, f, arity, args, reply_to, req)` | `trpc_call` / `trpc_cast`; the reply is the existing `{ req, what, value }` message, unchanged |
-| 12 reset | app to node | `(12, entry_index, reply_to)`; reply `(13, ok)` | `trust_reset(i)`; **local only, still**: the node actor is the one you hold, no peer can reach it; the forbidden-name guard stays |
-| 20 stop | app to node | `(20)` | (new; an orderly teardown) |
-| raw writer ops | | `(30..34, ...)` | `trust_raw_*`, for test programs only (kept in a test unit, not the library API) |
+| `:start` | app to node | `(:start, api_version, reply_to, net, tuning, session, tls, whitelist, pins)` (nine elements; a **cast** payload, not a function: E1070 does not apply) | `trust_boot` + `trust_start`, `net_start` |
+| `:started` | node to `reply_to` | `(:started, lines)`: `lines` is the **boot banner and summary** as `List[string]` (today's `[trust] mode trust, ...`, `[trust] <note>`) for the app to print | `trust_notes`, the `[bees] mode=beam ...` lines |
+| `:refused` | node to `reply_to` | `(:refused, path, line, text)` | `trust_boot`'s "boot refused" |
+| `:call` / `:cast` | app to node | `(:call, addr, m, f, arity, args, reply_to, req)` | `trpc_call` / `trpc_cast`; the reply is the existing `{ req, what, value }` message, unchanged |
+| `:reset` | app to node | `(:reset, entry_index, reply_to)`; reply `(:reset_done, ok)` | `trust_reset(i)`; **local only, still**: the node actor is the one you hold, no peer can reach it; the forbidden-name guard stays |
+| `:stop` | app to node | `(:stop)` | (new; an orderly teardown) |
+| raw writer messages | | `(:raw_send, ...)`, `(:raw_frame, ...)`, `(:raw_close, ...)` | `trust_raw_*`, for test programs only (kept in a test unit, not the library API) |
 
-BEAM mode is the same family: `(1, ... start)`, replies `(2, lines)`, `(3, ...)`, and `net_send_raw` etc. as test ops. The node actor
+BEAM mode is the same family: `(:start, ...)`, replies `(:started, lines)`, `(:refused, ...)`, and `net_send_raw` etc. as test messages. The node actor
 **is** the handle (an `actor_ref`); it registers nothing by atom except the name pools (3.1). The banner text and the refusal text are
 produced by plain `bees_cfg` functions, so an app can also print them without a node (`bees_cfg@trust_banner(valid) -> List[string]`).
-Exit status: the library never stops the process on a bad config; `(:error, ...)` or opcode 3 goes to the app, which prints it and decides.
+Exit status: the library never stops the process on a bad config; `(:error, ...)` or `(:refused, ...)` goes to the app, which prints it and decides.
 The old behaviour (`[trust] boot refused: ...`, then `[trust] no actor was started`, `exit=1`) is the **example's** behaviour and is a few lines.
 
-### 5.5 Where the optional `bees.config` text parser lives
+### 5.5 Where the config comes from (ruled: the storage transport and a Python packer; no Silica text parser)
 
-* The format is a single Erlang term and a full stop, with lists, tuples, atoms, integers with `_`, strings with four escapes, maps, `%` comments, ASCII only, 64 KiB
-  (`bees-config-file.md` section 4; `tools/bees_conf.py` `Reader`, lines 58-183: 125 lines of Python).
-* **Silica parser (optional `bees_cfg_text`, plain unit)**: tokenising and building a flat list of `{ path, line, kind, num, text }` entries (a recursive tree type is the SD-36/SD-29 risk, N0b 3.3)
-  then mapping entries to the groups of 5.2. I estimate **1200 to 1800 lines** of Silica (the Python reader 125 + the option tables and rules about 700, plus Silica's lack of
-  `int_to_string`/`string_to_int` (N0b SR-G; three hand-written `int_text`s exist), no loops, recursion for everything, and no records update). **Can it be written within the compiler's limits?**
-  Probably, in pieces under 256 case arms and with units of a few hundred lines each (the compiler hits W2300 quadratic cost and OOM on big units, the memory note "Compiler 999936 facts"), but **I did not write
-  or compile a parser**; the risk is real and unmeasured. It runs on a `read_lines` string, so the taint question does not arise (2.2); it is pure.
-* **Python at build (recommended first step)**: `tools/bees_conf.py` already parses and validates. A new mode `bees_conf.py emit-silica FILE` writes a small **app-owned plain unit** `app_conf.silica` with
-  `fn app_trust() -> {groups...} ...` (record literals of the validated values; the whitelist as a list literal; the PEM bytes as string literals or read at run time by the example). The example then
-  calls `bees_cfg@validate_trust(app_conf@...)` as a second check (so the library's validator is exercised) and starts the node. This keeps `bees.config` as the operator's file, keeps the Python oracle as
-  the build-time diagnostics ("a bad bees.config is a build failure" stays possible, N0b D-2), and needs no Silica parser. The compatibility path (section 6) is this.
-* **Both are source.** The run-time (Silica) route is for an app that must read `bees.config` on the device after deployment.
+**Superseded:** the earlier text of this section proposed an optional Silica parser of `bees.config` (estimated at 1200 to 1800 lines, never attempted) and a build-time `emit-silica` unit. The user chose the route below; both are dropped, and so is `read_lines`.
+
+* **At deploy time, a small Python packer** (`tools/bees_pack.py`, new) reads `bees.config`, the whitelist file, the pin file, the certificates and the cookie file, runs **`tools/bees_conf.py` as the validator**
+  (so every refusal is the existing `bees.config:LINE: PATH: MESSAGE` text, and the file-mode, "does not exist" and "not readable" wording stays here, in the packer), computes the **hex SHA-512 fingerprints** (ruling 6) and writes **one storage record**:
+  the ETF encoding of the config term, a tuple of the groups of 5.2 (PEM bytes, the cookie and hex fingerprints included, or paths where the path form is used).
+* **The storage record.** Silica's local storage transport is the `(:store)` carrier: `carried_on NAME: (:store) (:backing, "node.sildat", CAPACITY, :stop);` in a `dangerous_` unit of the app (path and capacity are literals of the declaration;
+  capacity a multiple of 4096; a different size on disk ends the open with `(:link_down, :mismatch)`; a missing path is **created empty**, so an empty log means "no config" and must be reported by the example). The blocks are 4096 bytes with CRC-32C; a record is at most 4064 bytes
+  and a larger value is segmented by `wireframe@frame(..., :storage)` and rebuilt by `unframe` in `:storage` mode (N0b 1.1, *(read)*). The packer writes that format (a Python precedent writes it: Silica's `make_backings.py`).
+* **At boot, in the example**: spawn the storage carrier, `(:open, ...)`, `(:read, 0)`, collect `(:rx, record)` segments with credit until `(:rx_end, next)`, `unframe`, then
+  `decode((:etf), frame, { max_bytes: N, max_depth: D, max_length: M })` inside `sequence proc[mem(normal), transport] ... produces pure` into the typed record. **`decode` is what de-taints** the foreign bytes (the rule of 2.2, as ruled). The limits are **literals** (E2402, probe `p5`),
+  so `max_bytes` is a build fact in the app's `bees_build` unit, sized from the whitelist pool K (about 150 bytes per entry: 1000 entries need a limit above 150 KB) and the PEM sizes.
+  A value the limits reject comes back `(:rejected, why)` (`:too_large`, `:unknown_atom`, `:bad_variant`); the example reports it as `(:error, ...)` text and does not start the node.
+* **Typed result and SD-37.** The derived decoder cannot decode a record of more than **four fields** (SD-37, E1070 in the derived function); so every group of 5.2 has at most four fields (nested records, each at most four), and the whitelist is a list of three-field records.
+  Whether a **tuple** of nine groups decodes is *(open; not probed)*; the fallback is one decode per group, one record per storage record, which the packer can do.
+* **Then** the example calls `bees_cfg@validate_*` on the decoded groups, a second, cheap check (the packer already ran the full one) that also catches a stale or hand-edited record, and starts the node (5.4).
+* **Not proved here:** the storage carrier was **not run** by this probe. It is built and trialled by Silica on Apple Silicon (`trials/transport_addition/app_transport_store_backing`, *(read)*); Linux is "in the pack source, not verified"; the boards have no `:flash_region` target yet (E2412), so on a board the example's source is a generated unit (the `(:memory)` store or embedded literals). Silica should state the taint status of the carrier's `(:rx, record)` cast (request, section 9 item 9).
 
 ### 5.6 The example set (documented, not library)
 
-1. `examples/trust_node_build_time`: `bees.config` and the whitelist file converted by `bees_conf.py emit-silica` at build (works on every target, no file system on the device).
-2. `examples/trust_node_read_at_boot` (hosted): reads `bees.config`, the whitelist, the pins, the certificates and key with `read_lines` (or a C helper for the mode check), parses with `bees_cfg_text`, validates, starts.
-3. `examples/beam_node_*` likewise (cookie file with the 0600 check by the C helper).
-4. A board example: configuration embedded in flash (generated unit) for NUCLEO and ESP32-S3 (Mbed TLS bytes).
+1. `examples/trust_node_storage` (hosted): the packer writes the storage record at deploy time; the app reads it through the `(:store)` carrier, `decode`s it, validates, starts the TRUST node, and prints the returned banner lines.
+2. `examples/beam_node_storage`: the same for BEAM mode (the cookie value is in the record; the 0600 check ran in the packer).
+3. `examples/node_embedded` (boards): the configuration written by the packer as a Silica unit of literals (`bees_pack.py --as-source`), for NUCLEO-L476RG and ESP32-S3 until a flash-region store exists.
+4. `examples/node_no_config_file`: a root that builds the groups by hand (the smallest use of the library, and the first L2 trial).
 
 ## 6. Q6: impact, migration, effects on later work
 
@@ -386,12 +406,12 @@ Counts from the tree as of 2026-11-17 *(read; `git status` shows many of these m
 | **L0** (this document) | probes and plan | the user rules on section 9 | done |
 | **L1: the plain unit and the API types** | `bees_cfg` (groups, defaults, validate, banner/refusal text) ported from `bees_conf.py` rules; `tools/bees_conf.py dump` | for every vector in `tools/test_bees_conf.py` (extracted to one file each), `validate` returns the same verdict and the same `text` as the Python reader; a trial prints both; **no change to any existing trial** | 8 to 10 (700 lines of rules; the cost of big `case` tables on the checker is the risk) |
 | **L2: node actors beside the parts** | the `.part` code copied into `dangerous_bees_trust_node` and `dangerous_bees_beam_node` as behaviours with the message set of 5.4; the `.part` files stay | a new trial `l2_trust_node` and `l2_beam_node` (an app root of ten lines, no generator) passes with the **same goldens** as `n3_trust` and `n2_dist` for one scenario each; old trials untouched | 8 (TRUST), 8 (BEAM) |
-| **L3: compatibility path** | `bees_conf.py emit-silica` writes the app-owned `app_conf` unit; `tools/trial.mk` gains a mode where a leaf supplies an app root; old mode default | one leaf per mode (n3_trust, n2_dist) builds both ways from the **same `bees.config`** and the output goldens are equal; `make integrate` passes in full with the old mode still the default | 4 |
+| **L3: the packer and the compatibility path** | `tools/bees_pack.py` (new, Python): validates `bees.config` with `bees_conf.py` and writes the ETF config term as a storage record (the file the app's `(:store)` declaration names); `tools/trial.mk` gains a mode where a leaf supplies an app root listing BEES's units in its `silica.config`; old mode default | one leaf per mode (n3_trust, n2_dist) runs both ways from the **same `bees.config`** and the output goldens are equal; the packer's refusal text equals the Python reader's; `make integrate` passes in full with the old mode still the default | 5 |
 | **L4: bytes** | `bees_beam_set_cookie`, `bees_tls_configure` (OpenSSL memory BIOs), `bees_tls_fingerprint`; the Mbed TLS equivalents written but not built (no board toolchain installs) | the n4 mutual-TLS trial passes with **bytes** (certificates and key as strings read by the example) and with paths; refusals unchanged | 4 to 5 |
 | **L5: run-time scalars and the data-driven gate** | N0b phases 3 and 4: `beam_conf`/`bees_trust_conf` values come from the start message into actor state; whitelist and pins as lists consumed at start (per-entry actors from a K pool); permission gate over data | an unmodified binary starts with a changed whitelist (within K) and refuses one that is too long; SD-35 not hit (measured as in 2.1); n3/n4 goldens equal | 10 to 12 |
-| **L6: examples and the optional text parser** | `examples/` (5.6), `bees_cfg_text` (Silica) **if the user wants it**; the Python route first | example 2 reads, parses, validates and starts with no generator for the values; diff of dump against the Python parser over all vectors | 3 (examples), 10 to 15 (Silica parser) |
+| **L6: examples** (as ruled: no Silica text parser) | `examples/` (5.6): the packer-and-storage example for TRUST and BEAM, the board example | the example reads the storage record, `decode`s it, validates and starts a node with **no generator for the values** and with the same output as the build-time path | 4 to 5 |
 | **L7: retire the stand-in's run-time role** | old generators' run-time constants removed; `bees_trust_gen`/`bees_edge_gen` reduced to templates; node_kit updated; docs rewritten | grep: no `beam_conf@`/`bees_trust_conf@` run-time read left; `make integrate` and `make kit` pass; node_kit's three-node live run reproduces | 4 |
-| Total | | | **about 45 to 70 agent-days** (the larger figure includes the Silica text parser) |
+| Total | | | **about 35 to 55 agent-days** (the Silica text parser, 10 to 15 days, is no longer in the plan) |
 
 ### 6.4 Effects on the Linux port, N2T, N5
 
@@ -400,7 +420,7 @@ Counts from the tree as of 2026-11-17 *(read; `git status` shows many of these m
   today (macOS only), so the cookie's MD5 and random source need the Linux equivalents either way (kernel CSPRNG per D40), independent of this plan. I did not compile on Linux; compiler-version parity (the pin is 999909 on macOS, the Linux binaries are different generations) is *(open)* and affects whether probes `p1a`, `p4` hold there. `read_lines` has per-target inline emitters *(read)*.
 * **N5 (windowed multiplexing, B2):** unaffected in design; but its per-connection supervisor and a worker per request add behaviours that
   today would be pasted; as library behaviours they come free with L2. It benefits from the data-driven gate (L5). The `session.*` values are class (a) and already in the groups of 5.2.
-* **"N2T":** I found no item of that name in the plans, specs or trials of the repository or in `to-silica` (grep over both trees). If it refers to the BEAM-mode N2c/N2 line (multi-link, reconnect, the soak), the effect is: its trials keep the old mode until L7, and the `redial` values move into the `redial` group at L5. Please say which it is.
+* **"N2T" (ruled 2026-11-18: BEAM-mode TLS, an `inet_tls_dist`-compatible profile, after the Linux port):** it builds on this plan, not beside it. It needs the TLS-from-bytes entry points of L4 (the same OpenSSL calls, on Linux), the BEAM node actor of L2 (a TLS link is a worker over the carrier, as TRUST's `ttls` is; the carrier choice becomes one of the two source fragments of ruling 7), and the cookie as a value (the `inet_tls_dist` handshake still uses the cookie). It is **sequenced after L7 and after the Linux port**.
 
 ## 7. What the probes proved, and could not prove
 
@@ -409,52 +429,118 @@ Counts from the tree as of 2026-11-17 *(read; `git status` shows many of these m
 | A `dangerous_*` library behaviour can `spawn_dangerous` a carrier and cast to it; a plain-spawned root can start it by reference | **proved** | `p1a`: `launcher` received `(:link_down, ...)` from the carrier |
 | A `dangerous_*` library behaviour can `spawn_dangerous` a library **FFI worker with C** (BEES's resolver) and get its answer | **proved** | `p4`: printed `resolved localhost: 127.0.0.1` |
 | A plain unit cannot `use` a `dangerous_*` unit (E4021), cannot name `dangerous_actor_ref` (E4026); the root cannot call any function of a `dangerous_*` unit (E4042) | **proved** | `p1a`, `n2`, `n1` |
-| A plain unit may spawn actors, start a supervisor, `read_lines`, be called from a `dangerous_*` root | **proved** | `p2`, `p3` |
+| A plain unit may spawn actors, start a supervisor, `read_lines` (a fact, no longer used), be called from a `dangerous_*` root | **proved** | `p2`, `p3` |
 | A 7-field record with a 1000-entry list of 128-hex fingerprints and a 4.6 KB string is a parameter, a result and a message value | **proved** | `p2` |
 | A 14-field nested record, a 64 KiB and a 256 KiB string, 10000 list elements pass in a message | **proved** | `p3` |
 | SD-35 costs about 100 times the CPU for a held 1000-entry list | **measured** | `p2`: 2.91 s against 0.03 s |
 | `decode` limits cannot be run-time values on 999909 | **proved** | `p5` E2402 |
-| Atoms in API messages need the shared atoms unit (SD-3) | **proved (re-proved)** | `p1a`, first run |
-| `read_lines` output passes the compiler's taint pass; needs the runtime shim to link | **proved for the checker; link finding new** | `p3` |
-| The app's own `bees_atoms` can be the only generated unit for the API | **not proved**; the API with integer opcodes avoids it | design |
+| Atoms in API messages hit SD-3 without a registering unit | **proved, re-proved and narrowed** (section 10: tuple-tag atoms that a receiver uses only in a type and a pattern are not registered; the pattern compares 0 and 1) | `p1a`, `at/v1` |
+| `read_lines` output passes the compiler's taint pass; needs the runtime shim to link | **proved, and now unused** (ruling 3 drops `read_lines`); kept as a fact | `p3` |
+| The API with atoms (no opcodes) needs the atoms registered in an earlier unit | **proved and narrowed** (section 10) | `at/v1`, `v2`, `v6`, `v10`, `v12` |
 | A whole node (`net_launch` and the dial/listen/redial code, or the TRUST node) works as a behaviour in a library unit | **not proved**: the carrier and the resolver worker were; the real node code was not moved (no repo edits allowed) | L2 |
 | The TLS worker (`ttls`, `trnd`) spawned from inside a library behaviour | **not proved** (the resolver, the same class, was) | L2 |
 | A record state spelled across units for a spawned behaviour | **not probed** (use scalar state `0`) | design |
 | OpenSSL memory-BIO loading and the Mbed TLS buffers inside BEES's FFI shapes | **not built** (no C compiled: the rule is no builds except Silica probes asked for; and no Mbed TLS source in the tree) | read only |
-| A Silica parser for the `bees.config` text within the compiler's limits | **not attempted**; estimate 1200 to 1800 lines | 5.5 |
+| A Silica parser for the `bees.config` text | **not needed** (ruling 3: a Python packer and `decode`); the estimate of 1200 to 1800 lines is kept only as the cost of the alternative | 5.5 |
+| The storage carrier reads an ETF config record and `decode((:etf), ...)` yields the typed groups (limits literal, groups of at most 4 fields) | **not probed** (read: Silica design and trials); it is the first thing L1/L6 must prove | 5.5 |
 | Zeroisation of secrets in Silica | **not provable**; no facility found | 4.4 |
 | One 1 MiB string in a message | **not settled** (my builder was quadratic) | `p3` |
 | Linux behaviour of any of this | **not tested** | |
-| `read_lines` is untainted by the *specification's* wording (vs the checker) | **not found in the spec** | ask Silica |
+| (dropped by the ruling) `read_lines` taint status in the specification | not needed: `read_lines` is not used | |
 
 ## 8. Recommended API, risks
 
-**Recommendation.** (1) Build the library as plain `bees_cfg` (types, validate, banners) plus `dangerous_*` **node-actor** units; the app's root is a ten-line `dangerous_<app>`
-that spawns the node by reference and casts the start message with integer opcodes. (2) The **compatibility and first example** route is `bees.config` converted at build by the existing Python reader into an app-owned
-plain unit (`emit-silica`), validated again by the library at start; the Silica parser comes later and only if wanted. (3) Cookie and TLS material as bytes in the start message, paths kept as a second form. (4) Config groups of at most 5
-fields, the whitelist and pins consumed at start, never held in state. (5) The app's build supplies `bees_atoms`, `bees_build` and the generated per-peer/MFA units from BEES's Python source tool and templates; BEES ships no binary.
+**Recommendation (as ruled 2026-11-18).** (1) Build the library as plain `bees_cfg` (types, validate, banners) plus `dangerous_*` **node-actor** units; the app's root is a ten-line `dangerous_<app>`
+that spawns the node by reference and casts the start message with atoms. All units are listed in the app's one `silica.config`. (2) The **first example** reads its config through the **storage carrier**: a Python packer validates `bees.config` at deploy time and writes the ETF record; the
+app `decode`s it into the groups (no Silica text parser, no `read_lines`). (3) Cookie and TLS material as bytes in the start message, paths kept as a second form. (4) Config groups of at most **4** fields (SD-37 applies because the groups are decoded), the whitelist and pins consumed at start, never held in state. (5) The app's `silica.config` lists BEES's units, the atoms unit **first**, `bees_build`
+and the generated per-peer/MFA units from BEES's Python tool and templates; BEES ships no binary.
 
 **Risks**
 
 1. **The node code has not been run as library behaviours** (section 7): the probes prove the *mechanism*, not the 1600 lines of `dangerous_beam_net`/`bees_node_edge.part`. The unproven corner is the SD-39 family
    (`dangerous_actor_ref` in state, whole-state copies): moving the start-up into a behaviour adds state fields. Mitigation: L2 is a copy beside the old path, with the n2/n3 goldens as the gate and the SD-35/39 memory measurement of the rate trials.
-2. **Taint and secrets.** `read_lines` is untainted for the checker but the spec's statement is missing; a key held in a Silica string cannot be wiped. The no-retention/no-logging promise is weaker than "zeroised".
-3. **Compile-time facts leak into the app's build** (atoms, `bees_build`, the generated decode sites). The "library" is therefore not "include and call"; it is "include, run BEES's generator, call". A mismatch (a stale `bees_atoms` after an API change) shows as "no case arm matched" at **run time**, not at compile time (SD-3, reproduced). Mitigation: integer opcodes in the API, `api_version` check in the start message, and the checker (`bees_config check`) in the app's Makefile fragment.
-4. **E1070 and no aliases** make the record shapes long and the signatures brittle; groups of at most 5 fields and a `bees_cfg.shapes` text help but every app spells them.
-5. **The Silica parser is large and its checker cost is unmeasured** (SD-29/SD-36 class). It is optional by design.
-6. **Silica-side gaps that BEES cannot close** (N0b SR-A to SR-H, updated): run-time decode limits (SR-D, proved E2402), the runtime shim for `read_lines`, `int_to_string`/`string_to_int`, file stat and typed read errors, a documented taint status of `read_lines`, zeroisation.
-7. **Churn:** `dangerous_beam_net`, `dangerous_bees_net`, the generators and the trial Makefiles are being edited by other work now; L2 and later phases must wait for that to land.
+2. **Taint, secrets and the storage route.** Bytes from the storage carrier are tainted and only `decode` de-taints them (as ruled); the storage carrier itself was **not probed** here (read only), its Linux and board targets are unverified (`:flash_region` has no target yet, E2412), a missing backing is created empty rather than reported, and the decode limits are literals, so the whitelist's size is a **build** fact. A key held in a Silica string cannot be wiped: the promise is no retention and no logging.
+3. **Atoms across units.** A receiver compiled before its sender silently compares its tuple tags against 0 and 1 (section 10: a defect, reproduced on three compilers). The mitigation is a build-order rule (BEES's atom unit first, with an expression literal for every API and protocol atom) that `bees_config check` must enforce in the app's build, because the failure appears at run time ("no case arm matched"), never at compile time. The Silica fix would remove the rule.
+4. **E1070, SD-37 and no aliases** make the record shapes long and the signatures brittle; groups of at most 4 fields and a `bees_cfg.shapes` text help but every app spells them.
+5. **Silica-side gaps that BEES cannot close** (N0b SR-A to SR-H, updated by the rulings): run-time decode limits (SR-D, proved E2402), a stated taint status of the storage carrier, `int_to_string`/`string_to_int`, a way to name a record shape, zeroisation, and the tuple-tag atom defect of section 10. (The `read_lines` requests are dropped.)
+6. **Churn:** `dangerous_beam_net`, `dangerous_bees_net`, the generators and the trial Makefiles are being edited by other work now; L2 and later phases wait for that to land (decision 11).
 
-## 9. Decisions needed from the user
+## 9. Decisions, and what the user ruled (2026-11-18)
 
-1. **Approve "node actors by message"** as the API shape (the only shape the rules allow without pasting). Equivalent alternative: keep a one-line `.part`-style template the app pastes. I recommend messages.
-2. **Integer opcodes in the API messages** (no atoms cross the boundary), or atoms via an API manifest merged into the app's `bees_atoms`?
-3. **The first example reads `bees.config` at build time through the Python reader** (`emit-silica`), with the Silica run-time parser deferred. Yes, or do you want the Silica parser first (about 10 to 15 days, unmeasured risk)?
-4. **Validation messages:** keep `bees.config:LINE: PATH: MESSAGE` byte for byte when a line is known, `PATH: MESSAGE` otherwise? Does the 0600 and "does not exist" wording stay in the **examples**, or must the library return them (it cannot: it sees no files)?
-5. **Cookie and key as bytes:** OK that the library guarantees *no retention and no logging* but not memory scrubbing in Silica (Silica has no facility)? If scrubbing matters, it is a Silica request.
-6. **Fingerprints:** the whitelist record carries the hex fingerprint (computed by the example, by Python at build, or by a C helper), because Silica has no SHA-512. Accept, or should the library take certificate PEMs for whitelist entries and fingerprint them through a C helper?
-7. **`plaintext_test_only` and the two link kinds:** two units (the app chooses by `silica.config`), not a run-time boolean.
-8. **Pool sizes** (`whitelist_slots_max`, `pinned_servers_max`) stated by the app in `bees_build`: OK as new build facts?
-9. **Ask Silica for:** run-time decode limits (SR-D), the `read_lines` runtime shim in the default link line, a stated taint status of `read_lines`, `int_to_string`/`string_to_int`, a type alias or a way to name a record shape (the API spells every shape), zeroisation. May these be filed?
-10. **"N2T":** what does it name?
-11. **Sequencing:** L1 and L2 start only after the multi-link/reconnect/`make integrate` work now in the tree has landed and been committed?
+All eleven suggestions were **accepted**. Each row gives the question and the ruling; the table at the top ("Rulings") is the short form.
+
+1. **API shape: node actors by message.** *Ruled: accepted.* One source unit, one compile, no pasting; the node actors are spawned by reference and driven by messages.
+2. **Tags: integer opcodes, or atoms?** *Ruled: no integer opcodes; atoms, shared.* The messages are `(:start, ...)`, `(:started, ...)` and so on (5.4). Section 10 shows what "shared" requires today: BEES's atoms registered by an expression literal in a unit listed **before** the receivers.
+3. **First example's config source.** *Ruled (changed from my suggestion): through Silica's local storage transport, not `read_lines`.* A Python packer validates `bees.config` at deploy time and writes a storage record holding an ETF-encoded config term; the app reads it through the storage carrier and `decode((:etf), ...)`s it into a typed record. No Silica text parser. `decode` de-taints.
+4. **Validation messages.** *Ruled: byte for byte `bees.config:LINE: PATH: MESSAGE`;* the file-mode and "does not exist" wording lives in the packer and the examples.
+5. **Cookie and key as bytes.** *Ruled: BEES guarantees no retention and no logging; scrubbing is a Silica request.*
+6. **Fingerprints.** *Ruled: the whitelist carries hex fingerprints computed by the packer.*
+7. **`plaintext_test_only` and the link kinds.** *Ruled: two source fragments the app chooses in `silica.config`,* not a run-time flag.
+8. **Pool sizes.** *Ruled: stated by the app at build time* (`bees_build`).
+9. **Silica requests.** *Ruled: draft them:* run-time decode limits, a stated taint status of the storage carrier, `int_to_string`/`string_to_int`, a way to name a record shape, zeroisation. **`read_lines` is not to be used, so its two requests are dropped.** One more defect is drafted in section 10 (tuple-tag atoms).
+10. **"N2T".** *Ruled: BEAM-mode TLS (an `inet_tls_dist`-compatible profile), after the Linux port.* It is therefore a later phase of this plan, after L7: the TLS bytes entry points of L4 and the node actors of L2 are what it will build on.
+11. **Sequencing.** *Ruled: as proposed:* L1 and L2 start after the multi-link/reconnect/`make integrate` work has landed and is committed.
+
+## 10. Atoms check (2026-11-18): is the shared atom table fixed? Partly; one case is still a defect
+
+**Question.** Silica's `APPLICATION_IS_ONE_COMPILATION_UNIT.md` says (status 2026-10-16) that atoms are fixed: one build-wide `silica.atoms` that every unit reads and extends, shapes in `silica.shapes`, and the trials `trials/modules_addition/sd3_cross_unit_atoms*.silica` pass. Probe `p1a` nevertheless hit "no case arm matched" on 999909 with a `silica.atoms` present. Which is true?
+
+**Both, and the difference is what the receiver does with the atom.**
+
+*How Silica's trial is built (read).* `sd3_cross_unit_atoms.silica` (`trials/modules_addition/`) lists its units in `silica.config` and compares atoms that **travel as function results**: `sd3_atom_a@mint_mango()` returns `:mango`, and `sd3_atom_b@classify(z)` matches it. Those atoms are **expression literals** (`fn mint_mango() -> atom { :mango }`), and an atom that appears as an expression literal is registered in `silica.atoms` by the unit that writes it. The trial uses `silica-compiler` (the pinned 999909) and has no actor message and no tuple tag. So the document's claim holds for that shape.
+
+*What BEES does, and what fails (probes in `/private/tmp/claude-1331430978/-Users-yenrab-project-bees/2e742689-9b61-46cc-b8c9-af30f64162f8/scratchpad/api_probe/at/`, one compile each, `nice -n 10`, one `silica.config` in dependency order, the table deleted before each run unless stated).* The shape: a library behaviour in a `lib/` unit, **spawned by reference** from the root, receives a union of tagged tuples; the root casts `(:go, 1)`.
+
+| Variant | Receiver unit (`rx`) | Result on 999909 | Constants the receiver's `case` compares |
+| --- | --- | --- | --- |
+| `v1` | union type `(:go, int64) \| (:stop, int64)` and a pattern for each; the atoms appear **nowhere else**; root first writes `:go` | **fails** ("no case arm matched") | `0` and `0`/`1` (variant positions), not atom numbers; `silica.atoms` ends `...:no_reply, :go` (no `:stop` at all) |
+| `v2` | as `v1`, plus `fn a_go() -> atom { :go }` and `fn a_stop() -> atom { :stop }` **in the same unit** | works | the table's numbers, 26 and 27 |
+| `v4` | **plain atoms**, not tuple tags: `msg: :go \| :stop`, patterns `:go`, `:stop`; root casts `:go` | works; `silica.atoms` holds both | table numbers |
+| `v6` | as `v1`; an **earlier** unit `zz0` (not `use`d by `rx`) has the expression literals `:go`, `:stop` | works | 26 and 27 |
+| `v10` | as `v6` but `zz0` holds only `:go` | works for `:go`; the `:stop` arm compares `0` | 26 and `0` |
+| `v12` | as `v6` but `zz0` listed **after** `rx` | **fails** | `0` and `0` |
+| `v7`, `v8` | `v1` rebuilt with a **stale `silica.atoms`** that already lists `:go` (v8: and `:stop`), no registering unit | **fails** (a stale table does **not** help) | `0` |
+| `v9` | single-variant union `(:go, int64)` | **fails** | `0` |
+| `v1` on 999910 and 999926 | | **fails** on both | |
+
+**Conclusion: "works as Silica's document says when X", and X is narrower than the document.**
+
+* *Works:* an atom that is a **plain atom**, or an **expression literal** somewhere in a unit compiled **before** the unit that matches it, gets the build-wide number in every unit (`v2`, `v4`, `v6`).
+* *Still a defect:* a **tuple-tag atom that the receiving unit mentions only in a union type and a pattern** is never registered in `silica.atoms`, and the pattern is compiled against the variant's position (0, 1, ...) instead of an atom number. The sender (the root, compiled later) registers the atom as `26` and sends `26`. The receiver compares `0`. **Nothing is reported at compile time.** Order matters (`v12`); a stale table does not repair it (`v7`, `v8`); it does not depend on the stdlib carriers, on `dangerous_` units or on FFI (it fails in a plain unit, `at/v1`). The language's own carriers receive `(:open, ...)` and similar tags from other units correctly because their atoms are also expression literals in units compiled earlier (`Carrier.silica` and the like), which is why the defect was not met there.
+* *Why BEES's D30 workaround works:* `bees_atoms` is listed first and writes every atom as an expression literal (`fn a_go() -> atom { :go }`), which is exactly condition X. **Under condition X the shared atoms unit is not needed as a `use`d unit**: it only has to be **listed earlier in `silica.config`** (`v6`: `rx` does not `use` `zz0`). It cannot be dropped altogether until Silica fixes the defect below.
+* Consequence for the rulings: "atoms, shared" (ruling 2) holds if BEES's atom unit, with an expression literal for every API and protocol atom, is the **first** unit of the app's `silica.config`, and `bees_config check` verifies it. The app's own message atoms follow the same rule.
+
+**Silica defect draft (for the user to file).**
+
+> **Title.** A tuple-tag atom used only in a type and a pattern of a receiving unit is not registered in `silica.atoms`; the pattern compares the variant index, and a message cast from a later unit with the same atom is never matched (silent, run time).
+>
+> **Affects.** silica-999909, 999910 and 999926, macOS Apple Silicon (not tried elsewhere). `APPLICATION_IS_ONE_COMPILATION_UNIT.md` (2026-10-16) says atoms are fixed; the trials `sd3_cross_unit_atoms*` pass because they send atoms as function results written as expression literals.
+>
+> **Reproduction** (3 files, one `silica.config` in this order: `lib/bees_reporter.silica` (any failure reporter), `lib/rx.silica`, `main.silica`). Delete `silica.atoms` before the build.
+> ```
+> // lib/rx.silica
+> module rx;
+> export beh/2;
+> fn beh(msg: (:go, int64) | (:stop, int64), st: int64) -> (:no_reply, int64) {
+>     case msg of {
+>         (:go, n: int64) -> { sequence proc[device_io] _: atom <- println("go received") produces pure (:no_reply, st + n) end };
+>         (:stop, _m: int64) -> (:no_reply, st)
+>     }
+> }
+> // main.silica
+> use bees_reporter; use rx; module main;
+> fn main() -> int64 {
+>     sequence proc[concurrency, device_io]
+>         _: atom <- bees_reporter@start();
+>         a: actor_ref <- spawn(0, rx@beh, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+>         _: boolean <- cast(a, (:go, 1) impl ActorMessage {});
+>         _: int64 <- wait_for_exit()
+>     produces pure 0 end
+> }
+> ```
+> **Observed.** `=== Silica Actor Failure === reason: :language_error: no case arm matched, #0 rx_beh`. `rx.sams` compares the first word of the message with `#0` (and `#1`); `main.sams` stores `#26`; `silica.atoms` ends `:no_reply`, `:go` and does not contain `:stop`.
+> **Expected.** `go received`: the pattern atom is registered in the build-wide table, in `rx`, and `main` finds it there (as it does when `rx` also contains `fn a_go() -> atom { :go }`, or when an earlier unit does).
+> **Variants.** Works with the atoms as expression literals in `rx` or in an earlier-listed unit; works with plain atoms (`msg: :go | :stop`); fails with the atoms' unit listed after `rx`; fails with a stale `silica.atoms`.
+> **Impact for BEES.** Every message protocol between a library behaviour and its sender is exposed. BEES keeps D30 (the atom unit listed first) until this is fixed; a fix would let the app's `silica.config` drop that ordering rule.
+
+The reproduction sources are kept in the scratchpad (`at/v1/lib/rx.silica`, `at/v1/main.silica`); they are not in the repository.

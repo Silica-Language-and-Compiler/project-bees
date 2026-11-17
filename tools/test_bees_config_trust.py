@@ -4,7 +4,7 @@
 Every validation rule of bees-config-file.md section 4 that concerns `mode` or the `trust` section has a rejecting case here, each
 checked for the `bees.config:LINE: PATH: MESSAGE` form; the defaults of section 5.3 read back when a key is absent; the whitelist
 and pin files parse in both of SEMP's spec forms; the fingerprint is the SHA-512 of the DER inside a PEM file. When an `erl` is
-installed (/usr/local/erlang/bin/erl or on PATH), the frames recorded in trials/n3_trust_frames/frames.scout are read back by
+installed (/usr/local/erlang/bin/erl or on PATH), the frames recorded in trials/n3_trust_frames/frames.<platform id>.scout are read back by
 erl's binary_to_term (the reference reader, safe mode) and must be maps with the expected keys.
 
     python3 tools/test_bees_config_trust.py
@@ -27,6 +27,7 @@ def slurp(p):
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import bees_config_trust as B  # noqa: E402
+import platform_id as P  # noqa: E402
 
 GOOD_TRUST = """[{mode, trust}, {trust, [{port, 47501}, {listen_address, "127.0.0.1"}, {plaintext_test_only, true}%s]}]."""
 
@@ -241,7 +242,7 @@ class Frames(unittest.TestCase):
         erl = find_erl()
         if not erl:
             self.skipTest("no erl installed")
-        golden = os.path.join(HERE, "..", "trials", "n3_trust_frames", "frames.scout")
+        golden = os.path.join(HERE, "..", "trials", "n3_trust_frames", P.golden_name("frames.scout"))
         if not os.path.exists(golden):
             self.skipTest("no frames golden recorded yet")
         hexes = dict(re.findall(r"^(hello|call|result) hex ([0-9a-f]+)$", slurp(golden), re.M))

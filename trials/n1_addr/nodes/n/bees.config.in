@@ -2,5 +2,5 @@
 [ {mode, beam},
   {node, [{name, "b@localhost"}]},
   {beam, [{transport, tcp}, {auth, cookie}, {cookie_file, "../../../n2_dist/cookie"}, {listen_address, "127.0.0.1"},
-          {listen_port, 47463}, {epmd, none}, {frame_size_max, 4096},
-          {peers, [{"a@localhost", [{host, "localhost"}, {port, 47451}, {role, dial}]}]}, {redial, false}]} ].
+          {listen_port, 21612}, {epmd, none}, {frame_size_max, 4096},
+          {peers, [{"a@localhost", [{host, "localhost"}, {port, 21600}, {role, dial}]}]}, {redial, false}]} ].

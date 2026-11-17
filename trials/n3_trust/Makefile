@@ -27,7 +27,7 @@ BOOTS := boot_missing|g1 boot_unreadable|g2
 
 SCEN_QUOTED := $(foreach s,$(SCENARIOS),'$(s)')
 BOOT_QUOTED := $(foreach s,$(BOOTS),'$(s)')
-CLEAN_OUT = clean_out() { sed -i '' -E -e 's/0x[0-9a-f]{6,}/0xADDR/g' "$$@" && $(STRIP_ROOT_EXIT) "$$@"; }; clean_out
+CLEAN_OUT = clean_out() { $(SED_I) -E -e 's/0x[0-9a-f]{6,}/0xADDR/g' "$$@" && $(STRIP_ROOT_EXIT) "$$@"; }; clean_out
 .PHONY: build run integrate record-golden clean measure
 # a node leaf is built twice the first time: its root units are generated at parse time, after make has listed the entries
 build:
@@ -47,18 +47,18 @@ run: build
 
 integrate: run
 	@cd "$(HERE)" && ok=0; ko=0; \
-	check() { if [ ! -f "$$2" ]; then echo "MISSING golden: [n3_trust] $$2"; ko=$$((ko+1)); \
+	check() { if [ ! -f "$$2" ]; then echo "MISSING golden for $(BEES_PLATFORM_ID) (record one on this platform with make record-golden): [n3_trust] $$2"; ko=$$((ko+1)); \
 		elif diff -Bw -q "$$1" "$$2" > /dev/null; then ok=$$((ok+1)); \
 		else echo "DIFF: [n3_trust] $$1"; diff -Bw "$$2" "$$1" || true; ko=$$((ko+1)); fi; }; \
 	for s in $(SCEN_QUOTED); do name=$$(echo "$$s" | cut -d'|' -f1); ag=$$(echo "$$s" | cut -d'|' -f6); \
-		check "$$name.b.sout" "$$name.b.scout"; if [ "$$ag" = 1 ]; then check "$$name.a.sout" "$$name.a.scout"; fi; done; \
-	for s in $(BOOT_QUOTED); do sc=$${s%%|*}; check "$$sc.sout" "$$sc.scout"; done; \
+		check "$$name.b.sout" "$$name.b$(GOLD_SUFFIX).scout"; if [ "$$ag" = 1 ]; then check "$$name.a.sout" "$$name.a$(GOLD_SUFFIX).scout"; fi; done; \
+	for s in $(BOOT_QUOTED); do sc=$${s%%|*}; check "$$sc.sout" "$$sc$(GOLD_SUFFIX).scout"; done; \
 	printf '%d %d\n' "$$ok" "$$ko" > .integrate_counts; echo "[n3_trust] $$ok passed, $$ko failed"; [ "$$ko" -eq 0 ]
 
 record-golden: run
 	@cd "$(HERE)" && for s in $(SCEN_QUOTED); do name=$$(echo "$$s" | cut -d'|' -f1); ag=$$(echo "$$s" | cut -d'|' -f6); \
-		cp "$$name.b.sout" "$$name.b.scout"; if [ "$$ag" = 1 ]; then cp "$$name.a.sout" "$$name.a.scout"; fi; done; \
-	for s in $(BOOT_QUOTED); do sc=$${s%%|*}; cp "$$sc.sout" "$$sc.scout"; done; echo "[n3_trust] goldens recorded"
+		cp "$$name.b.sout" "$$name.b$(GOLD_SUFFIX).scout"; if [ "$$ag" = 1 ]; then cp "$$name.a.sout" "$$name.a$(GOLD_SUFFIX).scout"; fi; done; \
+	for s in $(BOOT_QUOTED); do sc=$${s%%|*}; cp "$$sc.sout" "$$sc$(GOLD_SUFFIX).scout"; done; echo "[n3_trust] goldens recorded"
 
 # (f) the rate and memory run: one run per call count (CALLS_LIST, default 2000 6000 20000), this machine, each program under /usr/bin/time -l
 # (peak resident set size). N2c: a long-lived node must stay flat, so the growth per call between the counts is what is read, not the peak.

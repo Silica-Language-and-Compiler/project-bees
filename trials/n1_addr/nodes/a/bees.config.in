@@ -2,4 +2,4 @@
 [ {mode, beam},
   {node, [{name, "a@localhost"}]},
   {beam, [{transport, tcp}, {auth, cookie}, {cookie_file, "../../../n2_dist/cookie"}, {listen_address, "127.0.0.1"},
-          {listen_port, 47451}, {epmd, none}, {frame_size_max, 4096}]} ].
+          {listen_port, 21600}, {epmd, none}, {frame_size_max, 4096}]} ].

@@ -20,7 +20,7 @@ fn say(s: string) -> atom {
         _: atom <- println(s)
     produces pure :ok end
 }
-fn server() -> string { "127.0.0.1:47601" }
+fn server() -> string { "127.0.0.1:22500" }
 fn ints1(a: int64) -> string {
     sequence proc[mem(normal)]
         xs: List[int64, mem(normal)] <- [a]

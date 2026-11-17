@@ -20,8 +20,10 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 TOOL = os.path.join(HERE, "bees_config_beam.py")
-FRAMES = os.path.join(ROOT, "trials", "n2_frames", "main.scout")
-AUTH = os.path.join(ROOT, "trials", "n2_auth", "dangerous_n2_auth.scout")
+sys.path.insert(0, HERE)
+import platform_id as P  # noqa: E402
+FRAMES = os.path.join(ROOT, "trials", "n2_frames", P.golden_name("main.scout"))
+AUTH = os.path.join(ROOT, "trials", "n2_auth", P.golden_name("dangerous_n2_auth.scout"))
 DIST_HRL = "/usr/local/erlang/lib/erlang/lib/kernel-10.0/include/dist.hrl"
 FLAGS = 0x4_0307_0F9D
 

@@ -245,7 +245,19 @@ The order was decided by the user on the parent's suggestion: **(1)** the ground
 | Secure random bytes and MD5 through the foreign-function boundary | Needed by N2 (the cookie challenge and digest) and N3 (tokens): system libraries only, through the native edge; their results are tainted, so they follow the conversion rule of section 4. |
 | `bees.config` and its reader | Designed ([bees-config-file.md](bees-config-file.md)); built in N0. |
 | `bees_config` schema and peer generators | New. |
-| A C compiler for the edge | `clang`, already used for `native/`. No downloads. |
+| A C compiler for the edge | `clang`, already used for `native/`. No downloads. Since 2026-11-17 `native/` is common code plus one directory per platform (`native/README.md`). |
+
+### 6.1 Running all the trials, in parallel and on other machines (2026-11-17)
+
+`make integrate` is the serial path and stays as it was: one leaf after another, then `make kit`. `tools/run_all_trials.sh` runs
+the same leaves in parallel: `-j N` trials at a time (default: cores minus one, `BEES_JOBS`), at most `--compile-jobs` Silica
+compiles at a time (default 2, `BEES_COMPILE_JOBS`; the compile of a big unit such as `bees_modules` is the memory-heavy step,
+limited by `tools/with_slot.py` inside the compile recipes), each trial's output in its own log under `trial_runs/STAMP/PLATFORM/`,
+one summary table, exit status 0 only when every trial that ran passed. Trials can run side by side because every trial that
+listens owns a block of ports (`tools/trial_ports.py`), builds in its own directory, and `native/` is built once before the first.
+Machines with other platforms are listed in the untracked `.bees_build_hosts` (format in `.bees_build_hosts.example`); the runner
+syncs the tree, runs that platform's trials there and brings the logs and that platform's goldens back. A platform whose build is
+not supported yet (Linux x86_64 today) is reported SKIPPED with the reason. The full description is `tools/README.md`.
 
 ## 7. Out of scope, with where each goes next
 

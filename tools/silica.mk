@@ -15,19 +15,30 @@ endif
 
 SILICA_STDLIB := $(SILICA_ROOT)/compiler/stdlib
 
-# Assembler and linker. Homebrew LLVM's clang is preferred when present, as in Silica's own
-# project Makefiles. The entry symbol is `main` (no C runtime, no leading underscore).
-CLANG ?= $(or $(shell test -x /opt/homebrew/opt/llvm/bin/clang && echo /opt/homebrew/opt/llvm/bin/clang),clang)
-MACOS_MIN_VERSION ?= 26.0
-ASFLAGS := -mmacosx-version-min=$(MACOS_MIN_VERSION)
-LDFLAGS := -Wl,-e,main -Wl,-macos_version_min,$(MACOS_MIN_VERSION) -Wl,-stack_size,0x10000000
+# The platform (tools/platform.mk): BEES_PLATFORM (native/ directory) and BEES_PLATFORM_ID (the golden-name infix). Everything
+# the build needs that exists on one platform only (assembler/linker flags, the clang to prefer, BSD sed, where OpenSSL is)
+# comes from native/$(BEES_PLATFORM)/platform.mk.
+include $(BEES_ROOT)/tools/platform.mk
+
+# Assembler and linker. The entry symbol is `main` (no C runtime, no leading underscore): the platform's flags say so.
+CLANG ?= $(or $(PLATFORM_CLANG),clang)
+ASFLAGS := $(PLATFORM_ASFLAGS)
+LDFLAGS := $(PLATFORM_LDFLAGS)
+
+# A golden is NAME.$(BEES_PLATFORM_ID).scout / .golden_fail: a run compares only against its own platform's golden (tools/platform_id.py).
+# GOLD(name, ext) -> NAME.ID.EXT for shell or make text.
+GOLD_SUFFIX := .$(BEES_PLATFORM_ID)
+# in-place sed (BSD and GNU differ; native/$(BEES_PLATFORM)/platform.mk)
+SED_I := $(PLATFORM_SED_INPLACE)
 
 # Process-per-unit reclaim loop: exit 75 means "restart me for the next unit" (Silica's
 # trials/silica_compiler.mk). Exit 142 is the per-unit alarm.
 SILICA_COMPILE_TIMEOUT ?= 300
+# Under tools/run_all_trials.sh the compiler runs inside a slot (tools/with_slot.py): at most BEES_COMPILE_SLOTS compiles at a time.
+WITH_SLOT := python3 "$(BEES_ROOT)/tools/with_slot.py"
 define RUN_SILICA_COMPILER
 	while true; do \
-		perl -e 'alarm shift @ARGV; exec @ARGV' $(SILICA_COMPILE_TIMEOUT) "$(SILICA_COMPILER)"; \
+		$(WITH_SLOT) perl -e 'alarm shift @ARGV; exec @ARGV' $(SILICA_COMPILE_TIMEOUT) "$(SILICA_COMPILER)"; \
 		ec=$$?; \
 		if [ $$ec -eq 0 ]; then break; fi; \
 		if [ $$ec -eq 75 ]; then continue; fi; \
@@ -48,12 +59,12 @@ define RUN_TRIAL
 		perl -e 'alarm shift @ARGV; exec @ARGV' $(SILICA_RUN_TIMEOUT) "$(1)" < /dev/null > "$(2)" 2>&1; rc=$$?; \
 		printf 'exit=%s\n' "$$rc" >> "$(2)"; \
 	fi; \
-	sed -i '' -E 's/0x[0-9a-f]{6,}/0xADDR/g' "$(2)"
+	$(SED_I) -E 's/0x[0-9a-f]{6,}/0xADDR/g' "$(2)"
 endef
 
 # TRUST over TLS (N4.1): a program whose silica.link names the TLS engine's archive (libsilica_bees_tls.a) is linked with the
 # programmer-installed OpenSSL (D40; BEES ships none). OPENSSL_PREFIX as in native/Makefile.
-OPENSSL_PREFIX ?= $(firstword $(foreach p,/opt/homebrew/opt/openssl /opt/homebrew/opt/openssl@3,$(if $(wildcard $(p)/include/openssl/ssl.h),$(p))))
+OPENSSL_PREFIX ?= $(firstword $(foreach p,$(PLATFORM_OPENSSL_DIRS),$(if $(wildcard $(p)/include/openssl/ssl.h),$(p))))
 OPENSSL_LDFLAGS := $(if $(OPENSSL_PREFIX),-L$(OPENSSL_PREFIX)/lib) -lssl -lcrypto
 
 # The runtime prints "[silica] root actor exited (no supervisor)" on stderr when an unsupervised actor ends. Since Silica

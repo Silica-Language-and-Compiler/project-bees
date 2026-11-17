@@ -1,5 +1,5 @@
 # N2c reconnect, node e: dials the hub and casts req_e. redial false: e1 is meant to stay down once the hub replaces its link.
 node   e@localhost
-peer   h@localhost 127.0.0.1 47461 dial
+peer   h@localhost 127.0.0.1 22200 dial
 remote req_e @ h@localhost cast { op: atom, n: int64 }
 local  ans_e cast { op: atom, n: int64 }

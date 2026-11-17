@@ -32,7 +32,7 @@ run: build
 		sc=$$(echo "$$s" | cut -d'|' -f1); ea=$$(echo "$$s" | cut -d'|' -f2); ma=$$(echo "$$s" | cut -d'|' -f3); eb=$$(echo "$$s" | cut -d'|' -f4); mb=$$(echo "$$s" | cut -d'|' -f5); kt=$$(echo "$$s" | cut -d'|' -f6); \
 		if [ -n "$$kt" ]; then k="--kill-a-on"; else k=""; fi; \
 		"$(BEES_ROOT)/tools/run_demo.py" --a "nodes/$$ea" "$$sc.a.sout" "$$ma" --b "nodes/$$eb" "$$sc.b.sout" "$$mb" $$k $${kt:+"$$kt"} || echo "pair $$sc: a run failed"; \
-		sed -i '' -E -e 's/0x[0-9a-f]{6,}/0xADDR/g' -e '/net ticks seen/d' "$$sc.a.sout" "$$sc.b.sout"; $(STRIP_ROOT_EXIT) "$$sc.a.sout" "$$sc.b.sout"; \
+		$(SED_I) -E -e 's/0x[0-9a-f]{6,}/0xADDR/g' -e '/net ticks seen/d' "$$sc.a.sout" "$$sc.b.sout"; $(STRIP_ROOT_EXIT) "$$sc.a.sout" "$$sc.b.sout"; \
 	done
 
 integrate: run
@@ -40,14 +40,14 @@ integrate: run
 		name=$$(echo "$$s" | cut -d'|' -f1); ag=$$(echo "$$s" | cut -d'|' -f7); \
 		for side in a b; do \
 			if [ "$$side" = a ] && [ "$$ag" = 0 ]; then continue; fi; \
-			if [ ! -f "$$name.$$side.scout" ]; then echo "MISSING golden: [m4_demo] $$name.$$side.scout"; ko=$$((ko+1)); \
-			elif diff -Bw -q "$$name.$$side.sout" "$$name.$$side.scout" > /dev/null; then ok=$$((ok+1)); \
-			else echo "DIFF: [m4_demo] $$name.$$side"; diff -Bw "$$name.$$side.scout" "$$name.$$side.sout" || true; ko=$$((ko+1)); fi; \
+			if [ ! -f "$$name.$$side$(GOLD_SUFFIX).scout" ]; then echo "MISSING golden for $(BEES_PLATFORM_ID) (record one on this platform with make record-golden): [m4_demo] $$name.$$side$(GOLD_SUFFIX).scout"; ko=$$((ko+1)); \
+			elif diff -Bw -q "$$name.$$side.sout" "$$name.$$side$(GOLD_SUFFIX).scout" > /dev/null; then ok=$$((ok+1)); \
+			else echo "DIFF: [m4_demo] $$name.$$side"; diff -Bw "$$name.$$side$(GOLD_SUFFIX).scout" "$$name.$$side.sout" || true; ko=$$((ko+1)); fi; \
 		done; \
 	done; printf '%d %d\n' "$$ok" "$$ko" > .integrate_counts; echo "[m4_demo] $$ok passed, $$ko failed"; [ "$$ko" -eq 0 ]
 
 record-golden: run
-	@cd "$(HERE)" && for s in $(SCEN_QUOTED); do name=$${s%%|*}; ag=$$(echo "$$s" | cut -d'|' -f7); cp "$$name.b.sout" "$$name.b.scout"; if [ "$$ag" = 1 ]; then cp "$$name.a.sout" "$$name.a.scout"; fi; done; echo "[m4_demo] goldens recorded"
+	@cd "$(HERE)" && for s in $(SCEN_QUOTED); do name=$${s%%|*}; ag=$$(echo "$$s" | cut -d'|' -f7); cp "$$name.b.sout" "$$name.b$(GOLD_SUFFIX).scout"; if [ "$$ag" = 1 ]; then cp "$$name.a.sout" "$$name.a$(GOLD_SUFFIX).scout"; fi; done; echo "[m4_demo] goldens recorded"
 
 # the rate and memory run: one run, this machine, each program under /usr/bin/time -l (peak resident set size)
 measure: build

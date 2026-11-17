@@ -10,6 +10,11 @@ HERE := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 include $(BEES_ROOT)/tools/silica.mk
 NODES := m3l m3d bl bd
 CYCLES ?= 1000
+# the ports come from tools/trial_ports.py (the one table; offsets: m3l 0, m3d 1, bl 2, bd 3)
+PORT_M3L := $(shell python3 "$(BEES_ROOT)/tools/trial_ports.py" port n2_soak 0)
+PORT_M3D := $(shell python3 "$(BEES_ROOT)/tools/trial_ports.py" port n2_soak 1)
+PORT_BL := $(shell python3 "$(BEES_ROOT)/tools/trial_ports.py" port n2_soak 2)
+PORT_BD := $(shell python3 "$(BEES_ROOT)/tools/trial_ports.py" port n2_soak 3)
 .PHONY: build integrate record-golden measure clean cookies
 build: cookies
 	@for n in $(NODES); do ($(MAKE) -C "$(HERE)/nodes/$$n" build || $(MAKE) -C "$(HERE)/nodes/$$n" build) || exit 1; $(MAKE) -C "$(HERE)/nodes/$$n" build > /dev/null || exit 1; done
@@ -22,7 +27,7 @@ record-golden: build
 measure: build
 	@cd "$(HERE)" && { \
 	for spec in "m3l connect" "m3l connect --overlap" "m3d accept" "bl connect" "bl connect --overlap" "bd accept"; do set -- $$spec; n=$$1; m=$$2; ov=$$3; \
-		case $$n in m3l) p=47481;; m3d) p=47482;; bl) p=47483;; bd) p=47484;; esac; \
+		case $$n in m3l) p=$(PORT_M3L);; m3d) p=$(PORT_M3D);; bl) p=$(PORT_BL);; bd) p=$(PORT_BD);; esac; \
 		echo "== $$n $$m $$ov, $(CYCLES) cycles: cycle rss_kib"; python3 "$(BEES_ROOT)/tools/soak.py" $$m "nodes/$$n/dangerous_$$n" $$p $(CYCLES) $$ov; \
 	done; } | tee measure.txt
 

@@ -38,7 +38,7 @@ exercises, and `make integrate` at the root builds and runs everything (see `too
 BEAM mode (N2, a separate implementation, D36): `inter_nodal/dangerous_beam_net` (the node with Erlang's cookie handshake,
 EPMD and the control messages of a stock node; M3's `dangerous_bees_net` stays the auth-none node), `inter_nodal/beam_dist`
 (the layouts), `inter_nodal/dangerous_beam_auth` and `dangerous_beam_auth_ffi` (the cookie worker over
-`native/src/silica_bees_beam.c`, CommonCrypto), and `shim/beam_node_edge.part` (the startup, passed to
+`native/src/silica_bees_beam.c`; its random bytes and MD5 come from the platform interface `native/bees_platform.h`, implemented in `native/macos/` with CommonCrypto), and `shim/beam_node_edge.part` (the startup, passed to
 `tools/bees_edge_gen.py` as the first role file). The beam half of the `bees.config` reader is `tools/bees_config_beam.py`.
 
 `bees.config` (N0.2): the ONE reader is `tools/bees_conf.py` (a BUILD-TIME STAND-IN for the boot-time reader the design asks for:

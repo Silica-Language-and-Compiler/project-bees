@@ -2,6 +2,6 @@
 node   b@127.0.0.1
 creation 1
 redial off
-peer   a@127.0.0.1 127.0.0.1 47411 dial
+peer   a@127.0.0.1 127.0.0.1 21200 dial
 remote counter @ a@127.0.0.1 cast { op: atom, n: int64 }
 local  inbox cast { total: int64 }

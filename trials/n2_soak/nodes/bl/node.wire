@@ -1,5 +1,5 @@
 # N2c soak leaf bl: one listen peer (peer_count 1), a remote and a local name
 node   l@localhost
-peer   c@localhost 127.0.0.1 47483 listen
+peer   c@localhost 127.0.0.1 22302 listen
 remote ans @ c@localhost cast { op: atom, n: int64 }
 local  req cast { op: atom, n: int64 }

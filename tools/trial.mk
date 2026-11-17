@@ -10,16 +10,17 @@
 #   *.silica            entry programs: each has fn main() and becomes one executable
 #   NAME.pair           (optional) two entry names that run together, e.g. a listener and a connector
 #   fail_*.silica (dangerous_fail_*.silica when the unit declares foreign functions: E4020 wants the dangerous_ prefix)       compile-fail trials, compiled in isolation; the compiler's output is
-#                       the golden (.golden_fail)
-#   NAME.scout          golden stdout+stderr+exit code of entry NAME (recorded, then diffed)
+#                       the golden (NAME.$(BEES_PLATFORM_ID).golden_fail)
+#   NAME.$(BEES_PLATFORM_ID).scout   golden stdout+stderr+exit code of entry NAME on this platform (recorded, then diffed; e.g.
+#                       NAME.macos_applesilicon.scout; a run compares only with its own platform's golden, tools/README.md)
 #   sout.sed            (optional) sed -E script applied to every entry's NAME.sout after its run (paired entries too), for what varies
 #                       between runs (e.g. where the runtime's own lines land)
 #
 # Targets:
 #   build           silica.config -> compile (reclaim loop) -> assemble -> link every entry
 #   run             run every entry, writing NAME.sout
-#   integrate       build + run + diff against .scout / .golden_fail; non-zero on any miss
-#   record-golden   build + run, then copy .sout -> .scout and .cur_fail -> .golden_fail
+#   integrate       build + run + diff against the platform's .scout / .golden_fail; non-zero on any miss
+#   record-golden   build + run, then copy .sout -> .PLATFORM.scout and .cur_fail -> .PLATFORM.golden_fail
 #   clean           remove everything generated
 #
 # Every recipe cds into the leaf, because silica-compiler reads silica.config from the
@@ -107,12 +108,12 @@ build: silica.config
 
 run: build
 	@cd "$(LEAF)" && for e in $(filter-out $(PAIRED),$(ENTRIES)); do $(call RUN_TRIAL,./$$e,$$e.sout); \
-		if [ -f sout.sed ]; then sed -i '' -E -f sout.sed "$$e.sout"; fi; done
+		if [ -f sout.sed ]; then $(SED_I) -E -f sout.sed "$$e.sout"; fi; done
 	@cd "$(LEAF)" && for p in $(PAIR_FILES); do \
 		set -- $$(cat "$$p"); \
 		"$(BEES_ROOT)/tools/run_pair.py" "./$$1" "$$1.sout" "$$(cat "$$1.wait_for_exit")" "./$$2" "$$2.sout" "$$(cat "$$2.wait_for_exit")"; \
-		sed -i '' -E 's/0x[0-9a-f]{6,}/0xADDR/g' "$$1.sout" "$$2.sout"; $(STRIP_CARRIER_END) "$$1.sout" "$$2.sout"; \
-		if [ -f sout.sed ]; then sed -i '' -E -f sout.sed "$$1.sout" "$$2.sout"; fi; \
+		$(SED_I) -E 's/0x[0-9a-f]{6,}/0xADDR/g' "$$1.sout" "$$2.sout"; $(STRIP_CARRIER_END) "$$1.sout" "$$2.sout"; \
+		if [ -f sout.sed ]; then $(SED_I) -E -f sout.sed "$$1.sout" "$$2.sout"; fi; \
 	done
 
 # Compile-fail trials: each is compiled alone in .fail/NAME/ with the leaf's lib/ beside it, so
@@ -124,23 +125,23 @@ compile_fail() { \
 	ln -s "../../$$1" "$$d/$$1"; [ -d lib ] && ln -s ../../lib "$$d/lib"; \
 	[ -e dangerous_exposure_source ] && ln -s ../../dangerous_exposure_source "$$d/dangerous_exposure_source"; \
 	( cd "$$d" && "$(TOPO)" . > silica.config && \
-	  { "$(SILICA_COMPILER)" > "../../$$n.cur_fail" 2>&1; echo "exit=$$?" >> "../../$$n.cur_fail"; } ); \
-	sed -i '' -E 's/0x[0-9a-f]{6,}/0xADDR/g' "$$n.cur_fail"; \
+	  { $(WITH_SLOT) "$(SILICA_COMPILER)" > "../../$$n.cur_fail" 2>&1; echo "exit=$$?" >> "../../$$n.cur_fail"; } ); \
+	$(SED_I) -E 's/0x[0-9a-f]{6,}/0xADDR/g' "$$n.cur_fail"; \
 }
 endef
 
 integrate: run
 	@cd "$(LEAF)" && ok=0; ko=0; \
 	for e in $(ENTRIES); do \
-		if [ ! -f "$$e.scout" ]; then echo "MISSING golden: [$(LEAF_NAME)] $$e.scout"; ko=$$((ko+1)); \
-		elif diff -Bw -q "$$e.sout" "$$e.scout" > /dev/null; then ok=$$((ok+1)); \
-		else echo "DIFF: [$(LEAF_NAME)] $$e"; diff -Bw "$$e.scout" "$$e.sout" || true; ko=$$((ko+1)); fi; \
+		if [ ! -f "$$e$(GOLD_SUFFIX).scout" ]; then echo "MISSING golden for $(BEES_PLATFORM_ID) (record one on this platform with make record-golden): [$(LEAF_NAME)] $$e$(GOLD_SUFFIX).scout"; ko=$$((ko+1)); \
+		elif diff -Bw -q "$$e.sout" "$$e$(GOLD_SUFFIX).scout" > /dev/null; then ok=$$((ok+1)); \
+		else echo "DIFF: [$(LEAF_NAME)] $$e"; diff -Bw "$$e$(GOLD_SUFFIX).scout" "$$e.sout" || true; ko=$$((ko+1)); fi; \
 	done; \
 	$(COMPILE_FAIL_FN); \
 	for f in $(FAIL_UNITS); do \
 		compile_fail "$$f"; \
-		g="$${f%.silica}.golden_fail"; c="$${f%.silica}.cur_fail"; \
-		if [ ! -f "$$g" ]; then echo "MISSING golden: [$(LEAF_NAME)] $$g"; ko=$$((ko+1)); \
+		g="$${f%.silica}$(GOLD_SUFFIX).golden_fail"; c="$${f%.silica}.cur_fail"; \
+		if [ ! -f "$$g" ]; then echo "MISSING golden for $(BEES_PLATFORM_ID) (record one on this platform with make record-golden): [$(LEAF_NAME)] $$g"; ko=$$((ko+1)); \
 		elif grep -q '^exit=0$$' "$$c"; then echo "COMPILED BUT SHOULD FAIL: [$(LEAF_NAME)] $$f"; ko=$$((ko+1)); \
 		elif diff -Bw -q "$$c" "$$g" > /dev/null; then ok=$$((ok+1)); \
 		else echo "DIFF: [$(LEAF_NAME)] $$f"; diff -Bw "$$g" "$$c" || true; ko=$$((ko+1)); fi; \
@@ -149,9 +150,9 @@ integrate: run
 	echo "[$(LEAF_NAME)] $$ok passed, $$ko failed"; [ "$$ko" -eq 0 ]
 
 record-golden: run
-	@cd "$(LEAF)" && for e in $(ENTRIES); do cp "$$e.sout" "$$e.scout"; done; \
+	@cd "$(LEAF)" && for e in $(ENTRIES); do cp "$$e.sout" "$$e$(GOLD_SUFFIX).scout"; done; \
 	$(COMPILE_FAIL_FN); \
-	for f in $(FAIL_UNITS); do compile_fail "$$f"; cp "$${f%.silica}.cur_fail" "$${f%.silica}.golden_fail"; done; \
+	for f in $(FAIL_UNITS); do compile_fail "$$f"; cp "$${f%.silica}.cur_fail" "$${f%.silica}$(GOLD_SUFFIX).golden_fail"; done; \
 	echo "[$(LEAF_NAME)] goldens recorded"
 
 clean:

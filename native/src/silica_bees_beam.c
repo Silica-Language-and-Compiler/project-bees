@@ -1,9 +1,8 @@
-/* BEES native edge, BEAM mode (N2): cookie file, random challenge and MD5 digest for Erlang's cookie handshake, from the
- * system's CommonCrypto (libSystem). See ../dangerous_exposure_source/beam/silica_bees_beam_wrapper.h. */
+/* BEES native edge, BEAM mode (N2): cookie file, random challenge and MD5 digest for Erlang's cookie handshake. Common code:
+ * the random bytes and the MD5 come from the platform interface (../bees_platform.h). See ../dangerous_exposure_source/beam/silica_bees_beam_wrapper.h. */
 #include "../dangerous_exposure_source/beam/silica_bees_beam_wrapper.h"
+#include "../bees_platform.h"
 
-#include <CommonCrypto/CommonDigest.h>
-#include <CommonCrypto/CommonRandom.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
@@ -70,15 +69,13 @@ bees_beam_tagged bees_beam_load_cookie(const uint8_t *path_ptr, uint64_t path_le
 bees_beam_tagged bees_beam_challenge(int64_t unused) {
     (void)unused;
     uint8_t b[4];
-    CCRNGStatus s = CCRandomGenerateBytes(b, sizeof b);
-    if (s != kCCSuccess) return result(1, 0, (int64_t)s);
+    int s = bees_platform_random(b, sizeof b);
+    if (s != 0) return result(1, 0, (int64_t)s);
     uint32_t v = ((uint32_t)b[0] << 24) | ((uint32_t)b[1] << 16) | ((uint32_t)b[2] << 8) | (uint32_t)b[3];
     return result(0, (int64_t)v, 0);
 }
 
-/* CC_MD5 is marked deprecated (MD5 is not a secure hash); it is what Erlang's cookie scheme is defined with. */
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+/* MD5 is not a secure hash; it is what Erlang's cookie scheme is defined with. */
 bees_beam_tagged bees_beam_digest(int64_t challenge) {
     if (challenge < 0 || challenge > 0xFFFFFFFFLL) return result(6, 0, 0);
     char text[BEES_COOKIE_MAX + 16];
@@ -88,11 +85,10 @@ bees_beam_tagged bees_beam_digest(int64_t challenge) {
     pthread_mutex_unlock(&bees_cookie_lock);
     if (n == 0) return result(5, 0, 0);
     int k = snprintf(text + n, 16, "%llu", (unsigned long long)challenge);
-    CC_MD5(text, (CC_LONG)(n + (size_t)k), bees_digest_last);
+    bees_platform_md5(text, n + (size_t)k, bees_digest_last);
     memset(text, 0, sizeof text);
     return result(0, 0, 0);
 }
-#pragma clang diagnostic pop
 
 bees_beam_tagged bees_beam_digest_word(int64_t i) {
     if (i < 0 || i > 3) return result(6, 0, 0);

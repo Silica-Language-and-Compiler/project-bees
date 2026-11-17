@@ -15,7 +15,7 @@ The programmer obtains and installs these. BEES neither downloads, vendors nor b
 
 **Enforced, with no exception (user ruling 2026-11-12):** on hosted platforms an OpenSSL older than 4.1.0 is refused three ways.
 `native/tls/silica_bees_tls.c` stops at compile time (`OPENSSL_VERSION_NUMBER < 0x40100000L`); `native/Makefile` refuses to build
-the TLS engine and says which OpenSSL it found (`OPENSSL_PREFIX`, default Homebrew's `/opt/homebrew/opt/openssl`, then
+the TLS engine and says which OpenSSL it found (`OPENSSL_PREFIX`, default the platform's list in `native/<platform>/platform.mk`: on macOS Homebrew's `/opt/homebrew/opt/openssl`, then
 `openssl@4`) and that 4.1.0 is the minimum; and a TRUST node's TLS link refuses at run time when the OpenSSL library it loaded is
 older (the engine reports `OpenSSL_version_num()`, the link decides). The trials that need TLS fail with the Makefile's message;
 they do not skip. BEAM-mode and plaintext (`plaintext_test_only`) TRUST programs do not use the engine. Verified on macOS (Apple
@@ -67,4 +67,5 @@ Open consequences:
 ## 5. Other requirements
 
 - The Silica compiler generation BEES is verified against is pinned in `tools/silica.generation`.
-- BEES builds on macOS and Apple Silicon first; Linux follows Silica's phase 3.
+- BEES builds on macOS and Apple Silicon first; Linux follows Silica's phase 3. The native C is common code plus one directory per platform (`native/macos/` built; `native/linux/`, `native/esp32s3/`, `native/nucleo/` placeholders); see `native/README.md`.
+- Goldens carry the platform in their name (`NAME.macos_applesilicon.scout`); a run compares only with its own platform's golden and fails loudly when there is none (`tools/README.md`).

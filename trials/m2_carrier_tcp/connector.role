@@ -1,4 +1,4 @@
-// ---- node b: connects to 127.0.0.1:47311 (the language's "host:port:timeout_ms" address) and sends frame B.
+// ---- node b: connects to 127.0.0.1:21000 (the language's "host:port:timeout_ms" address) and sends frame B.
 fn label() -> string { "b" }
-fn address() -> string { "127.0.0.1:47311:10000" }
+fn address() -> string { "127.0.0.1:21000:10000" }
 fn frame_text() -> string { "frame B: 3 4242 world!!! 9223372036854775807" }

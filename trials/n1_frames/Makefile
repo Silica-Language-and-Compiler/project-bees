@@ -24,19 +24,19 @@ build:
 
 run: build
 	@cd "$(HERE)" && "$(BEES_ROOT)/tools/run_pair.py" nodes/a/dangerous_a_echo big.a.sout "killed)" nodes/b/dangerous_b_big big.b.sout "killed)" 0.5 300 || echo "pair big: a run failed"; \
-		sed -i '' -E -e 's/0x[0-9a-f]{6,}/0xADDR/g' big.a.sout big.b.sout; $(STRIP_ROOT_EXIT) big.a.sout big.b.sout; \
-		sed -i '' -E 's/^(\[bees audit\] net ticks seen \(1 yes, 0 no\) - )[01]$$/\1N/' big.a.sout big.b.sout; \
-		grep '^time ' big.b.sout > big.times; sed -i '' -e '/^time /d' big.b.sout
+		$(SED_I) -E -e 's/0x[0-9a-f]{6,}/0xADDR/g' big.a.sout big.b.sout; $(STRIP_ROOT_EXIT) big.a.sout big.b.sout; \
+		$(SED_I) -E 's/^(\[bees audit\] net ticks seen \(1 yes, 0 no\) - )[01]$$/\1N/' big.a.sout big.b.sout; \
+		grep '^time ' big.b.sout > big.times; $(SED_I) -e '/^time /d' big.b.sout
 
 integrate: run
 	@cd "$(HERE)" && ok=0; ko=0; for side in a b; do \
-		if [ ! -f "big.$$side.scout" ]; then echo "MISSING golden: [n1_frames] big.$$side.scout"; ko=$$((ko+1)); \
-		elif diff -Bw -q "big.$$side.sout" "big.$$side.scout" > /dev/null; then ok=$$((ok+1)); \
-		else echo "DIFF: [n1_frames] big.$$side"; diff -Bw "big.$$side.scout" "big.$$side.sout" || true; ko=$$((ko+1)); fi; \
+		if [ ! -f "big.$$side$(GOLD_SUFFIX).scout" ]; then echo "MISSING golden for $(BEES_PLATFORM_ID) (record one on this platform with make record-golden): [n1_frames] big.$$side$(GOLD_SUFFIX).scout"; ko=$$((ko+1)); \
+		elif diff -Bw -q "big.$$side.sout" "big.$$side$(GOLD_SUFFIX).scout" > /dev/null; then ok=$$((ok+1)); \
+		else echo "DIFF: [n1_frames] big.$$side"; diff -Bw "big.$$side$(GOLD_SUFFIX).scout" "big.$$side.sout" || true; ko=$$((ko+1)); fi; \
 	done; printf '%d %d\n' "$$ok" "$$ko" > .integrate_counts; echo "[n1_frames] $$ok passed, $$ko failed"; [ "$$ko" -eq 0 ]
 
 record-golden: run
-	@cd "$(HERE)" && cp big.a.sout big.a.scout && cp big.b.sout big.b.scout && echo "[n1_frames] goldens recorded"
+	@cd "$(HERE)" && cp big.a.sout big.a$(GOLD_SUFFIX).scout && cp big.b.sout big.b$(GOLD_SUFFIX).scout && echo "[n1_frames] goldens recorded"
 
 # two runs: 64 KiB and 1 MiB only (dangerous_b_small), then all four (dangerous_b_big; b's last write fails and its link goes down)
 measure: build

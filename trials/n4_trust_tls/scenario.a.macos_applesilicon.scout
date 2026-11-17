@@ -1,7 +1,7 @@
 [trust] transport: mutual TLS 1.3 over the programmer-installed OpenSSL; peer identity: the SHA-512 of its certificate
-[trust] mode trust, transport mutual TLS 1.3 (ALPN trust/1, X25519MLKEM768, classical X25519 only for 1 marked whitelist entry, peers by the SHA-512 of their certificate, pins only, no cacertfile), listen 127.0.0.1:47601, whitelist 4 entries, pinned servers 0, frame_size_max 4096, args_len_max 4096, term_depth_max 32, call_timeout_ms 400, first_frame_timeout_ms 500, suspicion_limit 8, token_bytes 48, token_ttl_sec 300, one request per connection (B1)
+[trust] mode trust, transport mutual TLS 1.3 (ALPN trust/1, X25519MLKEM768, classical X25519 only for 1 marked whitelist entry, peers by the SHA-512 of their certificate, pins only, no cacertfile), listen 127.0.0.1:22500, whitelist 4 entries, pinned servers 0, frame_size_max 4096, args_len_max 4096, term_depth_max 32, call_timeout_ms 400, first_frame_timeout_ms 500, suspicion_limit 8, token_bytes 48, token_ttl_sec 300, one request per connection (B1)
 [trust] whitelist: certificate gone.pem is missing or unreadable, entry skipped (as SEMP does)
-[trust] listening on 127.0.0.1:47601
+[trust] listening on 127.0.0.1:22500
 [trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 0
 [trust audit] token_issued fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f new token for this fingerprint (the token itself is never logged) 0
 [trust audit] admitted fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f call demo:add/2 0

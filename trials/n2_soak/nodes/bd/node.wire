@@ -1,5 +1,5 @@
 # N2c soak leaf bd: one dial peer (peer_count 1), a remote and a local name
 node   d@localhost
-peer   s@localhost 127.0.0.1 47484 dial
+peer   s@localhost 127.0.0.1 22303 dial
 remote ans @ s@localhost cast { op: atom, n: int64 }
 local  req cast { op: atom, n: int64 }

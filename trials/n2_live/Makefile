@@ -1,5 +1,5 @@
 # N2: the live test against a stock Erlang node (the installed OTP 28's erl; D14 names OTP 29). tools/n2_live.py starts a
-# private EPMD on 127.0.0.1:4399 (the machine's own EPMD, if any, is not touched), compiles stock_driver.erl with the installed
+# private EPMD on 127.0.0.1:22090 (the machine's own EPMD, if any, is not touched), compiles stock_driver.erl with the installed
 # erlc into build/, and runs five scenarios, each a BEES node (nodes/l: beesl@localhost, listening and registered with EPMD;
 # nodes/d: beesd@localhost, dialing through EPMD) against `erl -sname ...@localhost` with net_ticktime 8 and the dist listener
 # on 127.0.0.1:
@@ -25,13 +25,13 @@ run: build
 
 integrate: run
 	@cd "$(HERE)" && ok=0; ko=0; for s in $(SCENARIOS); do for side in bees stock; do \
-		if [ ! -f "$$s.$$side.scout" ]; then echo "MISSING golden: [n2_live] $$s.$$side.scout"; ko=$$((ko+1)); \
-		elif diff -Bw -q "$$s.$$side.sout" "$$s.$$side.scout" > /dev/null; then ok=$$((ok+1)); \
-		else echo "DIFF: [n2_live] $$s.$$side"; diff -Bw "$$s.$$side.scout" "$$s.$$side.sout" || true; ko=$$((ko+1)); fi; \
+		if [ ! -f "$$s.$$side$(GOLD_SUFFIX).scout" ]; then echo "MISSING golden for $(BEES_PLATFORM_ID) (record one on this platform with make record-golden): [n2_live] $$s.$$side$(GOLD_SUFFIX).scout"; ko=$$((ko+1)); \
+		elif diff -Bw -q "$$s.$$side.sout" "$$s.$$side$(GOLD_SUFFIX).scout" > /dev/null; then ok=$$((ok+1)); \
+		else echo "DIFF: [n2_live] $$s.$$side"; diff -Bw "$$s.$$side$(GOLD_SUFFIX).scout" "$$s.$$side.sout" || true; ko=$$((ko+1)); fi; \
 	done; done; printf '%d %d\n' "$$ok" "$$ko" > .integrate_counts; echo "[n2_live] $$ok passed, $$ko failed"; [ "$$ko" -eq 0 ]
 
 record-golden: run
-	@cd "$(HERE)" && for s in $(SCENARIOS); do cp "$$s.bees.sout" "$$s.bees.scout"; cp "$$s.stock.sout" "$$s.stock.scout"; done; echo "[n2_live] goldens recorded"
+	@cd "$(HERE)" && for s in $(SCENARIOS); do cp "$$s.bees.sout" "$$s.bees$(GOLD_SUFFIX).scout"; cp "$$s.stock.sout" "$$s.stock$(GOLD_SUFFIX).scout"; done; echo "[n2_live] goldens recorded"
 
 clean:
 	@for n in $(NODES); do $(MAKE) -C "$(HERE)/nodes/$$n" clean; done

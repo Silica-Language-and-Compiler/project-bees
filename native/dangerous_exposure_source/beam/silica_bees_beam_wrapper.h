@@ -1,6 +1,6 @@
 /* BEES native edge, BEAM mode (milestone N2): Erlang's cookie authentication needs an MD5 digest and a random 32-bit
- * challenge. Both come from the system's own CommonCrypto (part of libSystem on macOS: CC_MD5, CCRandomGenerateBytes);
- * nothing is downloaded or bundled. macOS on Apple Silicon only.
+ * challenge. Both come from the platform interface (native/bees_platform.h: bees_platform_md5, bees_platform_random;
+ * on macOS CommonCrypto in libSystem); nothing is downloaded or bundled.
  *
  * Results follow the tagged-result convention of the language's socket wrappers: { tag, value, error_code }, tag 0 ok.
  * The cookie is read from its file by the edge and never leaves it: Silica code sees only challenges (numbers it sends on

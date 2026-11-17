@@ -1,7 +1,7 @@
-[bees] mode=beam node=beesl@localhost transport=tcp auth=cookie creation=1 epmd=external epmd_port=4399 net_tick io_ms=8000 tick_ms=2000 link=stock@localhost role=listen frame_size_max=4096
+[bees] mode=beam node=beesl@localhost transport=tcp auth=cookie creation=1 epmd=external epmd_port=22090 net_tick io_ms=8000 tick_ms=2000 link=stock@localhost role=listen frame_size_max=4096
 [bees] BEAM mode: Erlang cookie authentication, no encryption (transport tcp, 127.0.0.1); a downgrade from TRUST
-[bees audit] epmd: registered (the node keeps its own creation) beesl 47441
-[bees audit] challenge reply refused (bad cookie), link closed stock@localhost 0
+[bees audit] epmd: registered (the node keeps its own creation) beesl 22000
+[bees audit] unlisted node, not_allowed sent, link closed intruder@localhost -1
 [bees audit] link down, proxies ended; reason closed 0
 [bees audit] frames delivered - 0
 [bees audit] frames dropped - 1

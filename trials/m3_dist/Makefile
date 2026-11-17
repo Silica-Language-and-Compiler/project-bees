@@ -31,7 +31,7 @@ run: build
 	@cd "$(HERE)" && for s in $(SCEN_QUOTED); do \
 		sc=$$(echo "$$s" | cut -d'|' -f1); ea=$$(echo "$$s" | cut -d'|' -f2); ma=$$(echo "$$s" | cut -d'|' -f3); eb=$$(echo "$$s" | cut -d'|' -f4); mb=$$(echo "$$s" | cut -d'|' -f5); tr=$$(echo "$$s" | cut -d'|' -f6); \
 		"$(BEES_ROOT)/tools/run_pair.py" "nodes/$$ea" "$$sc.a.sout" "$$ma" "nodes/$$eb" "$$sc.b.sout" "$$mb" 0.5 60 || echo "pair $$sc: a run failed"; \
-		sed -i '' -E -e 's/0x[0-9a-f]{6,}/0xADDR/g' "$$sc.a.sout" "$$sc.b.sout"; $(STRIP_ROOT_EXIT) "$$sc.a.sout" "$$sc.b.sout"; \
+		$(SED_I) -E -e 's/0x[0-9a-f]{6,}/0xADDR/g' "$$sc.a.sout" "$$sc.b.sout"; $(STRIP_ROOT_EXIT) "$$sc.a.sout" "$$sc.b.sout"; \
 		if [ "$$tr" = 1 ]; then \
 			awk -v m="$$ma" 'done { if ($$0 ~ /^exit=/) print; next } { print } index($$0, m) { done = 1 }' "$$sc.a.sout" > "$$sc.a.tmp" && mv "$$sc.a.tmp" "$$sc.a.sout"; \
 			awk -v m="$$mb" 'done { if ($$0 ~ /^exit=/) print; next } { print } index($$0, m) { done = 1 }' "$$sc.b.sout" > "$$sc.b.tmp" && mv "$$sc.b.tmp" "$$sc.b.sout"; \
@@ -42,14 +42,14 @@ integrate: run
 	@cd "$(HERE)" && ok=0; ko=0; for s in $(SCEN_QUOTED); do \
 		name=$${s%%|*}; \
 		for side in a b; do \
-			if [ ! -f "$$name.$$side.scout" ]; then echo "MISSING golden: [m3_dist] $$name.$$side.scout"; ko=$$((ko+1)); \
-			elif diff -Bw -q "$$name.$$side.sout" "$$name.$$side.scout" > /dev/null; then ok=$$((ok+1)); \
-			else echo "DIFF: [m3_dist] $$name.$$side"; diff -Bw "$$name.$$side.scout" "$$name.$$side.sout" || true; ko=$$((ko+1)); fi; \
+			if [ ! -f "$$name.$$side$(GOLD_SUFFIX).scout" ]; then echo "MISSING golden for $(BEES_PLATFORM_ID) (record one on this platform with make record-golden): [m3_dist] $$name.$$side$(GOLD_SUFFIX).scout"; ko=$$((ko+1)); \
+			elif diff -Bw -q "$$name.$$side.sout" "$$name.$$side$(GOLD_SUFFIX).scout" > /dev/null; then ok=$$((ok+1)); \
+			else echo "DIFF: [m3_dist] $$name.$$side"; diff -Bw "$$name.$$side$(GOLD_SUFFIX).scout" "$$name.$$side.sout" || true; ko=$$((ko+1)); fi; \
 		done; \
 	done; printf '%d %d\n' "$$ok" "$$ko" > .integrate_counts; echo "[m3_dist] $$ok passed, $$ko failed"; [ "$$ko" -eq 0 ]
 
 record-golden: run
-	@cd "$(HERE)" && for s in $(SCEN_QUOTED); do name=$${s%%|*}; cp "$$name.a.sout" "$$name.a.scout"; cp "$$name.b.sout" "$$name.b.scout"; done; echo "[m3_dist] goldens recorded"
+	@cd "$(HERE)" && for s in $(SCEN_QUOTED); do name=$${s%%|*}; cp "$$name.a.sout" "$$name.a$(GOLD_SUFFIX).scout"; cp "$$name.b.sout" "$$name.b$(GOLD_SUFFIX).scout"; done; echo "[m3_dist] goldens recorded"
 
 clean:
 	@for n in $(NODES); do $(MAKE) -C "$(HERE)/nodes/$$n" clean; done; cd "$(HERE)" && rm -f *.sout .integrate_counts

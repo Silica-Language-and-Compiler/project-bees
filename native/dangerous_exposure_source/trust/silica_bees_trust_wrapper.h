@@ -1,6 +1,6 @@
-/* BEES native edge for TRUST mode (N3): secure random bytes and a constant-time comparison, from macOS system
- * facilities only (arc4random_buf of libSystem; no library is downloaded or built besides this file). TRUST only:
- * BEAM mode (N2) has its own edge entries; the two modes share no native code (D36). macOS on Apple Silicon only. */
+/* BEES native edge for TRUST mode (N3): secure random bytes and a constant-time comparison, from the platform
+ * interface (native/bees_platform.h: macOS CSPRNG, Linux kernel random, the MCU hardware RNGs); no library is downloaded or built
+ * besides this file. TRUST only: BEAM mode (N2) has its own edge entries; the two modes share no native code (D36). */
 #include <stdint.h>
 
 typedef struct bees_trust_tagged {
@@ -16,7 +16,7 @@ typedef struct bees_trust_bytes {
     int64_t error_code;
 } bees_trust_bytes;
 
-/* n (1..64) random bytes from arc4random_buf, returned as ONE ETF term, a binary: 131 109 len(4, big-endian) bytes.
+/* n (1..64) random bytes from bees_platform_random, returned as ONE ETF term, a binary: 131 109 len(4, big-endian) bytes.
  * The caller decodes it with the language's decode((:etf), ...) as a string, so the bytes become a pure value only
  * through the language's own conversion (mvp.md section 4). n outside 1..64 gives tag 1 and no bytes. */
 bees_trust_bytes bees_trust_random_etf(int64_t n);

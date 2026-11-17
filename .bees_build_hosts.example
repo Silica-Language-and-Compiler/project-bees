@@ -1,0 +1,19 @@
+# Machines that run the trials of their platform, next to this one (tools/run_all_trials.sh reads .bees_build_hosts, which is
+# untracked: copy this file to .bees_build_hosts and edit it).
+#
+# One line per machine, whitespace separated:
+#   PLATFORM_ID  USER@HOST  REMOTE_PATH  OPENSSL_PREFIX  JOBS  [NOTES]
+#     PLATFORM_ID    macos_applesilicon | linux_x86_64 | ... (tools/platform_id.py)
+#     USER@HOST      reached with key-based ssh in batch mode only: ssh -o BatchMode=yes USER@HOST true must work
+#     REMOTE_PATH    where the BEES tree is synced to (absolute, or starting with ~); a Silica checkout must sit beside it
+#                    (SILICA_ROOT, default ../silica of the tree) or NOTES must say where
+#     OPENSSL_PREFIX the programmer-installed OpenSSL 4.1.0 or later there (passed as OPENSSL_PREFIX); - for none
+#     JOBS           trials at a time on that machine; - for this machine's -j
+#     NOTES          free text; the NAME=VALUE tokens SILICA_COMPILER, SILICA_ROOT, BEES_COMPILE_JOBS, SILICA_COMPILE_TIMEOUT
+#                    are passed to the remote run's environment
+#
+# NEVER put a key, a password or a token in this file (the reader refuses a line that mentions one).
+#
+# Linux does not build yet: until the port lands (tools/platform_id.py, the linux_x86_64 switch) the runner lists this line and
+# reports the platform SKIPPED.
+linux_x86_64 manager@aalang.org /opt/bees /opt/openssl 3 SILICA_COMPILER=/opt/silica/binaries/silica-compiler Linux x86_64, the first remote machine

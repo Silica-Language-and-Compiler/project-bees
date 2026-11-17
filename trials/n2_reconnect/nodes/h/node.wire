@@ -1,8 +1,8 @@
-# N2c reconnect, node h (the hub): listens ONCE (port 47461) for e and d. It learns which peer connected from the handshake. A peer that
+# N2c reconnect, node h (the hub): listens ONCE (port 22200) for e and d. It learns which peer connected from the handshake. A peer that
 # connects again (e2, or d after h itself was restarted) replaces its old link: the old link's proxies are ended first, then the new link's start.
 node   h@localhost
-peer   e@localhost 127.0.0.1 47461 listen
-peer   d@localhost 127.0.0.1 47461 listen
+peer   e@localhost 127.0.0.1 22200 listen
+peer   d@localhost 127.0.0.1 22200 listen
 remote ans_e @ e@localhost cast { op: atom, n: int64 }
 remote ans_d @ d@localhost cast { op: atom, n: int64 }
 local  req_e cast { op: atom, n: int64 }

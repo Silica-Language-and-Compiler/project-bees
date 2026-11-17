@@ -1,6 +1,6 @@
 # N2c: more than one live link per node, the auth-none M3 node (dangerous_bees_net), BEES to BEES over 127.0.0.1. Three nodes, each its own leaf under
 # nodes/ (one manifest, one bees.config, generated bees_peers (links, proxies, slots), one entry program):
-#   hub  listens ONCE (port 47451) for two listen-role peers, ea and ec; its table holds both, and a peer's proxies start when
+#   hub  listens ONCE (port 21300) for two listen-role peers, ea and ec; its table holds both, and a peer's proxies start when
 #        the handshake names it
 #   ea   dials the hub, casts req_a (21) to it and receives ITS answer, 42, on ans_a
 #   ec   dials the hub, casts req_c (34) to it and receives ITS answer, 68, on ans_c
@@ -20,7 +20,7 @@ build:
 # dropped; the exit code line is kept
 run: build
 	@cd "$(HERE)" && "$(BEES_ROOT)/tools/run_trio.py" nodes/hub/dangerous_hub three_nodes.hub.sout "ans_c sent" nodes/ea/dangerous_ea three_nodes.ea.sout "got answer" nodes/ec/dangerous_ec three_nodes.ec.sout "got answer" 0.5 90 || echo "trio: a run failed"; \
-	sed -i '' -E -e 's/0x[0-9a-f]{6,}/0xADDR/g' three_nodes.*.sout; $(STRIP_ROOT_EXIT) three_nodes.hub.sout three_nodes.ea.sout three_nodes.ec.sout; \
+	$(SED_I) -E -e 's/0x[0-9a-f]{6,}/0xADDR/g' three_nodes.*.sout; $(STRIP_ROOT_EXIT) three_nodes.hub.sout three_nodes.ea.sout three_nodes.ec.sout; \
 	for pair in "hub|ans_c sent" "ea|got answer" "ec|got answer"; do side=$${pair%%|*}; m=$${pair#*|}; \
 		grep -v -E 'link down, proxies ended|frames delivered|frames dropped|control messages counted|net ticks seen|^proxy ended' "three_nodes.$$side.sout" > "three_nodes.$$side.tmp"; mv "three_nodes.$$side.tmp" "three_nodes.$$side.sout"; \
 		awk -v m="$$m" 'done { if ($$0 ~ /^exit=/) print; next } { print } index($$0, m) { done = 1 }' "three_nodes.$$side.sout" > "three_nodes.$$side.tmp" && mv "three_nodes.$$side.tmp" "three_nodes.$$side.sout"; \
@@ -28,13 +28,13 @@ run: build
 
 integrate: run
 	@cd "$(HERE)" && ok=0; ko=0; for side in $(SIDES); do \
-		if [ ! -f "three_nodes.$$side.scout" ]; then echo "MISSING golden: [m3_multilink] three_nodes.$$side.scout"; ko=$$((ko+1)); \
-		elif diff -Bw -q "three_nodes.$$side.sout" "three_nodes.$$side.scout" > /dev/null; then ok=$$((ok+1)); \
-		else echo "DIFF: [m3_multilink] three_nodes.$$side"; diff -Bw "three_nodes.$$side.scout" "three_nodes.$$side.sout" || true; ko=$$((ko+1)); fi; \
+		if [ ! -f "three_nodes.$$side$(GOLD_SUFFIX).scout" ]; then echo "MISSING golden for $(BEES_PLATFORM_ID) (record one on this platform with make record-golden): [m3_multilink] three_nodes.$$side$(GOLD_SUFFIX).scout"; ko=$$((ko+1)); \
+		elif diff -Bw -q "three_nodes.$$side.sout" "three_nodes.$$side$(GOLD_SUFFIX).scout" > /dev/null; then ok=$$((ok+1)); \
+		else echo "DIFF: [m3_multilink] three_nodes.$$side"; diff -Bw "three_nodes.$$side$(GOLD_SUFFIX).scout" "three_nodes.$$side.sout" || true; ko=$$((ko+1)); fi; \
 	done; printf '%d %d\n' "$$ok" "$$ko" > .integrate_counts; echo "[m3_multilink] $$ok passed, $$ko failed"; [ "$$ko" -eq 0 ]
 
 record-golden: run
-	@cd "$(HERE)" && for side in $(SIDES); do cp "three_nodes.$$side.sout" "three_nodes.$$side.scout"; done; echo "[m3_multilink] goldens recorded"
+	@cd "$(HERE)" && for side in $(SIDES); do cp "three_nodes.$$side.sout" "three_nodes.$$side$(GOLD_SUFFIX).scout"; done; echo "[m3_multilink] goldens recorded"
 
 clean:
 	@for n in $(NODES); do $(MAKE) -C "$(HERE)/nodes/$$n" clean; done; cd "$(HERE)" && rm -f *.sout .integrate_counts

@@ -3,11 +3,15 @@
 BEES_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 include $(BEES_ROOT)/tools/silica.mk
 
-.PHONY: integrate record-golden build clean help native kit
+.PHONY: integrate integrate-parallel record-golden build clean help native kit
 
 integrate: check-compiler native
 	@$(MAKE) -C trials integrate
 	@$(MAKE) kit
+
+# The same trials in parallel on this machine (tools/README.md): `make integrate` stays the serial path.
+integrate-parallel: check-compiler
+	@"$(BEES_ROOT)/tools/run_all_trials.sh" --local-only
 
 # The conformance kit (contract/conformance), the lowering-choices checker and the wire generator's tests: no
 # Silica is compiled (the wire test reads a recorded golden).
@@ -34,6 +38,7 @@ clean:
 
 help:
 	@echo "make integrate      build, run and diff every trial leaf against its goldens"
+	@echo "make integrate-parallel   the same, in parallel (tools/run_all_trials.sh -j N; remote machines: tools/README.md)"
 	@echo "make kit            check the conformance kit's goldens and the lowering-choices checker"
 	@echo "make record-golden  re-record every golden (after a deliberate change only)"
 	@echo "make build | clean"
@@ -50,3 +55,11 @@ kit: kit-beam
 .PHONY: kit-beam
 kit-beam:
 	@python3 "$(BEES_ROOT)/tools/test_beam_dist.py" 2>&1 | tail -3
+
+# 2026-11-17: the trials' port table and the platform / golden-name functions and the parallel runner's pure parts
+kit: kit-platform
+.PHONY: kit-platform
+kit-platform:
+	@python3 "$(BEES_ROOT)/tools/trial_ports.py" check
+	@python3 "$(BEES_ROOT)/tools/test_platform_and_ports.py" 2>&1 | tail -3
+	@python3 "$(BEES_ROOT)/tools/test_run_all_trials.py" 2>&1 | tail -3

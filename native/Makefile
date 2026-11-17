@@ -3,18 +3,21 @@
 # (Silica's compiler/stdlib/net/silica_sockets.c, the Fifi library of the hosted (:tcp) carrier, transport design 6.3),
 # built here into the same lib/ as libsilica_sockets.a, the way Silica's own trials build it as a fixture. The wrappers'
 # sidecar is reached through the link dangerous_exposure_source/sockets -> the Silica tree's compiler/stdlib/net.
-# macOS on Apple Silicon only.
+# Common code only (src/, tls/, trust/) plus ONE platform directory, chosen by BEES_PLATFORM (tools/platform.mk: macos on
+# Darwin, linux on Linux; macos is the only one built so far). The platform directory holds platform.mk (compiler flags,
+# the list of its sources) and the implementations of bees_platform.h. See native/README.md.
 THIS_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+BEES_ROOT := $(abspath $(THIS_DIR)..)
+include $(BEES_ROOT)/tools/platform.mk
+PLATFORM_DIR := $(THIS_DIR)$(BEES_PLATFORM)
 SILICA_ROOT ?= $(abspath $(THIS_DIR)../../silica)
 CC ?= clang
-ARCH ?= arm64
-MACOS_MIN_VERSION ?= 26.0
-CFLAGS := -std=c11 -Wall -Wextra -O2 -arch $(ARCH) -mmacosx-version-min=$(MACOS_MIN_VERSION) \
+CFLAGS := -std=c11 -Wall -Wextra -O2 $(PLATFORM_CFLAGS) -I$(THIS_DIR) \
 	-I$(THIS_DIR)dangerous_exposure_source/bees
 BUILD := $(THIS_DIR)build
 LIB := $(THIS_DIR)dangerous_exposure_source/lib
 SRCS := $(wildcard $(THIS_DIR)src/*.c)
-OBJS := $(patsubst $(THIS_DIR)src/%.c,$(BUILD)/%.o,$(SRCS))
+OBJS := $(patsubst $(THIS_DIR)src/%.c,$(BUILD)/%.o,$(SRCS)) $(patsubst %.c,$(BUILD)/plat_%.o,$(PLATFORM_NATIVE_SRCS))
 ARCHIVE := $(LIB)/libsilica_bees_native.a
 SOCKETS_SRC := $(SILICA_ROOT)/compiler/stdlib/net/silica_sockets.c
 SOCKETS_OBJ := $(BUILD)/silica_sockets.o
@@ -25,6 +28,11 @@ SOCKETS_LINK := $(THIS_DIR)dangerous_exposure_source/sockets
 all: $(ARCHIVE) $(SOCKETS_ARCHIVE) $(SOCKETS_LINK)
 
 $(BUILD)/%.o: $(THIS_DIR)src/%.c $(wildcard $(THIS_DIR)dangerous_exposure_source/bees/*.h)
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# the platform's implementations of bees_platform.h
+$(BUILD)/plat_%.o: $(PLATFORM_DIR)/%.c $(THIS_DIR)bees_platform.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -48,10 +56,9 @@ $(SOCKETS_LINK):
 clean:
 	rm -rf $(BUILD) $(ARCHIVE) $(SOCKETS_ARCHIVE)
 
-# TRUST mode (N3): its own archive, libsilica_bees_trust.a, from trust/ (random bytes and the constant-time comparison,
-# macOS system facilities only); its sidecar is dangerous_exposure_source/trust/. Kept apart from the BEAM-mode entries (D36).
+# TRUST mode (N3): its own archive, libsilica_bees_trust.a, from trust/ (random bytes from the platform interface and the constant-time comparison); its sidecar is dangerous_exposure_source/trust/. Kept apart from the BEAM-mode entries (D36).
 TRUST_SRCS := $(wildcard $(THIS_DIR)trust/*.c)
-TRUST_OBJS := $(patsubst $(THIS_DIR)trust/%.c,$(BUILD)/trust_%.o,$(TRUST_SRCS))
+TRUST_OBJS := $(patsubst $(THIS_DIR)trust/%.c,$(BUILD)/trust_%.o,$(TRUST_SRCS)) $(patsubst %.c,$(BUILD)/plat_%.o,$(PLATFORM_TRUST_SRCS))
 TRUST_ARCHIVE := $(LIB)/libsilica_bees_trust.a
 all: $(TRUST_ARCHIVE)
 $(BUILD)/trust_%.o: $(THIS_DIR)trust/%.c $(wildcard $(THIS_DIR)dangerous_exposure_source/trust/*.h)
@@ -67,19 +74,19 @@ clean-trust:
 	rm -f $(TRUST_ARCHIVE) $(TRUST_OBJS)
 
 # TRUST over TLS (N4.1): its own archive, libsilica_bees_tls.a, from tls/ over the programmer-installed OpenSSL (D40: BEES
-# ships no TLS library; contract/what-is-required-to-use.md). OPENSSL_PREFIX names the installation (default: Homebrew's
+# ships no TLS library; contract/what-is-required-to-use.md). OPENSSL_PREFIX names the installation (default: the platform's list, PLATFORM_OPENSSL_DIRS; macOS: Homebrew's
 # openssl, then openssl@4). The minimum is OpenSSL 4.1.0, with no exception: an older OpenSSL, or none, is refused with a
 # message naming what was found, and nothing is built or left against it. `make -C native tls` fails then (exit 1);
 # `make -C native` (all) prints the same refusal and goes on, because the BEAM-mode and plaintext TRUST programs do not need the
 # engine; every trial that needs it calls `tls` itself and fails with the message. build/tls.status: "ok <version>" or
 # "refused: <why>".
-OPENSSL_PREFIX ?= $(firstword $(foreach p,/opt/homebrew/opt/openssl /opt/homebrew/opt/openssl@4,$(if $(wildcard $(p)/include/openssl/ssl.h),$(p))))
+OPENSSL_PREFIX ?= $(firstword $(foreach p,$(PLATFORM_OPENSSL_DIRS),$(if $(wildcard $(p)/include/openssl/ssl.h),$(p))))
 TLS_ARCHIVE := $(LIB)/libsilica_bees_tls.a
 TLS_OBJ := $(BUILD)/tls_silica_bees_tls.o
 comma := ,
 OPENSSL_VERSION_TEXT := $(if $(OPENSSL_PREFIX),$(shell awk '/define OPENSSL_VERSION_(MAJOR|MINOR|PATCH)[ \t]/ { v[$$(NF-1)] = $$NF } END { printf "%d.%d.%d", v["OPENSSL_VERSION_MAJOR"], v["OPENSSL_VERSION_MINOR"], v["OPENSSL_VERSION_PATCH"] }' "$(OPENSSL_PREFIX)/include/openssl/opensslv.h" 2>/dev/null))
 OPENSSL_TOO_OLD := $(if $(OPENSSL_VERSION_TEXT),$(shell echo "$(OPENSSL_VERSION_TEXT)" | awk -F. '{ exit !(($$1 * 10000 + $$2 * 100 + $$3) < 40100) }' && echo 1))
-TLS_REFUSAL := $(if $(wildcard $(OPENSSL_PREFIX)/include/openssl/ssl.h),$(if $(OPENSSL_TOO_OLD),OpenSSL $(OPENSSL_VERSION_TEXT) at $(OPENSSL_PREFIX) is older than 4.1.0$(comma) the minimum (contract/what-is-required-to-use.md); install OpenSSL 4.1.0 or later and point OPENSSL_PREFIX at it),no OpenSSL headers found (OPENSSL_PREFIX: $(or $(OPENSSL_PREFIX),unset; looked at /opt/homebrew/opt/openssl and openssl@4)); install OpenSSL 4.1.0 or later and set OPENSSL_PREFIX (contract/what-is-required-to-use.md))
+TLS_REFUSAL := $(if $(wildcard $(OPENSSL_PREFIX)/include/openssl/ssl.h),$(if $(OPENSSL_TOO_OLD),OpenSSL $(OPENSSL_VERSION_TEXT) at $(OPENSSL_PREFIX) is older than 4.1.0$(comma) the minimum (contract/what-is-required-to-use.md); install OpenSSL 4.1.0 or later and point OPENSSL_PREFIX at it),no OpenSSL headers found (OPENSSL_PREFIX: $(or $(OPENSSL_PREFIX),unset; looked at $(PLATFORM_OPENSSL_DIRS))); install OpenSSL 4.1.0 or later and set OPENSSL_PREFIX (contract/what-is-required-to-use.md))
 TLS_FLAGS_FILE := $(BUILD)/tls.flags
 .PHONY: tls tls-report tls-selftest tls-flags
 all: tls-report
@@ -103,7 +110,7 @@ $(TLS_ARCHIVE): $(TLS_OBJ)
 	@echo "[native] $(TLS_ARCHIVE) (TRUST over TLS; OpenSSL $(OPENSSL_VERSION_TEXT) at $(OPENSSL_PREFIX))"
 # spike S12's in-memory checks of the engine against the trial certificates (TEST ONLY; run by trials/n4_trust_tls)
 tls-selftest: tls
-	@$(CC) -std=c11 -Wall -Wextra -O2 -arch $(ARCH) -mmacosx-version-min=$(MACOS_MIN_VERSION) -DBEES_TLS_SELFTEST \
+	@$(CC) -std=c11 -Wall -Wextra -O2 $(PLATFORM_CFLAGS) -I$(THIS_DIR) -DBEES_TLS_SELFTEST \
 		-I$(THIS_DIR)dangerous_exposure_source/tls -I$(OPENSSL_PREFIX)/include $(THIS_DIR)tls/silica_bees_tls.c $(THIS_DIR)tls/selftest/bees_tls_selftest.c \
 		-L$(OPENSSL_PREFIX)/lib -lssl -lcrypto -o $(BUILD)/bees_tls_selftest
 	@$(BUILD)/bees_tls_selftest $(THIS_DIR)../trials/n4_trust_tls/certs

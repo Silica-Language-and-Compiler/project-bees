@@ -28,6 +28,8 @@ NODES := s c m q
 PAIR := $(BEES_ROOT)/tools/run_trust_pair.py
 REFUSALS := $(BEES_ROOT)/tools/run_tls_refusals.py
 READY := listening on 127.0.0.1
+# the server's port, from the one table of the trials' ports (tools/trial_ports.py; the nodes' bees.config files hold the same numbers)
+PORT_S := $(shell python3 "$(BEES_ROOT)/tools/trial_ports.py" port n4_trust_tls 0)
 # scenario|server exe|client exe|client done text|kill text (blank: none)|server golden compared (1/0); '_' stands for a space
 SCENARIOS := \
  scenario|s/dangerous_s_main|c/dangerous_c_scenario|scenario_done||1 \
@@ -37,7 +39,7 @@ SCENARIOS := \
  noca|s/dangerous_s_main|q/dangerous_q_noca|noca_done||1
 SCEN_QUOTED := $(foreach s,$(SCENARIOS),'$(s)')
 # an output is cleaned of addresses and the runtime's root-actor lines
-CLEAN_OUT = clean_out() { sed -i '' -E -e 's/0x[0-9a-f]{6,}/0xADDR/g' "$$@" && $(STRIP_ROOT_EXIT) "$$@"; }; clean_out
+CLEAN_OUT = clean_out() { $(SED_I) -E -e 's/0x[0-9a-f]{6,}/0xADDR/g' "$$@" && $(STRIP_ROOT_EXIT) "$$@"; }; clean_out
 .PHONY: build run integrate record-golden clean measure tls
 # the engine, or the leaf fails here with native/Makefile's refusal (the OpenSSL found, and the 4.1.0 minimum)
 tls:
@@ -50,7 +52,7 @@ build: tls
 run: build
 	@cd "$(HERE)" && \
 		$(MAKE) --no-print-directory -s -C "$(BEES_ROOT)/native" tls-selftest > selftest.sout 2>&1; printf 'exit=%s\n' "$$?" >> selftest.sout; \
-		sed -i '' -E -e '/^OpenSSL /d' selftest.sout; \
+		$(SED_I) -E -e '/^OpenSSL /d' selftest.sout; \
 		for s in $(SCEN_QUOTED); do \
 			sc=$$(echo "$$s" | cut -d'|' -f1); es=$$(echo "$$s" | cut -d'|' -f2); ec=$$(echo "$$s" | cut -d'|' -f3); \
 			dn=$$(echo "$$s" | cut -d'|' -f4 | tr '_' ' '); kt=$$(echo "$$s" | cut -d'|' -f5 | tr '_' ' '); \
@@ -58,24 +60,24 @@ run: build
 			else "$(PAIR)" "nodes/$$es" "$$sc.a.sout" "$(READY)" "nodes/$$ec" "$$sc.b.sout" "$$dn" || echo "pair $$sc: a run failed"; fi; \
 			$(CLEAN_OUT) "$$sc.a.sout" "$$sc.b.sout"; \
 		done; \
-		"$(REFUSALS)" nodes/s/dangerous_s_main refusals.a.sout "$(READY)" certs 127.0.0.1:47601 --openssl "$(OPENSSL_PREFIX)/bin/openssl" || echo "refusals: the run failed"; \
+		"$(REFUSALS)" nodes/s/dangerous_s_main refusals.a.sout "$(READY)" certs 127.0.0.1:$(PORT_S) --openssl "$(OPENSSL_PREFIX)/bin/openssl" || echo "refusals: the run failed"; \
 		$(CLEAN_OUT) refusals.a.sout
 
 integrate: run
 	@cd "$(HERE)" && ok=0; ko=0; \
-	check() { if [ ! -f "$$2" ]; then echo "MISSING golden: [n4_trust_tls] $$2"; ko=$$((ko+1)); \
+	check() { if [ ! -f "$$2" ]; then echo "MISSING golden for $(BEES_PLATFORM_ID) (record one on this platform with make record-golden): [n4_trust_tls] $$2"; ko=$$((ko+1)); \
 		elif diff -Bw -q "$$1" "$$2" > /dev/null; then ok=$$((ok+1)); \
 		else echo "DIFF: [n4_trust_tls] $$1"; diff -Bw "$$2" "$$1" || true; ko=$$((ko+1)); fi; }; \
-	check selftest.sout selftest.scout; \
+	check selftest.sout selftest$(GOLD_SUFFIX).scout; \
 	for s in $(SCEN_QUOTED); do name=$$(echo "$$s" | cut -d'|' -f1); ag=$$(echo "$$s" | cut -d'|' -f6); \
-		check "$$name.b.sout" "$$name.b.scout"; if [ "$$ag" = 1 ]; then check "$$name.a.sout" "$$name.a.scout"; fi; done; \
-	check refusals.a.sout refusals.a.scout; \
+		check "$$name.b.sout" "$$name.b$(GOLD_SUFFIX).scout"; if [ "$$ag" = 1 ]; then check "$$name.a.sout" "$$name.a$(GOLD_SUFFIX).scout"; fi; done; \
+	check refusals.a.sout refusals.a$(GOLD_SUFFIX).scout; \
 	printf '%d %d\n' "$$ok" "$$ko" > .integrate_counts; echo "[n4_trust_tls] $$ok passed, $$ko failed"; [ "$$ko" -eq 0 ]
 
 record-golden: run
-	@cd "$(HERE)" && cp selftest.sout selftest.scout; cp refusals.a.sout refusals.a.scout; \
+	@cd "$(HERE)" && cp selftest.sout selftest$(GOLD_SUFFIX).scout; cp refusals.a.sout refusals.a$(GOLD_SUFFIX).scout; \
 	for s in $(SCEN_QUOTED); do name=$$(echo "$$s" | cut -d'|' -f1); ag=$$(echo "$$s" | cut -d'|' -f6); \
-		cp "$$name.b.sout" "$$name.b.scout"; if [ "$$ag" = 1 ]; then cp "$$name.a.sout" "$$name.a.scout"; fi; done; \
+		cp "$$name.b.sout" "$$name.b$(GOLD_SUFFIX).scout"; if [ "$$ag" = 1 ]; then cp "$$name.a.sout" "$$name.a$(GOLD_SUFFIX).scout"; fi; done; \
 	echo "[n4_trust_tls] goldens recorded"
 
 # (f) the rate and memory run over TLS: one run, this machine, each program under /usr/bin/time -l (peak resident set size)
