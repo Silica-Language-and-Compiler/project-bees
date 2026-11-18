@@ -1,0 +1,524 @@
+// BEES TEMPUS (T2): the tempus/1 frames (development-plan/tempus-design.md sections 4, 5 and 8). Pure functions over byte
+// strings; nothing here touches a carrier, a key or a clock. A frame body is one ETF map (the 4-byte length around it is
+// wireframe's, as in TRUST). Every message has at most four keys and every nested map at most four, so the language's own
+// decode((:etf), ...) reads a whole body into a typed record (SD-37 limits a decoded record to four fields on Apple Silicon)
+// and its encode writes one byte form (keys in name order).
+//
+// Reading a body is two steps, as in TRUST: kind(body) walks the map structurally with TRUST's bounds-checked walk
+// (bees_trust_frame@check: the 131 byte, a map on top, atom keys the program holds, no key twice, nesting at most 6, no
+// trailing bytes) and reads `t`; then the dec_ function of that kind decodes the whole body with its exact record type and
+// literal limits (D47: the literals are ceilings; the configured shuffle length is an argument and is checked after), and
+// checks every bound of section 8. Unknown or missing keys are refused by the language (the record type is exact).
+// Every dec_ answers { ok, why, ... }: why is "" or the reason in words, for the audit line; a refused frame yields nothing else.
+//
+// Kinds: 1 advert, 2 pop_challenge, 3 pop_response, 4 key_rotated, 5 shuffle, 6 shuffle_reply, 7 sample, 8 sample_reply,
+// 9 tick (test-only), 10 clock (test-only), 11 done, 12 call, 13 cast, 14 result (TRUST's frames: bees_trust_frame reads
+// them), 0 refused. Stores and peer types: 1 tempus_edge, 2 tempus_bridge, 3 tempus_sentinel.
+//
+// A descriptor is { addr, id, pub, token }. In a view (bees_tempus_view) an entry's `d` is the descriptor's own ETF bytes
+// (desc_bytes), so the view stays opaque and a frame is built from a view without a second representation.
+//
+// The token (ruled 2026-11-18, design OQ-7): 64 signature bytes, then the payload, the ETF map
+// #{exp, kid, nbf, sub, typ}. tok(token) reads its structure and bounds only; whether the signature is the producer's is
+// admission's question (T4), which signs nothing here and verifies over tok().payload exactly as received.
+module bees_tempus_frame;
+use bees_atoms;
+use bees_trust_frame;
+use bees_tempus_view;
+
+export kind/1;
+export why_refused/1;
+export store_code/1;
+export desc/4;
+export desc_ok/1;
+export desc_bytes/1;
+export desc_of/1;
+export enc_advert/1;
+export enc_challenge/1;
+export enc_response/1;
+export enc_rotated/1;
+export enc_entries/3;
+export enc_sample/2;
+export enc_tick/1;
+export enc_clock/1;
+export enc_done/0;
+export dec_advert/1;
+export dec_field/2;
+export dec_entries/2;
+export dec_sample/2;
+export dec_tick/1;
+export dec_clock/1;
+export dec_done/1;
+export tok/1;
+export entries_max/0;
+
+fn entries_max() -> int64 { 64 }
+
+// ---- kinds and stores ----
+fn kind_of(a: atom) -> int64 {
+    case a == bees_atoms@a_advert() of { true -> 1; false ->
+    case a == bees_atoms@a_pop_challenge() of { true -> 2; false ->
+    case a == bees_atoms@a_pop_response() of { true -> 3; false ->
+    case a == bees_atoms@a_key_rotated() of { true -> 4; false ->
+    case a == bees_atoms@a_shuffle() of { true -> 5; false ->
+    case a == bees_atoms@a_shuffle_reply() of { true -> 6; false ->
+    case a == bees_atoms@a_sample() of { true -> 7; false ->
+    case a == bees_atoms@a_sample_reply() of { true -> 8; false ->
+    case a == bees_atoms@a_tick() of { true -> 9; false ->
+    case a == bees_atoms@a_clock() of { true -> 10; false ->
+    case a == bees_atoms@a_done() of { true -> 11; false ->
+    case a == bees_atoms@a_call() of { true -> 12; false ->
+    case a == bees_atoms@a_cast() of { true -> 13; false ->
+    case a == bees_atoms@a_result() of { true -> 14; false -> 0 } } } } } } } } } } } } } }
+}
+fn kind_atom(k: int64) -> atom {
+    case k of {
+        1 -> bees_atoms@a_advert();
+        2 -> bees_atoms@a_pop_challenge();
+        3 -> bees_atoms@a_pop_response();
+        4 -> bees_atoms@a_key_rotated();
+        5 -> bees_atoms@a_shuffle();
+        6 -> bees_atoms@a_shuffle_reply();
+        7 -> bees_atoms@a_sample();
+        8 -> bees_atoms@a_sample_reply();
+        9 -> bees_atoms@a_tick();
+        10 -> bees_atoms@a_clock();
+        _: int64 -> bees_atoms@a_done()
+    }
+}
+fn store_code(a: atom) -> int64 {
+    case a == bees_atoms@a_tempus_edge() of { true -> 1; false ->
+    case a == bees_atoms@a_tempus_bridge() of { true -> 2; false ->
+    case a == bees_atoms@a_tempus_sentinel() of { true -> 3; false -> 0 } } }
+}
+fn store_atom(s: int64) -> atom {
+    case s of { 1 -> bees_atoms@a_tempus_edge(); 2 -> bees_atoms@a_tempus_bridge(); _: int64 -> bees_atoms@a_tempus_sentinel() }
+}
+fn t_of(r: (:ok, atom) | (:rejected, atom)) -> int64 {
+    case r of { (:ok, a: atom) -> kind_of(a); (:rejected, _w: atom) -> 0 }
+}
+// the kind of a body, 0 when its structure is refused or its t is not a kind
+fn kind(body: string) -> int64 {
+    c: int64 <- bees_trust_frame@check(body, 6, 131072);
+    case c == 0 of {
+        false -> 0;
+        true -> {
+            sp: string <- bees_trust_frame@span(body, "t");
+            r: (:ok, atom) | (:rejected, atom) <- bees_trust_frame@dec_atom(sp);
+            t_of(r)
+        }
+    }
+}
+// why kind() answered 0, in words
+fn why_refused(body: string) -> string {
+    c: int64 <- bees_trust_frame@check(body, 6, 131072);
+    case c == 0 of {
+        true -> "unknown kind";
+        false -> bees_atoms@spelling(bees_trust_frame@reason(c))
+    }
+}
+fn said(w: atom) -> string { bees_atoms@spelling(w) }
+
+// ---- descriptors ----
+fn desc(id: string, pub: string, addr: string, token: string) -> { addr: string, id: string, pub: string, token: string } { { addr: addr, id: id, pub: pub, token: token } }
+fn blank() -> { addr: string, id: string, pub: string, token: string } { desc("", "", "", "") }
+// the bounds of section 8: "" or what is wrong
+fn desc_why(d: { addr: string, id: string, pub: string, token: string }) -> string {
+    case length_bytes(d.id) != 64 of { true -> "id is not 64 bytes"; false ->
+    case length_bytes(d.pub) != 32 of { true -> "pub is not 32 bytes"; false ->
+    case length_bytes(d.addr) < 3 or length_bytes(d.addr) > 261 of { true -> "addr is not 3 to 261 bytes"; false ->
+    case length_bytes(d.token) < 65 or length_bytes(d.token) > 1024 of { true -> "token is not 65 to 1024 bytes"; false -> "" } } } }
+}
+fn desc_ok(d: { addr: string, id: string, pub: string, token: string }) -> boolean { length_bytes(desc_why(d)) == 0 }
+fn desc_bytes(d: { addr: string, id: string, pub: string, token: string }) -> string {
+    sequence proc[mem(normal), transport]
+        s: string <- encode((:etf), d)
+    produces pure s end
+}
+fn desc_read(r: (:ok, { addr: string, id: string, pub: string, token: string }) | (:rejected, atom)) -> { ok: boolean, d: { addr: string, id: string, pub: string, token: string } } {
+    case r of {
+        (:ok, d: { addr: string, id: string, pub: string, token: string }) -> { ok: desc_ok(d), d: d };
+        (:rejected, _w: atom) -> { ok: false, d: blank() }
+    }
+}
+// the descriptor held in a view entry's d
+fn desc_of(raw: string) -> { ok: boolean, d: { addr: string, id: string, pub: string, token: string } } {
+    sequence proc[mem(normal), transport]
+        r: (:ok, { addr: string, id: string, pub: string, token: string }) | (:rejected, atom) <- decode((:etf), raw, { max_bytes: 2048, max_depth: 2, max_length: 1024 })
+    produces pure desc_read(r) end
+}
+
+// ---- writing ----
+fn enc_advert(d: { addr: string, id: string, pub: string, token: string }) -> string {
+    sequence proc[mem(normal), transport]
+        t: atom <- kind_atom(1);
+        m: { d: { addr: string, id: string, pub: string, token: string }, t: atom, ver: int64 } <- { d: d, t: t, ver: 1 };
+        s: string <- encode((:etf), m)
+    produces pure s end
+}
+fn enc_challenge(nonce: string) -> string {
+    sequence proc[mem(normal), transport]
+        t: atom <- kind_atom(2);
+        m: { nonce: string, t: atom } <- { nonce: nonce, t: t };
+        s: string <- encode((:etf), m)
+    produces pure s end
+}
+fn enc_response(sig: string) -> string {
+    sequence proc[mem(normal), transport]
+        t: atom <- kind_atom(3);
+        m: { sig: string, t: atom } <- { sig: sig, t: t };
+        s: string <- encode((:etf), m)
+    produces pure s end
+}
+fn enc_rotated(kid: string) -> string {
+    sequence proc[mem(normal), transport]
+        t: atom <- kind_atom(4);
+        m: { kid: string, t: atom } <- { kid: kid, t: t };
+        s: string <- encode((:etf), m)
+    produces pure s end
+}
+fn lcons(e: { age: int64, d: { addr: string, id: string, pub: string, token: string } }, l: List[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)]) -> List[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)] {
+    sequence proc[mem(normal)]
+        r: List[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)] <- prepend[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)](e, l)
+    produces pure r end
+}
+fn lnone() -> List[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)] <- empty[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)]()
+    produces pure e end
+}
+fn lrev(l: List[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)], acc: List[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)]) -> List[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)] {
+    case l of {
+        []: List[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)] -> acc;
+        [h: { age: int64, d: { addr: string, id: string, pub: string, token: string } }, t: List[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)]] -> {
+            nxt: List[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)] <- lcons(h, acc);
+            lrev(t, nxt)
+        }
+    }
+}
+// view entries as wire entries, in order (an entry whose d is not a descriptor goes as a blank one, which no reader accepts)
+fn wire_from(v: List[{ id: string, d: string, age: int64 }, mem(normal)], acc: List[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)]) -> List[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)] {
+    case v of {
+        []: List[{ id: string, d: string, age: int64 }, mem(normal)] -> {
+            e: List[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)] <- lnone();
+            lrev(acc, e)
+        };
+        [h: { id: string, d: string, age: int64 }, t: List[{ id: string, d: string, age: int64 }, mem(normal)]] -> {
+            r: { ok: boolean, d: { addr: string, id: string, pub: string, token: string } } <- desc_of(h.d);
+            w: { age: int64, d: { addr: string, id: string, pub: string, token: string } } <- { age: h.age, d: r.d };
+            nxt: List[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)] <- lcons(w, acc);
+            wire_from(t, nxt)
+        }
+    }
+}
+// kind 5 shuffle, 6 shuffle_reply or 8 sample_reply
+fn enc_entries(k: int64, store: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> string {
+    sequence proc[mem(normal), transport]
+        t: atom <- kind_atom(k);
+        st: atom <- store_atom(store);
+        e: List[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)] <- lnone();
+        l: List[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)] <- wire_from(entries, e);
+        m: { entries: List[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)], store: atom, t: atom } <- { entries: l, store: st, t: t };
+        s: string <- encode((:etf), m)
+    produces pure s end
+}
+fn enc_sample(store: int64, n: int64) -> string {
+    sequence proc[mem(normal), transport]
+        t: atom <- kind_atom(7);
+        st: atom <- store_atom(store);
+        m: { n: int64, store: atom, t: atom } <- { n: n, store: st, t: t };
+        s: string <- encode((:etf), m)
+    produces pure s end
+}
+fn enc_tick(store: int64) -> string {
+    sequence proc[mem(normal), transport]
+        t: atom <- kind_atom(9);
+        st: atom <- store_atom(store);
+        m: { store: atom, t: atom } <- { store: st, t: t };
+        s: string <- encode((:etf), m)
+    produces pure s end
+}
+fn enc_clock(ms: int64) -> string {
+    sequence proc[mem(normal), transport]
+        t: atom <- kind_atom(10);
+        m: { ms: int64, t: atom } <- { ms: ms, t: t };
+        s: string <- encode((:etf), m)
+    produces pure s end
+}
+fn enc_done() -> string {
+    sequence proc[mem(normal), transport]
+        t: atom <- kind_atom(11);
+        m: { t: atom } <- { t: t };
+        s: string <- encode((:etf), m)
+    produces pure s end
+}
+
+// ---- reading ----
+fn advert_read(r: (:ok, { d: { addr: string, id: string, pub: string, token: string }, t: atom, ver: int64 }) | (:rejected, atom)) -> { ok: boolean, why: string, d: { addr: string, id: string, pub: string, token: string } } {
+    case r of {
+        (:rejected, w: atom) -> { ok: false, why: said(w), d: blank() };
+        (:ok, m: { d: { addr: string, id: string, pub: string, token: string }, t: atom, ver: int64 }) -> {
+            dw: string <- desc_why(m.d);
+            w: string <- case kind_of(m.t) != 1 of { true -> "not an advert"; false -> case m.ver != 1 of { true -> "ver is not 1"; false -> dw } };
+            case length_bytes(w) == 0 of {
+                true -> { ok: true, why: "", d: m.d };
+                false -> { ok: false, why: w, d: blank() }
+            }
+        }
+    }
+}
+fn dec_advert(body: string) -> { ok: boolean, why: string, d: { addr: string, id: string, pub: string, token: string } } {
+    sequence proc[mem(normal), transport]
+        r: (:ok, { d: { addr: string, id: string, pub: string, token: string }, t: atom, ver: int64 }) | (:rejected, atom) <- decode((:etf), body, { max_bytes: 4096, max_depth: 3, max_length: 1024 })
+    produces pure advert_read(r) end
+}
+fn field_answer(ok: boolean, why: string, v: string) -> { ok: boolean, why: string, v: string } { { ok: ok, why: why, v: v } }
+fn field_checked(k: int64, t: atom, v: string, lo: int64, hi: int64, what: string) -> { ok: boolean, why: string, v: string } {
+    n: int64 <- length_bytes(v);
+    case kind_of(t) != k of {
+        true -> field_answer(false, "another kind", "");
+        false -> case n < lo or n > hi of {
+            true -> field_answer(false, what, "");
+            false -> field_answer(true, "", v)
+        }
+    }
+}
+fn nonce_read(r: (:ok, { nonce: string, t: atom }) | (:rejected, atom)) -> { ok: boolean, why: string, v: string } {
+    case r of {
+        (:rejected, w: atom) -> field_answer(false, said(w), "");
+        (:ok, m: { nonce: string, t: atom }) -> field_checked(2, m.t, m.nonce, 32, 32, "nonce is not 32 bytes")
+    }
+}
+fn sig_read(r: (:ok, { sig: string, t: atom }) | (:rejected, atom)) -> { ok: boolean, why: string, v: string } {
+    case r of {
+        (:rejected, w: atom) -> field_answer(false, said(w), "");
+        (:ok, m: { sig: string, t: atom }) -> field_checked(3, m.t, m.sig, 64, 64, "sig is not 64 bytes")
+    }
+}
+fn kid_read(r: (:ok, { kid: string, t: atom }) | (:rejected, atom)) -> { ok: boolean, why: string, v: string } {
+    case r of {
+        (:rejected, w: atom) -> field_answer(false, said(w), "");
+        (:ok, m: { kid: string, t: atom }) -> field_checked(4, m.t, m.kid, 1, 64, "kid is not 1 to 64 bytes")
+    }
+}
+fn dec_nonce(body: string) -> { ok: boolean, why: string, v: string } {
+    sequence proc[mem(normal), transport]
+        r: (:ok, { nonce: string, t: atom }) | (:rejected, atom) <- decode((:etf), body, { max_bytes: 128, max_depth: 2, max_length: 32 })
+    produces pure nonce_read(r) end
+}
+fn dec_sig(body: string) -> { ok: boolean, why: string, v: string } {
+    sequence proc[mem(normal), transport]
+        r: (:ok, { sig: string, t: atom }) | (:rejected, atom) <- decode((:etf), body, { max_bytes: 128, max_depth: 2, max_length: 64 })
+    produces pure sig_read(r) end
+}
+fn dec_kid(body: string) -> { ok: boolean, why: string, v: string } {
+    sequence proc[mem(normal), transport]
+        r: (:ok, { kid: string, t: atom }) | (:rejected, atom) <- decode((:etf), body, { max_bytes: 128, max_depth: 2, max_length: 64 })
+    produces pure kid_read(r) end
+}
+// the one byte string of a pop_challenge (k 2: the nonce), a pop_response (3: the sig) or a key_rotated (4: the kid)
+fn dec_field(body: string, k: int64) -> { ok: boolean, why: string, v: string } {
+    case k of {
+        2 -> dec_nonce(body);
+        3 -> dec_sig(body);
+        4 -> dec_kid(body);
+        _: int64 -> field_answer(false, "another kind", "")
+    }
+}
+
+fn entries_answer(ok: boolean, why: string, store: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> { ok: boolean, why: string, store: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)] } {
+    { ok: ok, why: why, store: store, entries: entries }
+}
+// wire entries as view entries, in order; "" or what is wrong with the first bad one
+fn entries_why(l: List[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)]) -> string {
+    case l of {
+        []: List[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)] -> "";
+        [h: { age: int64, d: { addr: string, id: string, pub: string, token: string } }, t: List[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)]] -> {
+            dw: string <- desc_why(h.d);
+            case h.age < 0 or h.age > bees_tempus_view@age_max() of {
+                true -> "age is not 0 to 65535";
+                false -> case length_bytes(dw) == 0 of { true -> entries_why(t); false -> dw }
+            }
+        }
+    }
+}
+fn lsize(l: List[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)], n: int64) -> int64 {
+    case l of {
+        []: List[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)] -> n;
+        [_h: { age: int64, d: { addr: string, id: string, pub: string, token: string } }, t: List[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)]] -> lsize(t, n + 1)
+    }
+}
+fn only(e: { id: string, d: string, age: int64 }) -> List[{ id: string, d: string, age: int64 }, mem(normal)] {
+    sequence proc[mem(normal)]
+        z: List[{ id: string, d: string, age: int64 }, mem(normal)] <- empty[{ id: string, d: string, age: int64 }, mem(normal)]();
+        r: List[{ id: string, d: string, age: int64 }, mem(normal)] <- prepend[{ id: string, d: string, age: int64 }, mem(normal)](e, z)
+    produces pure r end
+}
+fn view_from(l: List[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)], acc: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> List[{ id: string, d: string, age: int64 }, mem(normal)] {
+    case l of {
+        []: List[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)] -> acc;
+        [h: { age: int64, d: { addr: string, id: string, pub: string, token: string } }, t: List[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)]] -> {
+            db: string <- desc_bytes(h.d);
+            e: { id: string, d: string, age: int64 } <- bees_tempus_view@entry(h.d.id, db, h.age);
+            last: List[{ id: string, d: string, age: int64 }, mem(normal)] <- only(e);
+            nxt: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@append(acc, last);
+            view_from(t, nxt)
+        }
+    }
+}
+fn entries_read(r: (:ok, { entries: List[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)], store: atom, t: atom }) | (:rejected, atom), count: int64) -> { ok: boolean, why: string, store: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)] } {
+    none: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@none();
+    case r of {
+        (:rejected, w: atom) -> entries_answer(false, said(w), 0, none);
+        (:ok, m: { entries: List[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)], store: atom, t: atom }) -> {
+            k: int64 <- kind_of(m.t);
+            st: int64 <- store_code(m.store);
+            n: int64 <- lsize(m.entries, 0);
+            ew: string <- entries_why(m.entries);
+            w: string <- case k != 5 and k != 6 and k != 8 of { true -> "another kind"; false ->
+                case st == 0 of { true -> "store is not a peer type"; false ->
+                case n > entries_max() or n > count of { true -> "more entries than the shuffle length"; false -> ew } } };
+            case length_bytes(w) == 0 of {
+                false -> entries_answer(false, w, 0, none);
+                true -> entries_answer(true, "", st, view_from(m.entries, none))
+            }
+        }
+    }
+}
+// a shuffle, a shuffle_reply or a sample_reply; count is the configured shuffle length (at most entries_max)
+fn dec_entries(body: string, count: int64) -> { ok: boolean, why: string, store: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)] } {
+    sequence proc[mem(normal), transport]
+        r: (:ok, { entries: List[{ age: int64, d: { addr: string, id: string, pub: string, token: string } }, mem(normal)], store: atom, t: atom }) | (:rejected, atom) <- decode((:etf), body, { max_bytes: 131072, max_depth: 5, max_length: 1024 })
+    produces pure entries_read(r, count) end
+}
+fn sample_read(r: (:ok, { n: int64, store: atom, t: atom }) | (:rejected, atom), count: int64) -> { ok: boolean, why: string, store: int64, n: int64 } {
+    case r of {
+        (:rejected, w: atom) -> { ok: false, why: said(w), store: 0, n: 0 };
+        (:ok, m: { n: int64, store: atom, t: atom }) -> {
+            st: int64 <- store_code(m.store);
+            w: string <- case kind_of(m.t) != 7 of { true -> "another kind"; false ->
+                case st == 0 of { true -> "store is not a peer type"; false ->
+                case m.n < 1 or m.n > count of { true -> "n is not 1 to the shuffle length"; false -> "" } } };
+            case length_bytes(w) == 0 of {
+                false -> { ok: false, why: w, store: 0, n: 0 };
+                true -> { ok: true, why: "", store: st, n: m.n }
+            }
+        }
+    }
+}
+fn dec_sample(body: string, count: int64) -> { ok: boolean, why: string, store: int64, n: int64 } {
+    sequence proc[mem(normal), transport]
+        r: (:ok, { n: int64, store: atom, t: atom }) | (:rejected, atom) <- decode((:etf), body, { max_bytes: 128, max_depth: 2, max_length: 32 })
+    produces pure sample_read(r, count) end
+}
+fn tick_read(r: (:ok, { store: atom, t: atom }) | (:rejected, atom)) -> { ok: boolean, why: string, store: int64 } {
+    case r of {
+        (:rejected, w: atom) -> { ok: false, why: said(w), store: 0 };
+        (:ok, m: { store: atom, t: atom }) -> {
+            st: int64 <- store_code(m.store);
+            case kind_of(m.t) != 9 of {
+                true -> { ok: false, why: "another kind", store: 0 };
+                false -> case st == 0 of {
+                    true -> { ok: false, why: "store is not a peer type", store: 0 };
+                    false -> { ok: true, why: "", store: st }
+                }
+            }
+        }
+    }
+}
+fn dec_tick(body: string) -> { ok: boolean, why: string, store: int64 } {
+    sequence proc[mem(normal), transport]
+        r: (:ok, { store: atom, t: atom }) | (:rejected, atom) <- decode((:etf), body, { max_bytes: 128, max_depth: 2, max_length: 32 })
+    produces pure tick_read(r) end
+}
+fn clock_read(r: (:ok, { ms: int64, t: atom }) | (:rejected, atom)) -> { ok: boolean, why: string, ms: int64 } {
+    case r of {
+        (:rejected, w: atom) -> { ok: false, why: said(w), ms: 0 };
+        (:ok, m: { ms: int64, t: atom }) -> case kind_of(m.t) != 10 of {
+            true -> { ok: false, why: "another kind", ms: 0 };
+            false -> case m.ms < 0 or m.ms > 9007199254740992 of {
+                true -> { ok: false, why: "ms is not 0 to 2^53", ms: 0 };
+                false -> { ok: true, why: "", ms: m.ms }
+            }
+        }
+    }
+}
+fn dec_clock(body: string) -> { ok: boolean, why: string, ms: int64 } {
+    sequence proc[mem(normal), transport]
+        r: (:ok, { ms: int64, t: atom }) | (:rejected, atom) <- decode((:etf), body, { max_bytes: 128, max_depth: 2, max_length: 32 })
+    produces pure clock_read(r) end
+}
+
+fn done_read(r: (:ok, { t: atom }) | (:rejected, atom)) -> { ok: boolean, why: string } {
+    case r of {
+        (:rejected, w: atom) -> { ok: false, why: said(w) };
+        (:ok, m: { t: atom }) -> case kind_of(m.t) != 11 of {
+            true -> { ok: false, why: "another kind" };
+            false -> { ok: true, why: "" }
+        }
+    }
+}
+fn dec_done(body: string) -> { ok: boolean, why: string } {
+    sequence proc[mem(normal), transport]
+        r: (:ok, { t: atom }) | (:rejected, atom) <- decode((:etf), body, { max_bytes: 64, max_depth: 2, max_length: 32 })
+    produces pure done_read(r) end
+}
+
+// ---- the token's structure ----
+fn at(s: string, i: int64) -> int64 {
+    sequence proc[transport]
+        b: int64 <- byte_at(s, i)
+    produces pure b end
+}
+fn tok_bad(why: string) -> { ok: boolean, why: string, kid: string, sub: string, typ: int64, nbf: int64, exp: int64, payload: string, sig: string } {
+    { ok: false, why: why, kid: "", sub: "", typ: 0, nbf: 0, exp: 0, payload: "", sig: "" }
+}
+fn str_or(r: (:ok, string) | (:rejected, atom)) -> string {
+    case r of { (:ok, s: string) -> s; (:rejected, _w: atom) -> "" }
+}
+fn int_or(r: (:ok, int64) | (:rejected, atom)) -> int64 {
+    case r of { (:ok, n: int64) -> n; (:rejected, _w: atom) -> 0 - 1 }
+}
+fn typ_or(r: (:ok, atom) | (:rejected, atom)) -> int64 {
+    case r of { (:ok, a: atom) -> store_code(a); (:rejected, _w: atom) -> 0 }
+}
+fn tok_fields(payload: string, sig: string) -> { ok: boolean, why: string, kid: string, sub: string, typ: int64, nbf: int64, exp: int64, payload: string, sig: string } {
+    r_kid: (:ok, string) | (:rejected, atom) <- bees_trust_frame@dec_str(bees_trust_frame@span(payload, "kid"));
+    kid: string <- str_or(r_kid);
+    r_sub: (:ok, string) | (:rejected, atom) <- bees_trust_frame@dec_str(bees_trust_frame@span(payload, "sub"));
+    sub: string <- str_or(r_sub);
+    r_typ: (:ok, atom) | (:rejected, atom) <- bees_trust_frame@dec_atom(bees_trust_frame@span(payload, "typ"));
+    typ: int64 <- typ_or(r_typ);
+    r_nbf: (:ok, int64) | (:rejected, atom) <- bees_trust_frame@dec_int(bees_trust_frame@span(payload, "nbf"));
+    nbf: int64 <- int_or(r_nbf);
+    r_exp: (:ok, int64) | (:rejected, atom) <- bees_trust_frame@dec_int(bees_trust_frame@span(payload, "exp"));
+    exp: int64 <- int_or(r_exp);
+    w: string <- case length_bytes(kid) < 1 or length_bytes(kid) > 64 of { true -> "kid is not 1 to 64 bytes"; false ->
+        case length_bytes(sub) != 32 of { true -> "sub is not 32 bytes"; false ->
+        case typ == 0 of { true -> "typ is not a peer type"; false ->
+        case nbf < 0 or exp < 0 of { true -> "nbf or exp is not a time"; false ->
+        case exp <= nbf of { true -> "exp is not after nbf"; false -> "" } } } } };
+    case length_bytes(w) == 0 of {
+        false -> tok_bad(w);
+        true -> { ok: true, why: "", kid: kid, sub: sub, typ: typ, nbf: nbf, exp: exp, payload: payload, sig: sig }
+    }
+}
+// the structure and bounds of a token: 64 signature bytes, then a map of exactly kid, sub, typ, nbf, exp
+fn tok(token: string) -> { ok: boolean, why: string, kid: string, sub: string, typ: int64, nbf: int64, exp: int64, payload: string, sig: string } {
+    n: int64 <- length_bytes(token);
+    case n < 65 or n > 1024 of {
+        true -> tok_bad("token is not 65 to 1024 bytes");
+        false -> {
+            sig: string <- bees_trust_frame@cut(token, 0, 64);
+            payload: string <- bees_trust_frame@cut(token, 64, n);
+            c: int64 <- bees_trust_frame@check(payload, 2, 0);
+            case c != 0 of {
+                true -> tok_bad(bees_atoms@spelling(bees_trust_frame@reason(c)));
+                false -> case at(payload, 5) != 5 of {
+                    true -> tok_bad("the token is not a map of five keys");
+                    false -> tok_fields(payload, sig)
+                }
+            }
+        }
+    }
+}

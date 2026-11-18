@@ -118,3 +118,30 @@ clean: clean-tls
 .PHONY: clean-tls
 clean-tls:
 	rm -f $(TLS_ARCHIVE) $(TLS_OBJ) $(TLS_FLAGS_FILE) $(BUILD)/bees_tls_selftest $(BUILD)/tls.status
+
+# TEMPUS (T4): its own archive, libsilica_bees_tempus.a, from tempus/ (Ed25519 over the programmer-installed OpenSSL, the same
+# installation the TLS engine uses). Built on request (`make -C native tempus`), only when OPENSSL_PREFIX names an accepted
+# installation; never for the boards (Mbed TLS has no Ed25519: development-plan/tempus-design.md NQ-6). Not part of `all`.
+TEMPUS_SRCS := $(wildcard $(THIS_DIR)tempus/*.c)
+TEMPUS_OBJS := $(patsubst $(THIS_DIR)tempus/%.c,$(BUILD)/tempus_%.o,$(TEMPUS_SRCS))
+TEMPUS_ARCHIVE := $(LIB)/libsilica_bees_tempus.a
+.PHONY: tempus tempus-selftest clean-tempus
+tempus:
+	@if [ -n "$(TLS_REFUSAL)" ]; then echo "[native] REFUSED to build the TEMPUS edge: $(TLS_REFUSAL)"; exit 1; \
+	else $(MAKE) --no-print-directory "$(TEMPUS_ARCHIVE)"; fi
+$(BUILD)/tempus_%.o: $(THIS_DIR)tempus/%.c $(wildcard $(THIS_DIR)tempus/*.h) $(wildcard $(THIS_DIR)dangerous_exposure_source/tempus/*.h) $(TLS_FLAGS_FILE)
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -I$(THIS_DIR)tempus -I$(THIS_DIR)dangerous_exposure_source/tempus -I$(OPENSSL_PREFIX)/include -c $< -o $@
+$(TEMPUS_ARCHIVE): $(TEMPUS_OBJS)
+	@mkdir -p $(LIB)
+	ar rcs $@ $^
+	@echo "[native] $(TEMPUS_ARCHIVE) (TEMPUS; OpenSSL $(OPENSSL_VERSION_TEXT) at $(OPENSSL_PREFIX))"
+# TEST ONLY: Ed25519 against vectors made by Python
+tempus-selftest: tls-flags
+	@if [ -n "$(TLS_REFUSAL)" ]; then echo "[native] REFUSED: $(TLS_REFUSAL)"; exit 1; fi
+	$(CC) $(CFLAGS) -I$(THIS_DIR)tempus -I$(OPENSSL_PREFIX)/include $(TEMPUS_SRCS) $(THIS_DIR)tempus/selftest/bees_tempus_selftest.c \
+		-L$(OPENSSL_PREFIX)/lib $(if $(PLATFORM_RPATH_FLAG),$(PLATFORM_RPATH_FLAG)$(OPENSSL_PREFIX)/lib) -lcrypto -o $(BUILD)/bees_tempus_selftest
+	@$(BUILD)/bees_tempus_selftest
+clean: clean-tempus
+clean-tempus:
+	rm -f $(TEMPUS_ARCHIVE) $(TEMPUS_OBJS) $(BUILD)/bees_tempus_selftest

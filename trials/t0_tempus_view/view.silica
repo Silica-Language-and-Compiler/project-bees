@@ -1,0 +1,495 @@
+// T0: the TEMPUS view logic (src/tempus/bees_tempus_view.silica), in memory: no carrier, no actor, no clock. Every draw is a
+// literal of this file, or comes from the small generator below, which is a TEST-ONLY input (a node takes its draws from the
+// platform's secure source; development-plan/tempus-design.md 3.5). Part 1 is hand-worked cases, one rule each; the expected
+// line is in the comment beside each case. Part 2 runs eight nodes for ten rounds and checks the invariants after every
+// exchange; tools/test_bees_tempus_view.py holds an independent model of the same rules and compares this program's output.
+use bees_tempus_view;
+use bees_reporter;
+
+fn say(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+fn yes(b: boolean) -> string { case b of { true -> "yes"; false -> "no" } }
+fn digits(n: int64, acc: string) -> string {
+    case n < 10 of {
+        true -> concat(substring("0123456789", n, n + 1), acc);
+        false -> digits(n / 10, concat(substring("0123456789", n % 10, n % 10 + 1), acc))
+    }
+}
+fn num(n: int64) -> string { digits(n, "") }
+
+// an entry whose descriptor is "@" and its id
+fn ent(id: string, age: int64) -> { id: string, d: string, age: int64 } {
+    d: string <- concat("@", id);
+    bees_tempus_view@entry(id, d, age)
+}
+fn one(e: { id: string, d: string, age: int64 }) -> string { concat(concat(e.id, ":"), num(e.age)) }
+fn show_from(v: List[{ id: string, d: string, age: int64 }, mem(normal)], acc: string) -> string {
+    case v of {
+        []: List[{ id: string, d: string, age: int64 }, mem(normal)] -> acc;
+        [h: { id: string, d: string, age: int64 }, t: List[{ id: string, d: string, age: int64 }, mem(normal)]] -> {
+            s: string <- one(h);
+            nxt: string <- case length_bytes(acc) == 0 of { true -> s; false -> concat(concat(acc, " "), s) };
+            show_from(t, nxt)
+        }
+    }
+}
+fn show(v: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> string {
+    case bees_tempus_view@size(v) == 0 of { true -> "(empty)"; false -> show_from(v, "") }
+}
+// with the descriptors
+fn showd_from(v: List[{ id: string, d: string, age: int64 }, mem(normal)], acc: string) -> string {
+    case v of {
+        []: List[{ id: string, d: string, age: int64 }, mem(normal)] -> acc;
+        [h: { id: string, d: string, age: int64 }, t: List[{ id: string, d: string, age: int64 }, mem(normal)]] -> {
+            s: string <- concat(concat(one(h), "/"), h.d);
+            nxt: string <- case length_bytes(acc) == 0 of { true -> s; false -> concat(concat(acc, " "), s) };
+            showd_from(t, nxt)
+        }
+    }
+}
+fn line(name: string, v: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> atom { say(concat(concat(name, ": "), show(v))) }
+
+fn c(e: { id: string, d: string, age: int64 }, v: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> List[{ id: string, d: string, age: int64 }, mem(normal)] {
+    sequence proc[mem(normal)]
+        r: List[{ id: string, d: string, age: int64 }, mem(normal)] <- prepend[{ id: string, d: string, age: int64 }, mem(normal)](e, v)
+    produces pure r end
+}
+fn v0() -> List[{ id: string, d: string, age: int64 }, mem(normal)] { bees_tempus_view@none() }
+fn z0() -> List[{ id: string, d: string, age: int64 }, mem(normal)] { v0() }
+fn v1(a: { id: string, d: string, age: int64 }) -> List[{ id: string, d: string, age: int64 }, mem(normal)] { z: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v0(); c(a, z) }
+fn v2(a: { id: string, d: string, age: int64 }, b: { id: string, d: string, age: int64 }) -> List[{ id: string, d: string, age: int64 }, mem(normal)] { z: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v1(b); c(a, z) }
+fn v3(a: { id: string, d: string, age: int64 }, b: { id: string, d: string, age: int64 }, x: { id: string, d: string, age: int64 }) -> List[{ id: string, d: string, age: int64 }, mem(normal)] { z: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v2(b, x); c(a, z) }
+fn v4(a: { id: string, d: string, age: int64 }, b: { id: string, d: string, age: int64 }, x: { id: string, d: string, age: int64 }, y: { id: string, d: string, age: int64 }) -> List[{ id: string, d: string, age: int64 }, mem(normal)] { z: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v3(b, x, y); c(a, z) }
+fn v5(a: { id: string, d: string, age: int64 }, b: { id: string, d: string, age: int64 }, x: { id: string, d: string, age: int64 }, y: { id: string, d: string, age: int64 }, w: { id: string, d: string, age: int64 }) -> List[{ id: string, d: string, age: int64 }, mem(normal)] { z: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v4(b, x, y, w); c(a, z) }
+
+fn d0() -> List[int64, mem(normal)] { sequence proc[mem(normal)] e: List[int64, mem(normal)] <- empty[int64, mem(normal)]() produces pure e end }
+fn d3(a: int64, b: int64, x: int64) -> List[int64, mem(normal)] { sequence proc[mem(normal)] e: List[int64, mem(normal)] <- [a, b, x] produces pure e end }
+
+// the view most cases start from: a:3 b:5 c:5 d:1 e:0
+fn base() -> List[{ id: string, d: string, age: int64 }, mem(normal)] {
+    ea: { id: string, d: string, age: int64 } <- ent("a", 3);
+    eb: { id: string, d: string, age: int64 } <- ent("b", 5);
+    ec: { id: string, d: string, age: int64 } <- ent("c", 5);
+    ed: { id: string, d: string, age: int64 } <- ent("d", 1);
+    ee: { id: string, d: string, age: int64 } <- ent("e", 0);
+    v5(ea, eb, ec, ed, ee)
+}
+
+fn sel_lines(name: string, s: { found: boolean, partner: { id: string, d: string, age: int64 }, sent: List[{ id: string, d: string, age: int64 }, mem(normal)], rest: List[{ id: string, d: string, age: int64 }, mem(normal)] }) -> atom {
+    sequence
+        _: atom <- say(concat(concat(name, ": found "), yes(s.found)));
+        _: atom <- say(concat(concat(name, ": partner "), case s.found of { true -> one(s.partner); false -> "(none)" }));
+        _: atom <- line(concat(name, ": sent"), s.sent);
+        _: atom <- line(concat(name, ": rest"), s.rest)
+    produces pure :ok end
+}
+fn rep_lines(name: string, r: { sent: List[{ id: string, d: string, age: int64 }, mem(normal)], rest: List[{ id: string, d: string, age: int64 }, mem(normal)] }) -> atom {
+    sequence
+        _: atom <- line(concat(name, ": sent"), r.sent);
+        _: atom <- line(concat(name, ": rest"), r.rest)
+    produces pure :ok end
+}
+
+fn part_age() -> atom {
+    sequence
+        b: List[{ id: string, d: string, age: int64 }, mem(normal)] <- base();
+        // a:4 b:6 c:6 d:2 e:1
+        aged: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@age_all(b);
+        _: atom <- line("age_all", aged);
+        top: { id: string, d: string, age: int64 } <- ent("t", 65535);
+        nearly: { id: string, d: string, age: int64 } <- ent("u", 65534);
+        hi: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v2(top, nearly);
+        // t:65535 u:65535 (an age stops at 65535)
+        hi2: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@age_all(hi);
+        _: atom <- line("age_all at the bound", hi2);
+        z: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v0();
+        z2: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@age_all(z);
+        _: atom <- line("age_all of an empty view", z2)
+    produces pure :ok end
+}
+
+fn part_select() -> atom {
+    sequence
+        b: List[{ id: string, d: string, age: int64 }, mem(normal)] <- base();
+        // oldest are b and c (5); draw 1 takes the second, c. Others a b d e: draw 0 takes a; then b d e: draw 1 takes d.
+        // partner c:5, sent a:3 d:1, rest b:5 e:0
+        ds1: List[int64, mem(normal)] <- d3(1, 0, 1);
+        s1: { found: boolean, partner: { id: string, d: string, age: int64 }, sent: List[{ id: string, d: string, age: int64 }, mem(normal)], rest: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_view@select(b, 3, ds1);
+        _: atom <- sel_lines("select len 3 draws 1 0 1", s1);
+        // draw 0 takes b. Others a c d e: draw 7 mod 4 = 3 takes e; then a c d: draw 5 mod 3 = 2 takes d.
+        // partner b:5, sent e:0 d:1, rest a:3 c:5
+        ds2: List[int64, mem(normal)] <- d3(0, 7, 5);
+        s2: { found: boolean, partner: { id: string, d: string, age: int64 }, sent: List[{ id: string, d: string, age: int64 }, mem(normal)], rest: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_view@select(b, 3, ds2);
+        _: atom <- sel_lines("select len 3 draws 0 7 5", s2);
+        // no draws: each counts as 0. partner b:5; others a c d e, the first each time: a, then c. rest d:1 e:0
+        dn: List[int64, mem(normal)] <- d0();
+        s3: { found: boolean, partner: { id: string, d: string, age: int64 }, sent: List[{ id: string, d: string, age: int64 }, mem(normal)], rest: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_view@select(b, 3, dn);
+        _: atom <- sel_lines("select len 3 no draws", s3);
+        // len 1: only the node's own entry goes. partner c:5, sent empty, rest a:3 b:5 d:1 e:0
+        s4: { found: boolean, partner: { id: string, d: string, age: int64 }, sent: List[{ id: string, d: string, age: int64 }, mem(normal)], rest: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_view@select(b, 1, ds1);
+        _: atom <- sel_lines("select len 1", s4);
+        // len 9 on five entries: partner c:5 and all four others go, in the order drawn: 0 of a b d e = a; 1 of b d e = d;
+        // then no draws: b, e. rest empty
+        s5: { found: boolean, partner: { id: string, d: string, age: int64 }, sent: List[{ id: string, d: string, age: int64 }, mem(normal)], rest: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_view@select(b, 9, ds1);
+        _: atom <- sel_lines("select len 9", s5);
+        z: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v0();
+        s6: { found: boolean, partner: { id: string, d: string, age: int64 }, sent: List[{ id: string, d: string, age: int64 }, mem(normal)], rest: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_view@select(z, 3, ds1);
+        _: atom <- sel_lines("select on an empty view", s6);
+        // a negative draw counts as 0: partner b:5
+        dneg: List[int64, mem(normal)] <- d3(0 - 4, 0 - 1, 2);
+        s7: { found: boolean, partner: { id: string, d: string, age: int64 }, sent: List[{ id: string, d: string, age: int64 }, mem(normal)], rest: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_view@select(b, 2, dneg);
+        _: atom <- sel_lines("select len 2 negative draws", s7);
+        // the buffer: the node's own entry first, at age 0
+        out: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@outgoing("me", "@me", s1.sent);
+        _: atom <- say(concat("outgoing: ", showd_from(out, "")))
+    produces pure :ok end
+}
+
+fn part_reply() -> atom {
+    sequence
+        b: List[{ id: string, d: string, age: int64 }, mem(normal)] <- base();
+        // the asker is d: candidates a b c e. draw 2 takes c; a b e: draw 2 takes e. sent c:5 e:0; rest a:3 b:5 d:1 (d stays)
+        ds: List[int64, mem(normal)] <- d3(2, 2, 0);
+        r1: { sent: List[{ id: string, d: string, age: int64 }, mem(normal)], rest: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_view@reply_select(b, 2, "d", ds);
+        _: atom <- rep_lines("reply_select len 2 asker d", r1);
+        // an asker the view does not hold: candidates all five. draws 2 2 0: c; a b d e: d; a b e: a. rest b:5 e:0
+        r2: { sent: List[{ id: string, d: string, age: int64 }, mem(normal)], rest: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_view@reply_select(b, 3, "x", ds);
+        _: atom <- rep_lines("reply_select len 3 asker x", r2);
+        // a view holding only the asker: nothing to send, the view is kept
+        ed: { id: string, d: string, age: int64 } <- ent("d", 4);
+        only: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v1(ed);
+        r3: { sent: List[{ id: string, d: string, age: int64 }, mem(normal)], rest: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_view@reply_select(only, 3, "d", ds);
+        _: atom <- rep_lines("reply_select only the asker", r3)
+    produces pure :ok end
+}
+
+fn part_merge() -> atom {
+    sequence
+        // kept b:5 e:0; received me:0 (dropped: the node itself), x:2, y:7. cap 5: x:2 y:7 b:5 e:0
+        eb: { id: string, d: string, age: int64 } <- ent("b", 5);
+        ee: { id: string, d: string, age: int64 } <- ent("e", 0);
+        kept: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v2(eb, ee);
+        r1: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v3(ent("me", 0), ent("x", 2), ent("y", 7));
+        m1: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@merge(kept, r1, "me", 5);
+        _: atom <- line("merge drops self", m1);
+        // the same peer on both sides: received b:2 is younger than kept b:5 and wins; received e:3 is older than kept e:0 and
+        // loses: b:2 e:0
+        r2: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v2(ent("b", 2), ent("e", 3));
+        m2: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@merge(kept, r2, "me", 5);
+        _: atom <- line("merge prefers younger", m2);
+        // the winning entry is the received one, descriptor included: b:2/new e:0/@e
+        nb: { id: string, d: string, age: int64 } <- bees_tempus_view@entry("b", "new", 2);
+        r3: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v1(nb);
+        m3: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@merge(kept, r3, "me", 5);
+        _: atom <- say(concat("merge takes the younger entry whole: ", showd_from(m3, "")));
+        // equal age: the entry the node had is kept, descriptor included: b:5/@b e:0/@e
+        sb: { id: string, d: string, age: int64 } <- bees_tempus_view@entry("b", "new", 5);
+        r4: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v1(sb);
+        m4: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@merge(kept, r4, "me", 5);
+        _: atom <- say(concat("merge at equal age keeps its own: ", showd_from(m4, "")));
+        // the same peer twice in what was received: the younger, at the place of the first: x:1 y:4 b:5 e:0
+        r5: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v4(ent("x", 6), ent("y", 4), ent("x", 1), ent("x", 3));
+        m5: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@merge(kept, r5, "me", 5);
+        _: atom <- line("merge with a peer twice in the buffer", m5);
+        // over capacity: the oldest go. x:2 y:7 z:1 b:5 e:0 at cap 3: y:7 goes, then b:5: x:2 z:1 e:0
+        r6: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v3(ent("x", 2), ent("y", 7), ent("z", 1));
+        m6: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@merge(kept, r6, "me", 3);
+        _: atom <- line("merge evicts the oldest", m6);
+        // equal ages over capacity: kept entries go before received ones, the last in order first.
+        // p:4 q:4 then kept b:4 f:4 g:1 at cap 3: f goes, then b: p:4 q:4 g:1
+        k2: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v3(ent("b", 4), ent("f", 4), ent("g", 1));
+        r7: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v2(ent("p", 4), ent("q", 4));
+        m7: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@merge(k2, r7, "me", 3);
+        _: atom <- line("merge eviction at equal age", m7);
+        // at cap 1 only the youngest stays: g:1
+        m8: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@merge(k2, r7, "me", 1);
+        _: atom <- line("merge to capacity 1", m8);
+        // only received entries of equal age over capacity: the last received goes first. p:4 q:4 r:4 at cap 2: p:4 q:4
+        r8: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v3(ent("p", 4), ent("q", 4), ent("r", 4));
+        m11: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@merge(z0(), r8, "me", 2);
+        _: atom <- line("merge eviction among received", m11);
+        // nothing received: the kept view
+        z: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v0();
+        m9: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@merge(kept, z, "me", 5);
+        _: atom <- line("merge of nothing", m9);
+        // capacity 0 keeps nothing
+        m10: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@merge(kept, r1, "me", 0);
+        _: atom <- line("merge to capacity 0", m10)
+    produces pure :ok end
+}
+
+fn part_backfill() -> atom {
+    sequence
+        v: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v2(ent("x", 2), ent("b", 5));
+        sent: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v3(ent("a", 3), ent("b", 9), ent("d", 1));
+        // room for two more at cap 4: a goes back, b is already there (the view's entry stays), d goes back: x:2 b:5 a:3 d:1
+        f1: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@backfill(v, sent, 4);
+        _: atom <- line("backfill with room", f1);
+        // cap 3: only a fits: x:2 b:5 a:3
+        f2: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@backfill(v, sent, 3);
+        _: atom <- line("backfill to capacity", f2);
+        // cap 2: full already
+        f3: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@backfill(v, sent, 2);
+        _: atom <- line("backfill of a full view", f3);
+        // a failed shuffle: select's rest with its sent entries put back; the partner (c) stays out: b:5 e:0 a:3 d:1
+        b: List[{ id: string, d: string, age: int64 }, mem(normal)] <- base();
+        ds1: List[int64, mem(normal)] <- d3(1, 0, 1);
+        s1: { found: boolean, partner: { id: string, d: string, age: int64 }, sent: List[{ id: string, d: string, age: int64 }, mem(normal)], rest: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_view@select(b, 3, ds1);
+        f4: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@backfill(s1.rest, s1.sent, 5);
+        _: atom <- line("after a failed shuffle", f4)
+    produces pure :ok end
+}
+
+fn part_other() -> atom {
+    sequence
+        b: List[{ id: string, d: string, age: int64 }, mem(normal)] <- base();
+        _: atom <- say(concat("size: ", num(bees_tempus_view@size(b))));
+        _: atom <- say(concat("member c: ", yes(bees_tempus_view@member(b, "c"))));
+        _: atom <- say(concat("member x: ", yes(bees_tempus_view@member(b, "x"))));
+        rm: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@remove(b, "c");
+        _: atom <- line("remove c", rm);
+        rm2: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@remove(b, "x");
+        _: atom <- line("remove x", rm2);
+        // insert at cap 5 into five entries: n:0 comes first, then the oldest kept entry in the last place (c:5) goes
+        i1: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@insert(b, ent("n", 0), "me", 5);
+        _: atom <- line("insert into a full view", i1);
+        i2: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@insert(b, ent("me", 0), "me", 5);
+        _: atom <- line("insert of self", i2);
+        // sample 2 with draws 4 0: e, then a; the view is unchanged
+        ds: List[int64, mem(normal)] <- d3(4, 0, 0);
+        sm: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@sample(b, 2, ds);
+        _: atom <- line("sample 2", sm);
+        sm2: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@sample(b, 9, ds);
+        _: atom <- line("sample 9 of five", sm2);
+        _: atom <- say(concat("valid base, cap 5: ", yes(bees_tempus_view@valid(b, "me", 5))));
+        _: atom <- say(concat("valid base, cap 4: ", yes(bees_tempus_view@valid(b, "me", 4))));
+        _: atom <- say(concat("valid base, self a: ", yes(bees_tempus_view@valid(b, "a", 5))));
+        dup: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v2(ent("a", 1), ent("a", 2));
+        _: atom <- say(concat("valid with an id twice: ", yes(bees_tempus_view@valid(dup, "me", 5))));
+        big: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v1(ent("a", 65536));
+        _: atom <- say(concat("valid with age 65536: ", yes(bees_tempus_view@valid(big, "me", 5))));
+        neg: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v1(ent("a", 0 - 1));
+        _: atom <- say(concat("valid with age -1: ", yes(bees_tempus_view@valid(neg, "me", 5))));
+        noid: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v1(ent("", 1));
+        _: atom <- say(concat("valid with an empty id: ", yes(bees_tempus_view@valid(noid, "me", 5))))
+    produces pure :ok end
+}
+
+// ---- part 2: eight nodes, ten rounds ----
+// TEST ONLY: the draws of part 2 come from a linear congruential generator seeded per step from the literal in seed_of().
+// Never used by a node.
+fn lcg(x: int64) -> int64 { (x * 1103515245 + 12345) % 2147483648 }
+fn dcons(v: int64, ds: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    sequence proc[mem(normal)]
+        r: List[int64, mem(normal)] <- prepend[int64, mem(normal)](v, ds)
+    produces pure r end
+}
+// k draws from x, the last made first in the list
+fn draws_from(x: int64, k: int64, acc: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    case k == 0 of {
+        true -> acc;
+        false -> {
+            x2: int64 <- lcg(x);
+            v: int64 <- x2 / 65536;
+            nxt: List[int64, mem(normal)] <- dcons(v, acc);
+            k2: int64 <- k - 1;
+            draws_from(x2, k2, nxt)
+        }
+    }
+}
+fn draws(x: int64, k: int64) -> List[int64, mem(normal)] {
+    e: List[int64, mem(normal)] <- d0();
+    draws_from(x, k, e)
+}
+// the seed of the initiator's draws in round r at node i; the partner's draws use this seed plus one
+fn seed_of(r: int64, i: int64) -> int64 { 20261118 + r * 1000 + i * 10 }
+fn name(i: int64) -> string { concat("n", num(i)) }
+fn index_of(id: string, i: int64) -> int64 {
+    case i >= 8 of { true -> 0 - 1; false -> case name(i) == id of { true -> i; false -> index_of(id, i + 1) } }
+}
+fn wcons(v: List[{ id: string, d: string, age: int64 }, mem(normal)], w: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)]) -> List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)] {
+    sequence proc[mem(normal)]
+        r: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)] <- prepend[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)](v, w)
+    produces pure r end
+}
+fn wnone() -> List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)] <- empty[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)]()
+    produces pure e end
+}
+fn wsize(w: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)], n: int64) -> int64 {
+    case w of {
+        []: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)] -> n;
+        [_h: List[{ id: string, d: string, age: int64 }, mem(normal)], t: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)]] -> wsize(t, n + 1)
+    }
+}
+fn wget(w: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)], i: int64) -> List[{ id: string, d: string, age: int64 }, mem(normal)] {
+    case w of {
+        []: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)] -> v0();
+        [h: List[{ id: string, d: string, age: int64 }, mem(normal)], t: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)]] -> case i == 0 of { true -> h; false -> wget(t, i - 1) }
+    }
+}
+fn wset(w: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)], i: int64, v: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)] {
+    case w of {
+        []: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)] -> w;
+        [h: List[{ id: string, d: string, age: int64 }, mem(normal)], t: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)]] -> case i == 0 of {
+            true -> wcons(v, t);
+            false -> {
+                j: int64 <- i - 1;
+                r: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)] <- wset(t, j, v);
+                wcons(h, r)
+            }
+        }
+    }
+}
+// node i starts knowing the next four on the ring, at age 0 (a full view: the capacity is four)
+fn world_from(i: int64, acc: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)]) -> List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)] {
+    case i < 0 of {
+        true -> acc;
+        false -> {
+            e1: { id: string, d: string, age: int64 } <- ent(name((i + 1) % 8), 0);
+            e2: { id: string, d: string, age: int64 } <- ent(name((i + 2) % 8), 0);
+            e3: { id: string, d: string, age: int64 } <- ent(name((i + 3) % 8), 0);
+            e4: { id: string, d: string, age: int64 } <- ent(name((i + 4) % 8), 0);
+            v: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v4(e1, e2, e3, e4);
+            nxt: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)] <- wcons(v, acc);
+            j: int64 <- i - 1;
+            world_from(j, nxt)
+        }
+    }
+}
+fn capacity() -> int64 { 4 }
+// (not named len: on this compiler a call of a program's own function named len does not return what its body says;
+// sd_own_len_function.silica in this leaf shows it)
+fn shuffle_len() -> int64 { 3 }
+
+// the initiator's view after the exchange: what it kept, merged with the partner's answer, its sent entries back while room
+fn settle(kept: List[{ id: string, d: string, age: int64 }, mem(normal)], got: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], me: string) -> List[{ id: string, d: string, age: int64 }, mem(normal)] {
+    cp: int64 <- capacity();
+    m: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@merge(kept, got, me, cp);
+    bees_tempus_view@backfill(m, sent, cp)
+}
+// both views valid, or the world is replaced by an empty one (which the last lines of the run then show)
+fn checked(w: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)], i: int64, q: int64) -> List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)] {
+    cp: int64 <- capacity();
+    a: List[{ id: string, d: string, age: int64 }, mem(normal)] <- wget(w, i);
+    b: List[{ id: string, d: string, age: int64 }, mem(normal)] <- wget(w, q);
+    ni: string <- name(i);
+    nq: string <- name(q);
+    oka: boolean <- bees_tempus_view@valid(a, ni, cp);
+    okb: boolean <- bees_tempus_view@valid(b, nq, cp);
+    case oka and okb of { true -> w; false -> wnone() }
+}
+// the exchange of node i (its aged view already chosen from: partner q, sent, rest) with node q
+fn exchange(w: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)], i: int64, q: int64, sent: List[{ id: string, d: string, age: int64 }, mem(normal)], rest: List[{ id: string, d: string, age: int64 }, mem(normal)], seed: int64) -> List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)] {
+    sequence
+        l: int64 <- shuffle_len();
+        me: string <- name(i);
+        my_d: string <- concat("@", me);
+        qname: string <- name(q);
+        theirs: List[{ id: string, d: string, age: int64 }, mem(normal)] <- wget(w, q);
+        ds: List[int64, mem(normal)] <- draws(seed, l);
+        r: { sent: List[{ id: string, d: string, age: int64 }, mem(normal)], rest: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_view@reply_select(theirs, l, me, ds);
+        sentbuf: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@outgoing(me, my_d, sent);
+        q2: List[{ id: string, d: string, age: int64 }, mem(normal)] <- settle(r.rest, sentbuf, r.sent, qname);
+        p2: List[{ id: string, d: string, age: int64 }, mem(normal)] <- settle(rest, r.sent, sent, me);
+        w1: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)] <- wset(w, i, p2);
+        w2: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)] <- wset(w1, q, q2);
+        out: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)] <- checked(w2, i, q)
+    produces pure out end
+}
+// one tick of node i in round r: age, select, exchange with the partner
+fn step(w: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)], r: int64, i: int64) -> List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)] {
+    sequence
+        l: int64 <- shuffle_len();
+        seed: int64 <- seed_of(r, i);
+        mine: List[{ id: string, d: string, age: int64 }, mem(normal)] <- wget(w, i);
+        aged: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@age_all(mine);
+        ds: List[int64, mem(normal)] <- draws(seed, l);
+        s: { found: boolean, partner: { id: string, d: string, age: int64 }, sent: List[{ id: string, d: string, age: int64 }, mem(normal)], rest: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_view@select(aged, l, ds);
+        q: int64 <- index_of(s.partner.id, 0);
+        seed2: int64 <- seed + 1;
+        out: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)] <- case s.found of {
+            false -> wset(w, i, aged);
+            true -> exchange(w, i, q, s.sent, s.rest, seed2)
+        }
+    produces pure out end
+}
+fn round(w: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)], r: int64, i: int64) -> List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)] {
+    case i >= 8 of {
+        true -> w;
+        false -> {
+            nxt: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)] <- step(w, r, i);
+            j: int64 <- i + 1;
+            round(nxt, r, j)
+        }
+    }
+}
+fn show_world(w: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)], i: int64) -> atom {
+    case i >= 8 of {
+        true -> :ok;
+        false -> {
+            sequence
+                v: List[{ id: string, d: string, age: int64 }, mem(normal)] <- wget(w, i);
+                _: atom <- line(concat("  ", name(i)), v)
+            produces pure show_world(w, i + 1) end
+        }
+    }
+}
+// how many of the eight views hold id
+fn indegree(w: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)], id: string, n: int64) -> int64 {
+    case w of {
+        []: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)] -> n;
+        [h: List[{ id: string, d: string, age: int64 }, mem(normal)], t: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)]] -> case bees_tempus_view@member(h, id) of { true -> indegree(t, id, n + 1); false -> indegree(t, id, n) }
+    }
+}
+fn show_in(w: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)], i: int64, acc: string) -> string {
+    case i >= 8 of {
+        true -> acc;
+        false -> show_in(w, i + 1, concat(concat(acc, " "), num(indegree(w, name(i), 0))))
+    }
+}
+fn report(w: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)], r: int64) -> atom {
+    sequence
+        _: atom <- say(concat("after round ", num(r)));
+        _: atom <- show_world(w, 0)
+    produces pure :ok end
+}
+fn rounds(w: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)], r: int64, last: int64) -> List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)] {
+    case r > last of {
+        true -> w;
+        false -> {
+            nxt: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)] <- round(w, r, 0);
+            _shown: atom <- case r == 1 or r == last of { true -> report(nxt, r); false -> :ok };
+            r2: int64 <- r + 1;
+            rounds(nxt, r2, last)
+        }
+    }
+}
+fn sim() -> atom {
+    sequence
+        e: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)] <- wnone();
+        w0: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)] <- world_from(7, e);
+        _: atom <- say("start");
+        _: atom <- show_world(w0, 0);
+        fin: List[List[{ id: string, d: string, age: int64 }, mem(normal)], mem(normal)] <- rounds(w0, 1, 10);
+        _: atom <- say(concat("every view valid after every exchange: ", yes(wsize(fin, 0) == 8)));
+        _: atom <- say(concat("in how many views each node is:", show_in(fin, 0, "")))
+    produces pure :ok end
+}
+
+fn main() -> int64 {
+    sequence
+        _: atom <- bees_reporter@start();
+        _: atom <- part_age();
+        _: atom <- part_select();
+        _: atom <- part_reply();
+        _: atom <- part_merge();
+        _: atom <- part_backfill();
+        _: atom <- part_other();
+        _: atom <- sim()
+    produces pure 0 end
+}

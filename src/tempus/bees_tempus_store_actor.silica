@@ -1,0 +1,193 @@
+// BEES TEMPUS (T1): the actor that holds one store (development-plan/tempus-design.md section 9, `tstore`). It keeps the
+// store's state (bees_tempus_store: the view is a list in the actor's state; measured flat on the pinned compiler, see
+// trials/t1_tempus_store and tempus-progress.md), feeds it the events it receives and tells its `link` what to do. The
+// link is whatever stands between the store and its peers: the connection layer in a node, a driver in a trial. The
+// actor makes no random number and reads no clock: draws arrive as messages (it asks the link for them), ticks arrive
+// as messages (a node's timer or, on a test node, a peer's tick frame).
+//
+// One message type for both directions, { op, id, d, n, entries, draws } (unused fields empty or 0).
+// To the store:
+//    1 tick
+//    2 tick draws (draws)            3 reply draws (draws)
+//    4 a partner's request (id: the asker, n: the link's tag for it, entries: what it sent)
+//    5 the partner's reply (entries)   6 the shuffle failed
+//    7 insert (entries: admitted peers)   8 drop (id)
+//    9 sample (n: how many, d: the link's tag as text is not needed: the answer goes to the link)
+//   10 give the view
+// From the store to its link (id is always the store's own node id unless said):
+//   20 shuffle out (id, d: the partner's id and descriptor; entries: the buffer)
+//   21 the answer to a request (id: the asker, n: the tag, entries)     22 request refused (id: the asker, n: the tag)
+//   23 draws wanted (n: 1 for the tick, 2 for replies)
+//   24 the tick has ended (n: 0 aged only, 1 shuffle merged, 2 shuffle failed, 3 skipped for want of draws, 4 empty view)
+//   25 the view (entries)            26 a sample (n: 1, or 0 when refused; entries)
+// A request for draws is always cast BEFORE the message that used them up, so a link that answers in order has refilled
+// the store before the store can need them again.
+module bees_tempus_store_actor;
+use bees_tempus_view;
+use bees_tempus_store;
+
+export start/6;
+export msg/6;
+export tick/0;
+
+fn no_entries() -> List[{ id: string, d: string, age: int64 }, mem(normal)] { bees_tempus_view@none() }
+fn no_draws() -> List[int64, mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[int64, mem(normal)] <- empty[int64, mem(normal)]()
+    produces pure e end
+}
+fn msg(op: int64, id: string, d: string, n: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)]) -> { op: int64, id: string, d: string, n: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)] } {
+    { op: op, id: id, d: d, n: n, entries: entries, draws: draws }
+}
+fn plain(op: int64, id: string, n: int64) -> { op: int64, id: string, d: string, n: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)] } {
+    e: List[{ id: string, d: string, age: int64 }, mem(normal)] <- no_entries();
+    ds: List[int64, mem(normal)] <- no_draws();
+    msg(op, id, "", n, e, ds)
+}
+fn with_entries(op: int64, id: string, d: string, n: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> { op: int64, id: string, d: string, n: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)] } {
+    ds: List[int64, mem(normal)] <- no_draws();
+    msg(op, id, d, n, entries, ds)
+}
+fn tick() -> { op: int64, id: string, d: string, n: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)] } { plain(1, "", 0) }
+
+fn tell(lnk: actor_ref, m: { op: int64, id: string, d: string, n: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)] }) -> boolean {
+    sequence proc[concurrency]
+        sent: boolean <- cast(lnk, m impl ActorMessage {})
+    produces pure sent end
+}
+fn act(s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, lnk: actor_ref) -> { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, lnk: actor_ref } { { s: s, lnk: lnk } }
+
+// draws wanted, when the store has none of that kind
+fn want(a: { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, lnk: actor_ref }, which: int64) -> boolean {
+    need: boolean <- case which == 1 of { true -> bees_tempus_store@needs_tick_draws(a.s); false -> bees_tempus_store@needs_reply_draws(a.s) };
+    case need of {
+        false -> true;
+        true -> {
+            m: { op: int64, id: string, d: string, n: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)] } <- plain(23, a.s.me.id, which);
+            tell(a.lnk, m)
+        }
+    }
+}
+fn ended(a: { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, lnk: actor_ref }, how: int64) -> boolean {
+    m: { op: int64, id: string, d: string, n: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)] } <- plain(24, a.s.me.id, how);
+    tell(a.lnk, m)
+}
+
+fn on_tick(a: { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, lnk: actor_ref }) -> { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, lnk: actor_ref } {
+    t: { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, act: int64, to: { id: string, d: string, age: int64 }, out: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_store@tick(a.s);
+    nxt: { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, lnk: actor_ref } <- act(t.s, a.lnk);
+    partner: { id: string, d: string, age: int64 } <- t.to;
+    out: List[{ id: string, d: string, age: int64 }, mem(normal)] <- t.out;
+    case t.act of {
+        1 -> {
+            _w: boolean <- want(nxt, 1);
+            m: { op: int64, id: string, d: string, n: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)] } <- with_entries(20, partner.id, partner.d, 0, out);
+            _s: boolean <- tell(a.lnk, m);
+            nxt
+        };
+        0 -> { _e: boolean <- ended(nxt, 0); nxt };
+        2 -> { _e: boolean <- ended(nxt, 4); nxt };
+        _: int64 -> {
+            _w: boolean <- want(nxt, 1);
+            _e: boolean <- ended(nxt, 3);
+            nxt
+        }
+    }
+}
+fn on_reply(a: { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, lnk: actor_ref }, entries: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, lnk: actor_ref } {
+    busy: boolean <- bees_tempus_store@phase_of(a.s) == 1;
+    before: int64 <- bees_tempus_view@size(a.s.sent);
+    s2: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } <- bees_tempus_store@reply(a.s, entries);
+    nxt: { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, lnk: actor_ref } <- act(s2, a.lnk);
+    // an oversize reply is handled as a failure by the store: it shows as the partner not being in the view afterwards; the
+    // link is told "merged" only when the reply was within the shuffle length
+    ok: boolean <- bees_tempus_view@size(entries) <= a.s.count;
+    case busy of {
+        false -> nxt;
+        true -> { _e: boolean <- ended(nxt, case ok of { true -> 1; false -> 2 }); nxt }
+    }
+}
+fn on_failed(a: { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, lnk: actor_ref }) -> { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, lnk: actor_ref } {
+    busy: boolean <- bees_tempus_store@phase_of(a.s) == 1;
+    s2: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } <- bees_tempus_store@failed(a.s);
+    nxt: { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, lnk: actor_ref } <- act(s2, a.lnk);
+    case busy of {
+        false -> nxt;
+        true -> { _e: boolean <- ended(nxt, 2); nxt }
+    }
+}
+fn on_request(a: { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, lnk: actor_ref }, asker: string, tag: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, lnk: actor_ref } {
+    r: { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, ok: boolean, out: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_store@request(a.s, asker, entries);
+    nxt: { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, lnk: actor_ref } <- act(r.s, a.lnk);
+    out: List[{ id: string, d: string, age: int64 }, mem(normal)] <- r.out;
+    case r.ok of {
+        false -> {
+            _w: boolean <- want(nxt, 2);
+            m: { op: int64, id: string, d: string, n: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)] } <- plain(22, asker, tag);
+            _s: boolean <- tell(a.lnk, m);
+            nxt
+        };
+        true -> {
+            _w: boolean <- want(nxt, 2);
+            m: { op: int64, id: string, d: string, n: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)] } <- with_entries(21, asker, "", tag, out);
+            _s: boolean <- tell(a.lnk, m);
+            nxt
+        }
+    }
+}
+fn on_sample(a: { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, lnk: actor_ref }, n: int64) -> { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, lnk: actor_ref } {
+    r: { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, ok: boolean, out: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_store@sample(a.s, n);
+    nxt: { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, lnk: actor_ref } <- act(r.s, a.lnk);
+    out: List[{ id: string, d: string, age: int64 }, mem(normal)] <- r.out;
+    _w: boolean <- want(nxt, 2);
+    m: { op: int64, id: string, d: string, n: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)] } <- with_entries(26, a.s.me.id, "", case r.ok of { true -> 1; false -> 0 }, out);
+    _s: boolean <- tell(a.lnk, m);
+    nxt
+}
+fn insert_all(s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, entries: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } {
+    case entries of {
+        []: List[{ id: string, d: string, age: int64 }, mem(normal)] -> s;
+        [h: { id: string, d: string, age: int64 }, t: List[{ id: string, d: string, age: int64 }, mem(normal)]] -> {
+            s2: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } <- bees_tempus_store@insert(s, h);
+            insert_all(s2, t)
+        }
+    }
+}
+fn on_view(a: { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, lnk: actor_ref }) -> { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, lnk: actor_ref } {
+    v: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_store@view_of(a.s);
+    m: { op: int64, id: string, d: string, n: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)] } <- with_entries(25, a.s.me.id, "", 0, v);
+    _s: boolean <- tell(a.lnk, m);
+    a
+}
+fn handle(m: { op: int64, id: string, d: string, n: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)] }, a: { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, lnk: actor_ref }) -> { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, lnk: actor_ref } {
+    case m.op of {
+        1 -> on_tick(a);
+        2 -> act(bees_tempus_store@tick_draws(a.s, m.draws), a.lnk);
+        3 -> act(bees_tempus_store@reply_draws(a.s, m.draws), a.lnk);
+        4 -> on_request(a, m.id, m.n, m.entries);
+        5 -> on_reply(a, m.entries);
+        6 -> on_failed(a);
+        7 -> act(insert_all(a.s, m.entries), a.lnk);
+        8 -> act(bees_tempus_store@drop(a.s, m.id), a.lnk);
+        9 -> on_sample(a, m.n);
+        10 -> on_view(a);
+        _: int64 -> a
+    }
+}
+fn store(m: { op: int64, id: string, d: string, n: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)] }, a: { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, lnk: actor_ref }) -> (:no_reply, { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, lnk: actor_ref }) {
+    nxt: { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, lnk: actor_ref } <- handle(m, a);
+    (:no_reply, nxt)
+}
+
+// a store actor with an empty view; it asks its link for both kinds of draws at once
+fn start(self_id: string, self_d: string, own: boolean, cap: int64, count: int64, lnk: actor_ref) -> actor_ref {
+    sequence proc[concurrency]
+        s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } <- bees_tempus_store@init(self_id, self_d, own, cap, count);
+        a: { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, lnk: actor_ref } <- act(s, lnk);
+        ref: actor_ref <- spawn(a, store, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        m1: { op: int64, id: string, d: string, n: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)] } <- plain(23, self_id, 1);
+        m2: { op: int64, id: string, d: string, n: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)] } <- plain(23, self_id, 2);
+        _a: boolean <- cast(lnk, m1 impl ActorMessage {});
+        _b: boolean <- cast(lnk, m2 impl ActorMessage {})
+    produces pure ref end
+}

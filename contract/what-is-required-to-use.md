@@ -69,3 +69,14 @@ Open consequences:
 - The Silica compiler generation BEES is verified against is pinned in `tools/silica.generation`.
 - BEES builds on macOS and Apple Silicon first; Linux follows Silica's phase 3. The native C is common code plus one directory per platform (`native/macos/` built; `native/linux/`, `native/esp32s3/`, `native/nucleo/` placeholders); see `native/README.md`.
 - Goldens carry the platform in their name (`NAME.macos_applesilicon.scout`); a run compares only with its own platform's golden and fails loudly when there is none (`tools/README.md`).
+
+## 6. Configuration source and size limits (decided 2026-11-18, not built yet)
+
+- An application reads its BEES configuration through Silica's local persistent storage (a `(:store)` carrier that the
+  application declares), not through a file read in C. The configuration is packed at deploy time as ETF, the form the
+  `(:etf)` format has in storage, and decoded by the application before it is passed to BEES.
+- The largest frame and the largest term BEES will ever accept is 4294967295 bytes, BEAM's packet limit. This is a fixed
+  maximum compiled into BEES. `frame_size_max` and `trust.args_len_max` may be set to any allowed value at or below it,
+  and the configured value is enforced on every frame.
+
+Design notes: development-plan/bees-config-file.md section 12 (roadmap D46, D47).

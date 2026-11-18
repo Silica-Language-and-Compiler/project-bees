@@ -1,0 +1,72 @@
+// BEES TEMPUS (T4): admission, the part that needs no key operation (development-plan/tempus-design.md section 4). Pure.
+// A descriptor (an advert's, or a gossiped entry's) is admitted to a store when, in this order:
+//   its fields have the lengths of section 8, and its token has the structure of section 4       (bees_tempus_frame)
+//   the token's kid is the current one; any other gets the one key_rotated answer (ruling, OQ-10)
+//   now is inside nbf - skew .. exp + skew, the end excluded (ruling, OQ-16; times in seconds)
+//   the token's sub is the descriptor's pub
+//   the token's typ is the store's type (`want`; 0 accepts any type: an advert, before the request names a store)
+// and then, by two key operations the caller has the edge do (dangerous_bees_tempus_verify):
+//   the descriptor's id is the SHA-512 of its pub                                               (ruling, OQ-8)
+//   the token's signature is the producer's over the payload bytes as received                   (ruling, OQ-7)
+// pre/5 answers "" and the two inputs of those operations, or the reason in words.
+// Proof of possession (ruling, OQ-9): the peer signs nonce || token with its own key; pop_input/4 is what the edge verifies.
+module bees_tempus_admit;
+use bees_trust_frame;
+use bees_tempus_frame;
+
+export pre/5;
+export producer_input/3;
+export pop_message/2;
+export pop_input/4;
+export rotated/0;
+
+fn rotated() -> string { "key_rotated" }
+fn refused(why: string) -> { why: string, payload: string, sig: string } { { why: why, payload: "", sig: "" } }
+fn window(t: { ok: boolean, why: string, kid: string, sub: string, typ: int64, nbf: int64, exp: int64, payload: string, sig: string }, now: int64, skew: int64) -> string {
+    case now < t.nbf - skew of {
+        true -> "the token is not valid yet";
+        false -> case now >= t.exp + skew of { true -> "the token has expired"; false -> "" }
+    }
+}
+fn claims(d: { addr: string, id: string, pub: string, token: string }, t: { ok: boolean, why: string, kid: string, sub: string, typ: int64, nbf: int64, exp: int64, payload: string, sig: string }, kid: string, want: int64) -> string {
+    case t.kid != kid of {
+        true -> rotated();
+        false -> case t.sub != d.pub of {
+            true -> "sub is not the peer's key";
+            false -> case want != 0 and t.typ != want of { true -> "typ is not the store's type"; false -> "" }
+        }
+    }
+}
+fn checked(d: { addr: string, id: string, pub: string, token: string }, t: { ok: boolean, why: string, kid: string, sub: string, typ: int64, nbf: int64, exp: int64, payload: string, sig: string }, kid: string, now: int64, skew: int64, want: int64) -> { why: string, payload: string, sig: string } {
+    w1: string <- claims(d, t, kid, want);
+    w2: string <- window(t, now, skew);
+    // the kid is judged first: a token under another key is answered key_rotated whatever else is wrong with it
+    w: string <- case w1 == rotated() of { true -> w1; false -> case length_bytes(w2) > 0 of { true -> w2; false -> w1 } };
+    case length_bytes(w) == 0 of {
+        false -> refused(w);
+        true -> { why: "", payload: t.payload, sig: t.sig }
+    }
+}
+fn pre(d: { addr: string, id: string, pub: string, token: string }, kid: string, now: int64, skew: int64, want: int64) -> { why: string, payload: string, sig: string } {
+    ok: boolean <- bees_tempus_frame@desc_ok(d);
+    case ok of {
+        false -> refused("a field of the descriptor has a wrong length");
+        true -> {
+            t: { ok: boolean, why: string, kid: string, sub: string, typ: int64, nbf: int64, exp: int64, payload: string, sig: string } <- bees_tempus_frame@tok(d.token);
+            case t.ok of {
+                false -> refused(t.why);
+                true -> {
+                    z: { now: int64, skew: int64, want: int64 } <- { now: now, skew: skew, want: want };
+                    checked(d, t, kid, z.now, z.skew, z.want)
+                }
+            }
+        }
+    }
+}
+fn cat(a: string, b: string) -> string { bees_trust_frame@cat2(a, b) }
+// what the edge verifies for the token: producer key || signature || payload
+fn producer_input(producer_pub: string, sig: string, payload: string) -> string { cat(producer_pub, cat(sig, payload)) }
+// what a peer signs to prove possession
+fn pop_message(nonce: string, token: string) -> string { cat(nonce, token) }
+// what the edge verifies for the proof: the peer's key || its signature || nonce || token
+fn pop_input(pub: string, sig: string, nonce: string, token: string) -> string { cat(pub, cat(sig, pop_message(nonce, token))) }

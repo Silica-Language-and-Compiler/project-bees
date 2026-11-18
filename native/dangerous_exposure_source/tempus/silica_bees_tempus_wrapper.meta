@@ -1,0 +1,41 @@
+link_library: "silica_bees_tempus"
+
+wrapper bees_tempus_ed25519_verify {
+    symbol: "bees_tempus_ed25519_verify"
+    result: "tagged_result"
+    error_domain: "dangerous_bees_tempus_native"
+    arguments: [
+        { name: "in_ptr", lifetime: "borrowed", retain: false },
+        { name: "in_len", role: "length", length_of: "in_ptr" }
+    ]
+}
+
+wrapper bees_tempus_ed25519_sign {
+    symbol: "bees_tempus_ed25519_sign"
+    result: "struct"
+    error_domain: "dangerous_bees_tempus_native"
+    arguments: [
+        { name: "in_ptr", lifetime: "borrowed", retain: false },
+        { name: "in_len", role: "length", length_of: "in_ptr" }
+    ]
+}
+
+wrapper bees_tempus_ed25519_public {
+    symbol: "bees_tempus_ed25519_public"
+    result: "struct"
+    error_domain: "dangerous_bees_tempus_native"
+    arguments: [
+        { name: "in_ptr", lifetime: "borrowed", retain: false },
+        { name: "in_len", role: "length", length_of: "in_ptr" }
+    ]
+}
+
+wrapper bees_tempus_sha512 {
+    symbol: "bees_tempus_sha512"
+    result: "struct"
+    error_domain: "dangerous_bees_tempus_native"
+    arguments: [
+        { name: "in_ptr", lifetime: "borrowed", retain: false },
+        { name: "in_len", role: "length", length_of: "in_ptr" }
+    ]
+}

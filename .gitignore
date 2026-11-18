@@ -271,3 +271,36 @@ trials/n1_frames/measure_*
 /.bees_build_hosts
 /trial_runs/
 .claude/worktrees/
+# X1 (two machines, tools/bees_interchange.py): trials/x1_interchange_beam and trials/x2_interchange_trust. Roles, node leaves and
+# the TEST-ONLY certificates of x2 (tools/bees_test_certs.sh; keys that belong to nobody) are kept; what the node Makefiles and the
+# driver write (bees.config and trust_servers.config from their .in files, the common client role with this machine's server
+# address, the run's random cookie, raw outputs, build stamps, the compiled stock driver) is ignored again
+!trials/x1_interchange_beam/roles/
+!trials/x1_interchange_beam/nodes/
+!trials/x2_interchange_trust/roles/
+!trials/x2_interchange_trust/nodes/
+!trials/x2_interchange_trust/certs/
+trials/x1_interchange_beam/nodes/*/*
+trials/x2_interchange_trust/nodes/*/*
+!trials/x1_interchange_beam/nodes/*/Makefile
+!trials/x2_interchange_trust/nodes/*/Makefile
+!trials/x1_interchange_beam/nodes/*/node.wire
+!trials/x1_interchange_beam/nodes/*/node.atoms
+!trials/x1_interchange_beam/nodes/*/node.beam
+!trials/x1_interchange_beam/nodes/*/bees.config.in
+!trials/x2_interchange_trust/nodes/*/bees.config
+!trials/x2_interchange_trust/nodes/*/node.atoms
+!trials/x2_interchange_trust/nodes/*/*.trust
+!trials/x2_interchange_trust/nodes/*/trust_whitelist.config
+!trials/x2_interchange_trust/nodes/*/trust_servers.config.in
+!trials/x1_interchange_beam/nodes/*/lib/
+!trials/x2_interchange_trust/nodes/*/lib/
+!trials/x1_interchange_beam/nodes/*/dangerous_exposure_source
+!trials/x2_interchange_trust/nodes/*/dangerous_exposure_source
+trials/x2_interchange_trust/nodes/*/lib/bees_trust_conf.*
+trials/x2_interchange_trust/nodes/*/lib/bees_trust_mfa.silica
+trials/x2_interchange_trust/nodes/*/lib/bees_atoms.*
+trials/x[0-9]*_interchange_*/*.raw
+trials/x[0-9]*_interchange_*/build/
+.interchange_stamp
+!trials/t4_tempus_admission/dangerous_exposure_source

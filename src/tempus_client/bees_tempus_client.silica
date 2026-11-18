@@ -1,0 +1,124 @@
+// BEES TEMPUS client library, pure part (C1; development-plan/tempus-design.md section 16.4). A TEMPUS client is an
+// ordinary TEMPUS peer on the wire: this unit gives, for every operation a client can issue against a node, the frame body
+// to send and the reading of what comes back, over the node's own frame unit (bees_tempus_frame); and the deliberately
+// wrong frames a client sends to reach a node's refusals, each by a named function. It is a source-only library unit: an
+// application lists it (and the units it uses) by path in its own silica.config; it reads no file, opens no carrier and
+// holds no key. The active part (connections, TLS, admission) is dangerous_bees_tempus_client, a later milestone (C2).
+//
+// Operations (what a client sends once it is admitted, and first of all its advert and proof):
+//   advert(id, pub, addr, token)     challenge(nonce)     response(sig)
+//   shuffle(store, entries)          the client as initiator; shuffle_answer(store, entries): the client as partner
+//   sample(store, n)                 sample_answer(store, entries): the client as the sentinel a joiner asks
+//   tick(store), clock(ms)           TEST ONLY: accepted by a node started with control_test_only
+// Reading: reply_kind(body) (bees_tempus_frame's kinds; 0 refused) and the node unit's dec_ functions.
+// A token for trials: token(sig, payload) and token_payload(kid, sub, typ, nbf, exp) build the bytes; a client never signs
+// here (the signature is made outside and passed in).
+// Wrong frames (each is one way a node must refuse; the comment says which bound it breaks):
+//   bad_version(f)  the first byte is not 131          bad_truncated(f)  the last byte is missing
+//   bad_trailing(f) one byte after the term            bad_not_a_map()   a tuple, not a map
+//   bad_kind()      t is an atom that is no kind       bad_extra_key()   a done frame with a second key
+//   bad_store()     a sample whose store is no peer type
+// Frames that are well formed and break a bound (an age above 65535, a short id, too many entries, n out of range) are
+// made with the ordinary functions and the offending value.
+module bees_tempus_client;
+use bees_atoms;
+use bees_trust_frame;
+use bees_tempus_view;
+use bees_tempus_frame;
+
+export advert/4;
+export challenge/1;
+export response/1;
+export shuffle/2;
+export shuffle_answer/2;
+export sample/2;
+export sample_answer/2;
+export tick/1;
+export clock/1;
+export reply_kind/1;
+export entry/5;
+export token/2;
+export token_payload/5;
+export bad_version/1;
+export bad_truncated/1;
+export bad_trailing/1;
+export bad_not_a_map/0;
+export bad_kind/0;
+export bad_extra_key/0;
+export bad_store/0;
+
+fn advert(id: string, pub: string, addr: string, tok: string) -> string {
+    d: { addr: string, id: string, pub: string, token: string } <- bees_tempus_frame@desc(id, pub, addr, tok);
+    bees_tempus_frame@enc_advert(d)
+}
+fn challenge(nonce: string) -> string { bees_tempus_frame@enc_challenge(nonce) }
+fn response(sig: string) -> string { bees_tempus_frame@enc_response(sig) }
+fn shuffle(store: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> string { bees_tempus_frame@enc_entries(5, store, entries) }
+fn shuffle_answer(store: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> string { bees_tempus_frame@enc_entries(6, store, entries) }
+fn sample(store: int64, n: int64) -> string { bees_tempus_frame@enc_sample(store, n) }
+fn sample_answer(store: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> string { bees_tempus_frame@enc_entries(8, store, entries) }
+fn tick(store: int64) -> string { bees_tempus_frame@enc_tick(store) }
+fn clock(ms: int64) -> string { bees_tempus_frame@enc_clock(ms) }
+fn reply_kind(body: string) -> int64 { bees_tempus_frame@kind(body) }
+
+// a view entry for a peer: what a client puts in the shuffles it sends
+fn entry(id: string, pub: string, addr: string, tok: string, age: int64) -> { id: string, d: string, age: int64 } {
+    d: { addr: string, id: string, pub: string, token: string } <- bees_tempus_frame@desc(id, pub, addr, tok);
+    db: string <- bees_tempus_frame@desc_bytes(d);
+    bees_tempus_view@entry(id, db, age)
+}
+
+// ---- token bytes ----
+fn enc_str(v: string) -> string {
+    sequence proc[mem(normal), transport]
+        s: string <- encode((:etf), v)
+    produces pure bees_trust_frame@cut(s, 1, length_bytes(s)) end
+}
+fn enc_int(n: int64) -> string {
+    sequence proc[mem(normal), transport]
+        s: string <- encode((:etf), n)
+    produces pure bees_trust_frame@cut(s, 1, length_bytes(s)) end
+}
+fn enc_atom(a: atom) -> string {
+    sequence proc[mem(normal), transport]
+        s: string <- encode((:etf), a)
+    produces pure bees_trust_frame@cut(s, 1, length_bytes(s)) end
+}
+fn cat(a: string, b: string) -> string { bees_trust_frame@cat2(a, b) }
+fn kv(k: atom, v: string) -> string { cat(enc_atom(k), v) }
+fn typ_atom(typ: int64) -> atom {
+    case typ of { 1 -> bees_atoms@a_tempus_edge(); 2 -> bees_atoms@a_tempus_bridge(); _: int64 -> bees_atoms@a_tempus_sentinel() }
+}
+fn map_head(n: int64) -> string {
+    cat(cat(bees_trust_frame@b1(131), bees_trust_frame@b1(116)), cat(cat(bees_trust_frame@b1(0), bees_trust_frame@b1(0)), cat(bees_trust_frame@b1(0), bees_trust_frame@b1(n))))
+}
+// the payload a producer signs: the map #{exp, kid, nbf, sub, typ}, keys in name order; typ 1 edge, 2 bridge, 3 sentinel
+fn token_payload(kid: string, sub: string, typ: int64, nbf: int64, exp: int64) -> string {
+    p1: string <- kv(bees_atoms@a_exp(), enc_int(exp));
+    p2: string <- kv(bees_atoms@a_kid(), enc_str(kid));
+    p3: string <- kv(bees_atoms@a_nbf(), enc_int(nbf));
+    p4: string <- kv(bees_atoms@a_sub(), enc_str(sub));
+    p5: string <- kv(bees_atoms@a_typ(), enc_atom(typ_atom(typ)));
+    h: string <- map_head(5);
+    cat(cat(h, cat(p1, p2)), cat(p3, cat(p4, p5)))
+}
+fn token(sig: string, payload: string) -> string { cat(sig, payload) }
+
+// ---- wrong frames ----
+fn bad_version(f: string) -> string { cat(bees_trust_frame@b1(130), bees_trust_frame@cut(f, 1, length_bytes(f))) }
+fn bad_truncated(f: string) -> string { bees_trust_frame@cut(f, 0, length_bytes(f) - 1) }
+fn bad_trailing(f: string) -> string { cat(f, bees_trust_frame@b1(0)) }
+// {done}: a tuple of one atom
+fn bad_not_a_map() -> string {
+    cat(cat(bees_trust_frame@b1(131), bees_trust_frame@b1(104)), cat(bees_trust_frame@b1(1), enc_atom(bees_atoms@a_done())))
+}
+// #{t => tempus_edge}
+fn bad_kind() -> string { cat(map_head(1), kv(bees_atoms@a_t(), enc_atom(bees_atoms@a_tempus_edge()))) }
+// #{t => done, ver => 1}
+fn bad_extra_key() -> string {
+    cat(map_head(2), cat(kv(bees_atoms@a_t(), enc_atom(bees_atoms@a_done())), kv(bees_atoms@a_ver(), enc_int(1))))
+}
+// #{n => 1, store => done, t => sample}
+fn bad_store() -> string {
+    cat(map_head(3), cat(kv(bees_atoms@a_n(), enc_int(1)), cat(kv(bees_atoms@a_store(), enc_atom(bees_atoms@a_done())), kv(bees_atoms@a_t(), enc_atom(bees_atoms@a_sample())))))
+}

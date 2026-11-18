@@ -1,0 +1,236 @@
+// T1: four TEMPUS store actors (src/tempus/bees_tempus_store_actor.silica) and a driver that plays the part of everything
+// between them: it answers their requests for draws (TEST ONLY: a linear congruential generator; a node uses the platform's
+// secure source), carries each shuffle to the partner and the answer back, and ticks the stores in turn, one tick at a
+// time, the next only when the store says the last has ended. Store n0 also knows a peer, n9, that does not exist: a
+// shuffle with it fails. The driver is the only actor that prints, so the output has one order.
+// It also reads the committed memory of store n0's actor after tick 40 and after the last tick: a store keeps its view as
+// a list in its actor state, and this shows that the actor does not grow (SD-35 was measured on an earlier compiler).
+// tools/test_bees_tempus_store.py runs the same script against an independent model and compares the output.
+use bees_tempus_view;
+use bees_tempus_store;
+use bees_tempus_store_actor;
+use bees_reporter;
+
+fn say(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+fn yes(b: boolean) -> string { case b of { true -> "yes"; false -> "no" } }
+fn digits(n: int64, acc: string) -> string {
+    case n < 10 of {
+        true -> concat(substring("0123456789", n, n + 1), acc);
+        false -> digits(n / 10, concat(substring("0123456789", n % 10, n % 10 + 1), acc))
+    }
+}
+fn num(n: int64) -> string { digits(n, "") }
+fn ent(id: string, age: int64) -> { id: string, d: string, age: int64 } {
+    d: string <- concat("@", id);
+    bees_tempus_view@entry(id, d, age)
+}
+fn one(e: { id: string, d: string, age: int64 }) -> string { concat(concat(e.id, ":"), num(e.age)) }
+fn show_from(v: List[{ id: string, d: string, age: int64 }, mem(normal)], acc: string) -> string {
+    case v of {
+        []: List[{ id: string, d: string, age: int64 }, mem(normal)] -> acc;
+        [h: { id: string, d: string, age: int64 }, t: List[{ id: string, d: string, age: int64 }, mem(normal)]] -> {
+            s: string <- one(h);
+            nxt: string <- case length_bytes(acc) == 0 of { true -> s; false -> concat(concat(acc, " "), s) };
+            show_from(t, nxt)
+        }
+    }
+}
+fn show(v: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> string {
+    case bees_tempus_view@size(v) == 0 of { true -> "(empty)"; false -> show_from(v, "") }
+}
+fn c(e: { id: string, d: string, age: int64 }, v: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> List[{ id: string, d: string, age: int64 }, mem(normal)] {
+    sequence proc[mem(normal)]
+        r: List[{ id: string, d: string, age: int64 }, mem(normal)] <- prepend[{ id: string, d: string, age: int64 }, mem(normal)](e, v)
+    produces pure r end
+}
+fn v0() -> List[{ id: string, d: string, age: int64 }, mem(normal)] { bees_tempus_view@none() }
+fn d0() -> List[int64, mem(normal)] { sequence proc[mem(normal)] e: List[int64, mem(normal)] <- empty[int64, mem(normal)]() produces pure e end }
+
+fn ticks() -> int64 { 400 }
+fn shown() -> int64 { 16 }
+fn capacity() -> int64 { 3 }
+fn shuffle_len() -> int64 { 2 }
+fn name(i: int64) -> string { concat("n", num(i)) }
+fn index_of(id: string, i: int64) -> int64 {
+    case i >= 4 of { true -> 0 - 1; false -> case name(i) == id of { true -> i; false -> index_of(id, i + 1) } }
+}
+fn ref_of(st: { a0: actor_ref, a1: actor_ref, a2: actor_ref, a3: actor_ref, k: int64, x: int64, boot: int64, mem0: int64 }, i: int64) -> actor_ref {
+    case i of { 0 -> st.a0; 1 -> st.a1; 2 -> st.a2; _: int64 -> st.a3 }
+}
+fn drv(a0: actor_ref, a1: actor_ref, a2: actor_ref, a3: actor_ref, n: { k: int64, x: int64, boot: int64, mem0: int64 }) -> { a0: actor_ref, a1: actor_ref, a2: actor_ref, a3: actor_ref, k: int64, x: int64, boot: int64, mem0: int64 } {
+    { a0: a0, a1: a1, a2: a2, a3: a3, k: n.k, x: n.x, boot: n.boot, mem0: n.mem0 }
+}
+fn nums(k: int64, x: int64, boot: int64, mem0: int64) -> { k: int64, x: int64, boot: int64, mem0: int64 } {
+    { k: k, x: x, boot: boot, mem0: mem0 }
+}
+fn with_nums(st: { a0: actor_ref, a1: actor_ref, a2: actor_ref, a3: actor_ref, k: int64, x: int64, boot: int64, mem0: int64 }, n: { k: int64, x: int64, boot: int64, mem0: int64 }) -> { a0: actor_ref, a1: actor_ref, a2: actor_ref, a3: actor_ref, k: int64, x: int64, boot: int64, mem0: int64 } {
+    drv(st.a0, st.a1, st.a2, st.a3, n)
+}
+fn post(to: actor_ref, m: { op: int64, id: string, d: string, n: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)] }) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(to, m impl ActorMessage {})
+    produces pure ok end
+}
+fn plain(op: int64, id: string, n: int64) -> { op: int64, id: string, d: string, n: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)] } {
+    e: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v0();
+    ds: List[int64, mem(normal)] <- d0();
+    bees_tempus_store_actor@msg(op, id, "", n, e, ds)
+}
+fn carrying(op: int64, id: string, n: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> { op: int64, id: string, d: string, n: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)] } {
+    ds: List[int64, mem(normal)] <- d0();
+    bees_tempus_store_actor@msg(op, id, "", n, entries, ds)
+}
+
+// TEST ONLY: the draws
+fn lcg(x: int64) -> int64 { (x * 1103515245 + 12345) % 2147483648 }
+fn dcons(v: int64, ds: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    sequence proc[mem(normal)]
+        r: List[int64, mem(normal)] <- prepend[int64, mem(normal)](v, ds)
+    produces pure r end
+}
+fn draws_from(x: int64, k: int64, acc: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    case k == 0 of {
+        true -> acc;
+        false -> {
+            x2: int64 <- lcg(x);
+            v: int64 <- x2 / 65536;
+            nxt: List[int64, mem(normal)] <- dcons(v, acc);
+            k2: int64 <- k - 1;
+            draws_from(x2, k2, nxt)
+        }
+    }
+}
+fn lcg_n(x: int64, k: int64) -> int64 { case k == 0 of { true -> x; false -> lcg_n(lcg(x), k - 1) } }
+
+// start: the four stores (each asks for its two sets of draws as it starts) and what each knows at first
+fn first_view(i: int64) -> List[{ id: string, d: string, age: int64 }, mem(normal)] {
+    e1: { id: string, d: string, age: int64 } <- ent(name((i + 1) % 4), 0);
+    e2: { id: string, d: string, age: int64 } <- ent(name((i + 2) % 4), 0);
+    z: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v0();
+    two: List[{ id: string, d: string, age: int64 }, mem(normal)] <- c(e1, c(e2, z));
+    case i == 0 of { true -> c(ent("n9", 0), two); false -> two }
+}
+fn store_at(i: int64, me: actor_ref) -> actor_ref {
+    id: string <- name(i);
+    d: string <- concat("@", id);
+    a: actor_ref <- bees_tempus_store_actor@start(id, d, true, capacity(), shuffle_len(), me);
+    v: List[{ id: string, d: string, age: int64 }, mem(normal)] <- first_view(i);
+    m: { op: int64, id: string, d: string, n: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)] } <- carrying(7, "", 0, v);
+    _s: boolean <- post(a, m);
+    a
+}
+fn on_start(st: { a0: actor_ref, a1: actor_ref, a2: actor_ref, a3: actor_ref, k: int64, x: int64, boot: int64, mem0: int64 }, me: actor_ref) -> { a0: actor_ref, a1: actor_ref, a2: actor_ref, a3: actor_ref, k: int64, x: int64, boot: int64, mem0: int64 } {
+    a0: actor_ref <- store_at(0, me);
+    a1: actor_ref <- store_at(1, me);
+    a2: actor_ref <- store_at(2, me);
+    a3: actor_ref <- store_at(3, me);
+    n: { k: int64, x: int64, boot: int64, mem0: int64 } <- nums(0 - 1, st.x, 0, 0);
+    drv(a0, a1, a2, a3, n)
+}
+fn tick_store(st: { a0: actor_ref, a1: actor_ref, a2: actor_ref, a3: actor_ref, k: int64, x: int64, boot: int64, mem0: int64 }, k: int64) -> boolean {
+    a: actor_ref <- ref_of(st, k % 4);
+    m: { op: int64, id: string, d: string, n: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)] } <- bees_tempus_store_actor@tick();
+    post(a, m)
+}
+// a store wants draws (n 1: for its tick, 2: for replies). When the eight requests of the start are served, the first tick goes
+fn on_draws(st: { a0: actor_ref, a1: actor_ref, a2: actor_ref, a3: actor_ref, k: int64, x: int64, boot: int64, mem0: int64 }, id: string, which: int64) -> { a0: actor_ref, a1: actor_ref, a2: actor_ref, a3: actor_ref, k: int64, x: int64, boot: int64, mem0: int64 } {
+    l: int64 <- shuffle_len();
+    e: List[int64, mem(normal)] <- d0();
+    ds: List[int64, mem(normal)] <- draws_from(st.x, l, e);
+    x2: int64 <- lcg_n(st.x, l);
+    i: int64 <- index_of(id, 0);
+    a: actor_ref <- ref_of(st, i);
+    z: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v0();
+    m: { op: int64, id: string, d: string, n: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)] } <- bees_tempus_store_actor@msg(1 + which, "", "", 0, z, ds);
+    _s: boolean <- post(a, m);
+    boot: int64 <- st.boot + 1;
+    begin: boolean <- boot == 8;
+    _t: boolean <- case begin of { true -> tick_store(st, 0); false -> true };
+    k: int64 <- case begin of { true -> 0; false -> st.k };
+    with_nums(st, nums(k, x2, boot, st.mem0))
+}
+// the ticked store's shuffle: to the partner, or a failure when the partner is not one of the four
+fn on_shuffle(st: { a0: actor_ref, a1: actor_ref, a2: actor_ref, a3: actor_ref, k: int64, x: int64, boot: int64, mem0: int64 }, partner: string, entries: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> { a0: actor_ref, a1: actor_ref, a2: actor_ref, a3: actor_ref, k: int64, x: int64, boot: int64, mem0: int64 } {
+    from: int64 <- st.k % 4;
+    asker: string <- name(from);
+    q: int64 <- index_of(partner, 0);
+    m: { op: int64, id: string, d: string, n: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)] } <- case q < 0 of { true -> plain(6, "", 0); false -> carrying(4, asker, st.k, entries) };
+    to: actor_ref <- case q < 0 of { true -> ref_of(st, from); false -> ref_of(st, q) };
+    _s: boolean <- post(to, m);
+    st
+}
+fn on_answer(st: { a0: actor_ref, a1: actor_ref, a2: actor_ref, a3: actor_ref, k: int64, x: int64, boot: int64, mem0: int64 }, asker: string, ok: boolean, entries: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> { a0: actor_ref, a1: actor_ref, a2: actor_ref, a3: actor_ref, k: int64, x: int64, boot: int64, mem0: int64 } {
+    i: int64 <- index_of(asker, 0);
+    a: actor_ref <- ref_of(st, i);
+    m: { op: int64, id: string, d: string, n: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)] } <- case ok of { true -> carrying(5, "", 0, entries); false -> plain(6, "", 0) };
+    _s: boolean <- post(a, m);
+    st
+}
+fn how_text(how: int64) -> string {
+    case how of { 0 -> "aged only"; 1 -> "shuffle merged"; 2 -> "shuffle failed"; 3 -> "skipped, no draws"; _: int64 -> "empty view" }
+}
+fn committed(a: actor_ref) -> int64 {
+    sequence proc[concurrency]
+        u: { reserved: int64, committed: int64, retained: int64, high_water: int64 } <- get_actor_memory_usage(a)
+    produces pure u.committed end
+}
+// a tick has ended: say so for the first few, read store n0's memory at tick 40 and at the end, then the next tick or the views
+fn on_ended(st: { a0: actor_ref, a1: actor_ref, a2: actor_ref, a3: actor_ref, k: int64, x: int64, boot: int64, mem0: int64 }, id: string, how: int64) -> { a0: actor_ref, a1: actor_ref, a2: actor_ref, a3: actor_ref, k: int64, x: int64, boot: int64, mem0: int64 } {
+    k: int64 <- st.k;
+    _p: atom <- case k < shown() of {
+        true -> say(concat(concat(concat("tick ", num(k + 1)), concat(" of ", id)), concat(": ", how_text(how))));
+        false -> :ok
+    };
+    mem0: int64 <- case k == 39 of { true -> committed(st.a0); false -> st.mem0 };
+    last: boolean <- k + 1 >= ticks();
+    _m: atom <- case last of {
+        false -> :ok;
+        true -> say(concat("store actor's committed memory the same after tick 40 and after the last tick: ", yes(committed(st.a0) == mem0)))
+    };
+    _n: boolean <- case last of {
+        false -> tick_store(st, k + 1);
+        true -> post(st.a0, plain(10, "", 0))
+    };
+    with_nums(st, nums(k + 1, st.x, st.boot, mem0))
+}
+fn on_view(st: { a0: actor_ref, a1: actor_ref, a2: actor_ref, a3: actor_ref, k: int64, x: int64, boot: int64, mem0: int64 }, id: string, entries: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> { a0: actor_ref, a1: actor_ref, a2: actor_ref, a3: actor_ref, k: int64, x: int64, boot: int64, mem0: int64 } {
+    i: int64 <- index_of(id, 0);
+    _p: atom <- say(concat(concat(concat("  ", id), ": "), show(entries)));
+    _n: atom <- case i >= 3 of {
+        true -> say("done");
+        false -> { _s: boolean <- post(ref_of(st, i + 1), plain(10, "", 0)); :ok }
+    };
+    st
+}
+fn driver(m: { op: int64, id: string, d: string, n: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)] }, st: { a0: actor_ref, a1: actor_ref, a2: actor_ref, a3: actor_ref, k: int64, x: int64, boot: int64, mem0: int64 }) -> (:no_reply, { a0: actor_ref, a1: actor_ref, a2: actor_ref, a3: actor_ref, k: int64, x: int64, boot: int64, mem0: int64 }) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        nxt: { a0: actor_ref, a1: actor_ref, a2: actor_ref, a3: actor_ref, k: int64, x: int64, boot: int64, mem0: int64 } <- case m.op of {
+            100 -> on_start(st, me);
+            23 -> on_draws(st, m.id, m.n);
+            20 -> on_shuffle(st, m.id, m.entries);
+            21 -> on_answer(st, m.id, true, m.entries);
+            22 -> on_answer(st, m.id, false, m.entries);
+            24 -> on_ended(st, m.id, m.n);
+            25 -> on_view(st, m.id, m.entries);
+            _: int64 -> st
+        }
+    produces pure (:no_reply, nxt) end
+}
+fn nobody(m: { op: int64, id: string, d: string, n: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)] }, st: int64) -> (:no_reply, int64) { (:no_reply, st) }
+
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- bees_reporter@start();
+        ph: actor_ref <- spawn(0, nobody, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        st0: { a0: actor_ref, a1: actor_ref, a2: actor_ref, a3: actor_ref, k: int64, x: int64, boot: int64, mem0: int64 } <- drv(ph, ph, ph, ph, nums(0 - 1, 20261118, 0, 0));
+        d: actor_ref <- spawn(st0, driver, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        go: { op: int64, id: string, d: string, n: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)] } <- plain(100, "", 0);
+        _: boolean <- cast(d, go impl ActorMessage {});
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

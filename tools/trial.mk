@@ -101,6 +101,7 @@ build: silica.config
 	archives=""; [ -f silica.link ] && archives=$$(awk -F'"' '/^archive:/ { printf "%s ", $$2 }' silica.link); \
 	case "$$archives" in *libsilica_bees_tls.a*) archives="$$archives $(OPENSSL_LDFLAGS)";; esac; \
 	case "$$archives" in *libsilica_bees_native.a*) archives="$$archives $(NATIVE_CRYPTO_LDFLAGS)";; esac; \
+	case "$$archives" in *libsilica_bees_tempus.a*) archives="$$archives $(OPENSSL_LIBDIR_FLAGS) -lcrypto";; esac; \
 	for e in $(ENTRIES); do \
 		[ -f "$$e.o" ] || { echo "FAIL: [$(LEAF_NAME)] $$e.o missing"; exit 1; }; \
 		$(CLANG) "$$e.o" $$libs $$rt $$archives $(LDFLAGS) -o "$$e" || exit 1; \

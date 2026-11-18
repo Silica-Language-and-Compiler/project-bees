@@ -1,0 +1,207 @@
+// BEES TEMPUS (T1): one store's steps as pure functions over the view logic (development-plan/tempus-design.md sections 3
+// and 10). A store is one of a node's three (edge, bridge, sentinel); this unit knows nothing of types, carriers, actors,
+// tokens or time: the actor that holds a store (bees_tempus_store_actor) feeds it events and carries out what it answers.
+//
+// State: the view; while a shuffle this store started is in flight (phase 1) the entries it sent and the partner it chose;
+// two sets of draws, one for the next tick and one for the next choice made for somebody else (a partner's request, a
+// sample), each used once and then empty until the holder refills it (draws come from outside, bees_tempus_view's rule);
+// the node's own entry; the capacity; the shuffle length (`count`); and whether the node's own entry belongs in this store
+// (true only for the store of the node's own type: a ruling of 2026-11-18, design OQ-5).
+//
+// Events and what each does:
+//   tick(s)              SEMP's four steps as far as the initiator's side goes. A tick with no tick draws is skipped whole
+//                        (act 3). Otherwise every age rises by one; then, if a shuffle is in flight, nothing more (act 0);
+//                        if the view is empty, nothing more and the holder asks a sentinel (act 2); else the oldest entry
+//                        is the partner, the buffer is the node's own entry at age 0 (when `own`) and count - 1 others
+//                        (count others when not `own`), they leave the view and are remembered, phase 1 (act 1: send
+//                        `out` to `to`).
+//   reply(s, received)   the partner's answer: merged (younger preferred, oldest evicted), then the sent entries fill what
+//                        room is left (ruling, OQ-12); phase 0. More than count entries is a violation and counts as failed.
+//   failed(s)            the partner was unreachable, closed, timed out or violated: it stays out of the view, the other
+//                        sent entries are put back (ruling, OQ-12); phase 0.
+//   request(s, asker, received)   a partner's shuffle arrives: up to count entries drawn at random, never the asker's own,
+//                        are the answer; they leave the view, the received ones are merged, the answered ones fill what
+//                        room is left. Refused (ok false, nothing changes) with no reply draws or with more than count
+//                        entries received. It does not matter whether a shuffle of this store's own is in flight.
+//   sample(s, n)         up to n entries (at most count) drawn at random; the view is not changed. Refused with no reply draws.
+//   insert(s, e)         an admitted peer enters the view by the merge rules (a joiner at a sentinel).
+//   drop(s, id)          a peer leaves the view (failed proof of possession, expired token).
+//   tick_draws(s, ds), reply_draws(s, ds)   the holder's refill.
+module bees_tempus_store;
+use bees_tempus_view;
+
+export init/5;
+export tick/1;
+export reply/2;
+export failed/1;
+export request/3;
+export sample/2;
+export insert/2;
+export drop/2;
+export tick_draws/2;
+export reply_draws/2;
+export view_of/1;
+export phase_of/1;
+export needs_tick_draws/1;
+export needs_reply_draws/1;
+
+fn no_draws() -> List[int64, mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[int64, mem(normal)] <- empty[int64, mem(normal)]()
+    produces pure e end
+}
+fn has_draws(ds: List[int64, mem(normal)]) -> boolean {
+    case ds of {
+        []: List[int64, mem(normal)] -> false;
+        [_h: int64, _t: List[int64, mem(normal)]] -> true
+    }
+}
+fn make(view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, sizes: { cap: int64, count: int64, own: boolean }) -> { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } {
+    { view: view, sent: sent, pend: pend, phase: phase, tdraws: tdraws, rdraws: rdraws, me: me, cap: sizes.cap, count: sizes.count, own: sizes.own }
+}
+fn sizes_of(s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }) -> { cap: int64, count: int64, own: boolean } {
+    { cap: s.cap, count: s.count, own: s.own }
+}
+// the same store with another view, nothing in flight
+fn idle(s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, view: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } {
+    e: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@none();
+    b: { id: string, d: string, age: int64 } <- bees_tempus_view@entry("", "", 0);
+    z: { cap: int64, count: int64, own: boolean } <- sizes_of(s);
+    make(view, e, b, 0, s.tdraws, s.rdraws, s.me, z)
+}
+// the same store with another view, what is in flight kept
+fn with_view(s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, view: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } {
+    z: { cap: int64, count: int64, own: boolean } <- sizes_of(s);
+    make(view, s.sent, s.pend, s.phase, s.tdraws, s.rdraws, s.me, z)
+}
+
+// a store with an empty view and no draws; `own` says whether the node's own entry belongs in it
+fn init(self_id: string, self_d: string, own: boolean, cap: int64, count: int64) -> { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } {
+    e: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@none();
+    e2: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@none();
+    b: { id: string, d: string, age: int64 } <- bees_tempus_view@entry("", "", 0);
+    me: { id: string, d: string, age: int64 } <- bees_tempus_view@entry(self_id, self_d, 0);
+    d1: List[int64, mem(normal)] <- no_draws();
+    d2: List[int64, mem(normal)] <- no_draws();
+    z: { cap: int64, count: int64, own: boolean } <- { cap: cap, count: count, own: own };
+    make(e, e2, b, 0, d1, d2, me, z)
+}
+
+fn view_of(s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }) -> List[{ id: string, d: string, age: int64 }, mem(normal)] { s.view }
+fn phase_of(s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }) -> int64 { s.phase }
+fn needs_tick_draws(s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }) -> boolean { not has_draws(s.tdraws) }
+fn needs_reply_draws(s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }) -> boolean { not has_draws(s.rdraws) }
+
+fn tick_draws(s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, ds: List[int64, mem(normal)]) -> { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } {
+    z: { cap: int64, count: int64, own: boolean } <- sizes_of(s);
+    make(s.view, s.sent, s.pend, s.phase, ds, s.rdraws, s.me, z)
+}
+fn reply_draws(s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, ds: List[int64, mem(normal)]) -> { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } {
+    z: { cap: int64, count: int64, own: boolean } <- sizes_of(s);
+    make(s.view, s.sent, s.pend, s.phase, s.tdraws, ds, s.me, z)
+}
+
+fn answer(s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, act: int64, to: { id: string, d: string, age: int64 }, out: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, act: int64, to: { id: string, d: string, age: int64 }, out: List[{ id: string, d: string, age: int64 }, mem(normal)] } {
+    { s: s, act: act, to: to, out: out }
+}
+// the tick's shuffle: the caller has aged the view and knows it is not empty and nothing is in flight
+fn start(s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, aged: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, act: int64, to: { id: string, d: string, age: int64 }, out: List[{ id: string, d: string, age: int64 }, mem(normal)] } {
+    others: int64 <- case s.own of { true -> s.count; false -> s.count + 1 };
+    sel: { found: boolean, partner: { id: string, d: string, age: int64 }, sent: List[{ id: string, d: string, age: int64 }, mem(normal)], rest: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_view@select(aged, others, s.tdraws);
+    partner: { id: string, d: string, age: int64 } <- sel.partner;
+    sent: List[{ id: string, d: string, age: int64 }, mem(normal)] <- sel.sent;
+    rest: List[{ id: string, d: string, age: int64 }, mem(normal)] <- sel.rest;
+    out: List[{ id: string, d: string, age: int64 }, mem(normal)] <- case s.own of { true -> bees_tempus_view@outgoing(s.me.id, s.me.d, sent); false -> sent };
+    used: List[int64, mem(normal)] <- no_draws();
+    z: { cap: int64, count: int64, own: boolean } <- sizes_of(s);
+    nxt: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } <- make(rest, sent, partner, 1, used, s.rdraws, s.me, z);
+    answer(nxt, 1, partner, out)
+}
+fn tick(s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }) -> { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, act: int64, to: { id: string, d: string, age: int64 }, out: List[{ id: string, d: string, age: int64 }, mem(normal)] } {
+    e: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@none();
+    b: { id: string, d: string, age: int64 } <- bees_tempus_view@entry("", "", 0);
+    case has_draws(s.tdraws) of {
+        false -> answer(s, 3, b, e);
+        true -> {
+            aged: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@age_all(s.view);
+            n: int64 <- bees_tempus_view@size(aged);
+            case s.phase == 1 of {
+                true -> {
+                    nxt: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } <- with_view(s, aged);
+                    answer(nxt, 0, b, e)
+                };
+                false -> case n == 0 of {
+                    true -> answer(s, 2, b, e);
+                    false -> start(s, aged)
+                }
+            }
+        }
+    }
+}
+
+fn failed(s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }) -> { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } {
+    case s.phase == 1 of {
+        false -> s;
+        true -> {
+            back: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@backfill(s.view, s.sent, s.cap);
+            idle(s, back)
+        }
+    }
+}
+fn reply(s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, received: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } {
+    k: int64 <- bees_tempus_view@size(received);
+    case s.phase == 1 of {
+        false -> s;
+        true -> case k > s.count of {
+            true -> failed(s);
+            false -> {
+                m: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@merge(s.view, received, s.me.id, s.cap);
+                back: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@backfill(m, s.sent, s.cap);
+                idle(s, back)
+            }
+        }
+    }
+}
+
+fn refused(s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }) -> { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, ok: boolean, out: List[{ id: string, d: string, age: int64 }, mem(normal)] } {
+    e: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@none();
+    { s: s, ok: false, out: e }
+}
+fn request(s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, asker: string, received: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, ok: boolean, out: List[{ id: string, d: string, age: int64 }, mem(normal)] } {
+    k: int64 <- bees_tempus_view@size(received);
+    case k > s.count or not has_draws(s.rdraws) of {
+        true -> refused(s);
+        false -> {
+            r: { sent: List[{ id: string, d: string, age: int64 }, mem(normal)], rest: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_view@reply_select(s.view, s.count, asker, s.rdraws);
+            out: List[{ id: string, d: string, age: int64 }, mem(normal)] <- r.sent;
+            kept: List[{ id: string, d: string, age: int64 }, mem(normal)] <- r.rest;
+            m: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@merge(kept, received, s.me.id, s.cap);
+            back: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@backfill(m, out, s.cap);
+            used: List[int64, mem(normal)] <- no_draws();
+            z: { cap: int64, count: int64, own: boolean } <- sizes_of(s);
+            nxt: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } <- make(back, s.sent, s.pend, s.phase, s.tdraws, used, s.me, z);
+            { s: nxt, ok: true, out: out }
+        }
+    }
+}
+fn sample(s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, n: int64) -> { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, ok: boolean, out: List[{ id: string, d: string, age: int64 }, mem(normal)] } {
+    case n < 1 or not has_draws(s.rdraws) of {
+        true -> refused(s);
+        false -> {
+            k: int64 <- case n > s.count of { true -> s.count; false -> n };
+            out: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@sample(s.view, k, s.rdraws);
+            used: List[int64, mem(normal)] <- no_draws();
+            z: { cap: int64, count: int64, own: boolean } <- sizes_of(s);
+            nxt: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } <- make(s.view, s.sent, s.pend, s.phase, s.tdraws, used, s.me, z);
+            { s: nxt, ok: true, out: out }
+        }
+    }
+}
+fn insert(s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, e: { id: string, d: string, age: int64 }) -> { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } {
+    v: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@insert(s.view, e, s.me.id, s.cap);
+    with_view(s, v)
+}
+fn drop(s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, id: string) -> { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } {
+    v: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@remove(s.view, id);
+    with_view(s, v)
+}

@@ -1,0 +1,66 @@
+init: view (empty) | sent (empty) | phase 0
+init needs tick draws: yes
+tick without draws: skipped, no draws
+tick on an empty view: empty view, ask a sentinel
+base: view a:3 b:5 c:5 d:1 e:0 | sent (empty) | phase 0
+tick: shuffle with c:6 sending me:0 a:4 d:2
+after tick: view b:6 e:1 | sent a:4 d:2 | phase 1 partner c:6
+after tick needs tick draws: yes
+tick in flight: aged only
+after tick in flight: view b:7 e:2 | sent a:4 d:2 | phase 1 partner c:6
+after tick in flight needs tick draws: no
+after reply: view x:2 b:1 e:2 a:4 d:2 | sent (empty) | phase 0
+after failed: view b:7 e:2 a:4 d:2 | sent (empty) | phase 0
+after an oversize reply: view b:7 e:2 a:4 d:2 | sent (empty) | phase 0
+reply when idle: view a:3 b:5 c:5 d:1 e:0 | sent (empty) | phase 0
+failed when idle: view a:3 b:5 c:5 d:1 e:0 | sent (empty) | phase 0
+reply that fills the view: view x:2 y:3 z:4 b:7 e:2 | sent (empty) | phase 0
+request without draws: refused
+after it: view a:3 b:5 c:5 d:1 e:0 | sent (empty) | phase 0
+request: answers c:5 e:0 a:3
+after request: view d:0 x:4 b:5 c:5 e:0 | sent (empty) | phase 0
+after request needs reply draws: yes
+oversize request: refused
+after it: view a:3 b:5 c:5 d:1 e:0 | sent (empty) | phase 0
+sample 2: answers c:5 d:1
+after sample: view a:3 b:5 c:5 d:1 e:0 | sent (empty) | phase 0
+after sample needs reply draws: yes
+sample 9: answers c:5 d:1 a:3
+sample without draws: refused
+sample 0: refused
+tick of a store of another type: shuffle with c:6 sending a:4 d:2 b:6
+after it: view e:1 | sent a:4 d:2 b:6 | phase 1 partner c:6
+drop c: view a:3 b:5 d:1 e:0 | sent (empty) | phase 0
+insert of self: view a:3 b:5 c:5 d:1 e:0 | sent (empty) | phase 0
+request during a shuffle: answers b:6 e:1
+after it: view z:0 b:6 e:1 | sent a:4 d:2 | phase 1 partner c:6
+start, views holding the silent peer: 3
+  n0: n9:0 n1:0 n2:0
+  n1: n2:0 n3:0
+  n2: n9:0 n3:0 n4:0
+  n3: n4:0 n5:0
+  n4: n9:0 n5:0 n0:0
+  n5: n0:0 n1:0
+after round 1, views holding the silent peer: 3
+  n0: n5:0 n1:1 n9:2 n2:0
+  n1: n0:1 n2:2 n3:1
+  n2: n4:1 n3:1
+  n3: n1:0 n0:0 n4:1
+  n4: n1:0 n3:0 n0:0 n9:1
+  n5: n2:0 n3:0 n9:1 n4:1
+after round 2, views holding the silent peer: 2
+  n0: n2:0 n1:1 n3:3 n5:1
+  n1: n4:1 n3:1 n0:2
+  n2: n5:1 n1:2 n4:2 n3:3
+  n3: n0:0 n9:1 n1:0
+  n4: n5:0 n2:1 n3:1 n0:2
+  n5: n0:2 n1:2 n3:1 n9:2
+after round 30, views holding the silent peer: 0
+  n0: n3:0 n1:2 n2:1 n5:1
+  n1: n3:2 n0:1 n4:1
+  n2: n4:0 n3:2 n0:1 n1:1
+  n3: n5:0 n0:3 n4:2 n1:2
+  n4: n1:1 n5:2 n0:2 n3:2
+  n5: n2:0 n1:1 n0:3 n4:2
+every view valid after every exchange: yes
+exit=0

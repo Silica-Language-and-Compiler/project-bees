@@ -1,0 +1,99 @@
+age_all: a:4 b:6 c:6 d:2 e:1
+age_all at the bound: t:65535 u:65535
+age_all of an empty view: (empty)
+select len 3 draws 1 0 1: found yes
+select len 3 draws 1 0 1: partner c:5
+select len 3 draws 1 0 1: sent: a:3 d:1
+select len 3 draws 1 0 1: rest: b:5 e:0
+select len 3 draws 0 7 5: found yes
+select len 3 draws 0 7 5: partner b:5
+select len 3 draws 0 7 5: sent: e:0 d:1
+select len 3 draws 0 7 5: rest: a:3 c:5
+select len 3 no draws: found yes
+select len 3 no draws: partner b:5
+select len 3 no draws: sent: a:3 c:5
+select len 3 no draws: rest: d:1 e:0
+select len 1: found yes
+select len 1: partner c:5
+select len 1: sent: (empty)
+select len 1: rest: a:3 b:5 d:1 e:0
+select len 9: found yes
+select len 9: partner c:5
+select len 9: sent: a:3 d:1 b:5 e:0
+select len 9: rest: (empty)
+select on an empty view: found no
+select on an empty view: partner (none)
+select on an empty view: sent: (empty)
+select on an empty view: rest: (empty)
+select len 2 negative draws: found yes
+select len 2 negative draws: partner b:5
+select len 2 negative draws: sent: a:3
+select len 2 negative draws: rest: c:5 d:1 e:0
+outgoing: me:0/@me a:3/@a d:1/@d
+reply_select len 2 asker d: sent: c:5 e:0
+reply_select len 2 asker d: rest: a:3 b:5 d:1
+reply_select len 3 asker x: sent: c:5 d:1 a:3
+reply_select len 3 asker x: rest: b:5 e:0
+reply_select only the asker: sent: (empty)
+reply_select only the asker: rest: d:4
+merge drops self: x:2 y:7 b:5 e:0
+merge prefers younger: b:2 e:0
+merge takes the younger entry whole: b:2/new e:0/@e
+merge at equal age keeps its own: b:5/@b e:0/@e
+merge with a peer twice in the buffer: x:1 y:4 b:5 e:0
+merge evicts the oldest: x:2 z:1 e:0
+merge eviction at equal age: p:4 q:4 g:1
+merge to capacity 1: g:1
+merge eviction among received: p:4 q:4
+merge of nothing: b:5 e:0
+merge to capacity 0: (empty)
+backfill with room: x:2 b:5 a:3 d:1
+backfill to capacity: x:2 b:5 a:3
+backfill of a full view: x:2 b:5
+after a failed shuffle: b:5 e:0 a:3 d:1
+size: 5
+member c: yes
+member x: no
+remove c: a:3 b:5 d:1 e:0
+remove x: a:3 b:5 c:5 d:1 e:0
+insert into a full view: n:0 a:3 b:5 d:1 e:0
+insert of self: a:3 b:5 c:5 d:1 e:0
+sample 2: e:0 a:3
+sample 9 of five: e:0 a:3 b:5 c:5 d:1
+valid base, cap 5: yes
+valid base, cap 4: no
+valid base, self a: no
+valid with an id twice: no
+valid with age 65536: no
+valid with age -1: no
+valid with an empty id: no
+start
+  n0: n1:0 n2:0 n3:0 n4:0
+  n1: n2:0 n3:0 n4:0 n5:0
+  n2: n3:0 n4:0 n5:0 n6:0
+  n3: n4:0 n5:0 n6:0 n7:0
+  n4: n5:0 n6:0 n7:0 n0:0
+  n5: n6:0 n7:0 n0:0 n1:0
+  n6: n7:0 n0:0 n1:0 n2:0
+  n7: n0:0 n1:0 n2:0 n3:0
+after round 1
+  n0: n6:0 n5:0 n7:0 n2:1
+  n1: n7:0 n0:1 n3:1 n5:0
+  n2: n6:0 n0:0 n7:0 n3:1
+  n3: n2:0 n4:1 n1:0 n6:1
+  n4: n2:2 n5:1 n6:0 n7:0
+  n5: n7:0 n2:0 n0:0 n3:1
+  n6: n7:0 n2:1 n0:1 n1:1
+  n7: n5:0 n0:1 n4:0 n2:1
+after round 10
+  n0: n3:0 n2:1 n7:2 n4:3
+  n1: n5:0 n3:2 n4:2 n7:2
+  n2: n6:0 n1:2 n4:1 n0:3
+  n3: n7:0 n4:1 n1:2 n5:1
+  n4: n3:1 n1:3 n2:0 n5:3
+  n5: n7:1 n1:2 n6:0 n0:1
+  n6: n0:1 n7:2 n3:2 n1:2
+  n7: n5:1 n6:1 n4:3 n1:2
+every view valid after every exchange: yes
+in how many views each node is: 3 6 2 4 5 4 3 5
+exit=0

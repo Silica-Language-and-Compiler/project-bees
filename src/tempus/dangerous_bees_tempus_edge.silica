@@ -1,0 +1,28 @@
+// BEES TEMPUS (T4): the edge worker, a cast-only FFI worker behaviour installed with spawn_dangerous by the program's root
+// unit (the spawn site stays in the root unit, SD-17). One worker per node; each request names the actor to answer.
+//   (1, input, tag, reply_to)   Ed25519 verify of pub || sig || message: reply_to gets (:bees, 31, "", "", 1 | 0 | 2)
+//   (2, input, tag, reply_to)   Ed25519 sign with seed || message:        (:bees, 32, etf_binary, "", tag)
+//   (3, input, tag, reply_to)   the public key of a seed:                 (:bees, 33, etf_binary, "", tag)
+//   (4, input, tag, reply_to)   SHA-512:                                  (:bees, 34, etf_binary, "", tag)
+// etf_binary is FFI-derived: the receiver decodes it with the language's decode((:etf), ...). The answer has the tuple
+// shape TRUST's actors use for everything they receive.
+module dangerous_bees_tempus_edge;
+use dangerous_bees_tempus_native;
+
+export ted/2;
+
+fn ted(msg: (int64, string, int64, actor_ref), st: int64) -> (:no_reply, int64) {
+    sequence proc[external_danger, concurrency]
+        (op: int64, input: string, tag: int64, reply_to: actor_ref) <- msg;
+        verdict: int64 <- case op == 1 of { true -> dangerous_bees_tempus_native@verify(input); false -> tag };
+        bytes_out: string <- case op of {
+            2 -> dangerous_bees_tempus_native@sign_etf(input);
+            3 -> dangerous_bees_tempus_native@public_etf(input);
+            4 -> dangerous_bees_tempus_native@sha512_etf(input);
+            _: int64 -> ""
+        };
+        kind: int64 <- 30 + op;
+        // one cast per message (the one FFI result cast a worker may make), to the requester the message names
+        _: boolean <- cast(reply_to, (:bees, kind, bytes_out, "", verdict) impl ActorMessage {})
+    produces pure (:no_reply, st + 1) end
+}

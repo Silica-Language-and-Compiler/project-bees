@@ -1,0 +1,247 @@
+// T2 and C1: the tempus/1 frames (src/tempus/bees_tempus_frame.silica) and the client library's pure part
+// (src/tempus_client/bees_tempus_client.silica), in memory: no carrier, no key, no clock. Part 1: every frame a node or a
+// client writes, as hex, and read back. Part 2: the token's structure. Part 3: frames a node must refuse, each with the
+// reason. Part 4: a view through a shuffle frame and back. Part 5: 20,000 refused frames (memory is measured outside,
+// tempus-progress.md). tools/test_bees_tempus_client.py builds every frame of parts 1 to 3 again with the Python client's
+// own codec, compares the bytes with this program's hex, and checks that the Python reader accepts and refuses the same.
+use bees_atoms;
+use bees_trust_frame;
+use bees_tempus_view;
+use bees_tempus_frame;
+use bees_tempus_client;
+use bees_reporter;
+
+fn say(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+fn yes(b: boolean) -> string { case b of { true -> "yes"; false -> "no" } }
+fn digits(n: int64, acc: string) -> string {
+    case n < 10 of {
+        true -> concat(substring("0123456789", n, n + 1), acc);
+        false -> digits(n / 10, concat(substring("0123456789", n % 10, n % 10 + 1), acc))
+    }
+}
+fn num(n: int64) -> string { digits(n, "") }
+fn rep(s: string, n: int64, acc: string) -> string { case n == 0 of { true -> acc; false -> rep(s, n - 1, concat(acc, s)) } }
+// the first four bytes of a byte string and its length
+fn brief(s: string) -> string {
+    n: int64 <- length_bytes(s);
+    head: string <- case n > 4 of { true -> substring(s, 0, 4); false -> s };
+    concat(concat(head, "/"), num(n))
+}
+fn hex(s: string) -> string { bees_trust_frame@hex(s) }
+
+// ---- the fixed values of this trial ----
+fn id_of(c: string) -> string { rep(c, 64, "") }
+fn pub_of(c: string) -> string { rep(c, 32, "") }
+fn addr() -> string { "127.0.0.1:22801" }
+fn payload() -> string { bees_tempus_client@token_payload("k1", pub_of("p"), 1, 1000, 2000) }
+fn tok() -> string { bees_tempus_client@token(rep("S", 64, ""), payload()) }
+fn peer(c: string, age: int64) -> { id: string, d: string, age: int64 } { bees_tempus_client@entry(id_of(c), pub_of("p"), addr(), tok(), age) }
+fn c(e: { id: string, d: string, age: int64 }, v: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> List[{ id: string, d: string, age: int64 }, mem(normal)] {
+    sequence proc[mem(normal)]
+        r: List[{ id: string, d: string, age: int64 }, mem(normal)] <- prepend[{ id: string, d: string, age: int64 }, mem(normal)](e, v)
+    produces pure r end
+}
+fn v0() -> List[{ id: string, d: string, age: int64 }, mem(normal)] { bees_tempus_view@none() }
+fn three() -> List[{ id: string, d: string, age: int64 }, mem(normal)] {
+    z: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v0();
+    c(peer("A", 0), c(peer("B", 7), c(peer("C", 65535), z)))
+}
+fn four() -> List[{ id: string, d: string, age: int64 }, mem(normal)] { t: List[{ id: string, d: string, age: int64 }, mem(normal)] <- three(); c(peer("D", 1), t) }
+
+fn show_from(v: List[{ id: string, d: string, age: int64 }, mem(normal)], acc: string) -> string {
+    case v of {
+        []: List[{ id: string, d: string, age: int64 }, mem(normal)] -> acc;
+        [h: { id: string, d: string, age: int64 }, t: List[{ id: string, d: string, age: int64 }, mem(normal)]] -> {
+            s: string <- concat(concat(brief(h.id), ":"), num(h.age));
+            nxt: string <- case length_bytes(acc) == 0 of { true -> s; false -> concat(concat(acc, " "), s) };
+            show_from(t, nxt)
+        }
+    }
+}
+fn show(v: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> string { case bees_tempus_view@size(v) == 0 of { true -> "(empty)"; false -> show_from(v, "") } }
+fn verdict(ok: boolean, why: string) -> string { case ok of { true -> "accepted"; false -> concat("refused: ", why) } }
+
+// what a node reads from a body: its kind, then that kind's reader (shuffle length 3)
+fn read(body: string) -> string {
+    k: int64 <- bees_tempus_frame@kind(body);
+    case k of {
+        0 -> concat("refused: ", bees_tempus_frame@why_refused(body));
+        1 -> {
+            r: { ok: boolean, why: string, d: { addr: string, id: string, pub: string, token: string } } <- bees_tempus_frame@dec_advert(body);
+            concat("advert ", case r.ok of {
+                true -> concat(concat(concat("accepted id ", brief(r.d.id)), concat(" pub ", brief(r.d.pub))), concat(concat(" addr ", r.d.addr), concat(" token ", brief(r.d.token))));
+                false -> concat("refused: ", r.why)
+            })
+        };
+        2 -> { r: { ok: boolean, why: string, v: string } <- bees_tempus_frame@dec_field(body, 2); concat("pop_challenge ", case r.ok of { true -> concat("accepted nonce ", brief(r.v)); false -> concat("refused: ", r.why) }) };
+        3 -> { r: { ok: boolean, why: string, v: string } <- bees_tempus_frame@dec_field(body, 3); concat("pop_response ", case r.ok of { true -> concat("accepted sig ", brief(r.v)); false -> concat("refused: ", r.why) }) };
+        4 -> { r: { ok: boolean, why: string, v: string } <- bees_tempus_frame@dec_field(body, 4); concat("key_rotated ", case r.ok of { true -> concat("accepted kid ", brief(r.v)); false -> concat("refused: ", r.why) }) };
+        7 -> {
+            r: { ok: boolean, why: string, store: int64, n: int64 } <- bees_tempus_frame@dec_sample(body, 3);
+            concat("sample ", case r.ok of { true -> concat(concat("accepted store ", num(r.store)), concat(" n ", num(r.n))); false -> concat("refused: ", r.why) })
+        };
+        9 -> { r: { ok: boolean, why: string, store: int64 } <- bees_tempus_frame@dec_tick(body); concat("tick ", case r.ok of { true -> concat("accepted store ", num(r.store)); false -> concat("refused: ", r.why) }) };
+        10 -> { r: { ok: boolean, why: string, ms: int64 } <- bees_tempus_frame@dec_clock(body); concat("clock ", case r.ok of { true -> concat("accepted ms ", num(r.ms)); false -> concat("refused: ", r.why) }) };
+        11 -> { r: { ok: boolean, why: string } <- bees_tempus_frame@dec_done(body); concat("done ", verdict(r.ok, r.why)) };
+        12 -> "call (TRUST's frame)";
+        13 -> "cast (TRUST's frame)";
+        14 -> "result (TRUST's frame)";
+        _: int64 -> {
+            r: { ok: boolean, why: string, store: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_frame@dec_entries(body, 3);
+            concat(concat(concat("entries kind ", num(k)), " "), case r.ok of { true -> concat(concat("accepted store ", num(r.store)), concat(" ", show(r.entries))); false -> concat("refused: ", r.why) })
+        }
+    }
+}
+fn frame(name: string, body: string) -> atom {
+    sequence
+        _: atom <- say(concat(concat(name, " hex "), hex(body)));
+        _: atom <- say(concat(concat(name, " read: "), read(body)))
+    produces pure :ok end
+}
+
+fn written() -> atom {
+    sequence
+        _: atom <- frame("advert", bees_tempus_client@advert(id_of("A"), pub_of("p"), addr(), tok()));
+        _: atom <- frame("pop_challenge", bees_tempus_client@challenge(rep("N", 32, "")));
+        _: atom <- frame("pop_response", bees_tempus_client@response(rep("G", 64, "")));
+        _: atom <- frame("key_rotated", bees_tempus_frame@enc_rotated("k2"));
+        _: atom <- frame("shuffle", bees_tempus_client@shuffle(1, three()));
+        _: atom <- frame("shuffle_reply", bees_tempus_client@shuffle_answer(2, v0()));
+        _: atom <- frame("sample", bees_tempus_client@sample(3, 2));
+        _: atom <- frame("sample_reply", bees_tempus_client@sample_answer(3, c(peer("B", 7), v0())));
+        _: atom <- frame("tick", bees_tempus_client@tick(1));
+        _: atom <- frame("clock", bees_tempus_client@clock(1763424000000));
+        _: atom <- frame("done", bees_tempus_frame@enc_done())
+    produces pure :ok end
+}
+
+fn token_line(name: string, t: string) -> atom {
+    r: { ok: boolean, why: string, kid: string, sub: string, typ: int64, nbf: int64, exp: int64, payload: string, sig: string } <- bees_tempus_frame@tok(t);
+    _h: atom <- say(concat(concat(name, " hex "), hex(t)));
+    say(concat(concat(name, " read: "), case r.ok of {
+        true -> concat(concat(concat("accepted kid ", r.kid), concat(" sub ", brief(r.sub))), concat(concat(concat(" typ ", num(r.typ)), concat(" nbf ", num(r.nbf))), concat(concat(" exp ", num(r.exp)), concat(concat(" payload of ", num(length_bytes(r.payload))), concat(" bytes, sig ", brief(r.sig))))));
+        false -> concat("refused: ", r.why)
+    }))
+}
+fn sig() -> string { rep("S", 64, "") }
+fn tokens() -> atom {
+    sequence
+        _: atom <- token_line("token", tok());
+        _: atom <- token_line("token of a bridge", bees_tempus_client@token(sig(), bees_tempus_client@token_payload("producer-key-2026", pub_of("q"), 2, 0, 1763424300)));
+        _: atom <- token_line("token of 64 bytes", sig());
+        _: atom <- token_line("token cut short", bees_trust_frame@cut(tok(), 0, length_bytes(tok()) - 1));
+        _: atom <- token_line("token with a byte after it", bees_trust_frame@cat2(tok(), "x"));
+        _: atom <- token_line("token whose exp is not after nbf", bees_tempus_client@token(sig(), bees_tempus_client@token_payload("k1", pub_of("p"), 1, 2000, 2000)));
+        _: atom <- token_line("token with a 31-byte sub", bees_tempus_client@token(sig(), bees_tempus_client@token_payload("k1", rep("p", 31, ""), 1, 1000, 2000)));
+        _: atom <- token_line("token with an empty kid", bees_tempus_client@token(sig(), bees_tempus_client@token_payload("", pub_of("p"), 1, 1000, 2000)));
+        _: atom <- token_line("token with a 65-byte kid", bees_tempus_client@token(sig(), bees_tempus_client@token_payload(rep("k", 65, ""), pub_of("p"), 1, 1000, 2000)));
+        _: atom <- token_line("token whose payload is a frame of four keys", bees_tempus_client@token(sig(), bees_tempus_client@sample(1, 1)));
+        _: atom <- token_line("token over 1024 bytes", bees_tempus_client@token(sig(), rep("x", 961, "")))
+    produces pure :ok end
+}
+
+fn refusal(name: string, body: string) -> atom { frame(name, body) }
+fn one_entry(e: { id: string, d: string, age: int64 }) -> List[{ id: string, d: string, age: int64 }, mem(normal)] { z: List[{ id: string, d: string, age: int64 }, mem(normal)] <- v0(); c(e, z) }
+fn hostile() -> atom {
+    sequence
+        good: string <- bees_tempus_frame@enc_done();
+        smp: string <- bees_tempus_client@sample(1, 2);
+        _: atom <- refusal("first byte 130", bees_tempus_client@bad_version(good));
+        _: atom <- refusal("last byte missing", bees_tempus_client@bad_truncated(smp));
+        _: atom <- refusal("a byte after the term", bees_tempus_client@bad_trailing(good));
+        _: atom <- refusal("a tuple, not a map", bees_tempus_client@bad_not_a_map());
+        _: atom <- refusal("t is no kind", bees_tempus_client@bad_kind());
+        _: atom <- refusal("done with a second key", bees_tempus_client@bad_extra_key());
+        _: atom <- refusal("sample whose store is no peer type", bees_tempus_client@bad_store());
+        _: atom <- refusal("empty body", "");
+        _: atom <- refusal("shuffle of four entries, shuffle length three", bees_tempus_client@shuffle(1, four()));
+        _: atom <- refusal("entry of age 65536", bees_tempus_client@shuffle(1, one_entry(peer("A", 65536))));
+        _: atom <- refusal("entry with a 63-byte id", bees_tempus_client@shuffle(1, one_entry(bees_tempus_client@entry(rep("A", 63, ""), pub_of("p"), addr(), tok(), 0))));
+        _: atom <- refusal("entry with a 31-byte pub", bees_tempus_client@shuffle(1, one_entry(bees_tempus_client@entry(id_of("A"), rep("p", 31, ""), addr(), tok(), 0))));
+        _: atom <- refusal("entry with a 2-byte addr", bees_tempus_client@shuffle(1, one_entry(bees_tempus_client@entry(id_of("A"), pub_of("p"), "a:", tok(), 0))));
+        _: atom <- refusal("entry with a 262-byte addr", bees_tempus_client@shuffle(1, one_entry(bees_tempus_client@entry(id_of("A"), pub_of("p"), rep("a", 262, ""), tok(), 0))));
+        _: atom <- refusal("entry with a 64-byte token", bees_tempus_client@shuffle(1, one_entry(bees_tempus_client@entry(id_of("A"), pub_of("p"), addr(), sig(), 0))));
+        _: atom <- refusal("advert with a 65-byte id", bees_tempus_client@advert(rep("A", 65, ""), pub_of("p"), addr(), tok()));
+        _: atom <- refusal("sample of 0", bees_tempus_client@sample(1, 0));
+        _: atom <- refusal("sample of 4, shuffle length three", bees_tempus_client@sample(1, 4));
+        _: atom <- refusal("clock before 0", bees_tempus_client@clock(0 - 1));
+        _: atom <- refusal("nonce of 31 bytes", bees_tempus_client@challenge(rep("N", 31, "")));
+        _: atom <- refusal("sig of 65 bytes", bees_tempus_client@response(rep("G", 65, "")));
+        _: atom <- refusal("kid of no bytes", bees_tempus_frame@enc_rotated(""));
+        // a frame read with another kind's reader
+        r: { ok: boolean, why: string, v: string } <- bees_tempus_frame@dec_field(bees_tempus_client@challenge(rep("N", 32, "")), 3);
+        _: atom <- say(concat("a challenge read as a response: ", verdict(r.ok, r.why)));
+        r2: { ok: boolean, why: string, store: int64, n: int64 } <- bees_tempus_frame@dec_sample(bees_tempus_client@tick(1), 3);
+        _: atom <- say(concat("a tick read as a sample: ", verdict(r2.ok, r2.why)))
+    produces pure :ok end
+}
+
+fn same_d(a: List[{ id: string, d: string, age: int64 }, mem(normal)], b: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> boolean {
+    case a of {
+        []: List[{ id: string, d: string, age: int64 }, mem(normal)] -> bees_tempus_view@size(b) == 0;
+        [h: { id: string, d: string, age: int64 }, t: List[{ id: string, d: string, age: int64 }, mem(normal)]] -> case b of {
+            []: List[{ id: string, d: string, age: int64 }, mem(normal)] -> false;
+            [h2: { id: string, d: string, age: int64 }, t2: List[{ id: string, d: string, age: int64 }, mem(normal)]] -> case h.id == h2.id and h.d == h2.d and h.age == h2.age of { true -> same_d(t, t2); false -> false }
+        }
+    }
+}
+fn round_trip() -> atom {
+    sequence
+        v: List[{ id: string, d: string, age: int64 }, mem(normal)] <- three();
+        body: string <- bees_tempus_client@shuffle(1, v);
+        r: { ok: boolean, why: string, store: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_frame@dec_entries(body, 3);
+        _: atom <- say(concat("a view through a shuffle frame: ", show(r.entries)));
+        _: atom <- say(concat("entries, descriptors and ages the same: ", yes(same_d(v, r.entries))));
+        again: string <- bees_tempus_client@shuffle(1, r.entries);
+        _: atom <- say(concat("written again, the same bytes: ", yes(again == body)));
+        _: atom <- say(concat("the view is valid for a node that is none of them: ", yes(bees_tempus_view@valid(r.entries, id_of("Z"), 3))));
+        // identities are hashes, not text: bytes 255 and 254
+        hi: string <- rep(bees_trust_frame@b1(255), 64, "");
+        hi2: string <- bees_trust_frame@cat2(rep(bees_trust_frame@b1(255), 32, ""), rep(bees_trust_frame@b1(255), 32, ""));
+        lo: string <- bees_trust_frame@cat2(rep(bees_trust_frame@b1(255), 63, ""), bees_trust_frame@b1(254));
+        _: atom <- say(concat("identities that are not text: equal ones equal ", concat(yes(hi == hi2), concat(", different ones equal ", yes(hi == lo)))));
+        bv: List[{ id: string, d: string, age: int64 }, mem(normal)] <- one_entry(bees_tempus_client@entry(hi, pub_of("p"), addr(), tok(), 3));
+        body2: string <- bees_tempus_client@shuffle(1, bv);
+        r3: { ok: boolean, why: string, store: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_frame@dec_entries(body2, 3);
+        _: atom <- say(concat("such an identity through a frame: ", concat(verdict(r3.ok, r3.why), concat(", found in the view by its bytes ", concat(yes(bees_tempus_view@member(r3.entries, hi2)), concat(", by other bytes ", yes(bees_tempus_view@member(r3.entries, lo))))))))
+    produces pure :ok end
+}
+
+fn refused_one(k: int64, big: string, bad: string) -> int64 {
+    r: { ok: boolean, why: string, store: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_frame@dec_entries(big, 3);
+    a: int64 <- case r.ok of { true -> 0; false -> 1 };
+    b: int64 <- case bees_tempus_frame@kind(bad) == 0 of { true -> 1; false -> 0 };
+    a + b
+}
+fn refuse_many(n: int64, big: string, bad: string, acc: int64) -> int64 {
+    case n == 0 of {
+        true -> acc;
+        false -> {
+            got: int64 <- refused_one(n, big, bad);
+            refuse_many(n - 1, big, bad, acc + got)
+        }
+    }
+}
+fn many() -> atom {
+    sequence
+        big: string <- bees_tempus_client@shuffle(1, four());
+        bad: string <- bees_tempus_client@bad_truncated(big);
+        n: int64 <- refuse_many(10000, big, bad, 0);
+        _: atom <- say(concat("frames refused in the loop: ", num(n)))
+    produces pure :ok end
+}
+
+fn main() -> int64 {
+    sequence
+        _: atom <- bees_reporter@start();
+        _: atom <- written();
+        _: atom <- tokens();
+        _: atom <- hostile();
+        _: atom <- round_trip();
+        _: atom <- many()
+    produces pure 0 end
+}

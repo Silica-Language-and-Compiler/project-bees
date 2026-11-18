@@ -1,0 +1,23 @@
+tick 1 of n0: shuffle merged
+tick 2 of n1: shuffle merged
+tick 3 of n2: shuffle merged
+tick 4 of n3: shuffle merged
+tick 5 of n0: shuffle failed
+tick 6 of n1: shuffle merged
+tick 7 of n2: shuffle merged
+tick 8 of n3: shuffle merged
+tick 9 of n0: shuffle merged
+tick 10 of n1: shuffle merged
+tick 11 of n2: shuffle merged
+tick 12 of n3: shuffle merged
+tick 13 of n0: shuffle merged
+tick 14 of n1: shuffle merged
+tick 15 of n2: shuffle merged
+tick 16 of n3: shuffle merged
+store actor's committed memory the same after tick 40 and after the last tick: yes
+  n0: n2:0 n1:1
+  n1: n0:1 n3:1
+  n2: n3:0 n1:2
+  n3: n1:1 n0:1
+done
+exit=0

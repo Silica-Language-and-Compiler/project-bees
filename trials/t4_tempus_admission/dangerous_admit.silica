@@ -1,0 +1,119 @@
+// T4: TEMPUS admission, one process. A driver runs the cases of lib/tempus_fixtures.silica one after another: for a
+// descriptor, the rules that need no key (bees_tempus_admit@pre) and then, through one verifier actor per check
+// (dangerous_bees_tempus_verify) and the edge worker (dangerous_bees_tempus_edge over native/tempus), the SHA-512 identity
+// and the producer's signature; for a proof of possession, the peer's signature over nonce || token; and once the node's
+// own signature. One line per case; the driver is the only actor that prints. TEST ONLY: `now` is the fixtures' fixed value.
+// tools/test_bees_tempus_admission.py compares every line with what the Python client's own checks say for the same bytes.
+use bees_atoms;
+use bees_trust_frame;
+use bees_tempus_frame;
+use bees_tempus_admit;
+use tempus_fixtures;
+use dangerous_bees_tempus_native;
+use dangerous_bees_tempus_edge;
+use dangerous_bees_tempus_verify;
+use bees_reporter;
+
+fn say(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+fn verdict(why: string) -> string { case length_bytes(why) == 0 of { true -> "admitted"; false -> concat("refused: ", why) } }
+fn line(k: int64, text: string) -> atom { say(concat(concat(tempus_fixtures@name(k), ": "), text)) }
+fn hx(s: string) -> string { tempus_fixtures@unhex(s) }
+fn sig_of(r: (:ok, string) | (:rejected, atom)) -> string {
+    case r of { (:ok, s: string) -> s; (:rejected, _w: atom) -> "" }
+}
+
+fn decoded(body: string) -> string {
+    r: (:ok, string) | (:rejected, atom) <- bees_trust_frame@dec_token_term(body);
+    sig_of(r)
+}
+
+// case k needs the edge: a verifier (kinds 1 and 2) or the edge's sign (kind 3). Answers come back to `me`.
+fn ask_edge(edge: dangerous_actor_ref, me: actor_ref, k: int64, id: string, pub: string, vin: string) -> int64 {
+    sequence proc[concurrency]
+        a: actor_ref <- spawn({ edge: edge, who: me, tag: k, phase: 0, id: id, pub: pub, vin: vin }, dangerous_bees_tempus_verify@tver, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: boolean <- cast(a, (:bees, 0, "", "", 0) impl ActorMessage {})
+    produces pure k end
+}
+fn ask_sign(edge: dangerous_actor_ref, me: actor_ref, k: int64, input: string) -> int64 {
+    sequence proc[concurrency]
+        _: boolean <- cast(edge, (2, input, k, me) impl ActorMessage {})
+    produces pure k end
+}
+// run cases from k until one needs the edge (its number is returned) or all are done (count is returned, after "done")
+fn advance(edge: dangerous_actor_ref, me: actor_ref, k: int64) -> int64 {
+    case k >= tempus_fixtures@count() of {
+        true -> { _d: atom <- say("done"); k };
+        false -> {
+            kind: int64 <- tempus_fixtures@kind(k);
+            pub: string <- hx(tempus_fixtures@pub_hex(k));
+            token: string <- hx(tempus_fixtures@token_hex(k));
+            nonce: string <- hx(tempus_fixtures@nonce_hex(k));
+            sig: string <- hx(tempus_fixtures@sig_hex(k));
+            case kind of {
+                1 -> {
+                    id: string <- hx(tempus_fixtures@id_hex(k));
+                    d: { addr: string, id: string, pub: string, token: string } <- bees_tempus_frame@desc(id, pub, tempus_fixtures@addr(), token);
+                    p: { why: string, payload: string, sig: string } <- bees_tempus_admit@pre(d, tempus_fixtures@kid(), tempus_fixtures@now(), tempus_fixtures@skew(), tempus_fixtures@want(k));
+                    case length_bytes(p.why) == 0 of {
+                        false -> { _l: atom <- line(k, verdict(p.why)); advance(edge, me, k + 1) };
+                        true -> {
+                            ppub: string <- hx(tempus_fixtures@producer_pub_hex());
+                            vin: string <- bees_tempus_admit@producer_input(ppub, p.sig, p.payload);
+                            ask_edge(edge, me, k, id, pub, vin)
+                        }
+                    }
+                };
+                2 -> {
+                    vin: string <- bees_tempus_admit@pop_input(pub, sig, nonce, token);
+                    ask_edge(edge, me, k, "", pub, vin)
+                };
+                _: int64 -> {
+                    msg: string <- bees_tempus_admit@pop_message(nonce, token);
+                    input: string <- bees_trust_frame@cat2(pub, msg);
+                    ask_sign(edge, me, k, input)
+                }
+            }
+        }
+    }
+}
+// an answer for case k: a verifier's verdict (kind 40) or the edge's signature (kind 32, one ETF binary, decoded here)
+fn answered(st: { edge: dangerous_actor_ref, k: int64 }, me: actor_ref, kind: int64, body: string) -> int64 {
+    k: int64 <- st.k;
+    case kind of {
+        40 -> { _l: atom <- line(k, verdict(body)); advance(st.edge, me, k + 1) };
+        32 -> {
+            made: string <- decoded(body);
+            want: string <- hx(tempus_fixtures@sig_hex(k));
+            same: boolean <- length_bytes(made) == 64 and made == want;
+            _l: atom <- line(k, case same of { true -> "the same 64 bytes as the fixture's signature"; false -> "NOT the fixture's signature" });
+            advance(st.edge, me, k + 1)
+        };
+        100 -> advance(st.edge, me, 0);
+        _: int64 -> k
+    }
+}
+fn m_kind(msg: (:bees, int64, string, string, int64)) -> int64 { case msg of { (:bees, k: int64, _b: string, _x: string, _n: int64) -> k } }
+fn m_body(msg: (:bees, int64, string, string, int64)) -> string { case msg of { (:bees, _k: int64, b: string, _x: string, _n: int64) -> b } }
+fn m_n(msg: (:bees, int64, string, string, int64)) -> int64 { case msg of { (:bees, _k: int64, _b: string, _x: string, n: int64) -> n } }
+fn driver(msg: (:bees, int64, string, string, int64), st: { edge: dangerous_actor_ref, k: int64 }) -> (:no_reply, { edge: dangerous_actor_ref, k: int64 }) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        kind: int64 <- m_kind(msg);
+        body: string <- m_body(msg);
+        k: int64 <- answered(st, me, kind, body)
+    produces pure (:no_reply, { edge: st.edge, k: k }) end
+}
+
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- bees_reporter@start();
+        e: dangerous_actor_ref <- spawn_dangerous(0, dangerous_bees_tempus_edge@ted, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        d: actor_ref <- spawn({ edge: e, k: 0 }, driver, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: boolean <- cast(d, (:bees, 100, "", "", 0) impl ActorMessage {});
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

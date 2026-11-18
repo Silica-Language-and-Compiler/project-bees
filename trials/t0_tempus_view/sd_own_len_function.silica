@@ -1,0 +1,24 @@
+// A Silica defect found while building T0 (pinned compiler silica-999909, Apple Silicon): a program's own function named len,
+// called as len(), does not return what its body says (the value read back looks like an address and differs between
+// reads); nothing is reported when the program is compiled. The golden records the defect: when the last line turns to yes,
+// the defect is fixed and the golden is recorded again. Proposed entry for development-plan/silica-defects.md: see
+// development-plan/tempus-progress.md.
+use bees_reporter;
+
+fn len() -> int64 { 3 }
+fn three() -> int64 { 3 }
+fn say(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+fn yes(b: boolean) -> string { case b of { true -> "yes"; false -> "no" } }
+fn main() -> int64 {
+    sequence
+        _: atom <- bees_reporter@start();
+        a: int64 <- three();
+        b: int64 <- len();
+        _: atom <- say(concat("three() is 3: ", yes(a == 3)));
+        _: atom <- say(concat("len() is 3: ", yes(b == 3)))
+    produces pure 0 end
+}

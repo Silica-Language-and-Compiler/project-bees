@@ -469,3 +469,48 @@ whose cap is above it (rule 9), the "not built yet" form of section 4.
 **Not built, by the user's instruction (2026-11-10): the native-edge file reader is another agent's responsibility;** this
 section is the proposal only. It is also not small (step 3 is a parser and validator in Silica, and steps 4 and 5 change the
 TRUST units). The stand-in stays and is marked as such everywhere.
+
+## 12. Run-time configuration source and decode limits (rulings of 2026-11-18, roadmap D46 and D47)
+
+Status: decided, not built. This section replaces the native-edge file reader proposed in section 11.
+
+### 12.1 The source is the storage carrier (D46)
+
+BEES is a source library; the application reads its configuration and passes the values to BEES. The application reads it
+through the local persistent storage of transport, the `(:store)` carrier (Silica transport design 6.8). No C code reads a
+file. Silica's reply to request B2 (2026-11-17) rejected changes to the carrier and proposed a native file read; the user
+ruled the native read out.
+
+- The application's own unit declares the store: `carried_on config: (:store) (:backing, "<path>.sildat", <capacity>, :stop);`.
+  The path and the capacity are literals of that declaration, so they are fixed when the application is built, and the name
+  ends in `.sildat`. On a board the link is the board's region (`(:flash_region, n, :stop)`), when Silica provides it.
+- The contract for the configuration is the ETF wire contract of the `(:etf)` format as storage carries it. The packer
+  (run at deploy time) turns `bees.config`, the whitelist, the pins and the certificates into ETF terms and writes them as
+  the records the store would hold for `encode((:etf), value)`; it is allowed to write the store's file directly.
+- The application opens the store, waits for `:log`, replays from `oldest` and passes every record through
+  `decode((:etf), ...)`. The bytes are untrusted until decode has re-created the value (design 6.8.3).
+- What the carrier does that the application must handle: a missing backing is created empty (the log has no records:
+  the application reports that there is no configuration); a backing of another size ends the open with
+  `(:link_down, :mismatch)`; a record that fails its check ends the replay with `(:read_failed, :corrupt)`; one owner at
+  a time (`:in_use`).
+- Secrets (the cookie, private keys) pass through the store like the rest; BEES keeps no copy and logs none.
+
+Open until probed: the block size and record size of the hosted backing (a value larger than one record is segmented by
+`wireframe` in `:storage` mode), and a trial that a packer-written store is read back by a Silica program.
+
+### 12.2 Decode limits: one literal ceiling, as a maximum (D47)
+
+Silica keeps the limits of `decode` compile-time literals (reply to request B1). BEES therefore writes one fixed literal
+in every generated `decode`: `max_bytes` and `max_length` of 4294967295, BEAM's packet maximum (section 5.4), with
+`max_depth` from the type as today. That literal is a maximum: BEES never decodes more, and a configuration that asks for
+a larger `frame_size_max` or `trust.args_len_max` is refused when it is validated.
+
+The configured caps are enforced at run time, before decode: `wireframe@unframe` takes the frame cap as a run-time value
+and refuses a longer frame, and the proxies apply the same cap on send. A term cannot be larger than its frame, so the
+configured cap bounds every decode even though the literal is the ceiling. There are no limit tiers.
+
+The three hand-written decodes with small fixed limits (the TRUST frame header fields and the resolver result) keep their
+own literals.
+
+To watch: Silica plans a per-target ceiling for decode limits; if it refuses 4294967295 on a board, the ceiling literal
+becomes a per-platform value (a smaller maximum on that platform).

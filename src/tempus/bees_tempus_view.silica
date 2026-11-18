@@ -1,0 +1,385 @@
+// BEES TEMPUS (T0): the Cyclon view of one store, as pure functions (development-plan/tempus-design.md section 3).
+// No carrier, no actor, no atom, no generator of random numbers. An entry is { id, d, age }: the peer's identity as bytes,
+// its descriptor as bytes (opaque here: address, key, token, whatever the wire design settles), and its age in ticks.
+// A view is a list of entries with no id twice and none for the node itself, at most `cap` long (valid/3 checks exactly that).
+//
+// SEMP's rules (BEAM_SEMP README lines 377 to 382) and where each is:
+//   "Increment ages"                                  age_all/1 (an age stops at age_max(), 65535: a BEES bound)
+//   "Pick the oldest neighbor as the shuffle partner" select/3 (a tie among the oldest is settled by the first draw)
+//   "Prepare an outgoing buffer (include {self, age=0}), remove sent entries from the local view"
+//                                                     select/3 gives the partner, the entries sent with the node's own
+//                                                     (count - 1 others, drawn without replacement) and the rest of the view;
+//                                                     outgoing/3 puts the node's own entry at age 0 in front
+//   "On merge, prefer younger entries; evict oldest to respect capacity"   merge/4
+// Proposed by BEES where SEMP is silent (design 3.2 to 3.4, open question OQ-12): the partner's entry leaves the view with the
+// sent ones; the partner answers with reply_select/4 (up to count entries drawn at random, never the asker's own); an entry naming
+// the node itself is dropped; at equal age the entry the node already had is kept on a duplicate, and is the first evicted when
+// the view is over capacity (among those, the latest in the view's order); backfill/3 puts sent entries back while there is room
+// (after a merge, or all of them after a failed shuffle: the caller decides, this unit holds no policy).
+//
+// Randomness: every function that chooses takes its draws as a list of non-negative integers and uses one draw per choice, as an
+// index modulo the number of candidates; a missing draw counts as 0. A node passes draws made from the platform's secure source
+// (seven bytes each); a trial passes literals. Nothing here makes a random number.
+module bees_tempus_view;
+
+export age_max/0;
+export entry/3;
+export none/0;
+export size/1;
+export member/2;
+export remove/2;
+export age_all/1;
+export select/3;
+export outgoing/3;
+export reply_select/4;
+export merge/4;
+export backfill/3;
+export insert/4;
+export sample/3;
+export valid/3;
+export append/2;
+
+fn age_max() -> int64 { 65535 }
+
+fn entry(id: string, d: string, age: int64) -> { id: string, d: string, age: int64 } { { id: id, d: d, age: age } }
+
+fn none() -> List[{ id: string, d: string, age: int64 }, mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[{ id: string, d: string, age: int64 }, mem(normal)] <- empty[{ id: string, d: string, age: int64 }, mem(normal)]()
+    produces pure e end
+}
+fn cons(e: { id: string, d: string, age: int64 }, v: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> List[{ id: string, d: string, age: int64 }, mem(normal)] {
+    sequence proc[mem(normal)]
+        r: List[{ id: string, d: string, age: int64 }, mem(normal)] <- prepend[{ id: string, d: string, age: int64 }, mem(normal)](e, v)
+    produces pure r end
+}
+// v reversed, in front of acc
+fn rev_onto(v: List[{ id: string, d: string, age: int64 }, mem(normal)], acc: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> List[{ id: string, d: string, age: int64 }, mem(normal)] {
+    case v of {
+        []: List[{ id: string, d: string, age: int64 }, mem(normal)] -> acc;
+        [h: { id: string, d: string, age: int64 }, t: List[{ id: string, d: string, age: int64 }, mem(normal)]] -> {
+            nxt: List[{ id: string, d: string, age: int64 }, mem(normal)] <- cons(h, acc);
+            rev_onto(t, nxt)
+        }
+    }
+}
+fn reverse(v: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> List[{ id: string, d: string, age: int64 }, mem(normal)] {
+    e: List[{ id: string, d: string, age: int64 }, mem(normal)] <- none();
+    rev_onto(v, e)
+}
+fn append(a: List[{ id: string, d: string, age: int64 }, mem(normal)], b: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> List[{ id: string, d: string, age: int64 }, mem(normal)] {
+    r: List[{ id: string, d: string, age: int64 }, mem(normal)] <- reverse(a);
+    rev_onto(r, b)
+}
+fn size_from(v: List[{ id: string, d: string, age: int64 }, mem(normal)], n: int64) -> int64 {
+    case v of {
+        []: List[{ id: string, d: string, age: int64 }, mem(normal)] -> n;
+        [_h: { id: string, d: string, age: int64 }, t: List[{ id: string, d: string, age: int64 }, mem(normal)]] -> size_from(t, n + 1)
+    }
+}
+fn size(v: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> int64 { size_from(v, 0) }
+
+fn member(v: List[{ id: string, d: string, age: int64 }, mem(normal)], id: string) -> boolean {
+    case v of {
+        []: List[{ id: string, d: string, age: int64 }, mem(normal)] -> false;
+        [h: { id: string, d: string, age: int64 }, t: List[{ id: string, d: string, age: int64 }, mem(normal)]] -> case h.id == id of { true -> true; false -> member(t, id) }
+    }
+}
+// the age of id's entry, or -1 when there is none
+fn age_of(v: List[{ id: string, d: string, age: int64 }, mem(normal)], id: string) -> int64 {
+    case v of {
+        []: List[{ id: string, d: string, age: int64 }, mem(normal)] -> 0 - 1;
+        [h: { id: string, d: string, age: int64 }, t: List[{ id: string, d: string, age: int64 }, mem(normal)]] -> case h.id == id of { true -> h.age; false -> age_of(t, id) }
+    }
+}
+fn remove_from(v: List[{ id: string, d: string, age: int64 }, mem(normal)], id: string, acc: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> List[{ id: string, d: string, age: int64 }, mem(normal)] {
+    case v of {
+        []: List[{ id: string, d: string, age: int64 }, mem(normal)] -> reverse(acc);
+        [h: { id: string, d: string, age: int64 }, t: List[{ id: string, d: string, age: int64 }, mem(normal)]] -> case h.id == id of {
+            true -> remove_from(t, id, acc);
+            false -> {
+                nxt: List[{ id: string, d: string, age: int64 }, mem(normal)] <- cons(h, acc);
+                remove_from(t, id, nxt)
+            }
+        }
+    }
+}
+// the view without id's entry, order kept
+fn remove(v: List[{ id: string, d: string, age: int64 }, mem(normal)], id: string) -> List[{ id: string, d: string, age: int64 }, mem(normal)] {
+    e: List[{ id: string, d: string, age: int64 }, mem(normal)] <- none();
+    remove_from(v, id, e)
+}
+// v without every entry whose id is in gone
+fn without(v: List[{ id: string, d: string, age: int64 }, mem(normal)], gone: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> List[{ id: string, d: string, age: int64 }, mem(normal)] {
+    case gone of {
+        []: List[{ id: string, d: string, age: int64 }, mem(normal)] -> v;
+        [h: { id: string, d: string, age: int64 }, t: List[{ id: string, d: string, age: int64 }, mem(normal)]] -> {
+            nxt: List[{ id: string, d: string, age: int64 }, mem(normal)] <- remove(v, h.id);
+            without(nxt, t)
+        }
+    }
+}
+
+fn older(age: int64) -> int64 { case age >= age_max() of { true -> age_max(); false -> age + 1 } }
+fn age_from(v: List[{ id: string, d: string, age: int64 }, mem(normal)], acc: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> List[{ id: string, d: string, age: int64 }, mem(normal)] {
+    case v of {
+        []: List[{ id: string, d: string, age: int64 }, mem(normal)] -> reverse(acc);
+        [h: { id: string, d: string, age: int64 }, t: List[{ id: string, d: string, age: int64 }, mem(normal)]] -> {
+            a: int64 <- older(h.age);
+            e: { id: string, d: string, age: int64 } <- entry(h.id, h.d, a);
+            nxt: List[{ id: string, d: string, age: int64 }, mem(normal)] <- cons(e, acc);
+            age_from(t, nxt)
+        }
+    }
+}
+// every age one higher (stopping at age_max)
+fn age_all(v: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> List[{ id: string, d: string, age: int64 }, mem(normal)] {
+    e: List[{ id: string, d: string, age: int64 }, mem(normal)] <- none();
+    age_from(v, e)
+}
+
+// ---- draws ----
+fn draw(ds: List[int64, mem(normal)]) -> int64 {
+    case ds of {
+        []: List[int64, mem(normal)] -> 0;
+        [h: int64, _t: List[int64, mem(normal)]] -> case h < 0 of { true -> 0; false -> h }
+    }
+}
+fn rest_draws(ds: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    case ds of {
+        []: List[int64, mem(normal)] -> ds;
+        [_h: int64, t: List[int64, mem(normal)]] -> t
+    }
+}
+
+// ---- positions ----
+fn blank() -> { id: string, d: string, age: int64 } { entry("", "", 0) }
+// entry k of v (0-based); the blank entry when k is out of range
+fn nth(v: List[{ id: string, d: string, age: int64 }, mem(normal)], k: int64) -> { id: string, d: string, age: int64 } {
+    case v of {
+        []: List[{ id: string, d: string, age: int64 }, mem(normal)] -> blank();
+        [h: { id: string, d: string, age: int64 }, t: List[{ id: string, d: string, age: int64 }, mem(normal)]] -> case k == 0 of { true -> h; false -> nth(t, k - 1) }
+    }
+}
+fn max_age(v: List[{ id: string, d: string, age: int64 }, mem(normal)], acc: int64) -> int64 {
+    case v of {
+        []: List[{ id: string, d: string, age: int64 }, mem(normal)] -> acc;
+        [h: { id: string, d: string, age: int64 }, t: List[{ id: string, d: string, age: int64 }, mem(normal)]] -> case h.age > acc of { true -> max_age(t, h.age); false -> max_age(t, acc) }
+    }
+}
+fn count_age(v: List[{ id: string, d: string, age: int64 }, mem(normal)], a: int64, n: int64) -> int64 {
+    case v of {
+        []: List[{ id: string, d: string, age: int64 }, mem(normal)] -> n;
+        [h: { id: string, d: string, age: int64 }, t: List[{ id: string, d: string, age: int64 }, mem(normal)]] -> case h.age == a of { true -> count_age(t, a, n + 1); false -> count_age(t, a, n) }
+    }
+}
+// the position of the j-th (0-based) entry of age a, from position i; -1 when there is none
+fn pos_age(v: List[{ id: string, d: string, age: int64 }, mem(normal)], a: int64, j: int64, i: int64) -> int64 {
+    case v of {
+        []: List[{ id: string, d: string, age: int64 }, mem(normal)] -> 0 - 1;
+        [h: { id: string, d: string, age: int64 }, t: List[{ id: string, d: string, age: int64 }, mem(normal)]] -> case h.age == a of {
+            false -> pos_age(t, a, j, i + 1);
+            true -> case j == 0 of { true -> i; false -> pos_age(t, a, j - 1, i + 1) }
+        }
+    }
+}
+// the position of the last entry of age a, from position i; best so far in acc
+fn last_age(v: List[{ id: string, d: string, age: int64 }, mem(normal)], a: int64, i: int64, acc: int64) -> int64 {
+    case v of {
+        []: List[{ id: string, d: string, age: int64 }, mem(normal)] -> acc;
+        [h: { id: string, d: string, age: int64 }, t: List[{ id: string, d: string, age: int64 }, mem(normal)]] -> case h.age == a of { true -> last_age(t, a, i + 1, i); false -> last_age(t, a, i + 1, acc) }
+    }
+}
+
+// k entries of v drawn without replacement, in the order drawn; what is left of v, in order; the draws not used
+fn pick(v: List[{ id: string, d: string, age: int64 }, mem(normal)], k: int64, ds: List[int64, mem(normal)], taken: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> { taken: List[{ id: string, d: string, age: int64 }, mem(normal)], rest: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)] } {
+    n: int64 <- size(v);
+    case k <= 0 or n == 0 of {
+        true -> {
+            out: List[{ id: string, d: string, age: int64 }, mem(normal)] <- reverse(taken);
+            { taken: out, rest: v, draws: ds }
+        };
+        false -> {
+            i: int64 <- draw(ds) % n;
+            e: { id: string, d: string, age: int64 } <- nth(v, i);
+            left: List[{ id: string, d: string, age: int64 }, mem(normal)] <- remove(v, e.id);
+            got: List[{ id: string, d: string, age: int64 }, mem(normal)] <- cons(e, taken);
+            ds2: List[int64, mem(normal)] <- rest_draws(ds);
+            pick(left, k - 1, ds2, got)
+        }
+    }
+}
+
+// One tick's choice at the initiator (the caller has aged the view): the partner is the oldest entry (the first draw settles a
+// tie), `sent` are count - 1 other entries drawn without replacement (all of them when there are fewer), `rest` is the view
+// without the partner and without the sent entries. found is false on an empty view (nothing is chosen).
+fn select(v: List[{ id: string, d: string, age: int64 }, mem(normal)], count: int64, ds: List[int64, mem(normal)]) -> { found: boolean, partner: { id: string, d: string, age: int64 }, sent: List[{ id: string, d: string, age: int64 }, mem(normal)], rest: List[{ id: string, d: string, age: int64 }, mem(normal)] } {
+    n: int64 <- size(v);
+    case n == 0 of {
+        true -> {
+            e: List[{ id: string, d: string, age: int64 }, mem(normal)] <- none();
+            b: { id: string, d: string, age: int64 } <- blank();
+            { found: false, partner: b, sent: e, rest: v }
+        };
+        false -> {
+            top: int64 <- max_age(v, 0);
+            ties: int64 <- count_age(v, top, 0);
+            j: int64 <- draw(ds) % ties;
+            p: int64 <- pos_age(v, top, j, 0);
+            partner: { id: string, d: string, age: int64 } <- nth(v, p);
+            others: List[{ id: string, d: string, age: int64 }, mem(normal)] <- remove(v, partner.id);
+            ds2: List[int64, mem(normal)] <- rest_draws(ds);
+            e2: List[{ id: string, d: string, age: int64 }, mem(normal)] <- none();
+            got: { taken: List[{ id: string, d: string, age: int64 }, mem(normal)], rest: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)] } <- pick(others, count - 1, ds2, e2);
+            { found: true, partner: partner, sent: got.taken, rest: got.rest }
+        }
+    }
+}
+
+// the buffer that goes to the partner: the node's own entry at age 0, then the sent entries
+fn outgoing(self_id: string, self_d: string, sent: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> List[{ id: string, d: string, age: int64 }, mem(normal)] {
+    me: { id: string, d: string, age: int64 } <- entry(self_id, self_d, 0);
+    cons(me, sent)
+}
+
+// The partner's choice: up to count entries drawn without replacement, never the asker's own entry; `rest` is the view without
+// them (the asker's old entry, if any, stays in rest: the merge replaces it with the asker's fresh one).
+fn reply_select(v: List[{ id: string, d: string, age: int64 }, mem(normal)], count: int64, asker: string, ds: List[int64, mem(normal)]) -> { sent: List[{ id: string, d: string, age: int64 }, mem(normal)], rest: List[{ id: string, d: string, age: int64 }, mem(normal)] } {
+    cand: List[{ id: string, d: string, age: int64 }, mem(normal)] <- remove(v, asker);
+    e: List[{ id: string, d: string, age: int64 }, mem(normal)] <- none();
+    got: { taken: List[{ id: string, d: string, age: int64 }, mem(normal)], rest: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)] } <- pick(cand, count, ds, e);
+    left: List[{ id: string, d: string, age: int64 }, mem(normal)] <- without(v, got.taken);
+    { sent: got.taken, rest: left }
+}
+
+// ---- merge ----
+// received entries, first pass: none for self_id, an id once (the younger; the earlier at equal age), in order of first arrival
+fn put_younger(acc: List[{ id: string, d: string, age: int64 }, mem(normal)], e: { id: string, d: string, age: int64 }, out: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> List[{ id: string, d: string, age: int64 }, mem(normal)] {
+    case acc of {
+        []: List[{ id: string, d: string, age: int64 }, mem(normal)] -> reverse(out);
+        [h: { id: string, d: string, age: int64 }, t: List[{ id: string, d: string, age: int64 }, mem(normal)]] -> case h.id == e.id and e.age < h.age of {
+            true -> {
+                nxt: List[{ id: string, d: string, age: int64 }, mem(normal)] <- cons(e, out);
+                put_younger(t, e, nxt)
+            };
+            false -> {
+                nxt: List[{ id: string, d: string, age: int64 }, mem(normal)] <- cons(h, out);
+                put_younger(t, e, nxt)
+            }
+        }
+    }
+}
+fn once(received: List[{ id: string, d: string, age: int64 }, mem(normal)], self_id: string, acc: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> List[{ id: string, d: string, age: int64 }, mem(normal)] {
+    case received of {
+        []: List[{ id: string, d: string, age: int64 }, mem(normal)] -> acc;
+        [h: { id: string, d: string, age: int64 }, t: List[{ id: string, d: string, age: int64 }, mem(normal)]] -> case h.id == self_id of {
+            true -> once(t, self_id, acc);
+            false -> case member(acc, h.id) of {
+                true -> {
+                    e: List[{ id: string, d: string, age: int64 }, mem(normal)] <- none();
+                    nxt: List[{ id: string, d: string, age: int64 }, mem(normal)] <- put_younger(acc, h, e);
+                    once(t, self_id, nxt)
+                };
+                false -> {
+                    one: List[{ id: string, d: string, age: int64 }, mem(normal)] <- none();
+                    last: List[{ id: string, d: string, age: int64 }, mem(normal)] <- cons(h, one);
+                    nxt: List[{ id: string, d: string, age: int64 }, mem(normal)] <- append(acc, last);
+                    once(t, self_id, nxt)
+                }
+            }
+        }
+    }
+}
+// the received entries that win against the view: the id is not in the view, or the received entry is strictly younger
+fn winners(received: List[{ id: string, d: string, age: int64 }, mem(normal)], view: List[{ id: string, d: string, age: int64 }, mem(normal)], acc: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> List[{ id: string, d: string, age: int64 }, mem(normal)] {
+    case received of {
+        []: List[{ id: string, d: string, age: int64 }, mem(normal)] -> reverse(acc);
+        [h: { id: string, d: string, age: int64 }, t: List[{ id: string, d: string, age: int64 }, mem(normal)]] -> {
+            have: int64 <- age_of(view, h.id);
+            case have < 0 or h.age < have of {
+                true -> {
+                    nxt: List[{ id: string, d: string, age: int64 }, mem(normal)] <- cons(h, acc);
+                    winners(t, view, nxt)
+                };
+                false -> winners(t, view, acc)
+            }
+        }
+    }
+}
+// while over cap: the oldest entry goes; at equal age the last in order
+fn evict(v: List[{ id: string, d: string, age: int64 }, mem(normal)], cap: int64) -> List[{ id: string, d: string, age: int64 }, mem(normal)] {
+    case size(v) <= cap of {
+        true -> v;
+        false -> {
+            top: int64 <- max_age(v, 0);
+            p: int64 <- last_age(v, top, 0, 0 - 1);
+            gone: { id: string, d: string, age: int64 } <- nth(v, p);
+            left: List[{ id: string, d: string, age: int64 }, mem(normal)] <- remove(v, gone.id);
+            evict(left, cap)
+        }
+    }
+}
+// The view after a shuffle: `rest` is what the node kept (select's or reply_select's rest), `received` what the other side sent.
+// Entries for self_id are dropped; a peer in both is kept once, the younger entry (the node's own at equal age); the result is
+// the winning received entries in arrival order, then the kept ones in their order; then the oldest are evicted down to cap
+// (at equal age a kept entry before a received one, the latest in order first).
+fn merge(rest: List[{ id: string, d: string, age: int64 }, mem(normal)], received: List[{ id: string, d: string, age: int64 }, mem(normal)], self_id: string, cap: int64) -> List[{ id: string, d: string, age: int64 }, mem(normal)] {
+    e1: List[{ id: string, d: string, age: int64 }, mem(normal)] <- none();
+    rcv: List[{ id: string, d: string, age: int64 }, mem(normal)] <- once(received, self_id, e1);
+    e2: List[{ id: string, d: string, age: int64 }, mem(normal)] <- none();
+    win: List[{ id: string, d: string, age: int64 }, mem(normal)] <- winners(rcv, rest, e2);
+    kept: List[{ id: string, d: string, age: int64 }, mem(normal)] <- without(rest, win);
+    all: List[{ id: string, d: string, age: int64 }, mem(normal)] <- append(win, kept);
+    evict(all, cap)
+}
+
+// entries of `sent` go back at the end of the view, in order, while there is room; one whose id is already there is skipped
+fn backfill(v: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], cap: int64) -> List[{ id: string, d: string, age: int64 }, mem(normal)] {
+    case sent of {
+        []: List[{ id: string, d: string, age: int64 }, mem(normal)] -> v;
+        [h: { id: string, d: string, age: int64 }, t: List[{ id: string, d: string, age: int64 }, mem(normal)]] -> case size(v) >= cap or member(v, h.id) of {
+            true -> backfill(v, t, cap);
+            false -> {
+                one: List[{ id: string, d: string, age: int64 }, mem(normal)] <- none();
+                last: List[{ id: string, d: string, age: int64 }, mem(normal)] <- cons(h, one);
+                nxt: List[{ id: string, d: string, age: int64 }, mem(normal)] <- append(v, last);
+                backfill(nxt, t, cap)
+            }
+        }
+    }
+}
+
+// one entry enters the view by the merge rules (an admitted peer, a joiner)
+fn insert(v: List[{ id: string, d: string, age: int64 }, mem(normal)], e: { id: string, d: string, age: int64 }, self_id: string, cap: int64) -> List[{ id: string, d: string, age: int64 }, mem(normal)] {
+    one: List[{ id: string, d: string, age: int64 }, mem(normal)] <- none();
+    r: List[{ id: string, d: string, age: int64 }, mem(normal)] <- cons(e, one);
+    merge(v, r, self_id, cap)
+}
+
+// up to n entries drawn without replacement; the view is not changed
+fn sample(v: List[{ id: string, d: string, age: int64 }, mem(normal)], n: int64, ds: List[int64, mem(normal)]) -> List[{ id: string, d: string, age: int64 }, mem(normal)] {
+    e: List[{ id: string, d: string, age: int64 }, mem(normal)] <- none();
+    got: { taken: List[{ id: string, d: string, age: int64 }, mem(normal)], rest: List[{ id: string, d: string, age: int64 }, mem(normal)], draws: List[int64, mem(normal)] } <- pick(v, n, ds, e);
+    got.taken
+}
+
+// ---- the invariants ----
+fn ids_once(v: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> boolean {
+    case v of {
+        []: List[{ id: string, d: string, age: int64 }, mem(normal)] -> true;
+        [h: { id: string, d: string, age: int64 }, t: List[{ id: string, d: string, age: int64 }, mem(normal)]] -> case member(t, h.id) of { true -> false; false -> ids_once(t) }
+    }
+}
+fn entries_ok(v: List[{ id: string, d: string, age: int64 }, mem(normal)], self_id: string) -> boolean {
+    case v of {
+        []: List[{ id: string, d: string, age: int64 }, mem(normal)] -> true;
+        [h: { id: string, d: string, age: int64 }, t: List[{ id: string, d: string, age: int64 }, mem(normal)]] -> case length_bytes(h.id) == 0 or h.id == self_id or h.age < 0 or h.age > age_max() of {
+            true -> false;
+            false -> entries_ok(t, self_id)
+        }
+    }
+}
+// at most cap entries, no id twice, no empty id, none for self_id, every age in 0..age_max
+fn valid(v: List[{ id: string, d: string, age: int64 }, mem(normal)], self_id: string, cap: int64) -> boolean {
+    size(v) <= cap and ids_once(v) and entries_ok(v, self_id)
+}

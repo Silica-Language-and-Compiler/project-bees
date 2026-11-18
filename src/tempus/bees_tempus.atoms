@@ -1,0 +1,36 @@
+# BEES TEMPUS: every atom the TEMPUS units use on the wire (D30: reached through bees_atoms@a_<name>()).
+# development-plan/tempus-design.md section 5. The units also use src/trust/bees_trust.atoms (the map walk of the token, the
+# language's rejection atoms, TRUST's call, cast and result frames).
+# message kinds (the value of t)
+advert
+pop_challenge
+pop_response
+key_rotated
+shuffle
+shuffle_reply
+sample
+sample_reply
+tick
+clock
+done
+# peer types (the value of store, and of a token's typ)
+tempus_edge
+tempus_bridge
+tempus_sentinel
+# keys of the frames and of the token (t, ver and token are TRUST's too)
+d
+id
+pub
+addr
+nonce
+sig
+kid
+store
+entries
+age
+n
+ms
+sub
+typ
+nbf
+exp

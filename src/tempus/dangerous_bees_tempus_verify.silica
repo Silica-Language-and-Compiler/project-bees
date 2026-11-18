@@ -1,0 +1,69 @@
+// BEES TEMPUS (T4): the actor that has the edge do the key operations of one admission check (design section 9, `tver`).
+// One actor per check; it ends when it has answered. It is given: the edge worker; whom to answer and with what tag; the
+// identity to compare the SHA-512 of `pub` with (empty: no such step, as for a proof of possession); and the edge's verify
+// input (key || signature || message: bees_tempus_admit@producer_input or pop_input).
+// A dangerous_ unit's functions may be called only inside an FFI worker (E4042) and only a dangerous_ unit may hold the
+// edge's reference (E4026), so this unit exports the behaviour and the program's root unit spawns it:
+//   a <- spawn({ edge, who, tag, phase: 0, id, pub, vin }, dangerous_bees_tempus_verify@tver, ...); cast(a, (:bees, 0, "", "", 0))
+// It answers (:bees, 40, why, "", tag): why is "" when both steps passed, or the reason in words.
+// Everything it receives from the edge is FFI-derived: the hash arrives as one ETF binary and is decoded here with the
+// language's decode (bees_trust_frame@dec_token_term, at most 64 bytes); the verdict is a number that is only compared.
+module dangerous_bees_tempus_verify;
+use bees_trust_frame;
+
+export tver/2;
+
+fn hash_of(r: (:ok, string) | (:rejected, atom)) -> string {
+    case r of { (:ok, s: string) -> s; (:rejected, _w: atom) -> "" }
+}
+fn decoded(body: string) -> string {
+    r: (:ok, string) | (:rejected, atom) <- bees_trust_frame@dec_token_term(body);
+    hash_of(r)
+}
+fn finish(st: { edge: dangerous_actor_ref, who: actor_ref, tag: int64, phase: int64, id: string, pub: string, vin: string }, why: string) -> int64 {
+    sequence proc[concurrency]
+        _: boolean <- cast(st.who, (:bees, 40, why, "", st.tag) impl ActorMessage {})
+    produces pure 9 end
+}
+fn ask(st: { edge: dangerous_actor_ref, who: actor_ref, tag: int64, phase: int64, id: string, pub: string, vin: string }, op: int64, input: string, me: actor_ref, phase: int64) -> int64 {
+    sequence proc[concurrency]
+        _: boolean <- cast(st.edge, (op, input, 0, me) impl ActorMessage {})
+    produces pure phase end
+}
+fn step(st: { edge: dangerous_actor_ref, who: actor_ref, tag: int64, phase: int64, id: string, pub: string, vin: string }, me: actor_ref, kind: int64, body: string, n: int64) -> int64 {
+    case st.phase of {
+        // go: the hash step when an identity was given, else straight to the signature
+        0 -> case length_bytes(st.id) == 0 of {
+            true -> ask(st, 1, st.vin, me, 2);
+            false -> ask(st, 4, st.pub, me, 1)
+        };
+        // the SHA-512 of pub
+        1 -> {
+            h: string <- decoded(body);
+            case kind == 34 and length_bytes(h) == 64 and h == st.id of {
+                true -> ask(st, 1, st.vin, me, 2);
+                false -> finish(st, "id is not the SHA-512 of pub")
+            }
+        };
+        // the verdict on the signature
+        2 -> case kind == 31 and n == 1 of {
+            true -> finish(st, "");
+            false -> finish(st, "the signature does not verify")
+        };
+        _: int64 -> st.phase
+    }
+}
+fn m_kind(msg: (:bees, int64, string, string, int64)) -> int64 { case msg of { (:bees, k: int64, _b: string, _x: string, _n: int64) -> k } }
+fn m_body(msg: (:bees, int64, string, string, int64)) -> string { case msg of { (:bees, _k: int64, b: string, _x: string, _n: int64) -> b } }
+fn m_n(msg: (:bees, int64, string, string, int64)) -> int64 { case msg of { (:bees, _k: int64, _b: string, _x: string, n: int64) -> n } }
+fn tver(msg: (:bees, int64, string, string, int64), st: { edge: dangerous_actor_ref, who: actor_ref, tag: int64, phase: int64, id: string, pub: string, vin: string }) -> (:no_reply, { edge: dangerous_actor_ref, who: actor_ref, tag: int64, phase: int64, id: string, pub: string, vin: string }) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        kind: int64 <- m_kind(msg);
+        body: string <- m_body(msg);
+        n: int64 <- m_n(msg);
+        phase: int64 <- step(st, me, kind, body, n);
+        // phase 9: answered; the check's actor ends (nothing casts to it after the edge's last answer)
+        _: atom <- case phase == 9 of { true -> stop_self(:normal); false -> :ok }
+    produces pure (:no_reply, { edge: st.edge, who: st.who, tag: st.tag, phase: phase, id: st.id, pub: st.pub, vin: st.vin }) end
+}
