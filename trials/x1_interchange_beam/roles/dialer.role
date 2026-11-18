@@ -1,0 +1,36 @@
+// ---- x1_interchange_beam, the dialing node (hd on this machine, td on the remote one): 3 s after start (the name lookup, the
+// connection across the network and the cookie handshake take well under that) it casts a request (op req, 21) to lbox on the
+// listening node. One registered actor, dbox, takes everything that comes back, in the order of the frames on the link: the
+// answer (op ans, 42), then the listening node's own request (op req, 34), which it answers with op ans, 68.
+fn num_text(n: int64) -> string {
+    case n of {
+        21 -> "21"; 34 -> "34"; 42 -> "42"; 68 -> "68";
+        _: int64 -> "?"
+    }
+}
+fn dbox(msg: { op: atom, n: int64 }, st: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        isreq: boolean <- msg.op == bees_atoms@a_req();
+        _: atom <- say(concat(concat("dialer: dbox got op=", bees_atoms@spelling(msg.op)), concat(" n=", num_text(msg.n))));
+        a: { op: atom, n: int64 } <- { op: bees_atoms@a_ans(), n: msg.n * 2 };
+        _: boolean <- case isreq of { true -> cast_registered(bees_atoms@a_lbox(), a impl ActorMessage {}); false -> true };
+        _: atom <- case isreq of { true -> say(concat("dialer: answered op=ans n=", num_text(msg.n * 2))); false -> :ok }
+    produces pure (:no_reply, st + 1) end
+}
+fn sender(msg: int64, st: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        m: { op: atom, n: int64 } <- { op: bees_atoms@a_req(), n: 21 };
+        _: boolean <- cast_registered(bees_atoms@a_lbox(), m impl ActorMessage {});
+        _: atom <- say("dialer: sent request op=req n=21")
+    produces pure (:no_reply, st + 1) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- start_reporter();
+        b: actor_ref <- spawn_registered(0, dbox, bees_atoms@a_dbox(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        n: actor_ref <- node_start(io_ms(), tick_ms());
+        s: actor_ref <- spawn(0, sender, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        t: timer_ref <- send_after(3000, s, 0 impl ActorMessage {});
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

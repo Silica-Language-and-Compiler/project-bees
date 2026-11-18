@@ -98,7 +98,75 @@ Linux machine running the script runs its own platform. `esp32s3` and `nucleo` a
 reason. `test_platform_and_ports.py` pins the switches (`test_build_switches`), checks that a platform that builds has its `platform.mk` and
 sources and that every Mac golden has its Linux counterpart; `test_run_all_trials.py` checks the compiler hand-over.
 
+## Two machines: `bees_interchange.py`
+
+```
+make interchange [SILICA_COMPILER=...]            # or: tools/bees_interchange.py [--only TRIAL] [--scenario NAME] [--record] [--rebuild] [--list]
+```
+
+Runs the interchange trials, `trials/x1_interchange_beam` (BEAM mode: BEES with BEES, and BEES against a stock erl) and
+`trials/x2_interchange_trust` (TRUST over mutual TLS 1.3: calls, a wrong pin, a certificate no whitelist lists), with one node on
+this machine ("here") and the other on the first machine of another platform in `.bees_build_hosts` ("there"), each scenario in
+both directions. They need both machines, so they are **not** trial leaves (their directories hold `interchange.mk`, no
+`Makefile`): `make integrate` and `run_all_trials.sh` never run them, and without the hosts file the driver prints
+`interchange: skipped: no remote (...)` and exits 0. Here the compiler is `SILICA_COMPILER` of the environment (or of the make
+command line); there, the hosts line's `SILICA_COMPILER`, `SILICA_ROOT` and OpenSSL prefix.
+
+- One ssh master session carries every remote command, the rsync (the runner's exclude list) and the port forwards. The driver
+  probes the directly dialed ports first and prints what it finds; a node here dials the remote directly, and a node there
+  reaches this machine through an `ssh -R` forward (this machine is behind address translation). Each scenario's line in the
+  output says which path its bytes took; `--list` prints them all. A stock erl and its private EPMD always stay on 127.0.0.1 and
+  are reached through forwards only.
+- `--here-address IPV4` (or `BEES_INTERCHANGE_HERE_ADDRESS`): on a network where the remote can dial this machine, runs the four
+  BEES-with-BEES scenarios of that direction directly, with no forward, as `NAME_direct` (own goldens, to be recorded on such a
+  network; the spike document's Limits section).
+- The BEAM-mode cookie is random per run, mode 600 on both machines, removed at the end. `x2`'s certificates are test fixtures
+  (`tools/bees_test_certs.sh`).
+- Goldens carry the side and the platform of the machine the node ran on: `NAME.here.macos_applesilicon.scout`,
+  `NAME.there.linux_x86_64.scout`; the remote machine's name and address are written `THERE_HOST` and `THERE_IPV4`.
+  `test_platform_and_ports.py` checks that every scenario has one golden per side, of different platforms (instead of the
+  Mac-golden-has-a-Linux-twin rule). `--record` writes them; read `NAME.SIDE.sout` first.
+- A node is built on the machine that runs it and rebuilt only when its inputs changed (`.interchange_stamp`). Logs:
+  `trial_runs/interchange-STAMP/`. At the end the driver checks that no process of the trials is left on the remote.
+- Ports: the two blocks of `trial_ports.py`. What was measured and the limits: `development-plan/spikes/X1-mac-linux-interchange.md`.
+
 ## Other tools
 
 `trial.mk` / `silica.mk` (the leaf Makefiles' machinery), `run_trial.py` / `run_pair.py` / `run_trio.py` (run executables on a pty), `bees_conf.py`,
-`bees_config*.py` (the `bees.config` and manifest readers and generators), `conformance.py`, the `test_*.py` unit tests, `n2_live.py`, `soak.py`.
+`bees_config*.py` (the `bees.config` and manifest readers and generators), `conformance.py`, the `test_*.py` unit tests, `n2_live.py`, `soak.py`, `bees_interchange.py` / `bees_interchange_node.py` (above).
+
+## Configuration through the store carrier: `bees_pack*.py`
+
+`bees_pack.py pack --config bees.config --capacity BYTES -o node.sildat [MANIFEST.wire ...]` validates a configuration with
+`bees_conf.py` and writes it as ETF records in the on-medium layout of Silica's hosted `(:store)` carrier (D46); `show FILE`
+prints a packed store without its secrets. `bees_pack_store.py` is the layout (Silica's; guarded by `trials/d1_store_layout`),
+`bees_pack_gen.py write` regenerates the reader units of `src/config/` from the packer's record table (`check` and
+`test_bees_pack.py` fail when they are stale), and `bees_pack_trial.mk` / `bees_pack_trial.py` run the leaves whose programs open
+a backing (`cases.py` in the leaf: one program on several prepared backings). The example application is `examples/store_node`.
+Design, probe results and the migration plan: `development-plan/spikes/N0d-store-config.md`.
+
+## TRUST sessions (N5, windowed multiplexing)
+
+Design and results: `development-plan/spikes/N5-multiplexing.md`.
+
+- `bees_trust_mux_gen.py OUT_DIR BEES_CONFIG` writes a session node's units into its `lib/`: `bees_trust_slots.silica` (the
+  per-connection supervisor's table, the client's pending table and the metrics actor, sized by `trust.session.max_inflight`),
+  `dangerous_bees_trust_mux.silica` (the expansion of `src/trust/dangerous_bees_trust_mux.silica.in`, whose record macros are
+  described in the tool's header), and links to `bees_trust_mux_frame.silica` and `bees_trust_mux.atoms`. A leaf does not call
+  it: `bees_trust_gen.py mfa ... --config bees.config` does, when the config multiplexes, and removes those files when it does
+  not. `bees_trust_gen.py edge` then pastes `src/shim/bees_trust_mux.part` into the root unit (`trust_start`, `trpc_call`,
+  `trpc_cast` keep their names; `trpc_close`, `trust_shutdown`, `trust_metrics_dump` are added). A node that does not multiplex
+  gets the root unit it got before.
+- When a node multiplexes: `bees_config_trust.py` writes `mux()`, `session_single()` and the `session_*` values into
+  `bees_trust_conf`. A node multiplexes when its `bees.config` writes `trust.session`. `SESSION_DEFAULT_ON` in `bees_conf.py` is
+  the one switch for a node that does not write it: `False` today (one request per connection, as before N5); `True` is the
+  ruled target (the defaults 8 and 100), to be flipped together with the re-recording of the existing TRUST goldens (the list
+  is in section 12 of the spike note). `{session, #{max_inflight => 1, max_calls => 1}}` keeps a node at one request per
+  connection either way.
+- `run_trust_pair.py` has two more options, both off unless given: `--settle` (the server is told to exit only QUIET seconds
+  after the client has ended, so what it prints about the client's close is always in its output) and
+  `--rss TEXT:SECONDS:FILE` (the server's resident set, from `ps`, when TEXT first appears in its output and SECONDS later;
+  the read-pause scenario of `trials/n5_trust_mux` uses it).
+- `test_bees_trust_mux.py`: the macros, the generated tables, the switch, the root unit of a node with and without sessions.
+- In `trials/n5_trust_mux` and `trials/n5_trust_mux_tls`: `make run ONLY=name` runs one scenario and `make integrate NOBUILD=1`
+  runs them all, both without building; `make measure` is the soak (not part of `integrate`).

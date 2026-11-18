@@ -1,0 +1,30 @@
+// ---- x1_interchange_beam, the listening node (tl on the remote machine, hl on this one): one registered actor, lbox, takes
+// everything the dialing node sends, so its lines are printed in the order of the frames on the link. A request (op req) is
+// answered with op ans and twice the number, and then this node sends a request of its own (op req, 34) over the same link;
+// the dialing node's answer to it (op ans, 68) is the last line. Requests are answered both ways over one cookie-authenticated link.
+fn num_text(n: int64) -> string {
+    case n of {
+        21 -> "21"; 34 -> "34"; 42 -> "42"; 68 -> "68";
+        _: int64 -> "?"
+    }
+}
+fn lbox(msg: { op: atom, n: int64 }, st: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        isreq: boolean <- msg.op == bees_atoms@a_req();
+        _: atom <- say(concat(concat("listener: lbox got op=", bees_atoms@spelling(msg.op)), concat(" n=", num_text(msg.n))));
+        a: { op: atom, n: int64 } <- { op: bees_atoms@a_ans(), n: msg.n * 2 };
+        _: boolean <- case isreq of { true -> cast_registered(bees_atoms@a_dbox(), a impl ActorMessage {}); false -> true };
+        _: atom <- case isreq of { true -> say(concat("listener: answered op=ans n=", num_text(msg.n * 2))); false -> :ok };
+        q: { op: atom, n: int64 } <- { op: bees_atoms@a_req(), n: 34 };
+        _: boolean <- case isreq of { true -> cast_registered(bees_atoms@a_dbox(), q impl ActorMessage {}); false -> true };
+        _: atom <- case isreq of { true -> say("listener: sent its own request op=req n=34"); false -> :ok }
+    produces pure (:no_reply, st + 1) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- start_reporter();
+        b: actor_ref <- spawn_registered(0, lbox, bees_atoms@a_lbox(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        n: actor_ref <- node_start(io_ms(), tick_ms());
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

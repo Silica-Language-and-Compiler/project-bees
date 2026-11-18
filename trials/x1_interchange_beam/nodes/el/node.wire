@@ -1,0 +1,5 @@
+# x1 node el (n2_live's beesl): listens (registered with EPMD) for the stock node; serves inbox; a proxy for the stock node's outbox
+node   beesl@localhost
+peer   stock@localhost 127.0.0.1 22810 listen
+remote outbox @ stock@localhost cast { op: atom, n: int64 }
+local  inbox cast { op: atom, n: int64 }

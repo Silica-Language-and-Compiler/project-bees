@@ -1,0 +1,5 @@
+# x1 node hd: dials node tl (bees.config gives the host); a proxy for tl's lbox; serves dbox
+node   hd@here
+peer   tl@there 127.0.0.1 22800 dial
+remote lbox @ tl@there cast { op: atom, n: int64 }
+local  dbox cast { op: atom, n: int64 }

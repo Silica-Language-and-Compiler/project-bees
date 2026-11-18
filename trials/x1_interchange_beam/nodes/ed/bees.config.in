@@ -1,0 +1,8 @@
+%% x1 node ed: trials/n2_live's node beesd with this trial's ports. It asks the EPMD at localhost:22890 for stock's port and
+%% dials it at localhost. The stock erl node (distribution listener fixed at 127.0.0.1:22811) and its private EPMD run on the
+%% OTHER machine: this machine's 127.0.0.1:22890 and 127.0.0.1:22811 are ssh forwards to them.
+[ {mode, beam},
+  {node, [{name, "beesd@localhost"}]},
+  {beam, [{transport, tcp}, {frame_size_max, 4096}, {auth, cookie}, {cookie_file, "../../cookie"}, {listen_address, "127.0.0.1"},
+          {epmd, external}, {epmd_port, 22890}, {net_ticktime_s, 8},
+          {peers, [{"stock@localhost", [{host, "localhost"}, {port, epmd}, {role, dial}]}]}, {redial, false}]} ].

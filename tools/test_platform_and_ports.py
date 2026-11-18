@@ -3,6 +3,7 @@
 (tools/trial_ports.py). Python 3, standard library only; nothing is built or run."""
 import os
 import platform
+import re
 import subprocess
 import sys
 import unittest
@@ -16,6 +17,33 @@ import trial_ports as T  # noqa: E402
 
 # Linux goldens that do not exist, each with its reason (a Silica defect of development-plan/silica-defects.md, or a missing tool)
 LINUX_GOLDEN_EXCEPTIONS = {}
+
+
+# The two-machine interchange trials (tools/bees_interchange.py): each scenario runs ONE node on each machine, so its goldens are
+# NAME.here.<platform of the driver's machine>.scout and NAME.there.<platform of the remote machine>.scout, one platform each: a
+# Mac golden there has no Linux twin of the same name. Their rule is interchange_problems() below, not the twin rule.
+INTERCHANGE_LEAF = re.compile(r"^trials/x[0-9]+_interchange_[a-z0-9_]+/")
+
+
+def interchange_problems(goldens):
+    """goldens: paths of the interchange trials' goldens. Every scenario must have exactly one golden per side (here, there), and
+    the two sides must be of different platforms (two machines)."""
+    sides = {}
+    out = []
+    for g in goldens:
+        d, f = os.path.split(g)
+        parts = f.split(".")
+        if len(parts) != 4 or parts[1] not in ("here", "there") or parts[2] not in P.PLATFORMS:
+            out.append(f"{g}: an interchange golden is SCENARIO.here|there.PLATFORM_ID.scout")
+            continue
+        sides.setdefault((d, parts[0]), {}).setdefault(parts[1], []).append(parts[2])
+    for (d, sc), by in sorted(sides.items()):
+        for side in ("here", "there"):
+            if len(by.get(side, [])) != 1:
+                out.append(f"{d}/{sc}: {len(by.get(side, []))} goldens for side {side} (one is needed: the node of that machine)")
+        if len(by.get("here", [])) == 1 and by.get("here") == by.get("there"):
+            out.append(f"{d}/{sc}: both sides are {by['here'][0]}: an interchange scenario runs on two machines of different platforms")
+    return out
 
 
 def golden_files():
@@ -127,7 +155,8 @@ class GoldenNames(unittest.TestCase):
 
     def test_a_platform_golden_exists_beside_each_mac_golden(self):
         # every golden recorded on the Mac has its Linux counterpart, except those listed (with the reason) in LINUX_GOLDEN_EXCEPTIONS
-        mac = [g for g in golden_files() if P.golden_platform(g) == "macos_applesilicon"]
+        # (the two-machine interchange trials have one platform per side: test_interchange_goldens_pair_the_two_machines)
+        mac = [g for g in golden_files() if P.golden_platform(g) == "macos_applesilicon" and not INTERCHANGE_LEAF.match(g)]
         self.assertTrue(mac)
         missing = []
         for g in mac:
@@ -137,6 +166,20 @@ class GoldenNames(unittest.TestCase):
         self.assertEqual(missing, [])
         for twin in LINUX_GOLDEN_EXCEPTIONS:
             self.assertFalse(os.path.exists(os.path.join(ROOT, twin)), f"{twin} exists now: take it off LINUX_GOLDEN_EXCEPTIONS")
+
+
+    def test_interchange_goldens_pair_the_two_machines(self):
+        self.assertEqual(interchange_problems([g for g in golden_files() if INTERCHANGE_LEAF.match(g)]), [])
+        # the rule itself: one golden per side, of different platforms; nothing else under an interchange trial
+        t = "trials/x1_interchange_beam/"
+        ok = [t + "s.here.macos_applesilicon.scout", t + "s.there.linux_x86_64.scout"]
+        self.assertEqual(interchange_problems(ok), [])
+        self.assertTrue(interchange_problems(ok[:1]))                                             # the other machine's node is missing
+        self.assertTrue(interchange_problems([ok[0], t + "s.there.macos_applesilicon.scout"]))    # one machine twice
+        self.assertTrue(interchange_problems(ok + [t + "s.here.linux_x86_64.scout"]))             # two goldens for one side
+        self.assertTrue(interchange_problems([t + "s.a.macos_applesilicon.scout"]))               # not a side
+        self.assertTrue(INTERCHANGE_LEAF.match(ok[0]))
+        self.assertFalse(INTERCHANGE_LEAF.match("trials/n2_live/bees_dials.bees.macos_applesilicon.scout"))
 
 
 class Ports(unittest.TestCase):

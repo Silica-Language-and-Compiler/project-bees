@@ -1,0 +1,9 @@
+[bees] mode=beam node=td@there transport=tcp auth=cookie creation=1 epmd=none epmd_port=4369 net_tick io_ms=60000 tick_ms=15000 link=hl@here role=dial frame_size_max=4294967295
+[bees] BEAM mode: Erlang cookie authentication, no encryption (transport tcp, 127.0.0.1); a downgrade from TRUST
+[bees audit] cookie digest accepted from hl@here 0
+[bees audit] handshake complete with hl@here 0
+dialer: sent request op=req n=21
+dialer: dbox got op=ans n=42
+dialer: dbox got op=req n=34
+dialer: answered op=ans n=68
+exit=0

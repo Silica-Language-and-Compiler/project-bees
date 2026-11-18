@@ -1,0 +1,8 @@
+%% x1 node hl ("here listens"): runs on THIS machine and listens on 127.0.0.1:22801 only. The remote machine cannot dial this one
+%% (address translation), so node td's connection arrives through an ssh -R forward of the driver's own ssh session: the bytes
+%% reach this listener from 127.0.0.1. @HERE_LISTEN@ is 127.0.0.1 then; with the driver's --here-address (this machine reachable from
+%% the remote) it is 0.0.0.0 and td dials this machine directly.
+[ {mode, beam},
+  {node, [{name, "hl@here"}]},
+  {beam, [{transport, tcp}, {auth, cookie}, {cookie_file, "../../cookie"}, {listen_address, "@HERE_LISTEN@"},
+          {listen_port, 22801}, {epmd, none}]} ].

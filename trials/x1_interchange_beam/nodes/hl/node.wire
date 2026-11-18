@@ -1,0 +1,5 @@
+# x1 node hl: listens for node td; serves lbox; a proxy for td's dbox
+node   hl@here
+peer   td@there 127.0.0.1 22801 listen
+remote dbox @ td@there cast { op: atom, n: int64 }
+local  lbox cast { op: atom, n: int64 }

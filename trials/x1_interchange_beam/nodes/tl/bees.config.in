@@ -1,0 +1,7 @@
+%% x1 node tl ("there listens"): runs on the REMOTE machine and listens on every IPv4 interface ("0.0.0.0", the carrier's listen:any;
+%% the carrier binds 127.0.0.1 or every interface, nothing between), port 22800, so that node hd on the other machine dials it
+%% directly over the network. Erlang cookie authentication with the run's random cookie; no encryption (BEAM mode).
+[ {mode, beam},
+  {node, [{name, "tl@there"}]},
+  {beam, [{transport, tcp}, {auth, cookie}, {cookie_file, "../../cookie"}, {listen_address, "0.0.0.0"},
+          {listen_port, 22800}, {epmd, none}]} ].

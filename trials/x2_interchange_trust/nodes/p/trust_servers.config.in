@@ -1,0 +1,4 @@
+%% node p pins both servers to the WRONG certificate (u.pem): node there's address as this machine dials it, and node here's
+%% address as the remote machine sees it (the remote end of the ssh -R forward)
+#{"@THERE_IP@:22900" => "u.pem",
+  "@HERE_HOST@:22901" => "u.pem"}.

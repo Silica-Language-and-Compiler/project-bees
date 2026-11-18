@@ -1,0 +1,5 @@
+[trust] transport: mutual TLS 1.3 over the programmer-installed OpenSSL; peer identity: the SHA-512 of its certificate
+[trust] mode trust, transport mutual TLS 1.3 (ALPN trust/1, X25519MLKEM768, peers by the SHA-512 of their certificate, pins only, no cacertfile), listen 0.0.0.0:22900, whitelist 1 entries, pinned servers 1, frame_size_max 4096, args_len_max 4096, term_depth_max 32, call_timeout_ms 5000, first_frame_timeout_ms 3000, suspicion_limit 8, token_bytes 48, token_ttl_sec 300, one request per connection (B1)
+[trust] listening on 0.0.0.0:22900
+[trust audit] closed_by_peer fp=- stage tls_handshake, as server 0
+exit=0

@@ -1,0 +1,26 @@
+%% x2 node u: a TRUST client (standalone: no whitelist) whose certificate u.pem is in NO whitelist, with the right pins: the TLS
+%% handshake completes, the server finds the fingerprint is not whitelisted and closes; the call answers an error. It runs on
+%% either machine and calls the other one's server.
+[
+  {mode, trust},
+  {node, [{name, "u@x2"}]},
+  {trust, [
+    {port, 22903},
+    {listen_address, "127.0.0.1"},
+    %% D43: no cacertfile: no chain is verified; a peer is trusted by the SHA-512 pin of its certificate and the whitelist
+    {tls_opts, [{certfile, "../../certs/u.pem"},
+                {keyfile, "../../certs/u-key.pem"}]},
+    {whitelist_cert_dir, "../../certs"},
+    {server_pins_file, "trust_servers.config"},
+    %% timeouts with room for a real network and an ssh forward (they are printed in the boot summary, never measured)
+    {call_timeout_ms, 5000},
+    {connect_timeout_ms, 5000},
+    {first_frame_timeout_ms, 3000},
+    {client_handshake_timeout, 5000},
+    {suspicion_limit, 8},
+    {token_bytes, 48},
+    {token_ttl_sec, 300},
+    {frame_size_max, 4096},
+    {term_depth_max, 32}
+  ]}
+].

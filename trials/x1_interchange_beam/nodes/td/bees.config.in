@@ -1,0 +1,8 @@
+%% x1 node td ("there dials"): runs on the REMOTE machine and dials 127.0.0.1:22801 there, which is the remote end of an ssh -R
+%% forward of the driver's ssh session to node hl's listener on the other machine: this node believes it talks to 127.0.0.1.
+%% @HERE_HOST@ is 127.0.0.1 then; with the driver's --here-address it is that address, dialed directly.
+[ {mode, beam},
+  {node, [{name, "td@there"}]},
+  {beam, [{transport, tcp}, {auth, cookie}, {cookie_file, "../../cookie"}, {listen_address, "127.0.0.1"},
+          {listen_port, 22803}, {epmd, none},
+          {peers, [{"hl@here", [{host, "@HERE_HOST@"}, {port, 22801}, {role, dial}]}]}, {redial, false}]} ].

@@ -1,0 +1,4 @@
+%% node u pins both servers to their real certificates: node there (a.pem) as this machine dials it, node here (b.pem) as the
+%% remote machine sees it (the remote end of the ssh -R forward)
+#{"@THERE_IP@:22900" => "a.pem",
+  "@HERE_HOST@:22901" => "b.pem"}.

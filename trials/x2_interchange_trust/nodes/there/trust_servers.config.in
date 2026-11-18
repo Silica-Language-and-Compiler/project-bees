@@ -1,0 +1,3 @@
+%% (@HERE_HOST@ is 127.0.0.1 unless the driver is given --here-address)
+%% node there pins node here's address as it sees it (127.0.0.1:22901, the remote end of the ssh -R forward) to b.pem
+#{"@HERE_HOST@:22901" => "b.pem"}.

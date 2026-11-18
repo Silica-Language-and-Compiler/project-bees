@@ -1,0 +1,8 @@
+%% x1 node hd ("here dials"): runs on THIS machine (the one the driver runs on) and dials node tl on the remote machine by its
+%% host NAME (@THERE_HOST@ is written by the node's Makefile from .bees_build_hosts), resolved by BEES's resolver on the dial,
+%% port 22800, directly over the network. It listens on nothing that is dialed (listen_port is required with epmd none).
+[ {mode, beam},
+  {node, [{name, "hd@here"}]},
+  {beam, [{transport, tcp}, {auth, cookie}, {cookie_file, "../../cookie"}, {listen_address, "127.0.0.1"},
+          {listen_port, 22802}, {epmd, none},
+          {peers, [{"tl@there", [{host, "@THERE_HOST@"}, {port, 22800}, {role, dial}]}]}, {redial, false}]} ].

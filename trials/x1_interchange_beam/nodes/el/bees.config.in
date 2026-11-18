@@ -1,0 +1,8 @@
+%% x1 node el: trials/n2_live's node beesl with this trial's ports. It listens on 127.0.0.1:22810 and registers with the EPMD at
+%% 127.0.0.1:22890. The stock erl node and its private EPMD run on the OTHER machine: this machine's 127.0.0.1:22890 is an ssh
+%% forward to that EPMD, and the stock node's dial of 127.0.0.1:22810 on its machine is an ssh forward to this listener.
+%% net_ticktime 8 s like the stock node.
+[ {mode, beam},
+  {node, [{name, "beesl@localhost"}]},
+  {beam, [{transport, tcp}, {frame_size_max, 4096}, {auth, cookie}, {cookie_file, "../../cookie"}, {listen_address, "127.0.0.1"},
+          {listen_port, 22810}, {epmd, external}, {epmd_port, 22890}, {net_ticktime_s, 8}]} ].

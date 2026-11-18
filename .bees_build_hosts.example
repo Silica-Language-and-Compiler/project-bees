@@ -12,6 +12,8 @@
 #     NOTES          free text; the NAME=VALUE tokens SILICA_COMPILER, SILICA_ROOT, BEES_COMPILE_JOBS, SILICA_COMPILE_TIMEOUT
 #                    are passed to the remote run's environment
 #
+# The two-machine interchange trials (make interchange, tools/bees_interchange.py) use the first line of another platform that builds.
+#
 # NEVER put a key, a password or a token in this file (the reader refuses a line that mentions one).
 #
 # SILICA_COMPILER must name a compiler of that machine's platform (the default binaries/silica-compiler of a checkout copied from a

@@ -1,0 +1,5 @@
+# x1 node td: dials node hl; a proxy for hl's lbox; serves dbox
+node   td@there
+peer   hl@here 127.0.0.1 22801 dial
+remote lbox @ hl@here cast { op: atom, n: int64 }
+local  dbox cast { op: atom, n: int64 }

@@ -44,6 +44,8 @@ SYNC_EXCLUDES = [
     "__silica_runtime.*", ".fail/", "*.tmp", "*.silica.derived", ".DS_Store", "*.raw", "*.rusage",
     "/native/build/", "/native/dangerous_exposure_source/lib/", "/native/dangerous_exposure_source/sockets",
     "/trial_runs/", "/.git/", "/.claude/", "/.bees_build_hosts", "/erl_crash.dump",
+    # written mode 000 by trials/n3_trust on each machine (a whitelist that cannot be read): rsync cannot open it and would end with 23
+    "unreadable_whitelist.config",
 ]
 
 

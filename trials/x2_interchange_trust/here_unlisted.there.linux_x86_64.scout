@@ -1,0 +1,6 @@
+[trust] transport: mutual TLS 1.3 over the programmer-installed OpenSSL; peer identity: the SHA-512 of its certificate
+[trust] mode trust, transport mutual TLS 1.3 (ALPN trust/1, X25519MLKEM768, peers by the SHA-512 of their certificate, pins only, no cacertfile), listen 0.0.0.0:22900, whitelist 1 entries, pinned servers 1, frame_size_max 4096, args_len_max 4096, term_depth_max 32, call_timeout_ms 5000, first_frame_timeout_ms 3000, suspicion_limit 8, token_bytes 48, token_ttl_sec 300, one request per connection (B1)
+[trust] listening on 0.0.0.0:22900
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 0
+[trust audit] whitelist_reject fp=86b29bfecad2d76389cfe8366da5a8cd9e782f338b49ac3428c94a2b4d440dc2c235e14113094e205a45c4548720bb18d1d1a1da36ed3ed19da5e403208c6b6d fingerprint not in the whitelist, connection closed 0
+exit=0

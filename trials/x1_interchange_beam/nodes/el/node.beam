@@ -1,0 +1,2 @@
+# the outbox proxy hands out its pid; a SEND to it is delivered to inbox
+pid outbox deliver inbox

@@ -1,0 +1,8 @@
+# the functions a TRUST peer may name on this node (tools/bees_trust_gen.py; the demo service of trials/n4_trust_tls); permission
+# is the whitelist's business
+export demo add 2 n3_demo@add args int64 result int64
+export demo echo 1 n3_demo@echo args string result string
+export demo slow 1 n3_demo@slow args int64 result int64
+export demo crash 1 n3_demo@crash args int64 result int64
+export demo note 1 n3_demo@note args int64 result int64
+export demo secret 0 n3_demo@secret args int64 result int64

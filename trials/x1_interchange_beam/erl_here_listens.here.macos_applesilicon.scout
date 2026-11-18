@@ -1,0 +1,6 @@
+stock: waiting in registered process inbox
+stock: inbox got #{op => inc, n => 41}
+stock: nodes() lists BEES: true
+stock: sent {outbox, BEES} ! #{op => inc, n => 42}
+stock: done
+exit=0

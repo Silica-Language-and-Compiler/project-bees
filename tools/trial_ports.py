@@ -48,11 +48,25 @@ TABLE = {
     "n4_trust_tls": (22500, "+0 s, +1 c, +2 m, +3 q"),
     "n2_mesh": (22600, "+0 a (dials only), +1 b's listener (a dials it), +2 c's one listener (a and b dial it)"),
     "m3_mesh": (22700, "+0 a (dials only), +1 b's listener (a dials it), +2 c's one listener (a and b dial it)"),
+    "x1_interchange_beam": (22800, "two machines (tools/bees_interchange.py): +0 node tl's listener on the remote, every IPv4 interface, dialed directly; +1 node hl's listener here, 127.0.0.1, reached from the remote through an ssh -R forward; +2 hd, +3 td (dial only); +10 node el's listener (127.0.0.1, forwarded); +11 the stock erl node's distribution listener (127.0.0.1, forwarded); +90 the private EPMD beside the stock node (127.0.0.1, forwarded)"),
+    "x2_interchange_trust": (22900, "two machines (tools/bees_interchange.py): +0 node there's TLS listener on the remote, every IPv4 interface, dialed directly; +1 node here's TLS listener, 127.0.0.1, reached from the remote through an ssh -R forward; +2 node p, +3 node u (clients, never dialed)"),
+    "n5_trust_mux": (23000, "+0 s (the B2 server), +1 c (B2 client), +2 k (session 1 and 1: the compat server), +3 b (a B1 server), +4 d (a B1 client), +5 w (small-window server), +6 kc (the compat client), +7 r and +8 rc (the soak, make measure)"),
+    "n5_trust_mux_tls": (23100, "+0 s (the B2 server over TLS), +1 c (B2 client), +3 b (a B1 server), +4 d (a B1 client), +7 r and +8 rc (the soak, make measure)"),
+    "n2t_pair": (23200, "BEAM mode over TLS, BEES to BEES: +0 h (the one TLS listener of every scenario), +1 a, +2 b, +3 p (a plaintext listener)"),
+    "n2t_live": (23300, "BEAM mode over TLS against stock erl -proto_dist inet_tls: +0 BEES node l's TLS listener; +90 the trial's private EPMD"),
+    "d3_store_node": (23400, "configuration through the (:store) carrier (N0d): +0 the example node's listener (examples/store_node), +1 its peer"),
+    "f1_fuzz_wire": (23500, "the fuzzer's smoke case in integrate (tools/bees_fuzz*.py, F1): node listeners and the harness's fake peers, offsets in the trial's README"),
+    "f2_fuzz_long": (23600, "the fuzzer's long run (make fuzz-long, never in integrate): node listeners and fake peers, offsets in the trial's README"),
+    "t5_tempus_link": (23700, "TEMPUS link over TLS (T5): +0 the listener of pair edge, +1 of pair bridge, +2 of pair p256; the dialers bind nothing"),
+    "t3_tempus_nodes": (23800, "TEMPUS nodes over TLS (T3): +0 the sentinel node, +1 node A, +2 node B, +3 the Python client's listener (tools/bees_tempus_trial.py)"),
 }
-NEXT_BASE = 22800
+NEXT_BASE = 23900
 
 # leaves that never bind a port but whose files may carry a port number as DATA (a frame's field): not checked for literals
-DATA_ONLY = {"n2_frames": "the EPMD ALIVE2 frame carries port 47500 as a value; nothing listens"}
+DATA_ONLY = {"n2_frames": "the EPMD ALIVE2 frame carries port 47500 as a value; nothing listens",
+             "t2_tempus_frames": "frames and adverts carry the address 127.0.0.1:22801 as a value; nothing listens or dials",
+             "t4_tempus_admission": "the fixture adverts carry the address 127.0.0.1:22801 as a value; nothing listens or dials",
+             "d2_store_config": "the packed bees.config fixtures carry ports of d3_store_node's block as values; nothing listens or dials"}
 
 
 def base(trial):
