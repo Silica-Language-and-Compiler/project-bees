@@ -9,7 +9,7 @@ Build and verification tools of BEES. This file documents the platform, golden-n
 
 | | macOS Apple Silicon | Linux x86_64 |
 |---|---|---|
-| `BEES_PLATFORM` (the `native/` directory) | `macos` | `linux` (placeholder; no build yet) |
+| `BEES_PLATFORM` (the `native/` directory) | `macos` | `linux` |
 | `BEES_PLATFORM_ID` (golden name, same spelling as Silica) | `macos_applesilicon` | `linux_x86_64` |
 
 Both default from `uname -s` / `uname -m` and can be set on the command line or in the environment.
@@ -30,8 +30,13 @@ measurements, the Erlang oracle vectors (`tools/etf_oracle/`, platform-free).
 
 `make integrate` compares a run only with `NAME.$(BEES_PLATFORM_ID).scout`. With none the leaf fails loudly: `MISSING golden for
 linux_x86_64 (record one on this platform with make record-golden): [leaf] file`. `make record-golden` writes the current platform's
-goldens, leaving the others alone, so Linux goldens will sit beside the Mac ones. Makefiles use `$(GOLD_SUFFIX)` (`.macos_applesilicon`),
-Python uses `platform_id.golden_name("main.scout")`. Where outputs differ between platforms, that is for the port.
+goldens, leaving the others alone, so the Linux goldens (`NAME.linux_x86_64.scout`, recorded 2026-11-18) sit beside the Mac ones.
+Makefiles use `$(GOLD_SUFFIX)` (`.macos_applesilicon`, `.linux_x86_64`), Python uses `platform_id.golden_name("main.scout")`. Where
+the outputs of the two platforms differ, and why, is listed in `native/linux/README.md` ("Goldens").
+
+What a Makefile or a tool needs that differs between the platforms comes from `native/$(BEES_PLATFORM)/platform.mk` (`native/README.md`
+lists the variables): in-place `sed` (`$(SED_I)`), the link flags, the OpenSSL rpath, this machine's non-loopback address
+(`PLATFORM_LOCAL_IPV4`, `trials/n1_addr`).
 
 ## Ports
 
@@ -69,11 +74,14 @@ Untracked (in `.gitignore`); copy `.bees_build_hosts.example`. One line per mach
 
 ```
 PLATFORM_ID  USER@HOST  REMOTE_PATH  OPENSSL_PREFIX  JOBS  [NOTES]
-linux_x86_64 manager@aalang.org /opt/bees /opt/openssl 3 SILICA_COMPILER=/opt/silica/binaries/silica-compiler
+linux_x86_64 manager@aalang.org /opt/bees /opt/openssl 2 SILICA_COMPILER=/opt/silica/binaries/silica-compiler-linux_x86_64 SILICA_ROOT=/opt/silica
 ```
 
 `-` for no OpenSSL prefix or for this machine's `-j`. NOTES is free text; the tokens `SILICA_COMPILER`, `SILICA_ROOT`, `BEES_COMPILE_JOBS`,
-`SILICA_COMPILE_TIMEOUT` are passed to the remote run. The file holds no keys, passwords or tokens (the reader refuses a line that mentions one);
+`SILICA_COMPILE_TIMEOUT` are passed to the remote run. `tools/silica.mk` takes `SILICA_COMPILER` from the make command line only, so the
+runner hands the one in its environment (here, or on the remote from the notes) to every make it starts as an argument
+(`make ... SILICA_COMPILER=...`); a remote line must name a compiler of that machine's platform, because the default
+`binaries/silica-compiler` of a checkout copied from a Mac is the macOS one. The file holds no keys, passwords or tokens (the reader refuses a line that mentions one);
 ssh is key-based in batch mode only: check a machine with `ssh -o BatchMode=yes user@host true`. The remote needs a Silica checkout (the tree's
 `../silica`, or `SILICA_ROOT`), a compiler for its platform, python3, rsync, make and clang.
 
@@ -84,9 +92,11 @@ The runner reads the file when it exists (`--remote` insists on it, `--no-remote
 `--local-only`; (4) the remote logs and `results.json` and that platform's goldens (`*.PLATFORM_ID.scout|golden_fail`, `rsync --update`) come
 back; (5) its rows join the table. `--list` and `--dry-run` print these commands and run none.
 
-**Linux switch.** The Linux port is not done: `tools/platform_id.py` has `("linux", "Linux", "x86_64", False)` for `linux_x86_64`. While the last field
-is False every `linux_x86_64` line is listed and reported `SKIPPED` with the reason, and a Linux machine running the script skips its own platform. When
-`native/linux/` and the Linux trials build, set it to True (and update `test_platform_and_ports.py`, whose `test_linux_build_switch` pins it).
+**Platform switch.** `tools/platform_id.py` holds one build switch per platform (the last field of its `PLATFORMS` rows).
+`linux_x86_64` is True since 2026-11-18 (`native/linux/` and the Linux goldens exist), so a `linux_x86_64` line of the hosts file is run and a
+Linux machine running the script runs its own platform. `esp32s3` and `nucleo` are False: their lines are listed and reported `SKIPPED` with the
+reason. `test_platform_and_ports.py` pins the switches (`test_build_switches`), checks that a platform that builds has its `platform.mk` and
+sources and that every Mac golden has its Linux counterpart; `test_run_all_trials.py` checks the compiler hand-over.
 
 ## Other tools
 

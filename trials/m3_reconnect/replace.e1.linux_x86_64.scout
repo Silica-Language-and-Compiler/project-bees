@@ -1,0 +1,6 @@
+[bees] TEST ONLY: no authentication, no encryption on this transport (127.0.0.1); TRUST's TLS is not built yet
+[bees audit] handshake complete with h@localhost 0
+edge e1: request sent
+edge e1: got answer 42
+proxy ended (killed)
+exit=0

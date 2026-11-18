@@ -1,0 +1,20 @@
+m1_wire_types.18 n=8 hex=836e0400ffffffff :ok rt
+m1_wire_types.19 dec :ok rt
+m1_wire_types.20 dec :ok rt
+m1_wire_types.21 dec :ok rt
+m1_wire_types.22 dec :ok rt
+m1_wire_types.23 dec :ok rt
+m1_wire_types.24 dec :ok rt
+m1_wire_types.25 dec :ok rt
+m1_wire_types.26 dec :out_of_range -
+m1_wire_types.27 dec :out_of_range -
+m1_wire_types.28 dec :out_of_range -
+m1_wire_types.29 dec :out_of_range -
+m1_wire_types.30 dec :out_of_range -
+m1_wire_types.31 dec :bad_tag -
+m1_wire_types.32 dec :bad_tag -
+m1_wire_types.33 dec :unsupported -
+m1_wire_types.34 dec :out_of_range -
+m1_wire_types.35 dec :bad_tag -
+m1_wire_types done
+exit=0

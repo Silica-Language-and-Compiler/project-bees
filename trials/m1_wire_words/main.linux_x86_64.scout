@@ -1,0 +1,8 @@
+wmsg -1,hello,-2.5: n=39 words=5 w0=-8974548157442328831 wlast=1522159703584512 same=true pad0=true check=:ok
+wmsg int64 min,empty,1e300: n=40 words=5 w0=-8974548157442328831 wlast=8575262077478764544 same=true pad0=true check=:ok
+List[uint8] 256 x 255: n=260 words=33 w0=-8977080328426356737 wlast=-4294967296 same=true pad0=true check=:ok
+List[uint8] empty: n=2 words=1 w0=-8977362907209662464 wlast=-8977362907209662464 same=true pad0=true check=:ok
+frame of 4096 bytes: n=4096 words=512 w0=-8976799957255951104 wlast=7740398493674204010 same=true pad0=true check=:ok
+frame_total_from_word0 (4-byte length prefix framing of the distribution layer), prefix 100 / 4092 / 2^31: 104 4096 2147483652
+words done
+exit=0

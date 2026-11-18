@@ -1,7 +1,7 @@
 # N1: addresses other than 127.0.0.1, on this machine only (no network beyond it). BEAM-mode nodes of N2 (Erlang cookie
 # authentication: a non-loopback listen or dial without TLS and authentication is refused by the reader, because auth none and
 # plaintext_test_only are loopback-only test settings). Each node is its own leaf under nodes/; @IP@ in a node's bees.config.in
-# is this machine's non-loopback IPv4 address (ipconfig getifaddr en0, else en1), so the goldens do not contain it.
+# is this machine's non-loopback IPv4 address (PLATFORM_LOCAL_IPV4 of the platform's platform.mk), so the goldens do not contain it.
 #   loop_only   a listens on 127.0.0.1 only and b dials this machine's non-loopback address: refused, the link never comes up,
 #               a sees nothing (the listener is not reachable over the non-loopback address)
 #   name        a listens and n dials the name localhost: the BEES resolver edge (getaddrinfo) answers 127.0.0.1, the cookie
@@ -11,7 +11,8 @@
 # localhost, native/src/silica_bees_resolve.c), because getaddrinfo cannot give several addresses, a slow answer or a non-loopback
 # `localhost` on demand (S14 folded into the one resolver, spikes/S14-name-resolution.md):
 #   order        o dials two.stub = 127.0.0.2, 127.0.0.1 with redial on and a 1 s budget: 127.0.0.2 is not on macOS's loopback interface
-#                and does not answer, the connect budget ends the first attempt, the redial takes the second address (a fresh carrier, tx
+#                and does not answer, the connect budget ends the first attempt (on Linux the whole of 127.0.0.0/8 is the loopback interface and nothing
+#                listens on 127.0.0.2: the first attempt ends at once, refused; the output is the same), the redial takes the second address (a fresh carrier, tx
 #                and conn) and the cookie handshake completes; the cast to inbox arrives
 #   slow_lookup  s dials slow.stub, which answers after 2 s, with a 1 s budget: dns_error timeout at 1 s, nothing dialed; the late
 #                answer is dropped by its tag

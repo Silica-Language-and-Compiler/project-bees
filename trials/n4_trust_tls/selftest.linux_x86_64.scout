@@ -1,0 +1,22 @@
+PASS mutual TLS 1.3 b -> a, data both ways; facts ALPN trust/1, a verified certificate, TLS_AES_256_GCM_SHA384 (0x1302), X25519MLKEM768 (0x10011ec): error 0, facts: alpn 1, certificate 1, verify 0, suite 0x1302, group 0x10011ec
+PASS the server's view of the client is the SHA-512 of b.pem's DER (as openssl x509 -fingerprint -sha512): 7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f
+PASS the client's view of the server is a.pem's SHA-512 and not u.pem's (the pin itself is judged by BEES's Silica): 02f1278b3d01b927e19a2e43e8b97cc588b5c3a31580d6f8b14372954f30eae62f4de87d6c5fa4a8bbae95b77882b8de61fcdb4e998b4ee1c06df15bb86d924d
+PASS an ECDSA P-256 client certificate completes the handshake: error 0
+PASS a client certificate from another CA is refused: error 1002 (1002 = the server refused the certificate)
+PASS an expired client certificate is refused: error 1002 (1002)
+PASS an RSA client certificate (not Ed25519 or P-256) is refused: error 1003 (a handshake failure on either side)
+PASS a classical-only client (X25519) is refused: server error 1 (1 = handshake)
+PASS a TLS 1.2-only client is refused: server error 1
+PASS a client offering another ALPN is refused: server error 4 (4 = ALPN)
+PASS a client offering no ALPN completes the handshake with facts saying no ALPN: server error 0, facts alpn bit 0 (BEES's Silica refuses alpn 0)
+PASS a client with no certificate is refused: server error 3 (3 = no certificate)
+PASS no cacertfile: a certificate from another CA completes the handshake (verify result 0): error 0, verify 0
+PASS no cacertfile: a self-signed certificate (w.pem) completes the handshake: error 0
+PASS no cacertfile: an expired certificate completes the handshake (the pin decides): error 0
+PASS no cacertfile: an RSA certificate is still refused (signature rule): error 1003
+PASS no cacertfile: a client with no certificate is still refused: server error 3 (3 = no certificate)
+PASS no cacertfile, no classical flag: a classical-only client is still refused by the engine: server error 1 (1 = handshake)
+PASS classical flag: a classical-only client completes the handshake and the facts say X25519 (NID 1034): server error 0, group 0x40a (NID 1034 is 0x40a)
+PASS classical flag: two engines still negotiate X25519MLKEM768: error 0, group 0x10011ec
+PASS classical flag, CA configured: a certificate from another CA is still refused: server error 2 (2 = certificate)
+exit=0

@@ -4,7 +4,7 @@
 # built here into the same lib/ as libsilica_sockets.a, the way Silica's own trials build it as a fixture. The wrappers'
 # sidecar is reached through the link dangerous_exposure_source/sockets -> the Silica tree's compiler/stdlib/net.
 # Common code only (src/, tls/, trust/) plus ONE platform directory, chosen by BEES_PLATFORM (tools/platform.mk: macos on
-# Darwin, linux on Linux; macos is the only one built so far). The platform directory holds platform.mk (compiler flags,
+# Darwin, linux on Linux). The platform directory holds platform.mk (compiler flags,
 # the list of its sources) and the implementations of bees_platform.h. See native/README.md.
 THIS_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 BEES_ROOT := $(abspath $(THIS_DIR)..)
@@ -34,7 +34,7 @@ $(BUILD)/%.o: $(THIS_DIR)src/%.c $(wildcard $(THIS_DIR)dangerous_exposure_source
 # the platform's implementations of bees_platform.h
 $(BUILD)/plat_%.o: $(PLATFORM_DIR)/%.c $(THIS_DIR)bees_platform.h
 	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) $(PLATFORM_SRC_CFLAGS) -c $< -o $@
 
 $(ARCHIVE): $(OBJS)
 	@mkdir -p $(LIB)
@@ -112,7 +112,7 @@ $(TLS_ARCHIVE): $(TLS_OBJ)
 tls-selftest: tls
 	@$(CC) -std=c11 -Wall -Wextra -O2 $(PLATFORM_CFLAGS) -I$(THIS_DIR) -DBEES_TLS_SELFTEST \
 		-I$(THIS_DIR)dangerous_exposure_source/tls -I$(OPENSSL_PREFIX)/include $(THIS_DIR)tls/silica_bees_tls.c $(THIS_DIR)tls/selftest/bees_tls_selftest.c \
-		-L$(OPENSSL_PREFIX)/lib -lssl -lcrypto -o $(BUILD)/bees_tls_selftest
+		-L$(OPENSSL_PREFIX)/lib $(if $(PLATFORM_RPATH_FLAG),$(PLATFORM_RPATH_FLAG)$(OPENSSL_PREFIX)/lib) -lssl -lcrypto -o $(BUILD)/bees_tls_selftest
 	@$(BUILD)/bees_tls_selftest $(THIS_DIR)../trials/n4_trust_tls/certs
 clean: clean-tls
 .PHONY: clean-tls

@@ -1,0 +1,5 @@
+stock: waiting with another cookie
+** Connection attempt from node beesd@localhost rejected. Invalid challenge reply. **
+stock: nodes() lists BEES: false
+stock: done
+exit=0

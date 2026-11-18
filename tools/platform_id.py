@@ -19,12 +19,13 @@ ROOT = os.path.dirname(HERE)
 
 # id -> (native/ directory, uname -s, uname -m, build supported)
 #
-# BUILD SUPPORT SWITCH: the Linux port is not done. When native/linux/ has its platform.mk and the Linux trials build, set the
-# last field of linux_x86_64 to True: tools/run_all_trials.sh then runs that platform's trials on the remote machines instead of
-# reporting them SKIPPED. (Nothing else needs to change; a remote machine's line in .bees_build_hosts names its platform id.)
+# BUILD SUPPORT SWITCH (the last field): tools/run_all_trials.sh runs the trials of a platform whose switch is True, here or on
+# the remote machines of .bees_build_hosts (a line there names its platform id), and reports the others SKIPPED. linux_x86_64 is
+# True since 2026-11-18: native/linux/ has its platform.mk and sources and the trials pass on Linux with their own goldens
+# (NAME.linux_x86_64.scout). A board's switch flips the same way when its native/ directory and goldens exist.
 PLATFORMS = {
     "macos_applesilicon": ("macos", "Darwin", "arm64", True),
-    "linux_x86_64": ("linux", "Linux", "x86_64", False),
+    "linux_x86_64": ("linux", "Linux", "x86_64", True),
     "esp32s3": ("esp32s3", None, None, False),
     "nucleo": ("nucleo", None, None, False),
 }

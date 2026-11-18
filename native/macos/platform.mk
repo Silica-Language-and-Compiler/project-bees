@@ -16,3 +16,10 @@ PLATFORM_OPENSSL_DIRS := /opt/homebrew/opt/openssl /opt/homebrew/opt/openssl@4
 PLATFORM_CLANG := $(shell test -x /opt/homebrew/opt/llvm/bin/clang && echo /opt/homebrew/opt/llvm/bin/clang)
 # BSD sed: -i takes a (here empty) backup suffix
 PLATFORM_SED_INPLACE := sed -i ''
+# this machine's non-loopback IPv4 address (trials/n1_addr)
+PLATFORM_LOCAL_IPV4 := ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null
+# not needed here: the platform sources need no extra headers or libraries (CommonCrypto is in libSystem), and a dylib is found
+# by its install name
+PLATFORM_SRC_CFLAGS :=
+PLATFORM_NATIVE_NEEDS_CRYPTO :=
+PLATFORM_RPATH_FLAG :=

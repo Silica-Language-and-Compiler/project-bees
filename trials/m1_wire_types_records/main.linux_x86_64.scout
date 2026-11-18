@@ -1,0 +1,21 @@
+m1_wire_types_records.0 n=26 hex=83680462fffffffb620000012c6d000000026869770474727565 :ok rt
+m1_wire_types_records.1 n=43 hex=8374000000047701616107770162464004000000000000770163770566616c73657701647705616c706861 :ok rt
+m1_wire_types_records.2 n=45 hex=83740000000477016162fffffed477016246bff00000000000007701637704747275657701647705616c706861 :ok rt
+m1_wire_types_records.3 n=207 hex=83740000000977036269676e0800ffffffffffffffff770263686171770166463fe00000000000007704677269646c000000036b000201026a6b0001ff6a770269646e040000286bee77056974656d736c00000002740000000377016b7705616c70686177026f6b77047472756577017662fffffed4740000000377016b77017a77026f6b770566616c736577017661056a7703706f736802463ff800000000000046c0040000000000007701736d00000003656e647704746167736c000000026d00000001786d0000000279796a :ok rt
+m1_wire_types_records.4 dec :ok rt
+m1_wire_types_records.5 dec :ok rt
+m1_wire_types_records.6 dec :ok rt
+m1_wire_types_records.7 dec :missing_field -
+m1_wire_types_records.8 dec :unknown_field -
+m1_wire_types_records.9 dec :bad_tag -
+m1_wire_types_records.10 dec :missing_field -
+m1_wire_types_records.11 dec :unknown_field -
+m1_wire_types_records.12 dec :duplicate_field -
+m1_wire_types_records.13 dec :unknown_field -
+m1_wire_types_records.14 dec :bad_tag -
+m1_wire_types_records.15 dec :missing_field -
+m1_wire_types_records.16 dec :unknown_atom -
+m1_wire_types_records.17 dec :bad_tag -
+m1_wire_types_records.18 dec :missing_field -
+m1_wire_types_records done
+exit=0

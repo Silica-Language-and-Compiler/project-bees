@@ -43,8 +43,9 @@ CLEAN_OUT = clean_out() { $(SED_I) -E -e 's/0x[0-9a-f]{6,}/0xADDR/g' "$$@" && $(
 .PHONY: build run integrate record-golden clean measure tls
 # the engine, or the leaf fails here with native/Makefile's refusal (the OpenSSL found, and the 4.1.0 minimum)
 tls:
-	@$(MAKE) --no-print-directory -C "$(BEES_ROOT)/native" tls | grep -v '^ar \|^cc ' ; \
-	if [ "$${PIPESTATUS[0]:-0}" != 0 ] || ! grep -q '^ok ' "$(BEES_ROOT)/native/build/tls.status" 2>/dev/null; then \
+	@out=$$($(MAKE) --no-print-directory -C "$(BEES_ROOT)/native" tls); rc=$$?; \
+	[ -z "$$out" ] || printf '%s\n' "$$out" | grep -v '^ar \|^cc ' ; \
+	if [ "$$rc" != 0 ] || ! grep -q '^ok ' "$(BEES_ROOT)/native/build/tls.status" 2>/dev/null; then \
 		echo "FAIL: [n4_trust_tls] needs the TLS engine, which needs OpenSSL 4.1.0 or later: $$(cat "$(BEES_ROOT)/native/build/tls.status" 2>/dev/null)"; exit 1; fi
 build: tls
 	@for n in $(NODES); do ($(MAKE) -C "$(HERE)/nodes/$$n" build || $(MAKE) -C "$(HERE)/nodes/$$n" build) || exit 1; $(MAKE) -C "$(HERE)/nodes/$$n" build > /dev/null || exit 1; done
@@ -58,7 +59,7 @@ run: build
 			dn=$$(echo "$$s" | cut -d'|' -f4 | tr '_' ' '); kt=$$(echo "$$s" | cut -d'|' -f5 | tr '_' ' '); \
 			if [ -n "$$kt" ]; then "$(PAIR)" "nodes/$$es" "$$sc.a.sout" "$(READY)" "nodes/$$ec" "$$sc.b.sout" "$$dn" --kill "$$kt" || echo "pair $$sc: a run failed"; \
 			else "$(PAIR)" "nodes/$$es" "$$sc.a.sout" "$(READY)" "nodes/$$ec" "$$sc.b.sout" "$$dn" || echo "pair $$sc: a run failed"; fi; \
-			$(CLEAN_OUT) "$$sc.a.sout" "$$sc.b.sout"; \
+			$(CLEAN_OUT) "$$sc.a.sout" "$$sc.b.sout"; $(TRUST_LATE_RESULT_LAST) "$$sc.a.sout"; \
 		done; \
 		"$(REFUSALS)" nodes/s/dangerous_s_main refusals.a.sout "$(READY)" certs 127.0.0.1:$(PORT_S) --openssl "$(OPENSSL_PREFIX)/bin/openssl" || echo "refusals: the run failed"; \
 		$(CLEAN_OUT) refusals.a.sout

@@ -1,0 +1,7 @@
+pools=5 solo=4 big=600 top=2 leaf0=3 leaf1=3
+ids solo_3 big_255 big_256 big_599 t_n1_2 past-end=id_pool_exhausted negative=id_pool_exhausted distinct=true
+tree live: leaf0=3 leaf1=3
+after stop: leaf0=2 after reuse: leaf0=3 leaf1=3
+hub total=1 normal=1 language=0 memory=0 explicit=0 ffault=0
+highest id=8589934593
+exit=0

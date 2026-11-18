@@ -65,7 +65,11 @@ endef
 # TRUST over TLS (N4.1): a program whose silica.link names the TLS engine's archive (libsilica_bees_tls.a) is linked with the
 # programmer-installed OpenSSL (D40; BEES ships none). OPENSSL_PREFIX as in native/Makefile.
 OPENSSL_PREFIX ?= $(firstword $(foreach p,$(PLATFORM_OPENSSL_DIRS),$(if $(wildcard $(p)/include/openssl/ssl.h),$(p))))
-OPENSSL_LDFLAGS := $(if $(OPENSSL_PREFIX),-L$(OPENSSL_PREFIX)/lib) -lssl -lcrypto
+OPENSSL_LIBDIR_FLAGS := $(if $(OPENSSL_PREFIX),-L$(OPENSSL_PREFIX)/lib $(if $(PLATFORM_RPATH_FLAG),$(PLATFORM_RPATH_FLAG)$(OPENSSL_PREFIX)/lib))
+OPENSSL_LDFLAGS := $(OPENSSL_LIBDIR_FLAGS) -lssl -lcrypto
+# A platform whose bees_platform.h functions call OpenSSL (Linux: MD5 for the Erlang cookie scheme) links libcrypto into every
+# program that names the native archive (libsilica_bees_native.a); empty elsewhere.
+NATIVE_CRYPTO_LDFLAGS := $(if $(PLATFORM_NATIVE_NEEDS_CRYPTO),$(OPENSSL_LIBDIR_FLAGS) -lcrypto)
 
 # The runtime prints "[silica] root actor exited (no supervisor)" on stderr when an unsupervised actor ends. Since Silica
 # commit 71009f96f8 the language's carriers end with their link, so a pair trial prints it once per carrier, and stderr can
@@ -76,6 +80,15 @@ STRIP_ROOT_EXIT = perl -0pi -e 's/\[silica\] root actor exited \(no supervisor\)
 # the carrier's own `:normal` end; its place among the stdout lines varies. STRIP_CARRIER_END removes exactly that report (reason
 # :normal, call stack in dangerous_tcp_carrier_carrier) and the root-actor line; any other report stays in the output.
 STRIP_CARRIER_END = perl -0pi -e 's/\[silica\] root actor exited \(no supervisor\)\n//g; s/\n?=== Silica Actor Failure ===\n(?:(?!=== End).)*?reason:\s+:normal\n(?:(?!=== End).)*?dangerous_tcp_carrier_carrier\n(?:(?!=== End).)*?=== End Silica Actor Failure ===\n\n?//gs'
+
+# TRUST negative suite (trials/n3_trust, trials/n4_trust_tls), the server's output: the call demo:slow times out, which (1) makes the
+# connection actor report the late result when the abandoned worker's answer arrives and (2) makes the fingerprint's actor print
+# `suspicion ... raised by timeout` and `quarantined ... above suspicion_limit`. On a machine with many cores (2) is printed at the
+# timeout and (1) when the worker ends, a quarter of a second later. On a two-core machine the fingerprint's actor does not run
+# until the busy worker ends (measured on the Linux box: 1.1 s after the timeout, in the same millisecond as the late result), so
+# two actors print at once and the three lines come in any order (2 of 5 runs differed). The late-result line is moved after the
+# quarantine line when it lands directly before it or before the suspicion line; all three lines stay in the output and are compared.
+TRUST_LATE_RESULT_LAST = perl -0pi -e 's/^(\[trust audit\] late_result_dropped [^\n]*\n)((?:\[trust audit\] suspicion [^\n]*raised by timeout[^\n]*\n)?\[trust audit\] quarantined [^\n]*above suspicion_limit[^\n]*\n)/$$2$$1/mg'
 
 .PHONY: check-compiler
 check-compiler:

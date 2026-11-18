@@ -39,7 +39,7 @@ run: build
 		dn=$$(echo "$$s" | cut -d'|' -f4 | tr '_' ' '); kt=$$(echo "$$s" | cut -d'|' -f5 | tr '_' ' '); \
 		if [ -n "$$kt" ]; then "$(PAIR)" "nodes/$$es" "$$sc.a.sout" "$(READY)" "nodes/$$ec" "$$sc.b.sout" "$$dn" --kill "$$kt" || echo "pair $$sc: a run failed"; \
 		else "$(PAIR)" "nodes/$$es" "$$sc.a.sout" "$(READY)" "nodes/$$ec" "$$sc.b.sout" "$$dn" || echo "pair $$sc: a run failed"; fi; \
-		$(CLEAN_OUT) "$$sc.a.sout" "$$sc.b.sout"; \
+		$(CLEAN_OUT) "$$sc.a.sout" "$$sc.b.sout"; $(TRUST_LATE_RESULT_LAST) "$$sc.a.sout"; \
 	done
 	@cd "$(HERE)" && for s in $(BOOT_QUOTED); do sc=$${s%%|*}; n=$${s##*|}; \
 		perl -e 'alarm shift @ARGV; exec @ARGV' 30 "nodes/$$n/dangerous_g_boot" < /dev/null > "$$sc.sout" 2>&1; printf 'exit=%s\n' "$$?" >> "$$sc.sout"; \

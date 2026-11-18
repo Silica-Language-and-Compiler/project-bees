@@ -2,6 +2,7 @@
 """Tests of the platform identifier / golden-name function (tools/platform_id.py) and the table of the trials' ports
 (tools/trial_ports.py). Python 3, standard library only; nothing is built or run."""
 import os
+import platform
 import subprocess
 import sys
 import unittest
@@ -11,6 +12,20 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 import platform_id as P  # noqa: E402
 import trial_ports as T  # noqa: E402
+
+
+# Linux goldens that do not exist, each with its reason (a Silica defect of development-plan/silica-defects.md, or a missing tool)
+LINUX_GOLDEN_EXCEPTIONS = {}
+
+
+def golden_files():
+    """The goldens under trials/: git's list, or, in a tree without .git (a remote machine's synced copy), the files there."""
+    files = subprocess.run(["git", "-C", ROOT, "ls-files", "trials"], capture_output=True, text=True).stdout.split()
+    if not files:
+        for dp, dn, fn in os.walk(os.path.join(ROOT, "trials")):
+            dn[:] = [d for d in dn if d != ".fail"]
+            files.extend(os.path.relpath(os.path.join(dp, f), ROOT) for f in fn)
+    return [f for f in files if f.endswith(P.GOLDEN_EXTENSIONS)]
 
 
 class GoldenNames(unittest.TestCase):
@@ -45,8 +60,7 @@ class GoldenNames(unittest.TestCase):
                 os.environ["BEES_PLATFORM_ID"] = old
 
     def test_every_tracked_golden_carries_a_platform(self):
-        files = subprocess.run(["git", "-C", ROOT, "ls-files", "trials"], capture_output=True, text=True).stdout.split()
-        goldens = [f for f in files if f.endswith(P.GOLDEN_EXTENSIONS)]
+        goldens = golden_files()
         self.assertTrue(goldens)
         for g in goldens:
             self.assertIsNotNone(P.golden_platform(g), g)
@@ -56,9 +70,73 @@ class GoldenNames(unittest.TestCase):
                             capture_output=True, text=True)
         self.assertEqual(mk.stdout.split(), [P.current_id(), P.native_dir()], mk.stderr)
 
-    def test_linux_build_switch(self):
+    def test_build_switches(self):
         self.assertTrue(P.build_supported("macos_applesilicon"))
-        self.assertFalse(P.build_supported("linux_x86_64"))   # flips when the Linux port lands
+        self.assertTrue(P.build_supported("linux_x86_64"))   # the Linux port landed 2026-11-18
+        self.assertFalse(P.build_supported("esp32s3"))
+        self.assertFalse(P.build_supported("nucleo"))
+        self.assertFalse(P.build_supported("plan9"))
+
+    def test_a_platform_that_builds_has_its_directory(self):
+        # the switch and native/<dir>/platform.mk go together, with one C file per function of bees_platform.h
+        for pid, (d, _, _, builds) in P.PLATFORMS.items():
+            mk = os.path.join(ROOT, "native", d, "platform.mk")
+            self.assertEqual(os.path.exists(mk), builds, mk)
+            if builds:
+                for f in ("bees_platform_random.c", "bees_platform_md5.c"):
+                    self.assertTrue(os.path.exists(os.path.join(ROOT, "native", d, f)), f"native/{d}/{f}")
+
+    def test_selection_from_uname(self):
+        saved, env = (platform.system, platform.machine), os.environ.pop("BEES_PLATFORM_ID", None)
+        try:
+            for s_, m_, pid, d in (("Darwin", "arm64", "macos_applesilicon", "macos"), ("Linux", "x86_64", "linux_x86_64", "linux")):
+                platform.system, platform.machine = (lambda s_=s_: s_), (lambda m_=m_: m_)
+                self.assertEqual(P.current_id(), pid)
+                self.assertEqual(P.native_dir(), d)
+            platform.system, platform.machine = (lambda: "Linux"), (lambda: "riscv64")
+            with self.assertRaises(SystemExit):
+                P.current_id()
+        finally:
+            platform.system, platform.machine = saved
+            if env is not None:
+                os.environ["BEES_PLATFORM_ID"] = env
+
+    def test_each_platform_mk_sets_every_variable(self):
+        # the same variable names in every platform.mk: a common Makefile may use any of them
+        names = ("PLATFORM_CFLAGS", "PLATFORM_SRC_CFLAGS", "PLATFORM_ASFLAGS", "PLATFORM_LDFLAGS", "PLATFORM_NATIVE_SRCS", "PLATFORM_TRUST_SRCS",
+                 "PLATFORM_NATIVE_NEEDS_CRYPTO", "PLATFORM_RPATH_FLAG", "PLATFORM_OPENSSL_DIRS", "PLATFORM_CLANG", "PLATFORM_SED_INPLACE",
+                 "PLATFORM_LOCAL_IPV4")
+        for pid, (d, _, _, builds) in P.PLATFORMS.items():
+            if not builds:
+                continue
+            text = open(os.path.join(ROOT, "native", d, "platform.mk")).read()
+            for n in names:
+                self.assertRegex(text, r"(?m)^%s :?= ?" % n, f"native/{d}/platform.mk does not set {n}")
+
+    def test_apple_only_text_stays_under_native_macos(self):
+        # native/README.md's rule, checked over the common C and the Linux directory
+        words = ("CommonCrypto", "CCRandomGenerateBytes", "CC_MD5", "mmacosx-version-min", "macos_version_min", "/opt/homebrew", "ipconfig")
+        for top in ("src", "tls", "trust", "linux"):
+            for dp, _, fn in os.walk(os.path.join(ROOT, "native", top)):
+                for f in fn:
+                    if f.endswith(".md"):
+                        continue
+                    text = open(os.path.join(dp, f), errors="replace").read()
+                    for w in words:
+                        self.assertNotIn(w, text, os.path.join(dp, f))
+
+    def test_a_platform_golden_exists_beside_each_mac_golden(self):
+        # every golden recorded on the Mac has its Linux counterpart, except those listed (with the reason) in LINUX_GOLDEN_EXCEPTIONS
+        mac = [g for g in golden_files() if P.golden_platform(g) == "macos_applesilicon"]
+        self.assertTrue(mac)
+        missing = []
+        for g in mac:
+            twin = g.replace(".macos_applesilicon.", ".linux_x86_64.")
+            if not os.path.exists(os.path.join(ROOT, twin)) and twin not in LINUX_GOLDEN_EXCEPTIONS:
+                missing.append(twin)
+        self.assertEqual(missing, [])
+        for twin in LINUX_GOLDEN_EXCEPTIONS:
+            self.assertFalse(os.path.exists(os.path.join(ROOT, twin)), f"{twin} exists now: take it off LINUX_GOLDEN_EXCEPTIONS")
 
 
 class Ports(unittest.TestCase):

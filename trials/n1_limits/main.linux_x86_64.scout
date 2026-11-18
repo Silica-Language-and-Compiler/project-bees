@@ -1,0 +1,12 @@
+frame_size_max (bees.config) 65536
+unframe, a frame of exactly the cap: frame of 65536
+unframe, the length of a frame one byte above the cap, alone: rejected too_large
+unframe, cap 4294967295, the length 4294967295 alone: more, pending bytes 4
+encode, frame of { s } with a string of cap - 14 bytes 65536
+decode at the cap: ok, string of 65522
+encode, the same with one byte more 65537
+decode one byte above the cap: rejected too_large
+decode int64 max: ok 9223372036854775807
+decode 2^63 as int64: rejected out_of_range
+refused of 200000 frames one byte above the cap: 200000
+exit=0

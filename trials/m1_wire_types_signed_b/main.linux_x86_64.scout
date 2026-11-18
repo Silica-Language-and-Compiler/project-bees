@@ -1,0 +1,15 @@
+m1_wire_types_signed_b.0 n=6 hex=836280000000 :ok rt
+m1_wire_types_signed_b.1 n=6 hex=8362ffffffff :ok rt
+m1_wire_types_signed_b.2 n=3 hex=836100 :ok rt
+m1_wire_types_signed_b.3 n=3 hex=8361ff :ok rt
+m1_wire_types_signed_b.4 n=6 hex=836200000100 :ok rt
+m1_wire_types_signed_b.5 n=6 hex=83627fffffff :ok rt
+m1_wire_types_signed_b.6 n=12 hex=836e08010000000000000080 :ok rt
+m1_wire_types_signed_b.7 n=12 hex=836e08010000000000000001 :ok rt
+m1_wire_types_signed_b.8 n=8 hex=836e040101000080 :ok rt
+m1_wire_types_signed_b.9 n=6 hex=836280000000 :ok rt
+m1_wire_types_signed_b.10 n=6 hex=83627fffffff :ok rt
+m1_wire_types_signed_b.11 n=8 hex=836e040000000080 :ok rt
+m1_wire_types_signed_b.12 n=9 hex=836e05000000000001 :ok rt
+m1_wire_types_signed_b done
+exit=0

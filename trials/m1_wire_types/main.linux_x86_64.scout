@@ -1,0 +1,20 @@
+m1_wire_types.0 n=3 hex=836100 :ok rt
+m1_wire_types.1 n=3 hex=836101 :ok rt
+m1_wire_types.2 n=3 hex=83617f :ok rt
+m1_wire_types.3 n=3 hex=836180 :ok rt
+m1_wire_types.4 n=3 hex=8361ff :ok rt
+m1_wire_types.5 n=3 hex=836100 :ok rt
+m1_wire_types.6 n=3 hex=8361ff :ok rt
+m1_wire_types.7 n=6 hex=836200000100 :ok rt
+m1_wire_types.8 n=6 hex=836200007fff :ok rt
+m1_wire_types.9 n=6 hex=836200008000 :ok rt
+m1_wire_types.10 n=6 hex=83620000ffff :ok rt
+m1_wire_types.11 n=3 hex=836100 :ok rt
+m1_wire_types.12 n=3 hex=8361ff :ok rt
+m1_wire_types.13 n=6 hex=836200000100 :ok rt
+m1_wire_types.14 n=6 hex=83620000ffff :ok rt
+m1_wire_types.15 n=6 hex=836200010000 :ok rt
+m1_wire_types.16 n=6 hex=83627fffffff :ok rt
+m1_wire_types.17 n=8 hex=836e040000000080 :ok rt
+m1_wire_types done
+exit=0

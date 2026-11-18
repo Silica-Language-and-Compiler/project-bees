@@ -1,0 +1,22 @@
+m1_wire_types_float32.0 n=10 hex=83460000000000000000 :ok rt
+m1_wire_types_float32.1 n=10 hex=83468000000000000000 :ok rt
+m1_wire_types_float32.2 n=10 hex=83463ff0000000000000 :ok rt
+m1_wire_types_float32.3 n=10 hex=8346c004000000000000 :ok rt
+m1_wire_types_float32.4 n=10 hex=83463fb99999a0000000 :ok rt
+m1_wire_types_float32.5 n=10 hex=834647efffffe0000000 :ok rt
+m1_wire_types_float32.6 n=10 hex=834636a0000000000000 :ok rt
+m1_wire_types_float32.7 n=10 hex=83463810000000000000 :ok rt
+m1_wire_types_float32.8 n=10 hex=8346380723a2c0000000 :ok rt
+m1_wire_types_float32.9 n=10 hex=8346c7efffffe0000000 :ok rt
+m1_wire_types_float32.10 n=10 hex=83464170000000000000 :ok rt
+m1_wire_types_float32.11 n=10 hex=83463fc4000000000000 :ok rt
+m1_wire_types_float32.12 dec :out_of_range -
+m1_wire_types_float32.13 dec :out_of_range -
+m1_wire_types_float32.14 dec :out_of_range -
+m1_wire_types_float32.15 dec :ok rt
+m1_wire_types_float32.16 dec :out_of_range -
+m1_wire_types_float32.17 dec :unsupported -
+m1_wire_types_float32.18 dec :out_of_range -
+m1_wire_types_float32.19 dec :bad_tag -
+m1_wire_types_float32 done
+exit=0

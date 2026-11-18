@@ -1,0 +1,47 @@
+hello hex 837400000002770174770568656c6c6f77037665726101
+hello: ok
+token_present: ok
+token_issue: ok
+result: ok
+call: ok
+call hex 83740000000877016161027704617267736c00000002610161026a770166770361646477016d770464656d6f77046f707473740000000077067265715f69646d000000027231770174770463616c6c77037665726101
+t call
+ver 1
+req_id r1
+m demo
+f add
+a 2
+args length 2
+opts is a map yes
+absent key is empty yes
+t of a token frame decoded as int64: rejected bad_tag
+version byte 130: bad_version 1
+not a map: bad_tag 4
+too short: truncated 2
+truncated: truncated 2
+trailing byte: trailing_bytes 3
+key twice: duplicate_field 13
+unknown atom: unknown_atom 10
+pid in args: unsupported 16
+depth 4 with limit 3: too_deep 6
+depth 4 with limit 32: ok
+17 keys: too_long 7
+integer key: bad_tag 4
+list count beyond the frame: truncated 2
+call with args_len_max 9: too_large 5
+call with args_len_max 10: ok
+erlang:apply forbidden yes
+erlang:add forbidden no
+os:cmd forbidden yes
+bees_trust_admin:reset forbidden yes
+demo:add forbidden no
+parse_first hello: code 0 kind 1
+parse_first token_present: kind 2 token 0123456789abcdef0123456789abcdef
+parse_first call: kind 3 what call
+parse_req: code 0 kind 1 req_id r1 m demo f add
+parse_reply token_issue: kind 1 token 0123456789abcdef0123456789abcdef
+result hex 83740000000477067265715f69646d0000000272317701747706726573756c74770576616c7565610377037665726101
+parse_reply result: kind 2 req_id r1
+parse_reply bad version: what bad_version
+refused of 200000: 200000
+exit=0

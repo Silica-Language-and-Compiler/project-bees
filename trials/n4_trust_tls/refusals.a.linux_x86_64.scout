@@ -1,0 +1,40 @@
+[trust] transport: mutual TLS 1.3 over the programmer-installed OpenSSL; peer identity: the SHA-512 of its certificate
+[trust] mode trust, transport mutual TLS 1.3 (ALPN trust/1, X25519MLKEM768, classical X25519 only for 1 marked whitelist entry, peers by the SHA-512 of their certificate, pins only, no cacertfile), listen 127.0.0.1:22500, whitelist 4 entries, pinned servers 0, frame_size_max 4096, args_len_max 4096, term_depth_max 32, call_timeout_ms 400, first_frame_timeout_ms 500, suspicion_limit 8, token_bytes 48, token_ttl_sec 300, one request per connection (B1)
+[trust] whitelist: certificate gone.pem is missing or unreadable, entry skipped (as SEMP does)
+[trust] listening on 127.0.0.1:22500
+case 1: no client certificate
+[trust audit] tls_verify_failed fp=- the peer presented no certificate, as server 0
+case 2: TLS 1.2 only
+[trust audit] tls_handshake_failed fp=- the TLS 1.3 handshake failed (alert, version, group, suite or signature outside the TRUST profile), as server 1
+case 3: classical key exchange only (X25519), b.pem not marked classical-allowed (D44)
+[trust audit] tls_group_refused fp=- the connection negotiated a key exchange the peer's whitelist entry does not allow (classical X25519 needs the entry marked classical-allowed, D44; X25519MLKEM768 is the profile), as server 2
+case 4: ALPN h2 instead of trust/1
+[trust audit] alpn_mismatch fp=- the peer did not agree on ALPN trust/1, as server 3
+case 5: no ALPN
+[trust audit] alpn_mismatch fp=- the peer did not agree on ALPN trust/1, as server 4
+case 6: a certificate from another CA (r.pem): no cacertfile (D43), so the whitelist refuses it
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 5
+[trust audit] whitelist_reject fp=0807ab560561834771ce3f124e0e89621f0983c48aa28e7d97dd61a1ff2acad076675cf06e5fbb99441fa581a536c91c8540f2d416f922b3d34b04a64353cfe2 fingerprint not in the whitelist, connection closed 5
+case 7: an expired certificate (x.pem): not checked without a cacertfile (D43), the whitelist refuses it
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 6
+[trust audit] whitelist_reject fp=179533f13330dfccf185f1d68b1c9558a72840618d7451a2ca19c103198765c377f5c3e1eb0928acb253c12e8c297502d9971a163856f91f33901decaab9c445 fingerprint not in the whitelist, connection closed 6
+case 8: an RSA certificate (z.pem; the profile signs with Ed25519 or ECDSA P-256)
+[trust audit] tls_verify_failed fp=- the peer presented no certificate, as server 7
+case 9: a certificate in no whitelist entry, so unpinned (u.pem)
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 8
+[trust audit] whitelist_reject fp=e31334560dfa956693f0a32ec1747cba8bc38bfce23b524b0fc51f5cd84b06bf85093671b3b23da296ea1adc085d5626f600dd7868d822095a4b5b5155d41f02 fingerprint not in the whitelist, connection closed 8
+case 10: a whitelisted ECDSA P-256 certificate (p.pem) that sends no TRUST frame
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 9
+[trust audit] timeout fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 stage first_frame 9
+[trust audit] suspicion fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 raised by timeout 1
+case 11: classical key exchange only (X25519), p.pem marked classical-allowed (D44), sends no TRUST frame
+[trust audit] tls_established fp=- TLSv1.3 X25519 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 10
+[trust audit] timeout fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 stage first_frame 10
+[trust audit] suspicion fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 raised by timeout 2
+case 12: classical key exchange only (X25519), u.pem in no whitelist entry (D44)
+[trust audit] tls_group_refused fp=- the connection negotiated a key exchange the peer's whitelist entry does not allow (classical X25519 needs the entry marked classical-allowed, D44; X25519MLKEM768 is the profile), as server 11
+case 13: hybrid offered first, classical second, b.pem not marked: the hybrid is chosen and the peer is admitted (D44)
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 12
+[trust audit] timeout fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f stage first_frame 12
+[trust audit] suspicion fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f raised by timeout 1
+exit=0

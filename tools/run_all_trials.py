@@ -105,9 +105,6 @@ def leaves(root=ROOT, only=None):
 
 
 def unsupported_reason(pid):
-    if pid == "linux_x86_64":
-        return ("the Linux x86_64 build is not supported yet (native/linux has no platform.mk); flip build-supported for linux_x86_64 "
-                "in tools/platform_id.py when the Linux port lands")
     return f"the {pid} build is not supported yet (tools/platform_id.py PLATFORMS)"
 
 
@@ -119,6 +116,14 @@ class Row:
         return dict(self.__dict__)
 
 
+def make_vars(env):
+    """Variables a make run takes on its COMMAND LINE. tools/silica.mk honours SILICA_COMPILER only from there (an exported
+    SILICA_COMPILER of the shell, set for work in the Silica tree, must not choose BEES's compiler by accident), so the one given to
+    this runner, in its environment or through a hosts line's notes, is handed on as a make argument; sub-makes inherit it."""
+    c = env.get("SILICA_COMPILER")
+    return [f"SILICA_COMPILER={c}"] if c else []
+
+
 def run_leaf(pid, leaf, log_dir, env, timeout):
     log = os.path.join(log_dir, f"{leaf}.log")
     leaf_dir = os.path.join(ROOT, "trials", leaf)
@@ -127,9 +132,9 @@ def run_leaf(pid, leaf, log_dir, env, timeout):
         os.remove(counts)
     t0 = time.monotonic()
     with open(log, "w") as lf:
-        lf.write(f"$ make -C trials/{leaf} integrate   (platform {pid})\n")
+        lf.write(f"$ make -C trials/{leaf} integrate {' '.join(make_vars(env))}  (platform {pid})\n")
         lf.flush()
-        p = subprocess.Popen(["make", "-C", leaf_dir, "integrate"], stdout=lf, stderr=subprocess.STDOUT, env=env, start_new_session=True)
+        p = subprocess.Popen(["make", "-C", leaf_dir, "integrate"] + make_vars(env), stdout=lf, stderr=subprocess.STDOUT, env=env, start_new_session=True)
         try:
             rc = p.wait(timeout=timeout)
             note = ""
@@ -171,7 +176,7 @@ def local_run(args, pid, log_dir, rows, lock):
     steps = []
     if not args.skip_native:
         steps.append(("native", ["make", "-C", os.path.join(ROOT, "native")]))
-    steps.append(("check-compiler", ["make", "-s", "-C", ROOT, "check-compiler"]))
+    steps.append(("check-compiler", ["make", "-s", "-C", ROOT, "check-compiler"] + make_vars(env)))
     for name, cmd in steps:
         if args.dry_run:
             print(f"  [dry-run] {sh(cmd)}")
@@ -190,7 +195,7 @@ def local_run(args, pid, log_dir, rows, lock):
     names.sort(key=lambda n: -times.get(pid + "/" + n, 0))   # the slowest first: the short ones fill the gaps at the end
     if args.dry_run:
         for n in names:
-            print(f"  [dry-run] make -C trials/{n} integrate  > {os.path.join(log_dir, n + '.log')}   (at most {args.jobs} at a time)")
+            print(f"  [dry-run] make -C trials/{n} integrate {' '.join(make_vars(env))}  > {os.path.join(log_dir, n + '.log')}   (at most {args.jobs} at a time)")
         if not args.no_kit:
             print("  [dry-run] make kit")
         return

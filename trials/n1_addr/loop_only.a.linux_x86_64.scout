@@ -1,0 +1,4 @@
+[bees] mode=beam node=a@localhost transport=tcp auth=cookie creation=1 epmd=none epmd_port=4369 net_tick io_ms=60000 tick_ms=15000 link=b@localhost role=listen frame_size_max=4096
+[bees] BEAM mode: Erlang cookie authentication, no encryption (transport tcp, 127.0.0.1); a downgrade from TRUST
+late: 4 s passed
+exit=0

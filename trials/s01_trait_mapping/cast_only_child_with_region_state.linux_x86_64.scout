@@ -1,0 +1,25 @@
+got msg
+cell ok
+1 len
+got msg
+cell ok
+2 len
+got msg
+
+=== Silica Actor Failure ===
+actor_id:        4294967296
+agent_type_atom: 27
+reason:          :language_error — integer division by zero
+reason_tag:      2
+supervisor_acb:  0xADDR
+call_stack:
+  #0  cast_only_child_with_region_state_process
+  #1  actor_thread_main
+=== End Silica Actor Failure ===
+
+0
+got msg
+cell ok
+1 len
+0
+exit=0

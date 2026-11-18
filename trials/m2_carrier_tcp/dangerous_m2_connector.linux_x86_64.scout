@@ -1,0 +1,6 @@
+b rx frame A: 3 42 hello!!! -1
+b link_down closed
+b link_up seen true
+b frames received 1, tx credit grants 2
+done
+exit=0

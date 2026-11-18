@@ -27,7 +27,7 @@ class HostsFile(unittest.TestCase):
         hs = R.read_hosts(os.path.join(os.path.dirname(HERE), ".bees_build_hosts.example"))
         self.assertEqual(len(hs), 1)
         h = hs[0]
-        self.assertEqual((h.platform, h.conn, h.path, h.openssl, h.jobs), ("linux_x86_64", "manager@aalang.org", "/opt/bees", "/opt/openssl", "3"))
+        self.assertEqual((h.platform, h.conn, h.path, h.openssl, h.jobs), ("linux_x86_64", "manager@aalang.org", "/opt/bees", "/opt/openssl", "2"))
         self.assertEqual(h.env()["OPENSSL_PREFIX"], "/opt/openssl")
         self.assertIn("SILICA_COMPILER", h.env())
 
@@ -54,9 +54,27 @@ class HostsFile(unittest.TestCase):
 
 
 class Skips(unittest.TestCase):
-    def test_linux_is_skipped_with_a_reason(self):
-        self.assertFalse(P.build_supported("linux_x86_64"))
-        self.assertIn("not supported yet", R.unsupported_reason("linux_x86_64"))
+    def test_linux_runs_and_the_boards_are_skipped_with_a_reason(self):
+        self.assertTrue(P.build_supported("linux_x86_64"))
+        for pid in ("esp32s3", "nucleo"):
+            self.assertFalse(P.build_supported(pid))
+            self.assertIn("not supported yet", R.unsupported_reason(pid))
+
+
+class CompilerChoice(unittest.TestCase):
+    def test_the_compiler_of_the_environment_goes_on_the_make_command_line(self):
+        # tools/silica.mk takes SILICA_COMPILER from the make command line only
+        self.assertEqual(R.make_vars({"SILICA_COMPILER": "/s/binaries/silica-1"}), ["SILICA_COMPILER=/s/binaries/silica-1"])
+        self.assertEqual(R.make_vars({"SILICA_ROOT": "/s"}), [])
+
+    def test_make_takes_it_from_there_and_not_from_the_environment(self):
+        root = os.path.dirname(HERE)
+        mk = "BEES_ROOT := %s\ninclude %s/tools/silica.mk\nshow:\n\t@echo $(SILICA_COMPILER)\n" % (root, root)
+        env = dict(os.environ, SILICA_COMPILER="/from/the/environment", SILICA_ROOT="/s")
+        out = subprocess.run(["make", "-s", "-f", "-", "show"], input=mk, capture_output=True, text=True, env=env).stdout.strip()
+        self.assertEqual(out, "/s/binaries/silica-compiler")
+        out = subprocess.run(["make", "-s", "-f", "-", "show"] + R.make_vars(env), input=mk, capture_output=True, text=True, env=env).stdout.strip()
+        self.assertEqual(out, "/from/the/environment")
 
 
 class Slots(unittest.TestCase):
