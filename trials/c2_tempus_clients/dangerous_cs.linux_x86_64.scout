@@ -30,7 +30,7 @@ step 3 outcome: reply done
 step 4: sample of the sentinel store
 [tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d4
 [tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d4
-step 4 outcome: reply sample_reply tempus_sentinel entries: e4188f0a@1/2000
+step 4 outcome: reply sample_reply tempus_sentinel entries: e4188f0a@1/2000 9e1113ab@0/3000
 step 5: shuffle of the sentinel store as the initiator: itself at age 0 and x3 as a sentinel at age 7 (row 8)
 [tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d5
 [tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d5
