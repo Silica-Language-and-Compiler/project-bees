@@ -1,6 +1,6 @@
 // T1: the steps of one TEMPUS store (src/tempus/bees_tempus_store.silica), in memory: no actor, no carrier, no clock.
 // Part 1: one store, one rule per case; the expected line is worked by hand in the comment beside it. Part 2: six stores
-// and one peer that never answers, thirty rounds. Every draw is a literal or comes from the TEST-ONLY generator below (a
+// and one peer that never answers, thirty rounds. Part 3: a store that is not of the node's own type. Every draw is a literal or comes from the TEST-ONLY generator below (a
 // node takes its draws from the platform's secure source). tools/test_bees_tempus_store.py computes every line again with
 // an independent model (tools/bees_tempus_store_model.py) and compares.
 use bees_tempus_view;
@@ -371,11 +371,65 @@ fn sim() -> atom {
     produces pure :ok end
 }
 
+// ---- part 3: a store that is not of the node's own type (ruling NQ-15) ----
+// The partner of such a store cannot hold the node, so nothing would bring the link back: the partner that answered
+// re-enters at age 0. Without that rule the store of drain() below is empty after three ticks.
+// One tick answered with nothing, draws 0 0 0; the view's size afterwards
+fn drain_tick(s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }) -> { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } {
+    s1: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } <- bees_tempus_store@tick_draws(s, d3(0, 0, 0));
+    t: { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, act: int64, to: { id: string, d: string, age: int64 }, out: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_store@tick(s1);
+    case t.act == 1 of { true -> bees_tempus_store@reply(t.s, v0()); false -> t.s }
+}
+fn drain(s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, k: int64, last: int64, least: int64) -> int64 {
+    case k > last of {
+        true -> least;
+        false -> {
+            nxt: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } <- drain_tick(s);
+            n: int64 <- bees_tempus_view@size(nxt.view);
+            _shown: atom <- case k == 1 or k == 2 or k == 3 or k == last of { true -> state_line(concat("another type, after tick ", num(k)), nxt); false -> :ok };
+            k2: int64 <- k + 1;
+            drain(nxt, k2, last, case n < least of { true -> n; false -> least })
+        }
+    }
+}
+fn part_drain() -> atom {
+    sequence
+        // the store of part 1's "tick of a store of another type": view e:1, sent a:4 d:2 b:6, partner c:6. The reply x:2:
+        // merged x:2 e:1; the partner back at age 0: c:0 x:2 e:1; a:4 d:2 fill the room up to five, b:6 finds none
+        o: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } <- base(false);
+        o1: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } <- bees_tempus_store@tick_draws(o, d3(1, 0, 1));
+        t: { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, act: int64, to: { id: string, d: string, age: int64 }, out: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_store@tick(o1);
+        r1: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } <- bees_tempus_store@reply(t.s, v1(ent("x", 2)));
+        _: atom <- state_line("another type, after reply", r1);
+        // a reply of three: merged x:2 y:3 z:4 e:1; the partner back: c:0 x:2 y:3 z:4 e:1, full; no sent entry returns
+        r2: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } <- bees_tempus_store@reply(t.s, v3(ent("x", 2), ent("y", 3), ent("z", 4)));
+        _: atom <- state_line("another type, a reply that fills the view", r2);
+        // a failed shuffle is as in every store: the partner stays out
+        f: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } <- bees_tempus_store@failed(t.s);
+        _: atom <- state_line("another type, after failed", f);
+        // the same reply in the store of the node's own type (part 1's "after tick"): the partner is not put back
+        b: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } <- base(true);
+        b1: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } <- bees_tempus_store@tick_draws(b, d3(1, 0, 1));
+        t2: { s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, act: int64, to: { id: string, d: string, age: int64 }, out: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_store@tick(b1);
+        r3: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } <- bees_tempus_store@reply(t2.s, v1(ent("x", 2)));
+        _: atom <- state_line("own type, after the same reply", r3);
+        // twelve ticks of a store of another type holding p q r, each answered with nothing
+        s0: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } <- bees_tempus_store@init("me", "@me", false, 4, 2);
+        s1: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } <- bees_tempus_store@insert(s0, ent("r", 0));
+        s2: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } <- bees_tempus_store@insert(s1, ent("q", 0));
+        s3: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } <- bees_tempus_store@insert(s2, ent("p", 0));
+        _: atom <- state_line("another type, before twelve ticks", s3);
+        least: int64 <- drain(s3, 1, 12, 3);
+        _: atom <- say(concat("another type, the smallest view over twelve ticks: ", num(least)))
+    produces pure :ok end
+}
+
 fn main() -> int64 {
     sequence
         _: atom <- bees_reporter@start();
         _: atom <- part_tick();
         _: atom <- part_other();
-        _: atom <- sim()
+        _: atom <- sim();
+        _: atom <- part_drain()
     produces pure 0 end
 }

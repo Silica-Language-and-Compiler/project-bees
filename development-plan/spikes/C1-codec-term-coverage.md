@@ -233,6 +233,10 @@ ordering and copying; the meaning of big integers and bit strings (the tokens ho
 references, ports and funs, which BEES carries only as opaque bytes; and maps as a data structure (the tokens hold the
 pairs in wire order, already free of duplicate keys).
 
+RULED 2026-11-19 (owner), Q7 revisited: option (c). The compiled ceiling stays 65,536 tokens (the maximum, D47 pattern), and the application states a run-time limit at or below it, with no default; a term with more tokens than the configured limit is refused `too_long`. The option's name follows `term_depth_max`: `term_tokens_max` (to be added to bees-config-file.md with the reader change). Not built: today only the compiled ceiling applies.
+
+RULED 2026-11-19 (owner), Q4 confirmed after the OTP 27 finding: option (a) stays. The wire form of a set is the `sets` map form only; an OTP 27 default set (the version 1 record) is refused, and an OTP 27 sender builds its sets with `sets:from_list(L, [{version, 2}])` (section 2.4).
+
 ## 5. Trials planned (one kind at a time)
 
 `trials/c1_codec_sum`, `c1_codec_optref`, `c1_codec_term`, `c1_codec_map`, `c1_codec_set`, `c1_codec_buf`: in one
@@ -399,6 +403,8 @@ list codec has the same property and is outside BEES.
 Plan (not done): rewrite each per-element loop as a self call that returns a list or a scalar (the result code carried as
 a first element or a separate pass), the generated Map/Set loops as one self-recursive function per node, and re-measure;
 until then the Linux golden of `c1_codec_term` is not recorded.
+
+RULED 2026-11-19 (owner): BEES does not rewrite its loops around SD-59; the limit is documented (contract/what-is-required-to-use.md section 7) and the fix is Silica's. The planned rewrite of `run`, `enc_run`, `walk`, `keys_of`, `canon_*`, the generated Map/Set loops, `bees_codec_kinds` and the scanner is therefore not done. The Linux golden of `c1_codec_term` stays unrecorded: its part 6 (a 30,000-element term decoded in `main`) cannot pass on Linux's 8 MiB main stack while SD-59 stands.
 
 ### 6.6 Left undone
 

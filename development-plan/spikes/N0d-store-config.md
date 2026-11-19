@@ -283,3 +283,15 @@ Goldens recorded for `macos_applesilicon` on the pin; the `linux_x86_64` twins w
 `trials/d1_store_layout` 7, `trials/d2_store_config` 18, `examples/store_node` 3. On Linux, to check first: that
 `silica_store.c` builds with the platform's flags (`make -C native store`) and that the Linux compiler's stdlib has the
 `(:backing)` rows (Silica's own run of 2026-11-13 says so).
+
+## Owner rulings on section 7 (2026-11-19, recorded by the coordinator)
+
+- Q1 RULED: the record set as built (one record per group, at most four fields while SD-37 stands on the pin; flattened after the compiler move).
+- Q2 RULED: accepted that the carrier creates a missing backing; the reader then reports that there is no configuration and the node starts nothing.
+- Q3 RULED: accepted that the backing is opened read-write, mode 0600; BEES's reader never writes to it.
+- Q4 RULED: the examples and trials use a capacity of 1 MiB for a TRUST node and 64 KiB otherwise. These are not BEES defaults: the application states the capacity in its own declaration and gives the packer the same number.
+- Q5 RULED: the cookie travels as bytes in a record of the store.
+- Q6 RULED: TLS certificates and private keys travel as PEM bytes in records of the store; the TLS engine is given bytes, not paths.
+- Q7 RULED: the Linux-twin golden test is extended to `examples/`.
+- Q8 RULED, not as recommended: a whitelist change does NOT need a restart. The node loads its store again while running. The trigger is a message sent by the user: the application sends BEES a reload message, and the application receives the operator's request through Silica's input support (a Silica version that accepts input exists and is not merged yet). To be designed with the conversion: which groups may change at a reload (the whitelist and pins at least), what happens to connections and sessions of a peer that the new whitelist no longer lists, what a reload does when the new store is refused (keep the running configuration and report), and how the trials send the message before Silica's input support is merged (a test-only path).
+- Q8, follow-up RULED 2026-11-19 (owner): when a reload removes a peer from the whitelist, that peer's open connections and sessions are cut at once; calls in flight are not allowed to finish.

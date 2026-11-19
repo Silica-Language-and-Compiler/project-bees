@@ -41,7 +41,7 @@ view tempus_edge: (empty)
 tick tempus_edge: shuffle with 1fae2ad7 at 127.0.0.1:23802 d1
 [tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d1
 [tempus audit] admitted peer=1fae2ad7f75a0ded tempus_edge, token and proof of possession d1
-view tempus_edge: b19edad2@1
+view tempus_edge: 1fae2ad7@0 b19edad2@1
 tick tempus_edge: shuffle merged
 [tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a12
 [tempus audit] key_rotated peer=224c0c0c5b08df0f the peer's token is under another kid; it was told the current one a12
@@ -53,7 +53,7 @@ tick tempus_edge: shuffle merged
 [tempus audit] closed_by_peer peer=(any) stage (any) a14
 [tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a16
 [tempus audit] admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession a16
-view tempus_edge: 224c0c0c@0 b19edad2@1
+view tempus_edge: 224c0c0c@0 1fae2ad7@0 b19edad2@1
 [tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a17
 [tempus audit] admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession a17
 clock: 2100 s

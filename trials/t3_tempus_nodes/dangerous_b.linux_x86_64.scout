@@ -8,16 +8,19 @@ join: asking the sentinel at 127.0.0.1:23800 for tempus_edge d1
 [tempus audit] admitted peer=9e1113ab416dc197 tempus_sentinel, tempus whitelist entry 0 d1
 join: the sentinel answered for tempus_edge d1
 view tempus_edge: b19edad2@0
+view tempus_sentinel: 9e1113ab@0
 join: asking the sentinel at 127.0.0.1:23800 for tempus_bridge d2
 [tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d2
 [tempus audit] admitted peer=9e1113ab416dc197 tempus_sentinel, tempus whitelist entry 0 d2
 join: the sentinel answered for tempus_bridge d2
 view tempus_bridge: (empty)
+view tempus_sentinel: 9e1113ab@0
 join: asking the sentinel at 127.0.0.1:23800 for tempus_sentinel d3
 [tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d3
 [tempus audit] admitted peer=9e1113ab416dc197 tempus_sentinel, tempus whitelist entry 0 d3
 join: the sentinel answered for tempus_sentinel d3
-view tempus_sentinel: (empty)
+view tempus_sentinel: 9e1113ab@0
+view tempus_sentinel: 9e1113ab@0
 join: done
 [tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a1
 [tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession a1
@@ -53,6 +56,7 @@ join: asking the sentinel at 127.0.0.1:23800 for tempus_edge d6
 [tempus audit] admitted peer=9e1113ab416dc197 tempus_sentinel, tempus whitelist entry 0 d6
 join: the sentinel answered for tempus_edge d6
 view tempus_edge: b19edad2@0
+view tempus_sentinel: 9e1113ab@0
 [tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a7
 [tempus audit] admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession a7
 view tempus_edge: (empty)

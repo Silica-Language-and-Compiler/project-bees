@@ -21,12 +21,15 @@
 //       peer id (s), 5 the clock (n, seconds), 6 the current kid (s), 7 the public key in the advert (s), 8 the whitelist (s)
 // What the application is told, as (:bees, op, s1, s2, cid, m, who):
 //   66 the client listens (s1: "port:N")
-//   60 the reply of a dialed request (s1: the frame body, its entries verified)      61 the dialed connection failed (s1: why)
+//   60 the reply of a dialed request (s1: the frame body, its entries verified; s2 and m: the admitted peer's descriptor
+//      and 4 * (whitelist index + 1) + its type)                                     61 the dialed connection failed (s1: why)
 //   62 the peer answered key_rotated (s1: the kid it named)                          65 admitted and closed (no request)
 //   63 an admitted peer's request to the listening client (s1: the frame body, s2: the peer's descriptor as ETF bytes;
 //      cid: the accepted connection's number; who: its actor). The application answers every one, when it chooses:
 //      tempus_client_answer(who, body) or tempus_client_close(who) (close with no reply)
 //   64 an accepted connection has closed
+//   67 the connection actor refused an accepted peer (s1: the audit event; s2: the peer's descriptor when m is 1, its id
+//      alone when m is 0; ruling NQ-19: a bridge scores it, a client has no use for it)
 fn tc_cfg(s: $CS$, flags: int64) -> $CFG$ {
     d: $D$ <- bees_tempus_frame@desc(s.c.id, s.c.pub, s.c.addr, s.c.token);
     { node: s.app, sig: case flags == 1 of { true -> s.sig2; false -> s.sig }, edge: s.edge, rnd: s.rnd, mine: bees_tempus_frame@enc_advert(d), mtok: s.c.token, kid: s.c.kid, ppub: s.c.ppub, wl: s.c.wl, now: s.c.now, skew: s.c.skew, count: s.c.count, ms: s.c.ms }

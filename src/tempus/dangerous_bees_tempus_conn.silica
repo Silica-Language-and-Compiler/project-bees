@@ -24,12 +24,16 @@
 // Any violation closes with no reply (the one exception is key_rotated) and writes one audit line.
 //
 // What the node actor (cfg.node) is told, as (:bees, op, s1, s2, cid, m, me):
-//   60 the reply of a dialed request (s1: the frame body, entries verified)     61 the dialed connection failed (s1: the event)
+//   60 the reply of a dialed request (s1: the frame body, entries verified; s2 and m: the admitted peer's descriptor
+//      and 4 * (whitelist index + 1) + its type, as in 63)                      61 the dialed connection failed (s1: the event)
 //   62 the peer answered key_rotated (s1: the current kid it named)             65 admitted and closed (a dial with no request)
 //   63 an admitted peer's request (s1: the frame body; s2: the peer's descriptor as ETF bytes; m: 4 * (whitelist index + 1)
 //      + the peer's type). The node answers this actor (:bees, 20, reply_body, "", 0), or (:bees, 21, "", "", 0) to close
 //      with no reply. It always answers.
 //   64 an accepted connection has closed (the listener's count)
+//   67 an accepted peer was refused by this actor (ruling NQ-19; s1: the audit event; m 1: s2 is the peer's descriptor,
+//      its id and its token verified; m 0: s2 is the peer's id alone, the SHA-512 of its certificate's key, its token
+//      not verified). See report() for which refusals are told. A bridge raises the peer's score; any other node drops it.
 // Teardown follows TRUST's connection (dangerous_bees_trust@tconn): the send actor closes the link after what it holds,
 // the assembler is stopped, and this actor ends 500 ms later and only when no answer it asked for is still on its way
 // (a cast to an ended actor fails its sender on the pinned compiler, SD-43; nothing here depends on that failing).
@@ -38,8 +42,12 @@
 // node, sig (the signer), edge (dangerous_bees_tempus_edge@ted), rnd (dangerous_bees_trust_edge@trnd), mine (this node's
 // advert frame body), mtok (its token), kid and ppub (the current producer key), wl (the tempus whitelist: the SHA-512
 // fingerprints as lower-case hex, 128 characters each, concatenated), now (seconds; the node's clock for token checks),
-// skew (seconds), count (the store's shuffle length: the most entries a frame may hold), ms (the bound of the whole
-// connection while it waits for the peer).
+// skew (seconds), count (the store's shuffle length: the most entries a frame may hold), ms (the connection's DEADLINE:
+// the value of the monotonic clock, in ms, at which shuffle_timeout_ms has passed since the dial or the accept. Ruling
+// NQ-14: one bound from dial to close. The carrier's connect budget, the link's handshake timer and this actor's timer
+// are each armed with what is left of it, one after another, so the three stages share the one bound;
+// tempus_conn in src/tempus/bees_tempus_link.part turns the caller's shuffle_timeout_ms into this value). While the
+// node itself works on an admitted request (phase 16) the bound is the node's: it always answers.
 module dangerous_bees_tempus_conn;
 use bees_atoms;
 use bees_trust_frame;
@@ -70,6 +78,13 @@ fn arm(me: actor_ref, ms: uint64, tag: int64) -> boolean {
     sequence proc[concurrency]
         t: timer_ref <- send_after(ms, me, (:bees, 5, "", "", tag) impl ActorMessage {})
     produces pure true end
+}
+// the milliseconds from now to a deadline given as the monotonic clock's value in ms (0 when it has passed)
+fn left_ms(deadline: uint64) -> uint64 {
+    sequence proc[concurrency]
+        m: int64 <- monotonic_time();
+        now: uint64 <- to_uint64(m / 1000000)
+    produces pure case deadline > now of { true -> deadline - now; false -> 0 } end
 }
 fn str_of(r: (:ok, string) | (:rejected, atom)) -> string {
     case r of { (:ok, s: string) -> s; (:rejected, _w: atom) -> "" }
@@ -237,11 +252,17 @@ fn tell(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, re
         ok: boolean <- cast(st.cfg.node, (:bees, op, s1, s2, st.cid, m, me) impl ActorMessage {})
     produces pure ok end
 }
+// what the node is told of an admitted peer beside its descriptor: 4 * (whitelist index + 1) + the token's type
+fn peer_m(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }) -> int64 {
+    d: { addr: string, id: string, pub: string, token: string } <- peer_of(st.v);
+    t: { ok: boolean, why: string, kid: string, sub: string, typ: int64, nbf: int64, exp: int64, payload: string, sig: string } <- bees_tempus_frame@tok(d.token);
+    4 * (wl_index(st.cfg.wl, bees_trust_frame@hex(st.v.cfp)) + 1) + t.typ
+}
 // close: the node is told (op; 0: nothing to tell; an accepted connection always tells 64), the send actor closes the link
 // after what it holds, the assembler ends, the actor is reaped later
 fn finish(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, op: int64, s1: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     sequence
-        _: boolean <- case op == 0 of { true -> true; false -> tell(st, me, op, s1, "", 0) };
+        _: boolean <- case op of { 0 -> true; 60 -> tell(st, me, 60, s1, st.v.pd, peer_m(st)); _: int64 -> tell(st, me, op, s1, "", 0) };
         _: boolean <- case st.role == 2 of { true -> tell(st, me, 64, "", "", 0); false -> true };
         _: boolean <- tx_end(st.tx, st.v.down);
         _: boolean <- asm_stop(st.v.asm, st.v.live);
@@ -250,8 +271,44 @@ fn finish(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, 
 }
 fn refuse(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, event: string, what: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     sequence
+        _: atom <- audit(st, event, what);
+        v1: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } <- finish(st, me, case st.role == 0 of { true -> 61; false -> 0 }, event)
+    produces pure report(st, me, event, v1) end
+}
+// a refusal that is not the peer's doing (this node's random source or signer): nothing is reported
+fn refuse_own(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, event: string, what: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+    sequence
         _: atom <- audit(st, event, what)
     produces pure finish(st, me, case st.role == 0 of { true -> 61; false -> 0 }, event) end
+}
+// Ruling NQ-19: the node is told of every refusal of an ACCEPTED peer whose identity is known, so that a bridge can raise
+// that peer's score (67; 66 is taken by the client part). The identity is never the advert's word alone: it is the SHA-512 of the key of the peer's TLS
+// certificate, which the handshake proved the peer holds. From the proof stage on (phase 5) the advert's id was checked
+// against that hash and the producer's signature on the token was verified: the descriptor goes with the report (m 1).
+// Before that the token is not to be believed: only the id goes (m 0), in phase 2 after the edge has hashed the
+// certificate's key (the answer comes when the connection is already closing: k -1 marks it, body keeps the event). A
+// timeout counts only while the connection waits for the peer.
+fn report(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, event: string, v1: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string }) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+    ph: int64 <- st.v.phase;
+    case st.role != 2 or length_bytes(st.v.ckey) != 32 or (event == "timeout" and reading(ph) == false) of {
+        true -> v1;
+        false -> case ph == 2 of {
+            true -> {
+                sequence
+                    _: boolean <- ask_edge(st, me, 4, st.v.ckey)
+                produces pure { asm: v1.asm, phase: v1.phase, live: v1.live, down: v1.down, pend: v1.pend + 1, ckey: v1.ckey, cfp: v1.cfp, pd: v1.pd, nonce: v1.nonce, k: 0 - 1, body: event } end
+            };
+            false -> case ph >= 4 of {
+                false -> v1;
+                true -> {
+                    d: { addr: string, id: string, pub: string, token: string } <- peer_of(st.v);
+                    sequence
+                        _: boolean <- case ph >= 5 of { true -> tell(st, me, 67, event, st.v.pd, 1); false -> tell(st, me, 67, event, d.id, 0) }
+                    produces pure v1 end
+                }
+            }
+        }
+    }
 }
 fn stage(phase: int64) -> string {
     case phase of {
@@ -273,7 +330,8 @@ fn c_up(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, re
                 sequence
                     a: actor_ref <- asm_new(me, 96, "", true);
                     _: boolean <- tx_frame(st.tx, st.cfg.mine);
-                    _: boolean <- arm(me, st.cfg.ms, 1)
+                    // ruling NQ-14: what is left of the connection's one bound, which began at the dial or the accept
+                    _: boolean <- arm(me, left_ms(st.cfg.ms), 1)
                 produces pure { asm: a, phase: 1, live: true, down: false, pend: 0, ckey: "", cfp: "", pd: "", nonce: "", k: 0, body: "" } end
             }
         }
@@ -433,7 +491,13 @@ fn c_advert_ok(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: in
 fn c_hash(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, etf: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     d: { addr: string, id: string, pub: string, token: string } <- peer_of(st.v);
     case edge_bytes(etf) == d.id of {
-        false -> refuse(st, me, "admission_refused", "id is not the SHA-512 of pub");
+        false -> {
+            // the identity is the hash just made of the certificate's key (d.pub is that key: the channel binding)
+            sequence
+                v1: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } <- refuse(st, me, "admission_refused", "id is not the SHA-512 of pub");
+                _: boolean <- case st.role == 2 and length_bytes(edge_bytes(etf)) == 64 of { true -> tell(st, me, 67, "admission_refused", edge_bytes(etf), 0); false -> true }
+            produces pure v1 end
+        };
         true -> {
             p: { why: string, payload: string, sig: string } <- bees_tempus_admit@pre(d, st.cfg.kid, st.cfg.now, st.cfg.skew, 0);
             sequence
@@ -452,7 +516,7 @@ fn c_prod(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, 
 fn c_nonce(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, etf: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     nonce: string <- edge_bytes(etf);
     case length_bytes(nonce) == 32 of {
-        false -> refuse(st, me, "internal_error", "random bytes refused");
+        false -> refuse_own(st, me, "internal_error", "random bytes refused");
         true -> {
             sequence
                 _: boolean <- tx_frame(st.tx, bees_tempus_frame@enc_challenge(nonce));
@@ -492,7 +556,7 @@ fn c_challenge(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: in
 fn c_signed(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, etf: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     sig: string <- edge_bytes(etf);
     case length_bytes(sig) == 64 of {
-        false -> refuse(st, me, "internal_error", "the signature could not be made");
+        false -> refuse_own(st, me, "internal_error", "the signature could not be made");
         true -> {
             sequence
                 _: boolean <- tx_frame(st.tx, bees_tempus_frame@enc_response(sig));
@@ -630,8 +694,7 @@ fn c_reply(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64,
 }
 // ---- phase 13 (role 2): the request; phase 16: the node's answer
 fn to_node(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, body: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
-    d: { addr: string, id: string, pub: string, token: string } <- peer_of(st.v);
-    m: int64 <- 4 * (wl_index(st.cfg.wl, bees_trust_frame@hex(st.v.cfp)) + 1) + typ_of(d);
+    m: int64 <- peer_m(st);
     sequence
         _: boolean <- tell(st, me, 63, body, st.v.pd, m)
     produces pure { asm: st.v.asm, phase: 16, live: st.v.live, down: st.v.down, pend: st.v.pend + 1, ckey: st.v.ckey, cfp: st.v.cfp, pd: st.v.pd, nonce: st.v.nonce, k: 0, body: "" } end
@@ -694,7 +757,16 @@ fn c_frame_in(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int
 fn c_edge(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, k: int64, s1: string, n: int64) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     g: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } } <- with_v(st, vgot(st.v));
     case g.v.phase >= 19 of {
-        true -> g.v;
+        // closed meanwhile: dropped, but for the hash a refusal in phase 2 asked for (report): the node is told now
+        true -> case g.v.phase == 19 and k == 34 and g.v.k == 0 - 1 of {
+            false -> g.v;
+            true -> {
+                id: string <- edge_bytes(s1);
+                sequence
+                    _: boolean <- case length_bytes(id) == 64 of { true -> tell(g, me, 67, g.v.body, id, 0); false -> true }
+                produces pure { asm: g.v.asm, phase: g.v.phase, live: g.v.live, down: g.v.down, pend: g.v.pend, ckey: g.v.ckey, cfp: g.v.cfp, pd: g.v.pd, nonce: g.v.nonce, k: 0, body: "" } end
+            }
+        };
         false -> case g.v.down of {
             true -> { sequence _: atom <- audit(g, "closed_by_peer", stage(g.v.phase)) produces pure finish(g, me, case st.role == 0 of { true -> 61; false -> 0 }, "closed_by_peer") end };
             false -> c_edge_in(g, me, k, s1, n)

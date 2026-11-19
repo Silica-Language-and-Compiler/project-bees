@@ -1,4 +1,5 @@
-/* BEES native edge for TEMPUS (milestone T4, development-plan/tempus-design.md section 4): Ed25519 and SHA-512.
+/* BEES native edge for TEMPUS (milestone T4, development-plan/tempus-design.md section 4): Ed25519 and SHA-512; and the
+ * system clock of a node that is not a test node (ruling NQ-11).
  *
  * Hosted platforms only: the functions call the programmer-installed OpenSSL (D40; libcrypto), the library TRUST's TLS
  * link already uses. The boards' Mbed TLS has no Ed25519 (design NQ-6), so this file is not built for them.
@@ -32,5 +33,10 @@ bees_tempus_bytes bees_tempus_ed25519_public(const uint8_t *ptr, uint64_t len);
 
 /* input: 1 to 4096 bytes. Their SHA-512 (64 bytes) as an ETF binary: a peer's identity from its public key. */
 bees_tempus_bytes bees_tempus_sha512(const uint8_t *ptr, uint64_t len);
+
+/* The system (wall) clock, for a node that is not a test node (ruling NQ-11): the whole seconds since 1970-01-01 00:00:00
+ * UTC as 8 bytes, most significant first, as an ETF binary. The input is not read (one byte string, as every function
+ * here). tag 1 when the operating system does not answer, or answers a time before 1970: no time is made up. */
+bees_tempus_bytes bees_tempus_wall_clock(const uint8_t *ptr, uint64_t len);
 
 #endif

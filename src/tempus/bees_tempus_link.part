@@ -9,11 +9,15 @@
 // tempus_listen(owner, listen, spec, hs_ms)
 //                                       a listening link on `listen` ("listen:PORT", 127.0.0.1, or "listen:any:PORT");
 //                                       owner gets (:link_up, "port:N") and, per connection, (:accepted, link, _), which it
-//                                       hands to tempus_accept
-// tempus_accept(cfg, link, cid)         the connection actor of an accepted link (dangerous_bees_tempus_conn@tcon, role 2)
+//                                       hands to tempus_accept; hs_ms is shuffle_timeout_ms, the one bound of each accepted
+//                                       connection from its accept to its close
+// tempus_accept(cfg, link, cid)         the connection actor of an accepted link (dangerous_bees_tempus_conn@tcon, role 2);
+//                                       cfg.ms is that same bound
 // tempus_dial(cfg, addr, req, cid, spec, dial, hs_ms)
 //                                       one connection to "a.b.c.d:port" (role 0); req is the one request's frame body,
-//                                       or "" to close after admission; dial is the connect budget in ms, as text
+//                                       or "" to close after admission; hs_ms is shuffle_timeout_ms, the ONE bound from
+//                                       this dial to the close (ruling NQ-14), and dial the same number as text, for the
+//                                       carrier's connect budget
 // tempus_signer(edge, seed)             the node's signer actor, the only holder of the private seed
 // cfg is the record dangerous_bees_tempus_conn's head describes; cfg.node is told the outcome.
 fn tempus_spec(certfile: string, keyfile: string) -> string {
@@ -32,18 +36,34 @@ fn tempus_signer(e: dangerous_actor_ref, seed: string) -> actor_ref {
         s: actor_ref <- spawn({ edge: e, seed: seed }, dangerous_bees_tempus_conn@tsig, stack_policy(0, :keep_last_message), state_policy(:keep_state_area))
     produces pure s end
 }
-fn tempus_conn(cfg: $CFG$, l: dangerous_actor_ref, role: int64, cid: int64, req: string, addr: string) -> boolean {
+// Ruling NQ-14: shuffle_timeout_ms is ONE bound from the dial (or the accept) to the close. It is turned into a deadline
+// here, once per connection: the value of the monotonic clock, in ms, at which the bound has passed. The link's
+// handshake timer and the connection actor's timer are each armed with what is left of it (the carrier's connect budget
+// is the same number of ms from the same moment), so no stage gets a bound of its own.
+fn tempus_deadline(ms: uint64) -> uint64 {
+    sequence proc[concurrency]
+        m: int64 <- monotonic_time()
+    produces pure to_uint64(m / 1000000) + ms end
+}
+fn tempus_conn_at(cfg: $CFG$, l: dangerous_actor_ref, role: int64, cid: int64, req: string, addr: string, dl: uint64) -> boolean {
+    c2: $CFG$ <- { node: cfg.node, sig: cfg.sig, edge: cfg.edge, rnd: cfg.rnd, mine: cfg.mine, mtok: cfg.mtok, kid: cfg.kid, ppub: cfg.ppub, wl: cfg.wl, now: cfg.now, skew: cfg.skew, count: cfg.count, ms: dl };
     sequence proc[concurrency]
         t: actor_ref <- spawn({ c: l, n: 0 }, dangerous_bees_tempus_conn@ttx, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
-        k: actor_ref <- spawn({ c: l, tx: t, role: role, cid: cid, req: req, cfg: cfg, v: { asm: t, phase: 0, live: false, down: false, pend: 0, ckey: "", cfp: "", pd: "", nonce: "", k: 0, body: "" } }, dangerous_bees_tempus_conn@tcon, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        k: actor_ref <- spawn({ c: l, tx: t, role: role, cid: cid, req: req, cfg: c2, v: { asm: t, phase: 0, live: false, down: false, pend: 0, ckey: "", cfp: "", pd: "", nonce: "", k: 0, body: "" } }, dangerous_bees_tempus_conn@tcon, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
         ok: boolean <- cast(l, (:open, k, addr) impl ActorMessage {})
     produces pure ok end
+}
+// an accepted link's connection actor: its bound is cfg.ms from now (the link's own deadline was set at the accept, an
+// instant earlier, by the listener, from the same number)
+fn tempus_conn(cfg: $CFG$, l: dangerous_actor_ref, role: int64, cid: int64, req: string, addr: string) -> boolean {
+    tempus_conn_at(cfg, l, role, cid, req, addr, tempus_deadline(cfg.ms))
 }
 fn tempus_accept(cfg: $CFG$, l: dangerous_actor_ref, cid: int64) -> boolean { tempus_conn(cfg, l, 2, cid, "", "") }
 fn tempus_dial(cfg: $CFG$, addr: string, req: string, cid: int64, spec: string, dial: string, hs_ms: uint64) -> boolean {
     sequence proc[concurrency]
+        dl: uint64 <- tempus_deadline(hs_ms);
         c: dangerous_actor_ref <- carrier_new();
-        l: dangerous_actor_ref <- spawn_dangerous({ owner: actor_ref_of_word(0), car: c, w: c, h: 0 - 1, role: 0, phase: 0, credit: 0, car_out: false, sent: 0, told: false, spec: spec, dial: dial, hs_ms: hs_ms }, dangerous_bees_tempus_tls@tlnk, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
-        ok: boolean <- tempus_conn(cfg, l, 0, cid, req, addr)
+        l: dangerous_actor_ref <- spawn_dangerous({ owner: actor_ref_of_word(0), car: c, w: c, h: 0 - 1, role: 0, phase: 0, credit: 0, car_out: false, sent: 0, told: false, spec: spec, dial: dial, hs_ms: dl }, dangerous_bees_tempus_tls@tlnk, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        ok: boolean <- tempus_conn_at(cfg, l, 0, cid, req, addr, dl)
     produces pure ok end
 }

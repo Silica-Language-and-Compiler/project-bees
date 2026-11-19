@@ -43,10 +43,10 @@ P = "{ k: int64, cid: int64, st: int64, x: int64, who: actor_ref, s: string }"
 PL = "List[$P$, mem(normal)]"
 T5 = "(:bees, int64, string, string, int64)"
 NC = ("{ app: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, wl: string, sents: string, "
-      "spec: string, mst: string, id: string, pub: string, addr: string, draws: string, typ: int64, skew: int64, max: int64, "
+      "listen: string, spec: string, mst: string, id: string, pub: string, addr: string, draws: string, typ: int64, skew: int64, max: int64, "
       "k1: int64, c1: int64, k2: int64, c2: int64, k3: int64, c3: int64, ms: uint64, t1: uint64, t2: uint64, t3: uint64, "
       "j0: uint64, j1: uint64, test: boolean }")
-NV = ("{ up: boolean, rc: actor_ref, a1: actor_ref, a2: actor_ref, a3: actor_ref, now: int64, m0: int64, mtok: string, kid: string, "
+NV = ("{ up: boolean, rc: actor_ref, a1: actor_ref, a2: actor_ref, a3: actor_ref, now: int64, ck: int64, mtok: string, kid: string, "
       "ppub: string, live: int64, na: int64, nd: int64, stop: boolean, jst: int64, jd: uint64, q: $PL$ }")
 NS = "{ c: $NC$, v: $NV$ }"
 NB = "{ op: int64, s1: string, s2: string, n: int64, m: int64, who: actor_ref }"

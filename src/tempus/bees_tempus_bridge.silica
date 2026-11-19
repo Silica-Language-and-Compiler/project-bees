@@ -17,12 +17,16 @@
 //   spec, none by default, or the peer's tempus whitelist entry's spec (generated unit bees_tempus_spec, +1)
 //   the function in the program (bees_trust_mfa@slot_of, +1)            its arguments' types (check_args, +1)
 // The score follows TRUST's rule (dangerous_bees_trust: +1 on a refusal, a failure or a timeout, -1 on success, floor 0;
-// refused above the limit). An entry lives until its token expires (pruned at each request, by the node's clock); when
+// refused above the limit). The refusals of the node's connection actor count too (ruling NQ-19; conn_refused): a bad
+// token, a failed proof of possession, a malformed frame, an entry that does not verify, a timeout while the peer is
+// waited for. An entry lives until its token expires (pruned at each request, by the node's clock); when
 // the table is full the entry whose token expires first is dropped, audited.
 // Its message type is the node's (:bees, op, s1, s2, n, m, who):
 //   from the node: 80, 81 (passed on to the application); 82 a request (s1: the frame body, s2: the peer's descriptor,
 //     n: the accepted connection's number, m: the node's clock in seconds * 65536 + 4 * (whitelist index + 1) + type,
 //     who: the connection actor, which waits for exactly one answer)
+//     83 the connection actor refused this peer (ruling NQ-19; s1: the audit event, s2: the peer's descriptor, or its id
+//     alone when its token was not verified, n: the connection's number, m: the node's clock * 65536 + 1 or 0): score +1
 //   from a request actor: 93 its outcome (s1: the peer id, s2: the reply body, "" to close with no reply; n: 0 success,
 //     1 the function failed, 2 timeout; m: the connection's number; who: the connection actor)
 //
@@ -276,6 +280,34 @@ fn outcome(s: { app: actor_ref, lim: { slim: int64, size: int64, rate: int64, iv
         _: boolean <- answer(who, body)
     produces pure bs_tab(s, case length_bytes(p.id) > 0 of { true -> pe_put(s.tab, p1); false -> s.tab }, case s.tot > 0 of { true -> s.tot - 1; false -> 0 }) end
 }
+// Ruling NQ-19: the node's connection actor refused this peer before it could ask anything (83, from the node part:
+// event the audit event; m the node's clock * 65536 + 1 when x is the peer's descriptor, id and token verified, + 0 when x
+// is the peer's id alone, its token not verified). The score rises by one, by TRUST's rule, in the same bounded table.
+// A peer the table does not hold gets an entry only on a verified token: an entry lives until its token expires, and
+// an expiry the producer did not sign is not to be believed (anybody could fill the table with entries that never
+// leave). So a peer that was never admitted and shows only bad tokens has no score here; it is refused by admission
+// every time, which is all a score could do to it.
+fn conn_refused(s: { app: actor_ref, lim: { slim: int64, size: int64, rate: int64, ivl: int64, pin: int64, tin: int64, cms: int64 }, tab: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], tot: int64 }, event: string, x: string, cid: int64, m: int64) -> { app: actor_ref, lim: { slim: int64, size: int64, rate: int64, ivl: int64, pin: int64, tin: int64, cms: int64 }, tab: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], tot: int64 } {
+    now: int64 <- m / 65536;
+    verified: boolean <- m % 65536 == 1;
+    dd: { ok: boolean, d: { addr: string, id: string, pub: string, token: string } } <- bees_tempus_frame@desc_of(case verified of { true -> x; false -> "" });
+    d: { addr: string, id: string, pub: string, token: string } <- dd.d;
+    t: { ok: boolean, why: string, kid: string, sub: string, typ: int64, nbf: int64, exp: int64, payload: string, sig: string } <- bees_tempus_frame@tok(d.token);
+    id: string <- case verified of { true -> d.id; false -> x };
+    s1: { app: actor_ref, lim: { slim: int64, size: int64, rate: int64, ivl: int64, pin: int64, tin: int64, cms: int64 }, tab: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], tot: int64 } <- bs_tab(s, pe_prune(s.tab, now, cid), s.tot);
+    had: { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 } <- pe_find(s1.tab, id);
+    case length_bytes(id) == 0 or (length_bytes(had.id) == 0 and verified == false) of {
+        true -> s1;
+        false -> {
+            s2: { app: actor_ref, lim: { slim: int64, size: int64, rate: int64, ivl: int64, pin: int64, tin: int64, cms: int64 }, tab: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], tot: int64 } <- case verified of { true -> entry_of(s1, id, t.exp, now_ms(), cid); false -> s1 };
+            p: { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 } <- pe_find(s2.tab, id);
+            p2: { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 } <- pe_score(p, p.sc + 1);
+            sequence
+                _: atom <- audit(id, "bridge_score", concat(concat("raised to ", num(p2.sc)), concat(" by ", event)), cid)
+            produces pure bs_tab(s2, pe_put(s2.tab, p2), s2.tot) end
+        }
+    }
+}
 fn pass_on(app: actor_ref, op: int64, s1: string, s2: string, who: actor_ref) -> boolean {
     sequence proc[concurrency]
         ok: boolean <- cast(app, (:bees, op, s1, s2, 0, 0, who) impl ActorMessage {})
@@ -286,6 +318,7 @@ fn tbr(msg: (:bees, int64, string, string, int64, int64, actor_ref), s: { app: a
         (:bees, op: int64, s1: string, s2: string, n: int64, m: int64, who: actor_ref) -> {
             s3: { app: actor_ref, lim: { slim: int64, size: int64, rate: int64, ivl: int64, pin: int64, tin: int64, cms: int64 }, tab: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], tot: int64 } <- case op of {
                 82 -> request(s, s1, s2, n, m, who);
+                83 -> conn_refused(s, s1, s2, n, m);
                 93 -> outcome(s, s1, s2, n, m, who);
                 _: int64 -> { sequence _: boolean <- pass_on(s.app, op, s1, s2, who) produces pure s end }
             };

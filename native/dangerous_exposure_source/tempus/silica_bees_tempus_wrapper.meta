@@ -39,3 +39,13 @@ wrapper bees_tempus_sha512 {
         { name: "in_len", role: "length", length_of: "in_ptr" }
     ]
 }
+
+wrapper bees_tempus_wall_clock {
+    symbol: "bees_tempus_wall_clock"
+    result: "struct"
+    error_domain: "dangerous_bees_tempus_native"
+    arguments: [
+        { name: "in_ptr", lifetime: "borrowed", retain: false },
+        { name: "in_len", role: "length", length_of: "in_ptr" }
+    ]
+}

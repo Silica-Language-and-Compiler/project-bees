@@ -4,6 +4,8 @@
 //   (2, input, tag, reply_to)   Ed25519 sign with seed || message:        (:bees, 32, etf_binary, "", tag)
 //   (3, input, tag, reply_to)   the public key of a seed:                 (:bees, 33, etf_binary, "", tag)
 //   (4, input, tag, reply_to)   SHA-512:                                  (:bees, 34, etf_binary, "", tag)
+//   (5, input, tag, reply_to)   the system clock (ruling NQ-11; the input is not read): (:bees, 35, etf_binary, "", tag),
+//                               8 bytes, the seconds since 1970, most significant first; empty when the OS gave no time
 // etf_binary is FFI-derived: the receiver decodes it with the language's decode((:etf), ...). The answer has the tuple
 // shape TRUST's actors use for everything they receive.
 module dangerous_bees_tempus_edge;
@@ -19,6 +21,7 @@ fn ted(msg: (int64, string, int64, actor_ref), st: int64) -> (:no_reply, int64) 
             2 -> dangerous_bees_tempus_native@sign_etf(input);
             3 -> dangerous_bees_tempus_native@public_etf(input);
             4 -> dangerous_bees_tempus_native@sha512_etf(input);
+            5 -> dangerous_bees_tempus_native@wall_etf(input);
             _: int64 -> ""
         };
         kind: int64 <- 30 + op;

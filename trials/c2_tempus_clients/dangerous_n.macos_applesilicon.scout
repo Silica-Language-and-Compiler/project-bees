@@ -8,15 +8,18 @@ join: asking the sentinel at 127.0.0.1:23903 for tempus_edge d1
 [tempus audit] admitted peer=9e1113ab416dc197 tempus_sentinel, tempus whitelist entry 0 d1
 join: the sentinel answered for tempus_edge d1
 view tempus_edge: 9200d299@1
+view tempus_sentinel: 9e1113ab@0
 join: asking the sentinel at 127.0.0.1:23903 for tempus_bridge d2
 [tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d2
 [tempus audit] admitted peer=9e1113ab416dc197 tempus_sentinel, tempus whitelist entry 0 d2
 join: the sentinel answered for tempus_bridge d2
 view tempus_bridge: (empty)
+view tempus_sentinel: 9e1113ab@0
 join: asking the sentinel at 127.0.0.1:23903 for tempus_sentinel d3
 [tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d3
 [tempus audit] admitted peer=9e1113ab416dc197 tempus_sentinel, tempus whitelist entry 0 d3
 join: the sentinel answered for tempus_sentinel d3
+view tempus_sentinel: 9e1113ab@0
 view tempus_sentinel: 9e1113ab@0
 join: done
 [tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a1
@@ -29,13 +32,13 @@ view tempus_sentinel: (empty)
 tick tempus_sentinel: shuffle with 9e1113ab at 127.0.0.1:23903 d4
 [tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d4
 [tempus audit] admitted peer=9e1113ab416dc197 tempus_sentinel, tempus whitelist entry 0 d4
-view tempus_sentinel: e4188f0a@1
+view tempus_sentinel: 9e1113ab@0 e4188f0a@1
 tick tempus_sentinel: shuffle merged
 [tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a4
 [tempus audit] admitted peer=9e1113ab416dc197 tempus_sentinel, tempus whitelist entry 0 a4
 [tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a5
 [tempus audit] admitted peer=9e1113ab416dc197 tempus_sentinel, tempus whitelist entry 0 a5
-view tempus_sentinel: 9e1113ab@0 958cff49@7 e4188f0a@1
+view tempus_sentinel: 958cff49@7 9e1113ab@0 e4188f0a@1
 [tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a6
 [tempus audit] admitted peer=9e1113ab416dc197 tempus_sentinel, tempus whitelist entry 0 a6
 view tempus_bridge: (empty)
@@ -45,13 +48,14 @@ join: asking the sentinel at 127.0.0.1:23903 for tempus_bridge d5
 [tempus audit] admitted peer=9e1113ab416dc197 tempus_sentinel, tempus whitelist entry 0 d5
 join: the sentinel answered for tempus_bridge d5
 view tempus_bridge: 9e1113ab@0
+view tempus_sentinel: 958cff49@7 9e1113ab@0 e4188f0a@1
 [tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a7
 [tempus audit] admitted peer=9e1113ab416dc197 tempus_bridge, tempus whitelist entry 0 a7
 view tempus_bridge: (empty)
 tick tempus_bridge: shuffle with 9e1113ab at 127.0.0.1:23903 d6
 [tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d6
 [tempus audit] admitted peer=9e1113ab416dc197 tempus_bridge, tempus whitelist entry 0 d6
-view tempus_bridge: e4188f0a@2
+view tempus_bridge: 9e1113ab@0 e4188f0a@2
 tick tempus_bridge: shuffle merged
 [tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a8
 [tempus audit] admitted peer=9e1113ab416dc197 tempus_bridge, tempus whitelist entry 0 a8
@@ -319,4 +323,6 @@ own token: the token has expired; ticking has stopped
 application: told that the node's own token is not valid any more: the token has expired
 [tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a82
 [tempus audit] closed_by_peer peer=(any) stage (any) a82
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a83
+[tempus audit] timeout peer=- stage advert a83
 exit=0

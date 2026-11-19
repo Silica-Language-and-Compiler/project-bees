@@ -6,7 +6,8 @@
 // tempus_node_start(app, idn, net, sz, tst) -> the node actor. It listens, joins through its sentinels, serves admitted
 // peers and ticks its three stores.
 //   app   the application's actor; it is told (:bees, op, s1, "", 0, 0, node): 80 the node's own token is not valid any
-//         more and ticking has stopped (s1: why); 81 a peer answered key_rotated (s1: the kid it named)
+//         more and ticking has stopped (s1: why); 81 a peer answered key_rotated (s1: the kid it named); 86 the system
+//         clock could not be read (s1: what that means for the node; told once per failure, not once per reading)
 //   idn   { id, pub, seed, addr, token, typ }: the TEMPUS identity (peer id, public key, private seed), the address other
 //         nodes dial, the producer's token, the node's own type (1 edge, 2 bridge, 3 sentinel)
 //   net   { listen, spec, sents, wl, kid, ppub, ms, mst, max, skew, j0, j1 }: the carrier's listen text; the engine's
@@ -14,17 +15,22 @@
 //         whitelist (128 hex characters per certificate); the current producer key; shuffle_timeout_ms as a number and
 //         as text; inflight_max; clock_skew in seconds; join_retry_initial_ms and join_retry_max_ms
 //   sz    { k1, c1, t1, k2, c2, t2, k3, c3, t3 }: capacity, shuffle length and tick_ms of the edge, bridge and sentinel store
-//   tst   { test, now, draws }: control_test_only; the clock in seconds since 1970 at start; under control_test_only the
-//         literal draws as text ("3,0,7"), otherwise ""
+//   tst   { test, now, draws }: control_test_only; under control_test_only the clock in seconds since 1970 at start and
+//         the literal draws as text ("3,0,7"); otherwise now is not read and draws is ""
 // What the application may cast to the node, as (:bees, op, s1, s2, 0, 0, app):
 //   70 a new token (s1)       71 a new producer key (s1: kid, s2: the 32-byte key; ruling NQ-5)
 //
-// The clock. A test node's clock is `now` until a peer's clock frame changes it. Any other node's clock is `now` plus the
-// time since start by the language's monotonic clock (PROVISIONAL, design section 18 NQ-11: the language has no wall
-// clock; the application passes the time of day once).
+// The clock (ruling NQ-11). A test node's clock is `now` until a peer's clock frame changes it. Any other node reads the
+// system clock through the TEMPUS native edge (bees_tempus_wall_clock: whole seconds since 1970; an error of the
+// operating system is refused, never replaced by a made-up time). The reading is asked for by the node's clock actor
+// (dangerous_bees_tempus_draws@tck) at start and once a second after each answer, and the node's clock is the last
+// reading. Such a node does not listen, join or tick before its first reading: with no clock it can check no token.
+// When a later reading fails the node says so once, tells its application (86) and goes on with the last reading until
+// the clock answers again. A reading EARLIER than the one before is followed as it is, with one line: the node's clock
+// is the system's clock and nothing is remembered of an earlier one (design section 18, NQ-22, says what that means).
 // Under control_test_only the stores are ticked by a peer's tick frame only; otherwise each store has its own timer.
-// One bound for a connection: the carrier's connect budget, the handshake and the admitted connection each get
-// shuffle_timeout_ms (the connection actor's timer starts when the link is up).
+// One bound for a connection (ruling NQ-14): shuffle_timeout_ms from the dial, or the accept, to the close; the link
+// part turns it into one deadline that the connect budget, the handshake and the admitted connection share.
 //
 // What the node waits for is one list of { k, cid, st, x, who }:
 //   k 1 a partner's shuffle and k 2 a sample, each waiting for store st (cid: the accepted connection, who: its actor)
@@ -33,6 +39,9 @@
 //   k 5 the dialed connection cid of store st's shuffle     k 6 the dialed connection cid of a sample to sentinel x / 2
 //       (x odd: part of the join at start, which goes on to the next store and retries; x even: asked again after a
 //       tick found the view empty)                          k 7 that sample's entries on their way into the store
+//       (s: the descriptor of the sentinel that answered, when it is one: ruling NQ-12)
+//   k 9 that sentinel's own entry on its way into the node's sentinel store (ruling NQ-12: a joiner keeps the sentinel
+//       it joined through), after the sample's entries are in
 //   k 2 with x 1: a sentinel's insert of the asking peer is still on its way; k 8: the sample is ready (s: the reply
 //       body, x: 1 ok) and waits for that insert, so the node's lines about one connection come before its reply
 fn tn_say(s: string) -> atom {
@@ -43,16 +52,9 @@ fn tn_say(s: string) -> atom {
 fn tn_num(n: int64) -> string { bees_trust_frame@int_text(n) }
 fn tn_typ(t: int64) -> string { bees_tempus_node@typ_text(t) }
 fn tn_null() -> actor_ref { actor_ref_of_word(0) }
-fn tn_now(c: $NC$, v: $NV$) -> int64 {
-    case c.test of {
-        true -> v.now;
-        false -> {
-            sequence proc[concurrency]
-                m: int64 <- monotonic_time()
-            produces pure v.now + (m - v.m0) / 1000000000 end
-        }
-    }
-}
+// the node's clock: a test node's is the value set at start or by a clock frame; any other node's is the last reading of
+// the system clock (ruling NQ-11; tn_clock)
+fn tn_now(c: $NC$, v: $NV$) -> int64 { v.now }
 fn tn_count(c: $NC$, st: int64) -> int64 { case st of { 1 -> c.c1; 2 -> c.c2; _: int64 -> c.c3 } }
 fn tn_maxcount(c: $NC$) -> int64 {
     m: int64 <- case c.c1 > c.c2 of { true -> c.c1; false -> c.c2 };
@@ -79,16 +81,19 @@ fn tn_app(c: $NC$, me: actor_ref, op: int64, s1: string) -> boolean {
     produces pure ok end
 }
 fn tn_vq(v: $NV$, q: $PL$) -> $NV$ {
-    { up: v.up, rc: v.rc, a1: v.a1, a2: v.a2, a3: v.a3, now: v.now, m0: v.m0, mtok: v.mtok, kid: v.kid, ppub: v.ppub, live: v.live, na: v.na, nd: v.nd, stop: v.stop, jst: v.jst, jd: v.jd, q: q }
+    { up: v.up, rc: v.rc, a1: v.a1, a2: v.a2, a3: v.a3, now: v.now, ck: v.ck, mtok: v.mtok, kid: v.kid, ppub: v.ppub, live: v.live, na: v.na, nd: v.nd, stop: v.stop, jst: v.jst, jd: v.jd, q: q }
 }
 fn tn_vc(v: $NV$, live: int64, na: int64, nd: int64) -> $NV$ {
-    { up: v.up, rc: v.rc, a1: v.a1, a2: v.a2, a3: v.a3, now: v.now, m0: v.m0, mtok: v.mtok, kid: v.kid, ppub: v.ppub, live: live, na: na, nd: nd, stop: v.stop, jst: v.jst, jd: v.jd, q: v.q }
+    { up: v.up, rc: v.rc, a1: v.a1, a2: v.a2, a3: v.a3, now: v.now, ck: v.ck, mtok: v.mtok, kid: v.kid, ppub: v.ppub, live: live, na: na, nd: nd, stop: v.stop, jst: v.jst, jd: v.jd, q: v.q }
 }
 fn tn_vj(v: $NV$, jst: int64, jd: uint64) -> $NV$ {
-    { up: v.up, rc: v.rc, a1: v.a1, a2: v.a2, a3: v.a3, now: v.now, m0: v.m0, mtok: v.mtok, kid: v.kid, ppub: v.ppub, live: v.live, na: v.na, nd: v.nd, stop: v.stop, jst: jst, jd: jd, q: v.q }
+    { up: v.up, rc: v.rc, a1: v.a1, a2: v.a2, a3: v.a3, now: v.now, ck: v.ck, mtok: v.mtok, kid: v.kid, ppub: v.ppub, live: v.live, na: v.na, nd: v.nd, stop: v.stop, jst: jst, jd: jd, q: v.q }
+}
+fn tn_vclk(v: $NV$, now: int64, ck: int64) -> $NV$ {
+    { up: v.up, rc: v.rc, a1: v.a1, a2: v.a2, a3: v.a3, now: now, ck: ck, mtok: v.mtok, kid: v.kid, ppub: v.ppub, live: v.live, na: v.na, nd: v.nd, stop: v.stop, jst: v.jst, jd: v.jd, q: v.q }
 }
 fn tn_vk(v: $NV$, now: int64, mtok: string, kid: string, ppub: string, stop: boolean) -> $NV$ {
-    { up: v.up, rc: v.rc, a1: v.a1, a2: v.a2, a3: v.a3, now: now, m0: v.m0, mtok: mtok, kid: kid, ppub: ppub, live: v.live, na: v.na, nd: v.nd, stop: stop, jst: v.jst, jd: v.jd, q: v.q }
+    { up: v.up, rc: v.rc, a1: v.a1, a2: v.a2, a3: v.a3, now: now, ck: v.ck, mtok: mtok, kid: kid, ppub: ppub, live: v.live, na: v.na, nd: v.nd, stop: stop, jst: v.jst, jd: v.jd, q: v.q }
 }
 fn tn_wait(v: $NV$, k: int64, cid: int64, st: int64, who: actor_ref) -> $NV$ {
     p: $P$ <- { k: k, cid: cid, st: st, x: 0, who: who, s: "" };
@@ -233,13 +238,15 @@ fn tn_dialed_shuffle(v: $NV$, p: $P$, op: int64, s1: string, what: string) -> $N
         }
     }
 }
-fn tn_dialed_join(c: $NC$, v: $NV$, me: actor_ref, p: $P$, s1: string, what: string) -> $NV$ {
+// sd: the descriptor of the peer that answered when its token says tempus_sentinel (its certificate is then one of the
+// whitelist: the connection actor's rule), else "": it goes into the node's sentinel store after the sample's entries
+fn tn_dialed_join(c: $NC$, v: $NV$, me: actor_ref, p: $P$, s1: string, what: string, sd: string) -> $NV$ {
     case bees_tempus_frame@kind(s1) == 8 of {
         true -> {
             sequence
                 _: atom <- tn_say(concat(concat("join: the sentinel answered for ", tn_typ(p.st)), concat(" d", tn_num(p.cid))));
                 _: boolean <- tn_to(v, p.st, 43, "", s1, 0 - p.cid);
-                w: $P$ <- { k: 7, cid: p.cid, st: p.st, x: p.x, who: p.who, s: "" }
+                w: $P$ <- { k: 7, cid: p.cid, st: p.st, x: p.x, who: p.who, s: sd }
             produces pure tn_vq(v, bees_tempus_node@p_push(v.q, w)) end
         };
         false -> {
@@ -250,7 +257,7 @@ fn tn_dialed_join(c: $NC$, v: $NV$, me: actor_ref, p: $P$, s1: string, what: str
         }
     }
 }
-fn tn_dialed(c: $NC$, v: $NV$, me: actor_ref, op: int64, s1: string, cid: int64) -> $NV$ {
+fn tn_dialed(c: $NC$, v: $NV$, me: actor_ref, op: int64, s1: string, cid: int64, pd: string, m: int64) -> $NV$ {
     p: $P$ <- bees_tempus_node@p_cid(v.q, cid, 5, 6);
     v1: $NV$ <- tn_vq(v, bees_tempus_node@p_drop(v.q, p));
     what: string <- case op == 62 of { true -> "key_rotated"; false -> s1 };
@@ -258,7 +265,7 @@ fn tn_dialed(c: $NC$, v: $NV$, me: actor_ref, op: int64, s1: string, cid: int64)
         _: boolean <- case op == 62 of { true -> tn_app(c, me, 81, s1); false -> true };
         v2: $NV$ <- case p.k of {
             5 -> tn_dialed_shuffle(v1, p, op, s1, what);
-            6 -> tn_dialed_join(c, v1, me, p, case op == 60 of { true -> s1; false -> "" }, what);
+            6 -> tn_dialed_join(c, v1, me, p, case op == 60 of { true -> s1; false -> "" }, what, case op == 60 and m % 4 == 3 of { true -> pd; false -> "" });
             _: int64 -> v
         }
     produces pure v2 end
@@ -341,6 +348,19 @@ fn tn_rq_call(c: $NC$, v: $NV$, r: $RQ$) -> $NV$ {
         }
     }
 }
+// Ruling NQ-19: the connection actor refused an accepted peer (67; s1 the audit event; m 1: s2 the peer's descriptor,
+// verified; m 0: s2 the peer's id alone). On a bridge the table actor is told (83) with the node's clock, as with 82,
+// and raises that peer's score; any other node keeps no score and drops it.
+fn tn_refused_peer(c: $NC$, v: $NV$, b: $NB$) -> $NV$ {
+    case c.typ == 2 of {
+        false -> v;
+        true -> {
+            sequence proc[concurrency]
+                ok: boolean <- cast(c.app, (:bees, 83, b.s1, b.s2, b.n, tn_now(c, v) * 65536 + b.m, b.who) impl ActorMessage {})
+            produces pure v end
+        }
+    }
+}
 // ---- the stores' answers for accepted connections (121, 122, 126)
 fn tn_answer(v: $NV$, tag: int64, k: int64, body: string) -> $NV$ {
     p: $P$ <- bees_tempus_node@p_cid(v.q, tag, 1, 1);
@@ -364,12 +384,29 @@ fn tn_sampled(v: $NV$, st: int64, ok: int64, body: string) -> $NV$ {
         }
     }
 }
+// Ruling NQ-12: the sentinel that answered a sample goes into the node's sentinel store at age 0 (an entry of it already
+// there only becomes younger), after the sample's entries are in; the join goes on when that insert is in (k 9)
+fn tn_keep_sentinel(v: $NV$, p: $P$, tag: int64) -> $NV$ {
+    pd: { ok: boolean, d: $D$ } <- bees_tempus_frame@desc_of(p.s);
+    d: $D$ <- pd.d;
+    nx: $P$ <- { k: 9, cid: p.cid, st: p.st, x: p.x, who: p.who, s: "" };
+    sequence
+        _: boolean <- tn_to(v, 3, 44, d.id, p.s, tag)
+    produces pure tn_vq(v, bees_tempus_node@p_swap(v.q, p, nx)) end
+}
 // an insert the node asked for is in its store (129): tag < 0 the join's (the dialed connection), else a sample's peer
 fn tn_inserted(c: $NC$, v: $NV$, me: actor_ref, tag: int64) -> $NV$ {
     case tag < 0 of {
         true -> {
             p: $P$ <- bees_tempus_node@p_cid(v.q, 0 - tag, 7, 7);
-            case p.k == 0 of { true -> v; false -> tn_join_ok(c, tn_vq(v, bees_tempus_node@p_drop(v.q, p)), me, p) }
+            p9: $P$ <- bees_tempus_node@p_cid(v.q, 0 - tag, 9, 9);
+            case p.k == 0 of {
+                true -> case p9.k == 0 of { true -> v; false -> tn_join_ok(c, tn_vq(v, bees_tempus_node@p_drop(v.q, p9)), me, p9) };
+                false -> case length_bytes(p.s) == 0 of {
+                    true -> tn_join_ok(c, tn_vq(v, bees_tempus_node@p_drop(v.q, p)), me, p);
+                    false -> tn_keep_sentinel(v, p, tag)
+                }
+            }
         };
         false -> {
             p: $P$ <- bees_tempus_node@p_cid(v.q, tag, 2, 2);
@@ -412,11 +449,10 @@ fn tn_boot(c: $NC$, v: $NV$, me: actor_ref) -> $NV$ {
         a2: actor_ref <- bees_tempus_node@adp_start(me, z2);
         a3: actor_ref <- bees_tempus_node@adp_start(me, z3);
         rc: actor_ref <- spawn({ node: me, rnd: c.rnd, pend: "", got: "", bad: false }, dangerous_bees_tempus_draws@trc, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
-        m0: int64 <- monotonic_time();
         _: boolean <- case c.test of { true -> true; false -> tn_arm(me, c.t1, 1) };
         _: boolean <- case c.test of { true -> true; false -> tn_arm(me, c.t2, 2) };
         _: boolean <- case c.test of { true -> true; false -> tn_arm(me, c.t3, 3) }
-    produces pure { up: true, rc: rc, a1: a1, a2: a2, a3: a3, now: v.now, m0: m0, mtok: v.mtok, kid: v.kid, ppub: v.ppub, live: v.live, na: v.na, nd: v.nd, stop: v.stop, jst: v.jst, jd: v.jd, q: v.q } end
+    produces pure { up: true, rc: rc, a1: a1, a2: a2, a3: a3, now: v.now, ck: v.ck, mtok: v.mtok, kid: v.kid, ppub: v.ppub, live: v.live, na: v.na, nd: v.nd, stop: v.stop, jst: v.jst, jd: v.jd, q: v.q } end
 }
 fn tn_store_line(st: int64, cap: int64, count: int64) -> atom {
     tn_say(concat(concat(concat("store ", tn_typ(st)), concat(": capacity ", tn_num(cap))), concat(", shuffle length ", tn_num(count))))
@@ -456,14 +492,49 @@ fn tn_timer(c: $NC$, v: $NV$, me: actor_ref, st: int64) -> $NV$ {
     p: $P$ <- { k: 3, cid: 0, st: st, x: 0, who: tn_null(), s: "" };
     sequence
         _: boolean <- tn_arm(me, case st of { 1 -> c.t1; 2 -> c.t2; _: int64 -> c.t3 }, st)
-    produces pure tn_tick(c, v, me, st, p) end
+    // no tick before the first reading of the system clock (v.ck 0 or 3): the node has not begun
+    produces pure case v.ck == 0 or v.ck == 3 of { true -> v; false -> tn_tick(c, v, me, st, p) } end
+}
+// A reading of the system clock (130, from the node's clock actor; ruling NQ-11): n the seconds since 1970, or -1 when the
+// operating system gave none. v.ck: 0 no reading yet; 3 no reading yet and the application was told; 1 the last reading
+// was good; 2 a reading failed after a good one and the application was told.
+// The first good reading starts the node: it listens (and joins when its link is up). A reading earlier than the last
+// is followed, one line (the difference is not a time of day).
+fn tn_clock(c: $NC$, v: $NV$, me: actor_ref, n: int64) -> $NV$ {
+    case n < 0 of {
+        true -> case v.ck == 2 or v.ck == 3 of {
+            true -> v;
+            false -> {
+                why: string <- case v.ck == 0 of { true -> "the system clock could not be read: the node has not started"; false -> "the system clock could not be read: the node goes on with its last reading" };
+                sequence
+                    _: atom <- tn_say(concat("clock: ", why));
+                    _: boolean <- tn_app(c, me, 86, why)
+                produces pure tn_vclk(v, v.now, case v.ck == 0 of { true -> 3; false -> 2 }) end
+            }
+        };
+        false -> case v.ck == 0 or v.ck == 3 of {
+            true -> {
+                sequence
+                    _: atom <- tn_say("clock: the system clock is read");
+                    _: boolean <- tempus_listen(me, c.listen, c.spec, c.ms)
+                produces pure tn_vclk(v, n, 1) end
+            };
+            false -> {
+                sequence
+                    _: atom <- case n < v.now of { true -> tn_say(concat(concat("clock: the system clock went back by ", tn_num(v.now - n)), " s; the node follows it")); false -> :ok }
+                produces pure tn_vclk(v, n, 1) end
+            }
+        }
+    }
 }
 fn tn_bees(c: $NC$, v: $NV$, me: actor_ref, b: $NB$) -> $NV$ {
     case b.op of {
         1 -> tn_timer(c, v, me, b.m);
-        60 -> tn_dialed(c, v, me, b.op, b.s1, b.n);
-        61 -> tn_dialed(c, v, me, b.op, b.s1, b.n);
-        62 -> tn_dialed(c, v, me, b.op, b.s1, b.n);
+        60 -> tn_dialed(c, v, me, b.op, b.s1, b.n, b.s2, b.m);
+        61 -> tn_dialed(c, v, me, b.op, b.s1, b.n, "", 0);
+        62 -> tn_dialed(c, v, me, b.op, b.s1, b.n, "", 0);
+        67 -> tn_refused_peer(c, v, b);
+        130 -> tn_clock(c, v, me, b.n);
         63 -> { r: $RQ$ <- { body: b.s1, pd: b.s2, cid: b.n, m: b.m, who: b.who }; tn_request(c, v, me, r) };
         64 -> tn_vc(v, v.live - 1, v.na, v.nd);
         70 -> tn_token(c, v, b.s1);
@@ -528,9 +599,18 @@ fn tn_start(app: actor_ref, idn: $NI$, net: $NN$, sz: $NZ$, tst: $NT$) -> actor_
         r: dangerous_actor_ref <- spawn_dangerous(0, dangerous_bees_trust_edge@trnd, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
         sg: actor_ref <- tempus_signer(e, idn.seed);
         q: $PL$ <- bees_tempus_node@p_none();
-        c: $NC$ <- { app: app, sig: sg, edge: e, rnd: r, wl: net.wl, sents: net.sents, spec: net.spec, mst: net.mst, id: idn.id, pub: idn.pub, addr: idn.addr, draws: tst.draws, typ: idn.typ, skew: net.skew, max: net.max, k1: sz.k1, c1: sz.c1, k2: sz.k2, c2: sz.c2, k3: sz.k3, c3: sz.c3, ms: net.ms, t1: sz.t1, t2: sz.t2, t3: sz.t3, j0: net.j0, j1: net.j1, test: tst.test };
-        v: $NV$ <- { up: false, rc: app, a1: app, a2: app, a3: app, now: tst.now, m0: 0, mtok: idn.token, kid: net.kid, ppub: net.ppub, live: 0, na: 0, nd: 0, stop: false, jst: 0, jd: net.j0, q: q };
+        c: $NC$ <- { app: app, sig: sg, edge: e, rnd: r, wl: net.wl, sents: net.sents, listen: net.listen, spec: net.spec, mst: net.mst, id: idn.id, pub: idn.pub, addr: idn.addr, draws: tst.draws, typ: idn.typ, skew: net.skew, max: net.max, k1: sz.k1, c1: sz.c1, k2: sz.k2, c2: sz.c2, k3: sz.k3, c3: sz.c3, ms: net.ms, t1: sz.t1, t2: sz.t2, t3: sz.t3, j0: net.j0, j1: net.j1, test: tst.test };
+        v: $NV$ <- { up: false, rc: app, a1: app, a2: app, a3: app, now: case tst.test of { true -> tst.now; false -> 0 }, ck: case tst.test of { true -> 1; false -> 0 }, mtok: idn.token, kid: net.kid, ppub: net.ppub, live: 0, na: 0, nd: 0, stop: false, jst: 0, jd: net.j0, q: q };
         n: actor_ref <- spawn({ c: c, v: v }, tnode, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
-        _: boolean <- tempus_listen(n, net.listen, net.spec, net.ms)
+        // a test node listens at once; any other node when its clock actor has brought the first reading (tn_clock)
+        _: boolean <- case tst.test of {
+            true -> tempus_listen(n, net.listen, net.spec, net.ms);
+            false -> {
+                sequence proc[concurrency]
+                    k: actor_ref <- spawn({ node: n, edge: e }, dangerous_bees_tempus_draws@tck, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+                    ok: boolean <- cast(k, (:bees, 1, "", "", 0) impl ActorMessage {})
+                produces pure ok end
+            }
+        }
     produces pure n end
 }

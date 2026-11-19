@@ -5,8 +5,8 @@ TEMPUS node of role bridge in one program (`src/tempus/bees_tempus_bridge.part`,
 client (`src/tempus_client`, thin application `roles/client.role`, scenario `roles/c.role`, identity x2) runs first; the
 Python client (`tools/bees_tempus_client.py`, scenario `c3` of `tools/bees_tempus_trial.py`) walks the same steps
 afterwards with its own identity ("other"), then the steps only it takes (named P below): with a second edge (x3), an
-edge for the rate bound ("sentinel"'s key with an edge token), a bridge identity that listens (x4), and the edge of the
-quarantine ("node"). Step numbers are those of `c.role` (1 to 20).
+edge for the rate bound ("sentinel"'s key with an edge token), a bridge identity that listens (x4), the edge of the
+quarantine ("node"), and the two edges of ruling NQ-19 (Q and Z, below the table). Step numbers are those of `c.role` (1 to 20).
 
 "Client" means the client sees the result on the wire: the Python scenario asserts it and the Silica client's line is in
 its golden (`c`). "Bridge" and "T" mean the result is read from that node's golden (`b1`, `b2`, `t`), because no frame
@@ -27,10 +27,20 @@ shows it (ruling NQ-1). Rows 1 to 23, 26, 27 and 37 are `trials/c2_tempus_client
 | 36 | the TRUST side of a bridge is plain TRUST | not a client operation | not a client operation | T: token issue and fast path, admission, permission, suspicion and quarantine lines for the bridges' TRUST certificates, as in the TRUST trials |
 | 17.7 | the bridge quarantined at T by the trial | not driven | P: three calls of `demo:bad`, whose application calls T's `demo:secret/0` (not permitted for B1): closed each time; T quarantines B1; a call of `demo:onward` is then closed too | Client: closed and nothing else. T: `suspicion` three times, `quarantined`, then `connection refused` |
 
+Ruling NQ-19 (2026-11-19), Python client only, the last steps of its scenario: what the connection actor refuses of an
+edge raises that edge's score at the bridge. Edge Q (a key of its own, seed 96) never has a request answered or refused
+by the bridge's table. Six of its connections are refused by B1's connection actor: a proof of possession that does not
+verify (`pop_failed`), a frame that is no request and a frame above the ceiling (`protocol_error`, twice), an expired
+token and a token another key signed (`admission_refused`, twice), and silence where its challenge was due until the
+connection's bound (`timeout`). B1's golden shows `bridge_score ... raised to 1 by pop_failed` up to `raised to 6 by
+timeout`; Q's first good request is then `bridge_refused ... score 6 is above the limit 5`. Client: closed with no reply
+each time. Edge Z (seed 112), which B1 has never served, shows a token another key signed and an expired one: refused
+twice by admission, no `bridge_score` line (no entry is made from a token the producer's signature was not verified
+on: design 17.5 and NQ-23); its good request is then answered 5.
+
 Also seen in the goldens and not a row: the bridge's per-peer table full (size 4) drops the entry whose token expires
-first, audited `bridge_table_full`; a frame that is no TEMPUS request at all (a wrong first byte) is refused by the
-connection actor before the bridge sees it, so it does not count in the bridge's score (seen in a development run, not
-kept as a step); the hostile steps therefore use TRUST requests that pass the frame check and fail TRUST's own (arity).
+first, audited `bridge_table_full`. The hostile steps of row 34 use TRUST requests that pass the frame check and fail
+TRUST's own (arity); since ruling NQ-19 a frame that is no TEMPUS request at all counts too (edge Q above).
 
 Totals for rows 24, 25, 29 to 36: the Silica client causes 7 of the 9 client rows (24, 25, 30, 31, 32, 34, 35), the Python
 client all 9 (24, 25, 29 to 35); row 36 is the TRUST node's own lines.

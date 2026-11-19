@@ -573,3 +573,85 @@ inputs, so the synced Mac units (`/Users/yenrab/project-bees/...`) were compiled
 at every make, so it never showed this. Fixed in `nodes/{t,b1,b2}/Makefile`: a stamp `.gen.root` holding the tree's path,
 rewritten only when it differs, is an input of `.gen.mk`. The Mac units and goldens are unchanged. `.gitignore` also needs
 `trials/c3_tempus_bridge/nodes/*/.gen.root`.
+
+## 2026-11-19, the rulings on NQ-11 to NQ-20 built
+
+The owner ruled NQ-11 to NQ-20 (design section 18). NQ-13, NQ-18 and NQ-20 were ruled as built: nothing changed but
+the text. NQ-16 and NQ-17 were built or kept in the entry above. Built now, each with what shows it:
+
+- NQ-11, the clock. New native function `bees_tempus_wall_clock` (`native/tempus/silica_bees_tempus.c`, C11
+  `timespec_get`, whole seconds since 1970 as 8 bytes in an ETF binary; a failure of the operating system or a time
+  before 1970 is tag 1, no made-up time), its sidecar entry, `dangerous_bees_tempus_native@wall_etf`, op 5 of the edge
+  worker `ted` (answer kind 35). A node that is not a test node has a clock actor
+  (`dangerous_bees_tempus_draws@tck`): it asks at start and once a second and tells the node each reading (op 130); the
+  node's clock is the last reading (`tn_clock`, `tn_now`). Such a node does not listen, join or tick before its first
+  reading (`tempus_listen` is called from `tn_clock`). The application's start value plus the monotonic clock is gone;
+  `tst.now` is read only under `control_test_only`. Observed: `make -C native tempus-selftest` (three lines more: the
+  shape, agreement with the C library's `time()`, a second reading not earlier); `trials/c2_tempus_clients`, node O:
+  `clock: the system clock is read` before it listens; the trial's ordinary token (valid 1000 to 3000) is refused as
+  expired (P9), a token that begins at 3900000000 as not valid yet (P10), a token valid 1000 to 4000000000 admitted
+  (43). Before the change O admitted P9's token (its clock ran on from the trial's 1500). Not shown by a trial, read
+  from the code only: a reading that fails, and a reading earlier than the one before (a trial cannot set the
+  machine's clock). What those do is design section 10 and question NQ-22.
+- NQ-12. A joiner keeps the sentinel it joined through: the connection actor's message 60 now carries the admitted
+  peer's descriptor and type (as 63 does); when a sample was answered by a peer whose token says `tempus_sentinel`, the
+  node inserts that peer into its sentinel store at age 0 after the sample's entries (`tn_keep_sentinel`, waiting kind
+  9). Observed: `trials/t3_tempus_nodes` (A and B hold `9e1113ab@0` in the sentinel store after each answered sample;
+  it was empty), `trials/c2_tempus_clients` (N, M).
+- NQ-14. One bound from dial to close. `tempus_dial` and `tempus_conn` (`bees_tempus_link.part`) turn
+  `shuffle_timeout_ms` into a deadline (the monotonic clock's value in ms) once per connection; the listener does the
+  same for an accepted link at the accept. The link's handshake timer (`dangerous_bees_tempus_tls@tlnk`) and the
+  connection actor's timer are each armed with what is left of it; the carrier's connect budget is the same number
+  from the same moment. `cfg.ms` in the connection actor and `hs_ms` in a link are therefore DEADLINES now, not
+  durations (`hs_ms` in the listener stays a duration). It is one deadline shared by the stage timers and not one
+  timer object: a single timer in the connection actor would race the carrier's own connect budget at the same
+  instant, and which line a trial then printed would not be fixed. Observed: `trials/c2_tempus_clients` P11: a client
+  that connects, waits 1 s, does its handshake and says nothing is closed 2.0 s after the connect (the scenario asserts
+  1.7 to 2.75 s; one bound per stage gave 3.0 s), node line `timeout ... stage advert`. The dialing side uses the same
+  deadline code and is not timed by a trial (inferred). The wait for the node's own answer (phase 16) is not bounded
+  by this, as before: the node always answers, and a bridge's call timeout may be longer.
+- NQ-15. In a store that is not of the node's own type the partner that answered re-enters at age 0, after the merge
+  and before the sent entries fill the room (`bees_tempus_store@reply`); a failed shuffle still leaves the partner out.
+  The Python store model the same. Observed: `trials/t1_tempus_store` entry `steps`, part 3 (ten lines more, each
+  equal to the independent model's): a store of another type holding three entries keeps three through twelve ticks
+  answered with nothing; `tools/test_bees_tempus_store.py`: by the rules before the ruling the same store is empty
+  after three ticks, and a model run of 500 rounds of a sentinel among two edges that shuffle with each other keeps
+  both edges at every round where the old rules reach none at round 3 and stay there (with five edges and room for
+  four: always four, where the old rules fell to two). `trials/t3_tempus_nodes`: S's edge store after its shuffle is
+  `1fae2ad7@0 b19edad2@1` (it was `b19edad2@1`). `trials/c2_tempus_clients`: the samples s4 and s9.
+- NQ-19. The connection actor tells the node of every refusal of an accepted peer whose identity it knows (message 67;
+  `report` in `dangerous_bees_tempus_conn`), the node passes it to the bridge's table actor (83), which raises that
+  peer's score by one (`conn_refused` in `bees_tempus_bridge`). The identity is the SHA-512 of the key of the peer's TLS
+  certificate, never the id the advert claims (a refusal before the id was checked asks the edge for that hash first).
+  A refusal makes a NEW entry only when the producer's signature on the token had verified; before that it raises an
+  existing entry only (question NQ-23 says why). Not counted: this node's own random or signer failure, `key_rotated`,
+  a timeout while the node is not waiting for the peer. Observed: `trials/c3_tempus_bridge`, golden `b1`, the last
+  33 lines: edge Q goes from no entry to score 6 through six refused connections (`pop_failed`, `protocol_error`
+  twice, `admission_refused` twice, `timeout`), and its first good request is `bridge_refused ... score 6 is above the
+  limit 5`; edge Z, never served, gets no entry from two bad tokens and is then served.
+
+Goldens re-recorded on the Mac, each after reading the difference, each then passed three runs in a row:
+`t1_tempus_store/steps`, `t3_tempus_nodes/dangerous_{a,b,s}`, `c2_tempus_clients/dangerous_{cs,m,n,o}`,
+`c3_tempus_bridge/b1`. Unchanged and passing: t0, t1 `actors`, t2, t4, t5_tempus_tls, t5_tempus_link, c2 `ce`, c3 `t`,
+`b2`, `c`, c4. The Linux twins of the nine re-recorded files are stale until re-recorded there (needs
+`make -C native tempus tls`; `tools/test_bees_tempus_store.py` fails on `steps.linux_x86_64.scout` until then).
+
+Rules a successor needs (added to those above):
+- Message numbers. The connection actor tells its `cfg.node`; a client's `cfg.node` is the client application, which
+  already uses 66 ("the client listens"). So the refusal report is 67. Check `src/tempus_client/bees_tempus_client.part`
+  before taking a number for a new message of the connection actor.
+- The edge worker answers with TRUST's five-field tuple; the node's messages have seven fields. Anything the node wants
+  from the edge goes through a small actor in `dangerous_bees_tempus_draws` (the draw converter, the clock actor).
+- A node that is not a test node needs tokens that are valid by the machine's clock: in a trial, fixture 14 (valid 1000
+  to 4000000000) or the like. No line of such a node may print a time.
+- `cfg.ms` handed to `tempus_dial`, `tempus_accept` or `tempus_conn` is still a duration; `tempus_conn_at` puts the
+  deadline in its place. Nothing else may build a connection actor's state.
+- An interrupted build of a TEMPUS leaf (make stopped while compiling) rebuilt whole at the next make: no stale unit
+  was seen.
+
+New questions (design section 18): NQ-22 (a system clock that fails or goes back, and how often it is read; built: at
+start no start until a reading, later the last reading is kept; a step back is followed with one line; read once a
+second), NQ-23 (which refused connections make a new score entry; built: only those after the token verified). NQ-21 is
+still open.
+
+What remains is the plan of the entry above (T7's store-carrier part, the edits in tools/bees_conf.py by its owner, T8).

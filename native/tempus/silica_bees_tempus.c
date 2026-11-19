@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <openssl/evp.h>
 
 #define MSG_MAX 4096
@@ -72,4 +73,16 @@ bees_tempus_bytes bees_tempus_sha512(const uint8_t *ptr, uint64_t len) {
     unsigned int n = 0;
     if (EVP_Digest(ptr, (size_t)len, md, &n, EVP_sha512(), 0) != 1 || n != 64) return bytes_error(EIO);
     return etf_binary(md, 64);
+}
+
+/* C11's timespec_get: the calendar time in UTC. Its failure (0) and a time before 1970 are errors, never a made-up time. */
+bees_tempus_bytes bees_tempus_wall_clock(const uint8_t *ptr, uint64_t len) {
+    (void)ptr; (void)len;
+    struct timespec ts;
+    if (timespec_get(&ts, TIME_UTC) != TIME_UTC) return bytes_error(EIO);
+    if (ts.tv_sec < 0) return bytes_error(ERANGE);
+    uint64_t s = (uint64_t)ts.tv_sec;
+    uint8_t out[8];
+    for (int i = 0; i < 8; i++) out[i] = (uint8_t)(s >> (8 * (7 - i)));
+    return etf_binary(out, 8);
 }

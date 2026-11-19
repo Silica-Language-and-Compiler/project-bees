@@ -1,4 +1,4 @@
-// BEES TEMPUS (T3): the draw converter of a node that is not a test node (development-plan/tempus-design.md section 3.5):
+// BEES TEMPUS (T3): the draw converter, and the clock actor, of a node that is not a test node (development-plan/tempus-design.md section 3.5):
 // peer selection draws from the platform's secure random source, through TRUST's random edge (dangerous_bees_trust_edge@trnd,
 // which answers this tuple shape). One per node, spawned by the node part.
 //   (:bees, 1, "", "", code * 1000 + need)   the node asks for `need` draws (1 to 65) for `code` (4 * store + 1 the tick's,
@@ -9,10 +9,19 @@
 // any answer of that request was refused (no draws: the store skips that tick or refuses that request and asks again).
 // State: pend, one byte per answer still to come (the code, plus 128 on a request's last answer); got, the bytes of the
 // request in hand; bad, whether one of its answers was refused.
+//
+// tck, the clock actor of a node that is not a test node (ruling NQ-11; one per node, spawned by the node part). It asks
+// the TEMPUS native edge (dangerous_bees_tempus_edge@ted, op 5) for the system clock and tells the node each reading:
+//   (:bees, 1, "", "", _)        read the clock now (from the node part at start, and from its own timer)
+//   (:bees, 35, etf, "", _)      the edge's answer: 8 bytes, the seconds since 1970, most significant first; anything
+//                                else means the operating system gave no time
+// The node is told (:bees, 130, "", "", seconds, 0, me), seconds -1 for no time, and the next reading is asked for
+// read_every_ms() later. The node's clock is in whole seconds, so it is read once a second.
 module dangerous_bees_tempus_draws;
 use bees_trust_frame;
 
 export trc/2;
+export tck/2;
 
 fn at(s: string, i: int64) -> int64 {
     sequence proc[transport]
@@ -86,4 +95,37 @@ fn trc(msg: (:bees, int64, string, string, int64), st: { node: actor_ref, rnd: d
             _: int64 -> st
         }
     produces pure (:no_reply, nxt) end
+}
+
+// ======================================================================== tck, the clock actor
+fn read_every_ms() -> uint64 { 1000 }
+// 8 bytes, most significant first, as a number; -1 when they are not 8 or the number does not fit
+fn ck_from(b: string, i: int64, acc: int64) -> int64 {
+    case i >= 8 of {
+        true -> acc;
+        false -> ck_from(b, i + 1, acc * 256 + at(b, i))
+    }
+}
+fn ck_seconds(etf: string) -> int64 {
+    b: string <- rc_bytes(etf);
+    case length_bytes(b) != 8 of {
+        true -> 0 - 1;
+        false -> case at(b, 0) >= 128 of { true -> 0 - 1; false -> ck_from(b, 0, 0) }
+    }
+}
+fn tck(msg: (:bees, int64, string, string, int64), st: { node: actor_ref, edge: dangerous_actor_ref }) -> (:no_reply, { node: actor_ref, edge: dangerous_actor_ref }) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        k: int64 <- rc_k(msg);
+        _: boolean <- case k of {
+            1 -> cast(st.edge, (5, "0", 0, me) impl ActorMessage {});
+            35 -> {
+                sequence proc[concurrency]
+                    ok: boolean <- cast(st.node, (:bees, 130, "", "", ck_seconds(rc_s(msg)), 0, me) impl ActorMessage {});
+                    t: timer_ref <- send_after(read_every_ms(), me, (:bees, 1, "", "", 0) impl ActorMessage {})
+                produces pure ok end
+            };
+            _: int64 -> true
+        }
+    produces pure (:no_reply, { node: st.node, edge: st.edge }) end
 }

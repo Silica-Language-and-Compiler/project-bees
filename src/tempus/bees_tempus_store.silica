@@ -15,8 +15,11 @@
 //                        is the partner, the buffer is the node's own entry at age 0 (when `own`) and count - 1 others
 //                        (count others when not `own`), they leave the view and are remembered, phase 1 (act 1: send
 //                        `out` to `to`).
-//   reply(s, received)   the partner's answer: merged (younger preferred, oldest evicted), then the sent entries fill what
-//                        room is left (ruling, OQ-12); phase 0. More than count entries is a violation and counts as failed.
+//   reply(s, received)   the partner's answer: merged (younger preferred, oldest evicted); in a store that is not of the
+//                        node's own type the partner then re-enters the view at age 0 (ruling NQ-15: it was just reached,
+//                        and it cannot hold the node in that store, so the store would lose one entry per shuffle); then
+//                        the sent entries fill what room is left (ruling, OQ-12); phase 0. More than count entries is a
+//                        violation and counts as failed.
 //   failed(s)            the partner was unreachable, closed, timed out or violated: it stays out of the view, the other
 //                        sent entries are put back (ruling, OQ-12); phase 0.
 //   request(s, asker, received)   a partner's shuffle arrives: up to count entries drawn at random, never the asker's own,
@@ -159,7 +162,10 @@ fn reply(s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], se
             false -> {
                 rcv: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@prefer_sent(received, s.sent);
                 m: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@merge(s.view, rcv, s.me.id, s.cap);
-                back: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@backfill(m, s.sent, s.cap);
+                // ruling NQ-15: in a store that is not of the node's own type the partner cannot hold the node, so
+                // nothing would bring the link back: the partner that answered re-enters at age 0, by the merge rules
+                m2: List[{ id: string, d: string, age: int64 }, mem(normal)] <- case s.own of { true -> m; false -> bees_tempus_view@insert(m, bees_tempus_view@entry(s.pend.id, s.pend.d, 0), s.me.id, s.cap) };
+                back: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@backfill(m2, s.sent, s.cap);
                 idle(s, back)
             }
         }

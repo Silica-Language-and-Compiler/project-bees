@@ -2,7 +2,7 @@
 """Tests of one TEMPUS store's steps (T1, development-plan/tempus-design.md sections 3 and 10).
 
 The trial trials/t1_tempus_store runs src/tempus/bees_tempus_store.silica (entry `steps`): one line per case, then six stores
-and a silent peer for thirty rounds. This test computes every line again with the independent model
+and a silent peer for thirty rounds, then a store that is not of the node's own type (ruling NQ-15). This test computes every line again with the independent model
 tools/bees_tempus_store_model.py and compares with every recorded golden (steps.<platform>.scout) and with the last run's
 output (steps.sout) when there is one.
 
@@ -206,8 +206,104 @@ class Sim:
         return out
 
 
+def drain(own, ticks, put_back=True):
+    """A store holding p q r, each tick answered with nothing: the states after every tick"""
+    s = Store("me", "@me", own, 4, 2)
+    for e in (ent("r", 0), ent("q", 0), ent("p", 0)):
+        s.insert(e)
+    states = [copy.deepcopy(s)]
+    for _ in range(ticks):
+        s.tick_draws = [0, 0, 0]
+        if s.tick()[0] == "shuffle":
+            if put_back:
+                s.reply([])
+            else:           # the rules before ruling NQ-15: merge and backfill only
+                s.view = view.backfill(view.merge(s.view, [], s.me[0], s.cap), s.sent, s.cap)
+                s.sent, s.partner = [], None
+        states.append(copy.deepcopy(s))
+    return states
+
+
+def part_drain():
+    out = []
+    o = base(False)
+    o.tick_draws = [1, 0, 1]
+    o.tick()
+    r1 = copy.deepcopy(o)
+    r1.reply([ent("x", 2)])
+    out.append(state_line("another type, after reply", r1))
+    r2 = copy.deepcopy(o)
+    r2.reply([ent("x", 2), ent("y", 3), ent("z", 4)])
+    out.append(state_line("another type, a reply that fills the view", r2))
+    f = copy.deepcopy(o)
+    f.failed()
+    out.append(state_line("another type, after failed", f))
+    b = base(True)
+    b.tick_draws = [1, 0, 1]
+    b.tick()
+    b.reply([ent("x", 2)])
+    out.append(state_line("own type, after the same reply", b))
+    states = drain(False, 12)
+    out.append(state_line("another type, before twelve ticks", states[0]))
+    for k in (1, 2, 3, 12):
+        out.append(state_line("another type, after tick %d" % k, states[k]))
+    out.append("another type, the smallest view over twelve ticks: %d" % min(len(s.view) for s in states))
+    return out
+
+
+class Sentinel:
+    """NQ-15 as a model run: a sentinel's edge store (not its own type) among edges that shuffle with each other.
+
+    Every round each edge ticks its own store and then the sentinel ticks its edge store. Nobody asks the sentinel, so
+    nothing but the rule keeps its edge store filled. With two edges this is the run of design NQ-15 (seen by hand before
+    the ruling: the sentinel's edge store went from two entries to none and stayed empty)."""
+    SEED = 20261119
+
+    def __init__(self, put_back, edges, cap, length):
+        self.put_back, self.length = put_back, length
+        self.x = self.SEED
+        self.edges = {}
+        for i in range(edges):
+            s = Store("e%d" % i, "@e%d" % i, True, cap, length)
+            for j in range(1, edges):
+                s.insert(ent("e%d" % ((i + j) % edges), 0))
+            self.edges[s.me[0]] = s
+        self.s = Store("s", "@s", False, cap, length)
+        for i in range(min(cap, edges)):
+            self.s.insert(ent("e%d" % i, 0))
+
+    def draws(self):
+        out = []
+        for _ in range(self.length + 1):
+            self.x = (self.x * 1103515245 + 12345) % 2147483648
+            out.insert(0, self.x // 65536)
+        return out
+
+    def tick(self, s):
+        s.tick_draws = self.draws()
+        act = s.tick()
+        if act[0] != "shuffle":
+            return
+        q = self.edges[act[1][0]]
+        q.reply_draws = self.draws()
+        answer = q.request(s.me[0], act[2])
+        if s is self.s and not self.put_back:    # the rules before ruling NQ-15: merge and backfill only
+            s.view = view.backfill(view.merge(s.view, view.prefer_sent(answer, s.sent), "s", s.cap), s.sent, s.cap)
+            s.sent, s.partner = [], None
+        else:
+            s.reply(answer)
+
+    def sizes(self, rounds):
+        out = []
+        for _ in range(rounds):
+            for s in list(self.edges.values()) + [self.s]:
+                self.tick(s)
+            out.append(len(self.s.view))
+        return out
+
+
 def expected():
-    return part_tick() + part_other() + Sim().lines() + ["exit=0"]
+    return part_tick() + part_other() + Sim().lines() + part_drain() + ["exit=0"]
 
 
 class ActorSim:
@@ -315,6 +411,25 @@ class StoreRules(unittest.TestCase):
         for st in a.world:
             self.assertTrue(view.valid(st.view, st.me[0], a.CAP))
             self.assertFalse(any(e[0] == "n9" for e in st.view))
+
+    def test_store_of_another_type_does_not_drain(self):
+        """NQ-15: with the partner put back the store keeps its entries; by the rules before the ruling it empties"""
+        self.assertEqual([len(s.view) for s in drain(False, 12)], [3] * 13)
+        self.assertEqual([len(s.view) for s in drain(False, 12, put_back=False)][:4], [3, 2, 1, 0])
+        self.assertTrue(all(view.valid(s.view, "me", 4) for s in drain(False, 12)))
+        # a store of the node's own type is unchanged by the ruling: its partner is not put back
+        own = drain(True, 1)[1]
+        self.assertEqual(len(own.view), 2)
+
+    def test_sentinel_edge_store_over_many_ticks(self):
+        """NQ-15 as a model run, 500 rounds: the sentinel's edge store keeps every edge; before the ruling it emptied"""
+        self.assertEqual(set(Sentinel(True, 2, 3, 2).sizes(500)), {2})
+        before = Sentinel(False, 2, 3, 2).sizes(500)
+        self.assertEqual(before[:3], [1, 1, 0])
+        self.assertEqual(set(before[2:]), {0})
+        # five edges, room for four: full at every round; before the ruling it fell to two
+        self.assertEqual(set(Sentinel(True, 5, 4, 2).sizes(500)), {4})
+        self.assertEqual(min(Sentinel(False, 5, 4, 2).sizes(500)), 2)
 
     def test_silent_peer_is_forgotten(self):
         s = Sim()

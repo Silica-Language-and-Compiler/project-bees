@@ -63,4 +63,14 @@ after round 30, views holding the silent peer: 0
   n4: n3:0 n2:1 n0:0 n5:1
   n5: n0:0 n4:1 n2:1 n1:1
 every view valid after every exchange: yes
+another type, after reply: view c:0 x:2 e:1 a:4 d:2 | sent (empty) | phase 0
+another type, a reply that fills the view: view c:0 x:2 y:3 z:4 e:1 | sent (empty) | phase 0
+another type, after failed: view e:1 a:4 d:2 b:6 | sent (empty) | phase 0
+own type, after the same reply: view x:2 b:6 e:1 a:4 d:2 | sent (empty) | phase 0
+another type, before twelve ticks: view p:0 q:0 r:0 | sent (empty) | phase 0
+another type, after tick 1: view p:0 q:1 r:1 | sent (empty) | phase 0
+another type, after tick 2: view q:0 p:1 r:2 | sent (empty) | phase 0
+another type, after tick 3: view r:0 q:1 p:2 | sent (empty) | phase 0
+another type, after tick 12: view r:0 q:1 p:2 | sent (empty) | phase 0
+another type, the smallest view over twelve ticks: 3
 exit=0

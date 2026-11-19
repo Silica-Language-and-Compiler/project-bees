@@ -267,3 +267,9 @@ Different seeds on the two machines on purpose: two runs of one seed would play 
 6. **`trials/f2_fuzz_long/nodes` and `resolve/` are generated copies** (ignored by git). The alternative is one set of nodes
    whose ports come from the environment, which needs the boot-time config reader (N0.2/D46). Recommendation: keep the copies
    until the reader exists.
+
+## Owner rulings on section 11 (recorded by the coordinator)
+
+RULED 2026-11-19 (owner): `opts` is required in a TRUST request (call and cast). SEMP's wire definition writes `opts := map()` (README lines 98-99) and its client always sends it; SEMP's server reads it leniently (`maps:get(opts, Map, #{})`), BEES does not follow that leniency. A request without `opts`, or with an `opts` that is not a map, is refused as malformed. To be built in the TRUST frame check (one-request path and session path), with a trial case and the fuzzer's verdict table updated.
+
+RULED 2026-11-19 (owner), F1-7 (a node whose standard output blocks stops serving): logs go through the local storage transport; the application supplies the logging actor and chooses the store's retention type; dropped lines are counted and the count reported. Roadmap D48.

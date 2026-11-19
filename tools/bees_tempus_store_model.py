@@ -59,6 +59,10 @@ class Store:
             self.failed()
             return
         merged = view.merge(self.view, view.prefer_sent(received, self.sent), self.me[0], self.cap)
+        if not self.own:
+            # NQ-15, ruled 2026-11-19: the partner that answered re-enters at age 0 (it cannot hold this node in a store
+            # that is not of this node's type, so nothing else would bring the link back)
+            merged = view.insert(merged, (self.partner[0], self.partner[1], 0), self.me[0], self.cap)
         self.view = view.backfill(merged, self.sent, self.cap)
         self.sent, self.partner = [], None
 

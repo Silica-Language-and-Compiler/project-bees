@@ -270,6 +270,9 @@ the open session to that server, if there is one, and returns at once; no answer
 - With no acknowledged session to that server (none open, or a connection whose `ok` has not arrived yet), an address that is
   not pinned, or on a node whose limits are 1 and 1, it does nothing.
 
+
+RULED 2026-11-19 (owner): Q14 option (b): `{session, none}` builds a TRUST node without the session units, using N3's one-request-per-connection actors. To be built; once the default-on switch is flipped, trials and nodes that need a true one-request node use `{session, none}`.
+
 ## 10. Trial plan
 
 `trials/n5_trust_mux` (plaintext, as N3) and `trials/n5_trust_mux_tls` (mutual TLS 1.3, as N4); ports 23000 and 23100 blocks.

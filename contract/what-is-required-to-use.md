@@ -80,3 +80,28 @@ Open consequences:
   and the configured value is enforced on every frame.
 
 Design notes: development-plan/bees-config-file.md section 12 (roadmap D46, D47).
+
+## 7. Known limit: stack use grows with the length of a list or term (Silica defect SD-59)
+
+Until Silica fixes its defect SD-59 (development-plan/silica-defects.md), the code that encodes and decodes lists, maps,
+sets and dynamic terms uses stack in proportion to the number of elements, in BEES's own loops and in Silica's derived list
+codec alike. Decided 2026-11-19: BEES does not work around this; it is documented here.
+
+- Inside an actor, which is where a node decodes what it receives, the stack is large on the hosted platforms and the limits
+  BEES enforces (65,536 tokens in a dynamic term, 1024 entries in a map or set, the configured frame cap) were run without a
+  fault on macOS and Linux.
+- In a program's main function on Linux the stack is the process stack (8 MiB by default): decoding a dynamic term of about
+  5,000 elements there faults. Do the decoding in an actor, or raise the process stack limit.
+- On a small device an actor's stack is small too. Choose the frame cap and the list lengths an application accepts with
+  that in mind; the boards are not measured yet.
+- A program's own function that calls itself and returns a record, or two functions that call each other, has the same
+  behaviour: one stack frame per step.
+
+## 8. Limit on the size of a dynamic term (decided 2026-11-19, not built yet)
+
+A dynamic term (a message whose shape is not declared) is decoded into tokens. BEES compiles in a maximum of 65,536 tokens
+per term. An application also states its own limit, `term_tokens_max`, at or below that maximum; there is no default. A term
+with more tokens than the stated limit is refused. At the maximum one decode uses about 45 MB on the hosted platforms
+(section 7 says why), so a node that expects many peers, or runs on a small device, should state a much smaller limit.
+Until the option is built only the compiled maximum applies.
+

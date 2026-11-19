@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 static int failures = 0;
 static void check(const char *what, int ok) {
@@ -82,6 +83,20 @@ int main(void) {
     s = bees_tempus_sha512(buf, 0);
     check("sha512 refuses no bytes", s.tag == 1);
 
+    /* the system clock (ruling NQ-11): 8 bytes as an ETF binary; a time after 2026-01-01 (1767225600) and the same second
+     * as, or the one after, the C library's time() read just before; two readings do not go back */
+    {
+        time_t before = time(0);
+        bees_tempus_bytes w1 = bees_tempus_wall_clock((const uint8_t *)"", 0);
+        bees_tempus_bytes w2 = bees_tempus_wall_clock(0, 0);
+        int shaped = w1.tag == 0 && w1.text_len == 14 && w1.text_ptr[0] == 131 && w1.text_ptr[1] == 109 && w1.text_ptr[5] == 8
+            && w2.tag == 0 && w2.text_len == 14;
+        uint64_t a = 0, b = 0;
+        if (shaped) for (int i = 0; i < 8; i++) { a = (a << 8) | w1.text_ptr[6 + i]; b = (b << 8) | w2.text_ptr[6 + i]; }
+        check("the system clock answers 8 bytes as an ETF binary", shaped);
+        check("the system clock is the C library's time, in seconds since 1970", shaped && a >= (uint64_t)before && a <= (uint64_t)before + 2 && a > 1767225600u);
+        check("a second reading is not earlier", shaped && b >= a && b <= a + 2);
+    }
     printf("%s\n", failures == 0 ? "all passed" : "FAILURES");
     return failures == 0 ? 0 : 1;
 }

@@ -538,7 +538,7 @@ Owner rulings, 2026-11-19:
 - (a) RULED: option 1, and a listen address may be any valid address, not only 127.0.0.1 or 0.0.0.0 (one address, or a list of at most two, one per family, one listener each).
 - (b) RULED: option 1, "localhost" is exactly 127.0.0.1, never resolved.
 - (c) RULED: option 3, a listen address may be a name, resolved by BEES's resolver (TRUST's existing resolver timeout; a new BEAM-mode option for the same, stated explicitly with no default).
-- (d) open: the owner asked why any of these ranges would be filtered; explanation given, awaiting a ruling.
+- (d) RULED 2026-11-19: option 1 with the full list. The filter stays on both families. IPv4 as today (0.0.0.0/8, multicast, broadcast, reserved refused; private kept). IPv6 never dialled: ::/128, ff00::/8, ::ffff:0:0/96 (IPv4-mapped), 64:ff9b::/96 and 64:ff9b:1::/48 (NAT64), fe80::/10, 2001:db8::/32 and 3fff::/20, 100::/64. Kept: fc00::/7 and global unicast. Loopback is ::1/128 only; a loopback-only setting refuses every other IPv6 address.
 - (e) RULED: option 1, the system resolver's order, every address tried in turn.
 - (f) RULED (owner wrote "(c): accept option 1" a second time; read as (f), to be confirmed): option 1, refuse non-canonical IPv6 text at validation with the canonical form in the message.
 

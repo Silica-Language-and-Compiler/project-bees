@@ -1,0 +1,106 @@
+// Ticker state: t0 (monotonic origin), n (tick count), last (previous tick), b1 and b2 (busy actors), mode
+// (0 one busy actor; 2 two busy actors; 3 ticker migrates itself away from b1's carrier at tick 1; 4 ticker migrates
+// itself onto b1's carrier at tick 1), spins (loop length sent to each busy actor at tick 4).
+fn ms_since(a: int64, b: int64) -> int64 { (b - a) / 1000000 }
+
+fn spin(i: int64, acc: int64) -> int64 { case i <= 0 of { true -> acc; false -> spin(i - 1, (acc * 7 + i) % 1000003) } }
+
+fn busy(msg: int64, st: { t0: int64, id: int64 }) -> (:no_reply, { t0: int64, id: int64 }) {
+    sequence proc[concurrency, device_io]
+        a: int64 <- monotonic_time();
+        print("busy");
+        print_int64(st.id);
+        print(" start t=");
+        print_int64(ms_since(st.t0, a));
+        print(" carrier=");
+        print_int64(actor_carrier_index(self()));
+        println("");
+        r: int64 <- spin(msg, 1);
+        b: int64 <- monotonic_time();
+        print("busy");
+        print_int64(st.id);
+        print(" end   t=");
+        print_int64(ms_since(st.t0, b));
+        print(" took=");
+        print_int64(ms_since(a, b));
+        print(" acc=");
+        print_int64(r);
+        println("")
+    produces pure (:no_reply, st) end
+}
+
+fn mig(st: { t0: int64, n: int64, last: int64, b1: actor_ref, b2: actor_ref, mode: int64, spins: int64 }) -> atom {
+    sequence proc[concurrency, device_io]
+        bc: int64 <- actor_carrier_index(st.b1);
+        target: int64 <- case st.mode == 4 of { true -> bc; false -> case bc == 0 of { true -> 1; false -> 0 } };
+        r: atom <- migrate_actor(self(), target);
+        print("ticker migrate to carrier ");
+        print_int64(target);
+        print(" (busy1 on ");
+        print_int64(bc);
+        print("): ");
+        print_atom(r);
+        println("")
+    produces pure r end
+}
+
+fn ticker(msg: { kind: int64, a: actor_ref, b: actor_ref }, st: { t0: int64, n: int64, last: int64, b1: actor_ref, b2: actor_ref, mode: int64, spins: int64 }) -> (:no_reply, { t0: int64, n: int64, last: int64, b1: actor_ref, b2: actor_ref, mode: int64, spins: int64 }) {
+    case msg.kind == 1 of {
+        true -> {
+            sequence proc[concurrency]
+                t: timer_ref <- send_after(50, self(), { kind: 0, a: msg.a, b: msg.b } impl ActorMessage {})
+            produces pure (:no_reply, { t0: st.t0, n: st.n, last: st.last, b1: msg.a, b2: msg.b, mode: st.mode, spins: st.spins }) end
+        };
+        false -> tick(msg, st)
+    }
+}
+
+fn tick(msg: { kind: int64, a: actor_ref, b: actor_ref }, st: { t0: int64, n: int64, last: int64, b1: actor_ref, b2: actor_ref, mode: int64, spins: int64 }) -> (:no_reply, { t0: int64, n: int64, last: int64, b1: actor_ref, b2: actor_ref, mode: int64, spins: int64 }) {
+    sequence proc[concurrency, device_io]
+        now: int64 <- monotonic_time();
+        print("tick ");
+        print_int64(st.n);
+        print(" t=");
+        print_int64(ms_since(st.t0, now));
+        print(" gap=");
+        print_int64(ms_since(st.last, now));
+        print(" carrier=");
+        print_int64(actor_carrier_index(self()));
+        print(" busy1=");
+        print_int64(actor_carrier_index(st.b1));
+        print(" busy2=");
+        print_int64(actor_carrier_index(st.b2));
+        println("");
+        _: atom <- case st.n == 1 and st.mode >= 3 of { true -> mig(st); false -> :ok };
+        _: boolean <- case st.n == 4 of { true -> cast(st.b1, st.spins impl ActorMessage {}); false -> true };
+        _: boolean <- case st.n == 4 and st.mode == 2 of { true -> cast(st.b2, st.spins impl ActorMessage {}); false -> true };
+        _: boolean <- case st.n >= 70 of {
+            true -> cast_exit(0);
+            false -> {
+                sequence proc[concurrency]
+                    t: timer_ref <- send_after(50, self(), msg impl ActorMessage {})
+                produces pure true end
+            }
+        }
+    produces pure (:no_reply, { t0: st.t0, n: st.n + 1, last: now, b1: st.b1, b2: st.b2, mode: st.mode, spins: st.spins }) end
+}
+
+fn idle(msg: int64, st: int64) -> (:no_reply, int64) { (:no_reply, st) }
+
+fn spins_default() -> int64 { 150000000 }
+
+// FailureReporter (spec 15.4.13.4): writes a failure report to standard error; any abnormal end stops the program with
+// status 70. It prints nothing in a normal run.
+fn region_dump_limit() -> int64 { 0 }
+fn reporter(report: string, state: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency, device_io]
+        _: atom <- println_stderr(report);
+        _: boolean <- case contains(report, "reason_tag:      0") of { true -> true; false -> cast_exit(70) }
+    produces pure (:no_reply, state) end
+}
+fn start_reporter() -> atom {
+    sequence proc[concurrency]
+        r: actor_ref <- spawn(0, reporter, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        g: atom <- register_failure_reporter(r)
+    produces pure g end
+}

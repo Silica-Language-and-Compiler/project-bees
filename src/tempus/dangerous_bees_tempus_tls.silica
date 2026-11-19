@@ -8,8 +8,10 @@
 // What differs from TRUST's link:
 //   - It uses no generated configuration unit. Its values are in its state, given by whoever spawns it (the application
 //     passes values): spec (certfile, NUL, keyfile, NUL, NUL: no CA, a TEMPUS certificate is self-signed over the node's
-//     identity key, ruling OQ-2), dial (the carrier's connect budget in milliseconds, as text), hs_ms (the bound of the
-//     handshake).
+//     identity key, ruling OQ-2), dial (the carrier's connect budget in milliseconds, as text), hs_ms. In a link (tlnk)
+//     hs_ms is the connection's DEADLINE, the monotonic clock's value in ms at which its one bound has passed (ruling
+//     NQ-14: shuffle_timeout_ms is one bound from the dial, or the accept, to the close): the handshake is given what
+//     is left of it. In the listener (tlnkl) hs_ms is that bound in ms; each accepted link gets its deadline at the accept.
 //   - No pin and no whitelist here. A finished handshake is accepted when it shows ALPN tempus/1, a peer certificate,
 //     X25519MLKEM768, and a peer certificate whose key is Ed25519 (the engine's peer_key answers; any other key type is
 //     refused, tempus_cert_key). TEMPUS connections use the hybrid key exchange only: there is no classical
@@ -406,11 +408,15 @@ fn tlnk(msg: (:open, actor_ref, string) | (:tx, string, actor_ref) | (:credit, i
             true -> cast(st.car, (:credit, 1) impl ActorMessage {});
             false -> true
         };
-        // ---- the handshake is bounded (client_handshake_timeout); more plaintext may be waiting after a delivery
+        // ---- the handshake is bounded by what is left of the connection's one bound (ruling NQ-14: hs_ms is the deadline,
+        // the monotonic clock's value in ms); more plaintext may be waiting after a delivery
         _: boolean <- case opened of {
             true -> {
                 sequence proc[concurrency]
-                    _: timer_ref <- send_after(st.hs_ms, me, :timeout impl ActorMessage {})
+                    mono: int64 <- monotonic_time();
+                    now_ms: uint64 <- to_uint64(mono / 1000000);
+                    left: uint64 <- case st.hs_ms > now_ms of { true -> st.hs_ms - now_ms; false -> 0 };
+                    _: timer_ref <- send_after(left, me, :timeout impl ActorMessage {})
                 produces pure true end
             };
             false -> true
@@ -557,7 +563,10 @@ fn l_act(msg: (:open, actor_ref, string) | :close | (:link_up, string) | (:accep
         (:link_up, i: string) -> { sequence proc[concurrency] _: boolean <- cast(st.owner, (:link_up, i) impl ActorMessage {}) produces pure st.owner end };
         (:accepted, c: dangerous_actor_ref, _i2: string) -> {
             sequence proc[concurrency]
-                l: dangerous_actor_ref <- spawn_dangerous({ owner: actor_ref_of_word(0), car: c, w: c, h: 0 - 1, role: 2, phase: 0, credit: 0, car_out: false, sent: 0, told: false, spec: st.spec, dial: st.dial, hs_ms: st.hs_ms }, tlnk, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+                // the accepted connection's one bound begins here (ruling NQ-14): its link gets the deadline
+                mono: int64 <- monotonic_time();
+                dl: uint64 <- to_uint64(mono / 1000000) + st.hs_ms;
+                l: dangerous_actor_ref <- spawn_dangerous({ owner: actor_ref_of_word(0), car: c, w: c, h: 0 - 1, role: 2, phase: 0, credit: 0, car_out: false, sent: 0, told: false, spec: st.spec, dial: st.dial, hs_ms: dl }, tlnk, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
                 _: boolean <- cast(st.owner, (:accepted, l, "peer:accepted") impl ActorMessage {})
             produces pure st.owner end
         };

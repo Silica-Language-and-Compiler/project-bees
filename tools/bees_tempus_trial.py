@@ -21,6 +21,7 @@ import pty
 import re
 import select
 import subprocess
+import socket
 import sys
 import threading
 import time
@@ -400,7 +401,9 @@ def c2_python(leaf, nodes):
         step(3, S, c.tick("tempus_sentinel"), kind="done")
         check(seen_s[-1] == ("shuffle", "tempus_sentinel", []), "rows 5, 10: the shuffle of the sentinel store: %r" % (seen_s[-1],))
         out = step(4, S, c.sample("tempus_sentinel", 2), kind="sample_reply")
-        check(view(out) == [id8(b3("tempus_sentinel", 0)) + "@1"], "the sentinel store after its shuffle: " + out.line())
+        # the entry the client answered with, and the client itself: the partner that answered is put back at age 0 in a
+        # store that is not of the node's own type (ruling NQ-15); before the ruling the store held the answered entry alone
+        check(sorted(view(out)) == sorted([id8(b3("tempus_sentinel", 0)) + "@1", s8 + "@0"]), "the sentinel store after its shuffle: " + out.line())
         step(5, S, c.shuffle("tempus_sentinel", [S.entry(0), x(3, 7, typ="tempus_sentinel")]), kind="shuffle_reply")
         step(6, S, c.tick("tempus_bridge"), kind="done")
         n.wait(r"^view tempus_bridge: %s@0$" % s8)
@@ -494,8 +497,13 @@ def c2_python(leaf, nodes):
         refused("P6", E, smp, misbehaviour=c.oversize_frame_at("advert"))
         refused(42, E, c.shuffle("tempus_edge", [ident(128, "tempus_sentinel", 2000, dead).entry(0)]))
         # row 37
-        # (node O's clock runs on from the trial's value, so the token for it ends far away)
+        # (node O is not a test node: its clock is the system's, ruling NQ-11, so the token for it ends far away)
         refused(43, E.with_token(tok(exp=4000000000)), tck, addr=o_addr)
+        # P9, P10 (Python only), ruling NQ-11: node O reads the system clock. The trial's own tokens (valid 1000 to 3000
+        # seconds after 1970, which test node N admits at its clock of 1500) have expired for it, and a token that
+        # begins at 3900000000 is not valid yet; the reason is in O's output. Neither line holds a time of day.
+        refused("P9", E, smp, addr=o_addr)
+        refused("P10", E.with_token(tok(nbf=3900000000, exp=4000000000)), smp, addr=o_addr)
         # P7 (Python only), row 26: what the TLS link refuses, and a peer that connects and says nothing
         for name, how in (("TLS 1.2 only", c.tls12_only()), ("another ALPN", c.other_alpn()), ("no certificate", c.no_certificate()),
                           ("a P-256 certificate", c.p256_cert()), ("an RSA certificate", c.rsa_cert())):
@@ -503,7 +511,6 @@ def c2_python(leaf, nodes):
             p.log.append(out.line())
             check(out.what in ("tls_failed", "closed") and out.stage in ("tls", "advert"), "row 26, %s: %s" % (name, out.line()))
             quiet()
-        import socket
         t0 = time.monotonic()
         with socket.create_connection(("127.0.0.1", base), timeout=3.0) as raw:
             raw.settimeout(8.0)
@@ -552,6 +559,31 @@ def c2_python(leaf, nodes):
         p.clock[0] = 2600
         out = step(54, E, smp, want="refused")
         check("expired" in out.reason, "row 15: the client did not refuse the node's expired token: " + out.line())
+        # P11 (Python only), ruling NQ-14: shuffle_timeout_ms (2000 here) is ONE bound from the accept to the close. The
+        # client connects, waits a second before its TLS handshake, finishes it and then says nothing: the node closes
+        # two seconds after the accept (stage advert), not two seconds after the handshake (three seconds, as it was
+        # when each stage had the bound to itself).
+        ctx = c._context(False, E, "1.3", c.ALPN, "own", ())
+        t0 = time.monotonic()
+        raw = socket.create_connection(("127.0.0.1", base), timeout=3.0)
+        time.sleep(1.0)
+        tls = ctx.wrap_socket(raw)
+        shook = time.monotonic() - t0
+        tls.settimeout(8.0)
+        try:
+            while tls.recv(4096):
+                pass
+            ended = "closed"
+        except socket.timeout:
+            ended = "still open"
+        except OSError:
+            ended = "closed"
+        took = time.monotonic() - t0
+        tls.close()
+        check(ended == "closed" and shook < 1.8 and 1.7 < took < 2.75,
+              "NQ-14: a connection silent after a late handshake was not closed at one bound from its accept "
+              "(handshake done at %.2f s, %s at %.2f s; 2.0 s wanted, 3.0 s is one bound per stage)" % (shook, ended, took))
+        quiet()
     print("[c2] the Python client's steps passed (%d requests)" % len(p.log))
 
 
@@ -684,6 +716,35 @@ def c3(leaf):
             closed(N, b1, call("n%d" % k, "bad", []))
         t.wait(r"quarantined")
         closed(N, b1, call("n3", "onward", [20, 22]))
+        # ---- ruling NQ-19: what the connection actor refuses of an edge raises that edge's score at the bridge. Edge Q
+        # never has a request answered or refused by the bridge itself: six refusals of its connections (a proof of
+        # possession that does not verify, a frame that is no request, a frame above the ceiling, an expired token, a
+        # token another key signed, silence where its challenge was due until the bound) take its score to 6, above the
+        # limit of 5, and its first good request is then refused for its score.
+        Q = ident(96, "tempus_edge", lp)
+        prod = c.fixture_key(0)
+        qtok = lambda signer=prod, exp=3000: c.make_token(signer, "k1", Q.pub, "tempus_edge", 1000, exp)  # noqa: E731
+        good = call("s0", "add", [2, 3])
+        p.ask(b1, Q, good, want="closed", misbehaviour=c.wrong_proof_bytes())
+        quiet()
+        p.ask(b1, Q, good, want="closed", misbehaviour=c.wrong_frame_at("request", c.etf_encode({A("t"): A("tempus_edge")})))
+        quiet()
+        p.ask(b1, Q, good, want="closed", misbehaviour=c.oversize_frame_at("request"))
+        quiet()
+        closed(Q.with_token(qtok(exp=1400)), b1, good)
+        closed(Q.with_token(qtok(signer=c.fixture_key(96))), b1, good)
+        p.ask(b1, Q, good, want="closed", misbehaviour=c.silent_at("challenge", 7.0), timeout=9.0)
+        quiet()
+        n1.wait(r"bridge_score peer=\S+ raised to 6 by timeout")
+        closed(Q, b1, call("s1", "add", [2, 3]))
+        n1.wait(r"bridge_refused peer=\S+ score 6 is above the limit 5")
+        # an edge the bridge has never served and whose token the producer did not sign gets no entry (the table is
+        # bounded by tokens the producer signed): Z is refused twice, then served with a score of 0
+        Z = ident(112, "tempus_edge", lp)
+        ztok = c.make_token(c.fixture_key(96), "k1", Z.pub, "tempus_edge", 1000, 3000)
+        closed(Z.with_token(ztok), b1, good)
+        closed(Z.with_token(c.make_token(prod, "k1", Z.pub, "tempus_edge", 1000, 1400)), b1, good)
+        result(Z, b1, call("z0", "add", [2, 3]), 5)
         print("[c3] the Python client's steps passed (%d requests)" % len(p.log))
     finally:
         for n in list(nodes.values()):
