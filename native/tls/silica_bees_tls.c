@@ -48,9 +48,37 @@
 #define BEES_TLS_READ_CAP 16384u   /* one TLS record of plaintext */
 
 static const unsigned char ALPN_TRUST[] = { 7, 't', 'r', 'u', 's', 't', '/', '1' };
+/* TEMPUS (development-plan/tempus-design.md 17.6): a second profile beside TRUST's, with its own ALPN and its own contexts,
+   so one process (a bridge) holds two credentials. Profile 0 is TRUST and is what every call that does not say otherwise
+   gets: bees_tls_set_args(role, 0) before bees_tls_open, as before. Profile 1 is TEMPUS: bees_tls_set_args(role, 1). */
+static const unsigned char ALPN_TEMPUS[] = { 8, 't', 'e', 'm', 'p', 'u', 's', '/', '1' };
+/* BEAM distribution (N2T, development-plan/spikes/N2T-beam-tls.md): a third profile, for BEAM-mode links to stock Erlang
+   nodes started with -proto_dist inet_tls and between BEES nodes. bees_tls_set_args(role, 16): the number is NOT the next one,
+   on purpose. Before this profile every number but 0 and 1 was refused by bees_tls_open, and that stays so for every number but
+   16 (TEMPUS's self-test, native/tempus/selftest, opens profile 2 to show that a profile that does not exist is refused; its
+   golden is unchanged). The contexts are kept by slot (profile_slot), not by the number. It differs from TRUST's in what
+   stock Erlang needs and ONLY for this profile (profiles 0 and 1 are untouched): no ALPN (inet_tls_dist uses none; the
+   "protocol" of the profile is the empty one, so bees_tls_facts bit 0 says that none was selected); X25519MLKEM768 preferred
+   and classical X25519 accepted from any verified peer (stock OTP 28 has no hybrid group; ruled 2026-11-18); a cacertfile is
+   REQUIRED (verify_peer against a CA; no pins-only mode here); RSA certificates are accepted beside Ed25519 and ECDSA P-256
+   (BEES_TLS_BEAM_RSA_SIGALGS, the one place); and a client checks the server's certificate against a name (the host part of
+   the peer's node name, an optional fifth spec field), which it also sends as SNI, as a stock Erlang node does. */
+static const unsigned char ALPN_NONE[] = { 0 };
+#define BEES_TLS_PROFILE_BEAM 16
+/* THE ONE PLACE where BEAM-mode TLS accepts RSA (ruled 2026-11-18, N2T Q4, for interoperation with existing Erlang clusters):
+   RSA-PSS signatures only, in the handshake and on certificates (rsa_pss_rsae_*: an ordinary RSA key; rsa_pss_pss_*: an
+   RSA-PSS key). PKCS#1 v1.5 (rsa_pkcs1_*) is not in the list, and keys below 2048 bits are refused by security level 2, set
+   explicitly for this profile. Remove this list from BEES_TLS_BEAM_SIGALGS to refuse RSA again. */
+#define BEES_TLS_BEAM_RSA_SIGALGS ":rsa_pss_rsae_sha256:rsa_pss_rsae_sha384:rsa_pss_rsae_sha512:rsa_pss_pss_sha256:rsa_pss_pss_sha384:rsa_pss_pss_sha512"
+#define BEES_TLS_BEAM_SIGALGS "ed25519:ecdsa_secp256r1_sha256" BEES_TLS_BEAM_RSA_SIGALGS
+#define BEES_TLS_PROFILES 3   /* slots of the context table: TRUST, TEMPUS, BEAM */
+/* the context slot of a profile number, or -1 for a number that names no profile (refused by bees_tls_open) */
+static int profile_slot(int64_t profile) { return profile == 0 ? 0 : profile == 1 ? 1 : profile == BEES_TLS_PROFILE_BEAM ? 2 : -1; }
+static const unsigned char *alpn_of(int profile) { return profile == BEES_TLS_PROFILE_BEAM ? ALPN_NONE : profile == 1 ? ALPN_TEMPUS : ALPN_TRUST; }
 
 /* ---- the thread's answer span (taken by bees_tls_take in the same dispatch) ------------------------------------------ */
 static _Thread_local int64_t arg_a = 0;
+static _Thread_local int64_t arg_b = 0;   /* bees_tls_open: the profile (0 TRUST, 1 TEMPUS); unused by the other calls */
 static _Thread_local uint8_t *span = 0;
 static _Thread_local uint64_t span_len = 0;
 
@@ -70,9 +98,9 @@ static int span_set(const uint8_t *p, uint64_t n) {
     return 1;
 }
 
-/* ---- contexts: one per role, built once from the paths the first open names ------------------------------------------ */
+/* ---- contexts: one per profile and role, built once from the paths the first open of that profile and role names ----- */
 static pthread_mutex_t ctx_lock = PTHREAD_MUTEX_INITIALIZER;
-static SSL_CTX *ctxs[3] = {0, 0, 0};
+static SSL_CTX *ctxs[BEES_TLS_PROFILES][3] = {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}};
 
 /* D43: with no cacertfile the chain is not verified against any CA: a self-signed or any-issuer certificate, within or past its
    dates, is accepted by the handshake and BEES's Silica judges the peer by the SHA-512 of its DER (D11) and the whitelist.
@@ -85,12 +113,13 @@ static int accept_any_chain_cb(X509_STORE_CTX *store_ctx, void *arg) {
 
 static int alpn_select(SSL *ssl, const unsigned char **out, unsigned char *outlen, const unsigned char *in,
                        unsigned int inlen, void *arg) {
-    (void)ssl; (void)arg;
+    (void)ssl;
+    const unsigned char *want = (const unsigned char *)arg;   /* the context's one protocol, length first */
     unsigned int i = 0;
     while (i < inlen) {
         unsigned int n = in[i];
         if (i + 1 + n > inlen) break;
-        if (n == sizeof ALPN_TRUST - 1 && memcmp(in + i + 1, ALPN_TRUST + 1, n) == 0) {
+        if (n == want[0] && memcmp(in + i + 1, want + 1, n) == 0) {
             *out = in + i + 1;
             *outlen = (unsigned char)n;
             return SSL_TLSEXT_ERR_OK;
@@ -100,16 +129,21 @@ static int alpn_select(SSL *ssl, const unsigned char **out, unsigned char *outle
     return SSL_TLSEXT_ERR_ALERT_FATAL;   /* no_application_protocol */
 }
 
-static SSL_CTX *make_ctx(int role, const char *cert, const char *key, const char *ca, int classical) {
+static SSL_CTX *make_ctx(int role, const char *cert, const char *key, const char *ca, int classical, int profile) {
+    const unsigned char *alpn = alpn_of(profile);
+    int beam = profile == BEES_TLS_PROFILE_BEAM;   /* N2T: see ALPN_NONE above; every other profile takes the paths it took before */
+    if (beam) classical = 1;                       /* X25519 beside the hybrid, from any verified peer (ruled 2026-11-18, Q2) */
+    if (beam && ca[0] == 0) return 0;              /* BEAM mode verifies against a CA; there is no pins-only mode */
     SSL_CTX *c = SSL_CTX_new(TLS_method());
     if (c == 0) return 0;
+    if (beam) SSL_CTX_set_security_level(c, 2);    /* RSA and DH keys of at least 2048 bits, no SHA-1 or MD5 signatures */
     int good = SSL_CTX_set_min_proto_version(c, TLS1_3_VERSION) == 1
         && SSL_CTX_set_max_proto_version(c, TLS1_3_VERSION) == 1
         && SSL_CTX_set_ciphersuites(c, "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256") == 1
         /* D44: X25519MLKEM768 only, unless some whitelist entry is marked classical-allowed: then X25519 is also offered, and
            BEES's Silica refuses, after the handshake, a classical connection whose peer is not such an entry */
         && SSL_CTX_set1_groups_list(c, classical ? "X25519MLKEM768:X25519" : "X25519MLKEM768") == 1
-        && SSL_CTX_set1_sigalgs_list(c, "ed25519:ecdsa_secp256r1_sha256") == 1
+        && SSL_CTX_set1_sigalgs_list(c, beam ? BEES_TLS_BEAM_SIGALGS : "ed25519:ecdsa_secp256r1_sha256") == 1
         && SSL_CTX_use_certificate_chain_file(c, cert) == 1
         && SSL_CTX_use_PrivateKey_file(c, key, SSL_FILETYPE_PEM) == 1
         && SSL_CTX_check_private_key(c) == 1
@@ -123,19 +157,22 @@ static SSL_CTX *make_ctx(int role, const char *cert, const char *key, const char
     SSL_CTX_set_verify(c, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, 0);
     if (ca[0] == 0) SSL_CTX_set_cert_verify_callback(c, accept_any_chain_cb, 0);
     SSL_CTX_set_verify_depth(c, 4);
-    if (role == 1) {
-        if (SSL_CTX_set_alpn_protos(c, ALPN_TRUST, sizeof ALPN_TRUST) != 0) { SSL_CTX_free(c); return 0; }
+    if (beam) {
+        /* no ALPN: a client offers none, and a server selects none whatever the client offers */
+    } else if (role == 1) {
+        if (SSL_CTX_set_alpn_protos(c, alpn, (unsigned int)alpn[0] + 1) != 0) { SSL_CTX_free(c); return 0; }
     } else {
-        SSL_CTX_set_alpn_select_cb(c, alpn_select, 0);
+        SSL_CTX_set_alpn_select_cb(c, alpn_select, (void *)alpn);
     }
     return c;
 }
 
-static SSL_CTX *ctx_for(int role, const char *cert, const char *key, const char *ca, int classical) {
+static SSL_CTX *ctx_for(int role, const char *cert, const char *key, const char *ca, int classical, int profile) {
     SSL_CTX *c;
     pthread_mutex_lock(&ctx_lock);
-    if (ctxs[role] == 0) ctxs[role] = make_ctx(role, cert, key, ca, classical);   /* a failure is retried at the next open */
-    c = ctxs[role];
+    int slot = profile_slot(profile);   /* bees_tls_open has refused a number that names no profile */
+    if (ctxs[slot][role] == 0) ctxs[slot][role] = make_ctx(role, cert, key, ca, classical, profile);   /* a failure is retried at the next open */
+    c = ctxs[slot][role];
     pthread_mutex_unlock(&ctx_lock);
     return c;
 }
@@ -144,7 +181,7 @@ static SSL_CTX *ctx_for(int role, const char *cert, const char *key, const char 
 /* TEST ONLY (native/tls/selftest): forget both contexts so the next open loads another identity. Never in a node. */
 void bees_tls_selftest_reset(void) {
     pthread_mutex_lock(&ctx_lock);
-    for (int i = 0; i < 3; i++) { SSL_CTX_free(ctxs[i]); ctxs[i] = 0; }
+    for (int p = 0; p < BEES_TLS_PROFILES; p++) for (int i = 0; i < 3; i++) { SSL_CTX_free(ctxs[p][i]); ctxs[p][i] = 0; }
     pthread_mutex_unlock(&ctx_lock);
 }
 #endif
@@ -156,6 +193,7 @@ typedef struct conn {
     SSL *ssl;
     BIO *rbio, *wbio;
     int done;            /* the handshake finished (what it shows is judged by BEES's Silica: bees_tls_facts) */
+    const unsigned char *alpn;   /* the protocol of the connection's profile, length first (trust/1 or tempus/1) */
 } conn;
 
 /* No table: a handle is the connection's address, held only by the two BEES workers that use the connection (the link and its
@@ -195,7 +233,7 @@ static void conn_destroy(conn *c) {
 /* the installed OpenSSL's version number (0xMNNFFPPS); BEES decides whether it may run */
 bees_tls_tagged bees_tls_version(int64_t unused) { (void)unused; return ok((int64_t)OpenSSL_version_num()); }
 
-bees_tls_tagged bees_tls_set_args(int64_t a, int64_t b) { (void)b; arg_a = a; return ok(0); }
+bees_tls_tagged bees_tls_set_args(int64_t a, int64_t b) { arg_a = a; arg_b = b; return ok(0); }
 
 /* Opens a connection in role a (1 client, 2 server). spec: certfile, keyfile and cacertfile (empty: no CA, D43 pins only) and an
    optional flag "1" (D44), each ended by a NUL byte (made by BEES's generated configuration). A client's ClientHello is ready to pull at once. value: the handle. */
@@ -204,7 +242,9 @@ bees_tls_tagged bees_tls_open(const uint8_t *spec_ptr, uint64_t spec_len) {
     int classical = 0;
     uint64_t at = 0;
     int role = (int)arg_a;
+    int profile = (int)arg_b;   /* 0 TRUST (every caller before TEMPUS passes 0), 1 TEMPUS, 16 BEAM distribution (N2T) */
     if ((role != 1 && role != 2) || spec_ptr == 0) return fail(BEES_TLS_E_STATE);
+    if (profile_slot(arg_b) < 0) return fail(BEES_TLS_E_STATE);   /* 0, 1 and 16 (BEAM) exist; every other number is refused, as before */
     for (int i = 0; i < 3; i++) {
         const uint8_t *z = at < spec_len ? memchr(spec_ptr + at, 0, (size_t)(spec_len - at)) : 0;
         if (z == 0) return fail(BEES_TLS_E_IDENTITY);
@@ -216,12 +256,21 @@ bees_tls_tagged bees_tls_open(const uint8_t *spec_ptr, uint64_t spec_len) {
         const uint8_t *z = memchr(spec_ptr + at, 0, (size_t)(spec_len - at));
         if (z == 0) return fail(BEES_TLS_E_IDENTITY);
         classical = (z - (spec_ptr + at)) == 1 && spec_ptr[at] == '1';
+        at = (uint64_t)(z - spec_ptr) + 1;
     }
-    SSL_CTX *ctx = ctx_for(role, f[0], f[1], f[2], classical);
+    /* BEAM profile only (N2T): an optional fifth field, the name a client checks the server's certificate against */
+    const char *host = 0;
+    if (profile == BEES_TLS_PROFILE_BEAM && role == 1 && at < spec_len) {
+        const uint8_t *z = memchr(spec_ptr + at, 0, (size_t)(spec_len - at));
+        if (z == 0) return fail(BEES_TLS_E_IDENTITY);
+        if (z > spec_ptr + at) host = (const char *)spec_ptr + at;
+    }
+    SSL_CTX *ctx = ctx_for(role, f[0], f[1], f[2], classical, profile);
     if (ctx == 0) return fail(BEES_TLS_E_IDENTITY);
     conn *c = (conn *)calloc(1, sizeof *c);
     if (c == 0) return fail(BEES_TLS_E_TABLE);
     pthread_mutex_init(&c->lock, 0);
+    c->alpn = alpn_of(profile);
     c->ssl = SSL_new(ctx);
     c->rbio = BIO_new(BIO_s_mem());
     c->wbio = BIO_new(BIO_s_mem());
@@ -231,6 +280,18 @@ bees_tls_tagged bees_tls_open(const uint8_t *spec_ptr, uint64_t spec_len) {
         pthread_mutex_destroy(&c->lock);
         free(c);
         return fail(BEES_TLS_E_TABLE);
+    }
+    if (host != 0) {
+        /* the name is checked against the certificate (a DNS name or an IP address literal); SNI carries DNS names only */
+        int is_ip = strchr(host, ':') != 0 || strspn(host, "0123456789.") == strlen(host);
+        if ((is_ip ? SSL_set1_ipaddr(c->ssl, host) : SSL_set1_dnsname(c->ssl, host)) != 1
+            || (!is_ip && SSL_set_tlsext_host_name(c->ssl, host) != 1)) {
+            ERR_clear_error();
+            SSL_free(c->ssl); BIO_free(c->rbio); BIO_free(c->wbio);
+            pthread_mutex_destroy(&c->lock);
+            free(c);
+            return fail(BEES_TLS_E_IDENTITY);
+        }
     }
     BIO_set_mem_eof_return(c->rbio, -1);   /* an empty read BIO means "more ciphertext needed", not EOF */
     SSL_set_bio(c->ssl, c->rbio, c->wbio);
@@ -280,7 +341,9 @@ bees_tls_tagged bees_tls_facts(int64_t handle) {
     const unsigned char *alpn = 0;
     unsigned int alpn_len = 0;
     SSL_get0_alpn_selected(c->ssl, &alpn, &alpn_len);
-    int64_t trust = alpn_len == sizeof ALPN_TRUST - 1 && memcmp(alpn, ALPN_TRUST + 1, alpn_len) == 0;
+    /* bit 0: the selected protocol is the one of the connection's profile (trust/1 for TRUST, as before; tempus/1 for TEMPUS) */
+    /* (the BEAM profile's protocol is the empty one: its bit 0 says that no ALPN was selected) */
+    int64_t trust = alpn_len == c->alpn[0] && (alpn_len == 0 || memcmp(alpn, c->alpn + 1, alpn_len) == 0);
     int64_t has_cert = SSL_get0_peer_certificate(c->ssl) != 0;
     int64_t verify = SSL_get_verify_result(c->ssl) & 0xff;
     const SSL_CIPHER *suite = SSL_get_current_cipher(c->ssl);
@@ -303,6 +366,26 @@ bees_tls_tagged bees_tls_peer_fp(int64_t handle) {
     conn_put_back(c);
     if (!got || !span_set(md, 64)) return fail(BEES_TLS_E_NO_CERT);
     return ok(64);
+}
+
+/* TEMPUS: the raw public key of the peer certificate into the thread's span; value 32. Only an Ed25519 key is answered:
+   any other key type is refused (BEES_TLS_E_CERT), as is a connection without a peer certificate (BEES_TLS_E_NO_CERT). A
+   TEMPUS node compares these bytes with the `pub` of the peer's advert, which ties the TLS channel to the identity that
+   then proves possession (development-plan/tempus-design.md section 4). TRUST does not call this. */
+bees_tls_tagged bees_tls_peer_key(int64_t handle) {
+    span_drop();
+    conn *c = conn_get(handle);
+    if (c == 0) return fail(BEES_TLS_E_STATE);
+    X509 *peer = SSL_get0_peer_certificate(c->ssl);
+    EVP_PKEY *key = peer != 0 ? X509_get0_pubkey(peer) : 0;
+    uint8_t raw[32];
+    size_t n = sizeof raw;
+    int ed = key != 0 && EVP_PKEY_get_base_id(key) == EVP_PKEY_ED25519;
+    int got = ed && EVP_PKEY_get_raw_public_key(key, raw, &n) == 1 && n == 32;
+    conn_put_back(c);
+    if (peer == 0) return fail(BEES_TLS_E_NO_CERT);
+    if (!got || !span_set(raw, 32)) return fail(BEES_TLS_E_CERT);
+    return ok(32);
 }
 
 /* Drops the ciphertext not yet pulled: a client that refuses the server does not send its Finished. */

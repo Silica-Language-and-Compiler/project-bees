@@ -1,0 +1,13 @@
+// T5 link trial, pair bridge: the dialer holds the bridge identity's certificate (identity 3), which the listener's tempus
+// whitelist holds.
+fn port() -> string { "23701" }
+fn me_id() -> int64 { 3 }
+fn certfile() -> string { tempus_ids@certfile(3) }
+fn keyfile() -> string { tempus_ids@keyfile(3) }
+fn steps() -> int64 { 2 }
+fn step_of(k: int64) -> { i: int64, v: int64, wl: string, kid: string, alt: boolean, what: string } {
+    case k of {
+        1 -> { i: 3, v: 2, wl: tempus_ids@fp_hex(2), kid: tempus_ids@kid(), alt: false, what: "a bridge with a tempus_bridge token and a whitelisted certificate" };
+        _: int64 -> { i: 3, v: 1, wl: tempus_ids@fp_hex(2), kid: tempus_ids@kid(), alt: false, what: "a whitelisted certificate with a tempus_edge token" }
+    }
+}

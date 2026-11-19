@@ -1,0 +1,13 @@
+// SD-57 (expected: 7, the frame of the atom ping, 131 119 4 "ping"; or a compile error that says (:tag) alone is no variant):
+// a sum with the variant (:ping), a tag alone in parentheses, type-checks, and the value (:ping) is accepted for it, but the
+// derived encoder of the sum faults at run time. With (:ping) as the FIRST variant the derived decoder does not type-check
+// (E2005 in the derived text). tools/bees_wire_gen.py refuses (:tag) alone in a manifest for this reason.
+use wire_etf;
+fn main() -> int64 {
+    sequence proc[mem(normal), transport, device_io]
+        v: (:pong, int64) | (:ping) <- (:ping);
+        frame: string <- encode((:etf), v);
+        _: atom <- print_int64(length_bytes(frame));
+        _: atom <- println("")
+    produces pure 0 end
+}

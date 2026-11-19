@@ -59,14 +59,26 @@ TABLE = {
     "f2_fuzz_long": (23600, "the fuzzer's long run (make fuzz-long, never in integrate): node listeners and fake peers, offsets in the trial's README"),
     "t5_tempus_link": (23700, "TEMPUS link over TLS (T5): +0 the listener of pair edge, +1 of pair bridge, +2 of pair p256; the dialers bind nothing"),
     "t3_tempus_nodes": (23800, "TEMPUS nodes over TLS (T3): +0 the sentinel node, +1 node A, +2 node B, +3 the Python client's listener (tools/bees_tempus_trial.py)"),
+    "c2_tempus_clients": (23900, "TEMPUS clients (C2): +0 node N (driven by the Python client), +1 node M (driven by the Silica client), +2 node O (not a test node), +3 and +4 the Python client's sentinel and edge listeners, +5 and +6 the Silica client's (dangerous_cs, dangerous_ce), +7 an address nobody listens on, +8 the Python client's second edge listener"),
+    "c1_codec_nodes": (24000, "C1 codec coverage, two BEES nodes exchange every kind: +0 the node a/b link"),
+    "c1_codec_live": (24100, "C1 codec coverage against stock erl: +0 BEES node l's listener; +90 the trial's private EPMD"),
+    "c3_tempus_bridge": (24200, "TEMPUS bridges (T6, C3): +0 the TRUST node T's listener, +1 and +2 the tempus/1 listeners of bridges B1 and B2, +3 the Python client's listener, +4 the Silica client's listener, +5 an address nobody listens on, +6 and +7 the TRUST ports in the bridges' bees.config (no whitelist: nothing listens)"),
+    "c4_tempus_boot": (24300, "TEMPUS boot refusals (T7): +0 the listen address in every entry's values; no entry starts, nothing listens"),
 }
-NEXT_BASE = 23900
+NEXT_BASE = 24400
 
 # leaves that never bind a port but whose files may carry a port number as DATA (a frame's field): not checked for literals
 DATA_ONLY = {"n2_frames": "the EPMD ALIVE2 frame carries port 47500 as a value; nothing listens",
              "t2_tempus_frames": "frames and adverts carry the address 127.0.0.1:22801 as a value; nothing listens or dials",
              "t4_tempus_admission": "the fixture adverts carry the address 127.0.0.1:22801 as a value; nothing listens or dials",
-             "d2_store_config": "the packed bees.config fixtures carry ports of d3_store_node's block as values; nothing listens or dials"}
+             "d2_store_config": "the packed bees.config fixtures carry ports of d3_store_node's block as values; nothing listens or dials",
+             "c1_codec_sum": "an in-process codec trial: the manifest names a peer port as a value; nothing listens or dials",
+             "c1_codec_optref": "an in-process codec trial: the manifest names a peer port as a value; nothing listens or dials",
+             "c1_codec_map": "an in-process codec trial: the manifest names a peer port as a value; nothing listens or dials",
+             "c1_codec_set": "an in-process codec trial: the manifest names a peer port as a value; nothing listens or dials",
+             "c1_codec_buf": "an in-process codec trial: the manifest names a peer port as a value; nothing listens or dials",
+             "c1_codec_termmsg": "an in-process codec trial: the manifest names a peer port as a value; nothing listens or dials",
+             "c1_codec_wide": "an in-process codec trial: the manifest names a peer port as a value; nothing listens or dials"}
 
 
 def base(trial):

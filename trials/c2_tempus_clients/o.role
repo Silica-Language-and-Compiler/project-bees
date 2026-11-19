@@ -1,0 +1,6 @@
+// C2 clients trial: node O, NOT a test node (no control_test_only): a tick or clock frame is an unknown request to it
+// (row 37 of design 16.2). It has no sentinel and its stores tick once an hour, so nothing in its output depends on time.
+fn port() -> string { "23902" }
+fn sents() -> string { "" }
+fn test() -> boolean { false }
+fn tick_ms() -> uint64 { 3600000 }

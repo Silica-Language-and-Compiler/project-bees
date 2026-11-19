@@ -1,0 +1,11 @@
+# N2T hub: listens ONCE (port 23200) for three listen-role peers; with {transport, tls} that one listener is a TLS listener
+node   hub@localhost
+peer   ea@localhost 127.0.0.1 23200 listen
+peer   ec@localhost 127.0.0.1 23200 listen
+peer   d@localhost 127.0.0.1 23200 listen
+remote ans_a @ ea@localhost cast { op: atom, n: int64 }
+remote ans_c @ ec@localhost cast { op: atom, n: int64 }
+remote ans_d @ d@localhost cast { op: atom, n: int64 }
+local  req_a cast { op: atom, n: int64 }
+local  req_c cast { op: atom, n: int64 }
+local  req_d cast { op: atom, n: int64 }

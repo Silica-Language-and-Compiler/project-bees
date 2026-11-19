@@ -1,0 +1,9 @@
+// ---- BEAM-mode TLS, absent (N2T): pasted by tools/bees_edge_gen.py into a BEAM-mode node program built WITHOUT
+// `--use dangerous_beam_tls` (a {transport, tcp} node). The link and listener carriers are the language's (:tcp) carriers,
+// untouched, and the program uses no TLS unit and links no TLS engine.
+fn beam_tls_link(c: dangerous_actor_ref, peer: int64) -> dangerous_actor_ref { c }
+fn beam_tls_listen(c: dangerous_actor_ref, owner: actor_ref, address: string) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(c, (:open, owner, address) impl ActorMessage {})
+    produces pure ok end
+}

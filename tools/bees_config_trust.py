@@ -79,11 +79,21 @@ def gen(out_dir, v, notes, err):
           "suspicion_limit/0", "token_bytes/0", "token_ttl_ns/0", "frame_size_max/0", "args_len_max/0", "term_depth_max/0",
           "peer_count/0", "peer_index/1", "peer_hex/1", "peer_name/1", "peer_classical/1", "permitted/4",
           "server_count/0", "server_index/1", "server_name/1", "self_fp/0",
-          "tls/0", "tls_server_spec/0", "tls_client_spec/0", "tls_server_pin/1"]
+          "tls/0", "tls_server_spec/0", "tls_client_spec/0", "tls_server_pin/1",
+          "mux/0", "session_single/0", "session_max_inflight/0", "session_max_calls/0", "session_max_age_ms/0",
+          "session_idle_ns/0", "session_idle_tick_ms/0", "session_drain_ms/0", "session_drain/0", "session_slots_max/0",
+          "mgr_name/1", "server_addr/1"]
     L += [f"export {e};" for e in ex] + [""]
     ok = err is None
     L.append(f"fn boot_error() -> string {{ {sstr(err or '')} }}")
-    notes = notes if ok else []
+    notes = list(notes) if ok else []
+    # N5 (development-plan/spikes/N5-multiplexing.md): sessions (B2) when the reader says so (trust.session written, or bees_conf.SESSION_DEFAULT_ON; N5 Q1)
+    sess = v.get("session") if ok and v.get("session") else {k: d for k, (_, d) in SESSION_OPTS.items()}
+    mux = bool(ok and v.get("active") and v.get("session_set"))
+    single = (not mux) or (sess["max_inflight"] == 1 and sess["max_calls"] == 1)
+    drain_eff = min(sess["drain_ms"], sess["idle_ms"])
+    if mux and v.get("acceptors") is not None:
+        notes.append(f"acceptors {v['acceptors']} is validated and not used: the carrier has one accepting actor (N5 Q9)")
     L.append(f"fn note_count() -> int64 {{ {len(notes)} }}")
     L.append("fn note(i: int64) -> string {")
     L.append("    case i of {")
@@ -108,7 +118,13 @@ def gen(out_dir, v, notes, err):
                 f"pinned servers {len(servers)}, frame_size_max {v['frame_eff']}, "
                 f"args_len_max {v['args_eff']}, term_depth_max {v['term_depth_max']}, call_timeout_ms {v['call_timeout_ms']}, "
                 f"first_frame_timeout_ms {v['first_frame_timeout_ms']}, suspicion_limit {v['suspicion_limit']}, "
-                f"token_bytes {v['token_bytes']}, token_ttl_sec {v['token_ttl_sec']}, one request per connection (B1)")
+                f"token_bytes {v['token_bytes']}, token_ttl_sec {v['token_ttl_sec']}, ")
+        if single:
+            summ += "one request per connection (B1)"
+        else:
+            summ += (f"sessions (B2): max_inflight {sess['max_inflight']}, max_calls {sess['max_calls']}, max_age_ms {sess['max_age_ms']}, "
+                     f"idle_ms {sess['idle_ms']}, drain_ms {drain_eff}"
+                     + (f", session_slots_max {v['session_slots_max']}" if v.get("session_slots_max") is not None else ""))
     L.append(f"fn summary() -> string {{ {sstr(summ)} }}")
     L.append(f"fn active() -> boolean {{ {'true' if ok and v['active'] else 'false'} }}")
     L.append(f"fn listens() -> boolean {{ {'true' if ok and v['active'] and v['whitelist_file'] is not None else 'false'} }}")
@@ -124,6 +140,19 @@ def gen(out_dir, v, notes, err):
     L.append(f"fn frame_size_max() -> int64 {{ {g('frame_eff', 512)} }}")
     L.append(f"fn args_len_max() -> int64 {{ {g('args_eff', 0)} }}")
     L.append(f"fn term_depth_max() -> int64 {{ {g('term_depth_max', 1)} }}")
+    # N5: the session window (multiplexing design; bees-config-file.md 5.3). mux: this node runs the session actors;
+    # session_single: its limits are 1 and 1 (or it does not multiplex), so it never offers, acknowledges or sends goaway.
+    # The idle check runs every max(10, idle_ms / 10) ms: a timer's delay cannot be computed at run time (no int64 to uint64).
+    L.append(f"fn mux() -> boolean {{ {'true' if mux else 'false'} }}")
+    L.append(f"fn session_single() -> boolean {{ {'true' if single else 'false'} }}")
+    L.append(f"fn session_max_inflight() -> int64 {{ {sess['max_inflight']} }}")
+    L.append(f"fn session_max_calls() -> int64 {{ {sess['max_calls']} }}")
+    L.append(f"fn session_max_age_ms() -> uint64 {{ {sess['max_age_ms']} }}")
+    L.append(f"fn session_idle_ns() -> int64 {{ {sess['idle_ms'] * 1000000} }}")
+    L.append(f"fn session_idle_tick_ms() -> uint64 {{ {max(10, sess['idle_ms'] // 10)} }}")
+    L.append(f"fn session_drain_ms() -> uint64 {{ {drain_eff} }}")
+    L.append(f"fn session_drain() -> int64 {{ {drain_eff} }}")
+    L.append(f"fn session_slots_max() -> int64 {{ {(v.get('session_slots_max') or 0) if mux else 0} }}")
     L.append(f"fn peer_count() -> int64 {{ {len(peers)} }}")
     L.append(f"fn peer_index(h: string) -> int64 {{ {chain('h', [(fp, str(i)) for i, (_, fp, _) in enumerate(peers)], '0 - 1')} }}")
     L.append("fn peer_hex(i: int64) -> string {")
@@ -161,6 +190,20 @@ def gen(out_dir, v, notes, err):
     L.append("    case i of {")
     for i in range(len(servers)):
         L.append(f"        {i} -> bees_atoms@a_bees_trust_srv_{i}();")
+    L.append("        _: int64 -> bees_atoms@a_error()")
+    L += ["    }", "}"]
+    L.append("// N5: the pinned address of server i, as the pin file writes it")
+    L.append("fn server_addr(i: int64) -> string {")
+    L.append("    case i of {")
+    for i, (a, _) in enumerate(servers):
+        L.append(f"        {i} -> {sstr(a)};")
+    L.append('        _: int64 -> ""')
+    L += ["    }", "}"]
+    L.append("// N5: the registered session manager of pinned server i (a session node only)")
+    L.append("fn mgr_name(i: int64) -> atom {")
+    L.append("    case i of {")
+    for i in range(len(servers) if mux else 0):
+        L.append(f"        {i} -> bees_atoms@a_bees_trust_mgr_{i}();")
     L.append("        _: int64 -> bees_atoms@a_error()")
     L += ["    }", "}"]
     # N4.1: TRUST over mutual TLS 1.3 unless plaintext_test_only. The engine (native/tls) is given the node's own paths, made
@@ -207,6 +250,8 @@ def gen(out_dir, v, notes, err):
             fh.write(f"bees_trust_peer_{i}\n")
         for i in range(len(servers)):
             fh.write(f"bees_trust_srv_{i}\n")
+        for i in range(len(servers) if mux else 0):
+            fh.write(f"bees_trust_mgr_{i}\n")
 
 
 def run(cfg):

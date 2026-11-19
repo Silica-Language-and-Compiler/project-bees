@@ -1,0 +1,18 @@
+// SD-52 (expected: "pattern i", "list_at i"): list_at of a list whose element type is a sum with a tuple variant gives an
+// element that no arm of a `case` matches (case_clause). The list pattern [h: T, t: List[T, mem(normal)]] gives a usable
+// element.
+fn name(v: (:i, int64) | :gap) -> string { case v of { (:i, _k: int64) -> "i"; :gap -> "gap" } }
+fn first_of(xs: List[(:i, int64) | :gap, mem(normal)]) -> string {
+    case xs of {
+        []: List[(:i, int64) | :gap, mem(normal)] -> "empty";
+        [h: (:i, int64) | :gap, _t: List[(:i, int64) | :gap, mem(normal)]] -> name(h)
+    }
+}
+fn main() -> int64 {
+    sequence proc[mem(normal), device_io]
+        l: List[(:i, int64) | :gap, mem(normal)] <- [(:i, 1), :gap];
+        _: atom <- println(concat("pattern ", first_of(l)));
+        e: (:i, int64) | :gap <- list_at[(:i, int64) | :gap, mem(normal)](l, 0);
+        _: atom <- println(concat("list_at ", name(e)))
+    produces pure 0 end
+}

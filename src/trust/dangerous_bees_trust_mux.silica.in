@@ -1,0 +1,995 @@
+// BEES TRUST mode, sessions (N5, B2: windowed multiplexing; development-plan/spikes/N5-multiplexing.md). THE SOURCE OF A GENERATED
+// UNIT: tools/bees_trust_gen.py mux expands the record macros below and writes lib/dangerous_bees_trust_mux.silica into a node
+// whose bees.config writes trust.session. A node without that key does not use this unit (it runs N3's dangerous_bees_trust,
+// one request per connection). TRUST's own implementation (D36): nothing of BEAM mode is used.
+//
+// Macros (expanded by the generator; Silica has no record update and no type names, and these records have many fields):
+//   a line `//@type NAME = field: type, ...` defines the record NAME; an at-sign and braces around NAME is its type; around
+//   `NAME x | f: e, ...` a record of that type with every field from x.f except the ones given; around
+//   `NAME x + OTHER y | ...` the same with the fields that OTHER has taken from y (tools/bees_trust_mux_gen.py, expand).
+//
+// Actors (the language's (:tcp) carrier, or the TLS link of dangerous_bees_tls, underneath; "carrier" below means that link):
+//   mlsn    the LISTEN ACTOR of a session node, registered as bees_trust_listener: one send actor and one receive actor per
+//           accepted connection; counts open connections for session_slots_max; holds the node's shutdown flag, which every
+//           session asks for at its idle tick (op 3), and is told when a connection ends (op 4) and to shut down (op 5).
+//   msess   the RECEIVE ACTOR of a server connection and its state machine. Its state holds scalars and references only
+//           (SD-35), and its carrier is never replaced (SD-39). Phases:
+//             0 waiting for the carrier   1 the 64-byte fingerprint   2 gate   3 first frame   4 hello: random bytes
+//             5 token_present: the token check   (1 to 5 are N3's, with N3's audit lines)
+//             6 SINGLE: the request frame   61 SINGLE: asked the supervisor   7 SINGLE: a call is executing
+//             8 SINGLE: closed, waiting for the worker (a cast, or a call that timed out)
+//             20 SESSION active   21 SESSION draining (goaway limit_reached or shutdown was sent)
+//             30, 31 refused at accept (session_slots_max; shutdown)   9 closed   10 ended
+//           SINGLE is one request with N3's timers and closes: a client that made no session offer, or a node whose limits
+//           are 1 and 1 (bees_trust_conf@session_single: then also no telemetry line; the N3 goldens come out byte for byte).
+//           SESSION: ok is sent after the token step; then requests until a limit. Backpressure: the next frame's assembler
+//           is created HELD (it has no receive credit and decodes nothing) and is released only when the session may take
+//           another request: after the supervisor's verdict, and only while inflight < max_inflight. There is no queue.
+//   mtx     the SEND ACTOR: encodes and frames typed values and hands them to the carrier; kind 3 closes the carrier after
+//           what it holds and ends, kind 10 only ends (the carrier has already ended with its link, SD-43).
+//   mcli    the receive actor of a CLIENT connection that offers a session: connect, token cache, the pipelined stand-in
+//           fingerprint (plaintext_test_only), hello or token_present with the offer; then token_issue, ok, result, goaway.
+//           The calls waiting for results are in the pending table (bees_trust_slots@mpend), which also ends the send actor.
+// The per-connection supervisor (msup), the pending table (mpend) and the metrics actor (mmet) are generated into
+// bees_trust_slots (their tables are sized by session.max_inflight). The per-frame assembler is N3's tasm.
+// Teardown (a cast to an ended actor ends the sender on this compiler, and returns false on a fixed one: both are handled by
+// never casting to an actor that may have ended): msess ends only when closed, 500 ms later, after msup's detach answer (41)
+// and after every answer it asked of a fingerprint actor or the listener; nothing casts to a carrier after its :link_down.
+module dangerous_bees_trust_mux;
+use bees_atoms;
+use bees_trust_frame;
+use bees_trust_mux_frame;
+use bees_trust_conf;
+use bees_trust_guard;
+use bees_trust_mfa;
+use bees_trust_slots;
+use dangerous_bees_trust;
+use wireframe;
+use carrier;
+
+export mlsn/2;
+export msess/2;
+export mtx/2;
+export mcli/2;
+
+//@type S = asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, edge: dangerous_actor_ref, lsn: actor_ref, sup: actor_ref, cid: int64, phase: int64, peer: int64, down: boolean, live: boolean, held: boolean, multi: boolean, wait: boolean, paused: boolean, inflight: int64, calls: int64, peak: int64, refused: int64, dups: int64, t0: int64, last: int64, tp: int64, supst: int64, qwait: int64, reaped: boolean, why: int64
+//@type V = asm: actor_ref, sup: actor_ref, phase: int64, peer: int64, down: boolean, live: boolean, held: boolean, multi: boolean, wait: boolean, paused: boolean, inflight: int64, calls: int64, peak: int64, refused: int64, dups: int64, t0: int64, last: int64, tp: int64, supst: int64, qwait: int64, reaped: boolean, why: int64
+//@type K = asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, pend: actor_ref, srv: int64, kind: int64, phase: int64, live: boolean, acked: boolean, grace: boolean
+//@type KV = asm: actor_ref, phase: int64, live: boolean, acked: boolean, grace: boolean
+
+// ======================================================================== shared helpers
+fn b2i(b: boolean) -> int64 { case b of { true -> 1; false -> 0 } }
+fn err_atom() -> atom { bees_atoms@a_error() }
+fn now_ns() -> int64 {
+    sequence proc[concurrency]
+        t: int64 <- monotonic_time()
+    produces pure t end
+}
+fn credit(c: dangerous_actor_ref, n: int64) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(c, (:credit, n) impl ActorMessage {})
+    produces pure ok end
+}
+fn arm(me: actor_ref, ms: uint64, tag: int64) -> boolean {
+    sequence proc[concurrency]
+        t: timer_ref <- send_after(ms, me, (:bees, 5, "", "", tag) impl ActorMessage {})
+    produces pure true end
+}
+fn to_tx(tx: actor_ref, kind: int64, s1: string, s2: string, m: atom, f: atom, n: int64) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(tx, (:bees, kind, s1, s2, m, f, n) impl ActorMessage {})
+    produces pure ok end
+}
+fn tx_simple(tx: actor_ref, kind: int64, s1: string, s2: string) -> boolean { to_tx(tx, kind, s1, s2, err_atom(), err_atom(), 0) }
+fn tx_end(tx: actor_ref, down: boolean) -> boolean { tx_simple(tx, case down of { true -> 10; false -> 3 }, "", "") }
+fn asm_new(core: actor_ref, fixed: int64, pending: string, go: boolean) -> actor_ref {
+    sequence proc[concurrency]
+        a: actor_ref <- spawn({ core: core, fixed: fixed, max: bees_trust_conf@frame_size_max(), rx: { mode: :stream, expected: 0, pending: pending } }, dangerous_bees_trust@tasm, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: boolean <- case go of { true -> cast(a, (:bees, 1, "") impl ActorMessage {}); false -> true }
+    produces pure a end
+}
+fn asm_go(a: actor_ref) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(a, (:bees, 1, "") impl ActorMessage {})
+    produces pure ok end
+}
+fn asm_stop(a: actor_ref, live: boolean) -> boolean {
+    case live of {
+        false -> true;
+        true -> {
+            sequence proc[concurrency]
+                ok: boolean <- cast(a, (:bees, 2, "") impl ActorMessage {})
+            produces pure ok end
+        }
+    }
+}
+fn peer_tell(idx: int64, op: int64, tok: string, me: actor_ref, n: int64) -> boolean {
+    case idx < 0 of {
+        true -> true;
+        false -> {
+            sequence proc[concurrency]
+                ok: boolean <- cast_registered(bees_trust_conf@peer_name(idx), (:bees, op, tok, me, n) impl ActorMessage {})
+            produces pure ok end
+        }
+    }
+}
+fn sup_tell(sup: actor_ref, k: int64, s1: string, s2: string, n: int64) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(sup, (:bees, k, s1, s2, n) impl ActorMessage {})
+    produces pure ok end
+}
+fn lsn_tell(lsn: actor_ref, op: int64, me: actor_ref) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(lsn, (:bees, op, "", me, 0) impl ActorMessage {})
+    produces pure ok end
+}
+fn audit(event: string, fp: string, what: string, n: int64) -> atom { bees_trust_frame@audit(event, fp, what, n) }
+fn mfa_text(m: atom, f: atom, a: int64) -> string {
+    concat(concat(bees_atoms@spelling(m), ":"), concat(bees_atoms@spelling(f), concat("/", bees_trust_frame@int_text(a))))
+}
+// telemetry and metrics: none on a node whose limits are 1 and 1 (it behaves as a B1 node, line for line)
+fn quiet() -> boolean { bees_trust_conf@session_single() }
+fn tel(event: string, fields: string, cid: int64) -> atom {
+    case quiet() of { true -> :ok; false -> bees_trust_mux_frame@tel(event, fields, cid) }
+}
+fn met(idx: int64, d: int64) -> boolean {
+    case quiet() of {
+        true -> true;
+        false -> {
+            sequence proc[concurrency]
+                ok: boolean <- cast_registered(bees_atoms@a_bees_trust_metrics(), (:bees, idx, "", "", d) impl ActorMessage {})
+            produces pure ok end
+        }
+    }
+}
+fn sp2(a: string, b: string) -> string { concat(concat(a, " "), b) }
+fn kvi(k: string, n: int64) -> string { bees_trust_mux_frame@kv_int(k, n) }
+fn kvt(k: string, v: string) -> string { bees_trust_mux_frame@kv_text(k, v) }
+
+// ======================================================================== mtx (the send actor)
+fn tm_k(msg: (:bees, int64, string, string, atom, atom, int64)) -> int64 { case msg of { (:bees, k: int64, _a: string, _b: string, _m: atom, _f: atom, _n: int64) -> k } }
+fn tm_s1(msg: (:bees, int64, string, string, atom, atom, int64)) -> string { case msg of { (:bees, _k: int64, a: string, _b: string, _m: atom, _f: atom, _n: int64) -> a } }
+fn tm_s2(msg: (:bees, int64, string, string, atom, atom, int64)) -> string { case msg of { (:bees, _k: int64, _a: string, b: string, _m: atom, _f: atom, _n: int64) -> b } }
+fn tm_m(msg: (:bees, int64, string, string, atom, atom, int64)) -> atom { case msg of { (:bees, _k: int64, _a: string, _b: string, m: atom, _f: atom, _n: int64) -> m } }
+fn tm_f(msg: (:bees, int64, string, string, atom, atom, int64)) -> atom { case msg of { (:bees, _k: int64, _a: string, _b: string, _m: atom, f: atom, _n: int64) -> f } }
+fn tm_n(msg: (:bees, int64, string, string, atom, atom, int64)) -> int64 { case msg of { (:bees, _k: int64, _a: string, _b: string, _m: atom, _f: atom, n: int64) -> n } }
+// kinds 1 to 10 are N3's (dangerous_bees_trust@ttx): 1 token_issue(token)  2 result(req_id, value span)  3 close  4 raw bytes
+//   5 hello  6 token_present(token)  7 call(req_id, args span, m, f, arity)  8 cast(same)  9 a frame body as is  10 end only
+// sessions add: 12 ok   13 goaway(reason m, drain_ms n)   14 hello with the session offer   15 token_present(token) with it
+fn tx_body(kind: int64, s1: string, s2: string, m: atom, f: atom, n: int64) -> string {
+    case kind of {
+        1 -> bees_trust_frame@frame4(bees_trust_frame@enc_token_issue(s1));
+        2 -> bees_trust_frame@frame4(bees_trust_frame@enc_result(s1, s2));
+        4 -> s1;
+        5 -> bees_trust_frame@frame4(bees_trust_frame@enc_hello());
+        6 -> bees_trust_frame@frame4(bees_trust_frame@enc_token_present(s1));
+        7 -> bees_trust_frame@frame4(bees_trust_frame@enc_request(bees_atoms@a_call(), s1, m, f, n, s2));
+        8 -> bees_trust_frame@frame4(bees_trust_frame@enc_request(bees_atoms@a_cast(), s1, m, f, n, s2));
+        9 -> bees_trust_frame@frame4(s1);
+        12 -> bees_trust_frame@frame4(bees_trust_mux_frame@enc_ok());
+        13 -> bees_trust_frame@frame4(bees_trust_mux_frame@enc_goaway(m, n));
+        14 -> bees_trust_frame@frame4(bees_trust_mux_frame@enc_hello_offer());
+        15 -> bees_trust_frame@frame4(bees_trust_mux_frame@enc_token_present_offer(s1));
+        _: int64 -> ""
+    }
+}
+fn mtx(msg: (:bees, int64, string, string, atom, atom, int64), st: { c: dangerous_actor_ref, n: int64 }) -> (:no_reply, { c: dangerous_actor_ref, n: int64 }) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        k: int64 <- tm_k(msg);
+        seg: string <- tx_body(k, tm_s1(msg), tm_s2(msg), tm_m(msg), tm_f(msg), tm_n(msg));
+        _: boolean <- case k == 3 of {
+            true -> cast(st.c, :close impl ActorMessage {});
+            false -> case length_bytes(seg) > 0 of { true -> cast(st.c, (:tx, seg, me) impl ActorMessage {}); false -> true }
+        };
+        _: atom <- case k == 3 or k == 10 of { true -> stop_self(:normal); false -> :ok }
+    produces pure (:no_reply, { c: st.c, n: st.n + 1 }) end
+}
+
+// ======================================================================== mlsn (the listen actor of a session node)
+fn say(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+// how a new connection starts: 0 served; 30 refused, session_slots_max connections are open; 31 refused, the node is shutting down
+fn accept_phase(st: { edge: dangerous_actor_ref, n: int64, open: int64, shut: boolean }) -> int64 {
+    case st.shut of {
+        true -> 31;
+        false -> case bees_trust_conf@session_slots_max() > 0 and st.open >= bees_trust_conf@session_slots_max() of { true -> 30; false -> 0 }
+    }
+}
+fn accept_one(car: dangerous_actor_ref, st: { edge: dangerous_actor_ref, n: int64, open: int64, shut: boolean }, me: actor_ref) -> boolean {
+    sequence proc[concurrency]
+        t: actor_ref <- spawn({ c: car, n: 0 }, mtx, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        p: int64 <- accept_phase(st);
+        k: actor_ref <- spawn({ asm: t, c: car, tx: t, edge: st.edge, lsn: me, sup: t, cid: st.n, phase: p, peer: 0 - 1, down: false, live: false, held: false, multi: false, wait: false, paused: false, inflight: 0, calls: 0, peak: 0, refused: 0, dups: 0, t0: 0, last: 0, tp: 0, supst: 0, qwait: 0, reaped: false, why: 0 }, msess, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        ok: boolean <- cast(car, (:open, k, "") impl ActorMessage {})
+    produces pure ok end
+}
+fn lsn_reply(who: actor_ref, shut: boolean) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(who, (:bees, 12, "", "", b2i(shut)) impl ActorMessage {})
+    produces pure ok end
+}
+// what one message does: 1 a connection was accepted and is served, 2 accepted and refused, 4 a served connection ended,
+// 5 shut down, 0 nothing
+fn on_listen(msg: (:link_up, string) | (:accepted, dangerous_actor_ref, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | (:bees, int64, string, actor_ref, int64), st: { edge: dangerous_actor_ref, n: int64, open: int64, shut: boolean }, me: actor_ref) -> int64 {
+    case msg of {
+        (:accepted, car: dangerous_actor_ref, _i: string) -> { sequence _: boolean <- accept_one(car, st, me) produces pure case accept_phase(st) == 0 of { true -> 1; false -> 2 } end };
+        (:link_up, info: string) -> case starts_with(info, "port:") of {
+            true -> { sequence _: atom <- say(concat(case starts_with(bees_trust_conf@listen_spec(), "listen:any:") of { true -> "[trust] listening on 0.0.0.0:"; false -> "[trust] listening on 127.0.0.1:" }, substring(info, 5, length_bytes(info)))) produces pure 0 end };
+            false -> 0
+        };
+        (:rx, _s: string) -> 0;
+        (:tx_credit, _n: int64) -> 0;
+        (:tx_failed, _w: atom) -> 0;
+        (:link_down, _w2: atom) -> 0;
+        (:bees, op: int64, _t: string, who: actor_ref, _n2: int64) -> case op of {
+            3 -> { sequence _: boolean <- lsn_reply(who, st.shut) produces pure 0 end };
+            4 -> 4;
+            5 -> 5;
+            _: int64 -> 0
+        }
+    }
+}
+fn mlsn(msg: (:link_up, string) | (:accepted, dangerous_actor_ref, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | (:bees, int64, string, actor_ref, int64), st: { edge: dangerous_actor_ref, n: int64, open: int64, shut: boolean }) -> (:no_reply, { edge: dangerous_actor_ref, n: int64, open: int64, shut: boolean }) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        got: int64 <- on_listen(msg, st, me)
+    produces pure (:no_reply, { edge: st.edge, n: st.n + b2i(got == 1 or got == 2), open: st.open + b2i(got == 1) - b2i(got == 4), shut: st.shut or got == 5 }) end
+}
+
+// ======================================================================== msess (server)
+fn fp_of(st: @{S}) -> string { bees_trust_conf@peer_hex(st.peer) }
+fn keep(st: @{S}) -> @{V} { @{V st} }
+fn why_text(why: int64) -> string {
+    case why of {
+        1 -> "limit_reached"; 2 -> "shutdown"; 3 -> "deny"; 4 -> "protocol"; 5 -> "client_cancel"; 6 -> "client_close";
+        7 -> "done"; _: int64 -> "closed"
+    }
+}
+// the end of a connection that got as far as the request stage: one telemetry line and the session metrics
+fn end_tel(st: @{S}, why: int64) -> atom {
+    case st.t0 == 0 or quiet() of {
+        true -> :ok;
+        false -> {
+            sequence
+                age: int64 <- (now_ns() - st.t0) / 1000000;
+                f1: string <- sp2(kvt("reason", why_text(why)), kvi("age_ms", age));
+                f2: string <- sp2(kvi("calls_total", st.calls), kvi("inflight_peak", st.peak));
+                f3: string <- sp2(kvi("refused", st.refused), kvi("duplicates", st.dups));
+                _: atom <- tel("session.end", sp2(sp2(f1, f2), f3), st.cid);
+                _: boolean <- met(1, 0 - 1);
+                _: boolean <- met(case why >= 1 and why <= 5 of { true -> 1 + why; false -> 7 }, 1);
+                _: boolean <- met(26, age)
+            produces pure :ok end
+        }
+    }
+}
+// closed, without touching the send actor (it has been ended already): the supervisor is detached, the listener told,
+// the actor reaped in 500 ms
+fn fin(st: @{S}, me: actor_ref, why: int64) -> @{V} {
+    sequence
+        _: boolean <- case st.supst == 1 of { true -> sup_tell(st.sup, 40, "", "", 0); false -> true };
+        _: boolean <- arm(me, 500, 9);
+        _: boolean <- lsn_tell(st.lsn, 4, me);
+        _: atom <- end_tel(st, why);
+        s2: int64 <- case st.supst == 1 of { true -> 2; false -> st.supst }
+    produces pure @{V st | phase: 9, live: false, held: false, wait: false, paused: false, supst: s2, why: why} end
+}
+// close: the send actor closes the carrier after what it already holds (a goaway, a result), the assembler ends
+fn shut(st: @{S}, me: actor_ref, why: int64) -> @{V} {
+    sequence
+        _: boolean <- tx_end(st.tx, st.down);
+        _: boolean <- asm_stop(st.asm, st.live);
+        v: @{V} <- fin(st, me, why)
+    produces pure v end
+}
+// goaway on a session: reasons 1 limit_reached and 2 shutdown drain (requests in work finish, new ones are not taken);
+// 3 deny and 4 protocol close at once. At most one per session (the caller is in phase 20, or before it for an invalid token).
+fn goaway_frame(st: @{S}, code: int64, drain: int64) -> boolean {
+    sequence
+        _: boolean <- case st.down of { true -> true; false -> to_tx(st.tx, 13, "", "", bees_trust_mux_frame@reason_atom(code), err_atom(), drain) };
+        f: string <- sp2(sp2(kvt("reason", bees_trust_mux_frame@reason_text(code)), kvi("drain_ms", drain)), kvi("inflight", st.inflight));
+        _: atom <- tel("goaway", f, st.cid);
+        ok: boolean <- met(7 + code, 1)
+    produces pure ok end
+}
+fn goaway(st: @{S}, me: actor_ref, code: int64) -> @{V} {
+    sequence
+        drain: int64 <- case code <= 2 of { true -> bees_trust_conf@session_drain(); false -> 0 };
+        _: boolean <- goaway_frame(st, code, drain);
+        v: @{V} <- case code >= 3 or (st.inflight == 0 and st.wait == false) or drain == 0 of {
+            true -> shut(st, me, code);
+            false -> {
+                sequence
+                    _: boolean <- arm(me, bees_trust_conf@session_drain_ms(), 22);
+                    _: boolean <- case st.held of { true -> asm_go(st.asm); false -> true }
+                produces pure @{V st | phase: 21, held: false, paused: false, why: code} end
+            }
+        }
+    produces pure v end
+}
+// a refusal: the audit line and the suspicion as N3; on a session also goaway (3 deny, 4 protocol) before the close
+fn refuse(st: @{S}, me: actor_ref, event: string, what: string, code: int64) -> @{V} {
+    sequence
+        _: atom <- audit(event, fp_of(st), what, st.cid);
+        sess: boolean <- st.multi and st.phase != 21;
+        _: boolean <- case sess of { true -> goaway_frame(st, code, 0); false -> true };
+        _: boolean <- case sess and code == 4 of { true -> met(23, 1); false -> true };
+        v: @{V} <- shut(st, me, case st.multi of { true -> code; false -> 8 });
+        // the fingerprint's actor prints its own lines (suspicion, quarantine): it is told after this actor's last line
+        _: boolean <- peer_tell(st.peer, 2, event, me, 1)
+    produces pure v end
+}
+fn stage(phase: int64) -> string {
+    case phase of { 1 -> "stage fingerprint"; 3 -> "stage first_frame"; 6 -> "stage request"; 7 -> "stage call"; _: int64 -> "stage other" }
+}
+fn c_up(st: @{S}, me: actor_ref) -> @{V} {
+    case st.phase of {
+        0 -> {
+            sequence
+                a: actor_ref <- asm_new(me, 64, "", true);
+                _: boolean <- arm(me, bees_trust_conf@handshake_timeout_ms(), 1)
+            produces pure @{V st | asm: a, phase: 1, live: true} end
+        };
+        // refused at accept (N5 Q8, ruled 2026-11-18): closed before a byte is read, one audit line, no suspicion
+        30 -> { sequence _: atom <- audit("session_slots_full", "-", "session_slots_max connections are open, connection closed before reading", st.cid); _: boolean <- tx_end(st.tx, false); _: boolean <- arm(me, 500, 9) produces pure @{V st | phase: 9} end };
+        31 -> { sequence _: atom <- audit("shutdown", "-", "the node is shutting down, connection closed before reading", st.cid); _: boolean <- tx_end(st.tx, false); _: boolean <- arm(me, 500, 9) produces pure @{V st | phase: 9} end };
+        _: int64 -> keep(st)
+    }
+}
+fn c_rx(st: @{S}, seg: string) -> @{V} {
+    case st.live and st.phase != 9 of {
+        false -> keep(st);
+        true -> {
+            sequence proc[concurrency]
+                _: boolean <- cast(st.asm, (:bees, 0, seg) impl ActorMessage {})
+            produces pure keep(st) end
+        }
+    }
+}
+fn c_more(st: @{S}) -> @{V} {
+    case st.live and st.phase != 9 of {
+        false -> keep(st);
+        true -> { sequence _: boolean <- credit(st.c, 1) produces pure keep(st) end }
+    }
+}
+// the carrier said :link_down and has ended with it: nothing casts to it again. In a session this is CANCEL BY CLOSE: results
+// are dropped (the supervisor is detached), no suspicion. A worker that is running is not stopped: Silica has no preemption
+// (N5 Q6, ruled 2026-11-18).
+fn c_down(st: @{S}, me: actor_ref) -> @{V} {
+    sequence
+        d: @{S} <- @{S st | down: true};
+        v: @{V} <- case st.phase of {
+            0 -> { sequence _: boolean <- tx_end(st.tx, true); _: boolean <- lsn_tell(st.lsn, 4, me) produces pure @{V st | phase: 10} end };
+            30 -> { sequence _: boolean <- tx_end(st.tx, true) produces pure @{V st | phase: 10} end };
+            31 -> { sequence _: boolean <- tx_end(st.tx, true) produces pure @{V st | phase: 10} end };
+            1 -> { sequence _: atom <- audit("closed_by_peer", "-", stage(1), st.cid) produces pure shut(d, me, 8) end };
+            3 -> { sequence _: atom <- audit("closed_by_peer", fp_of(st), stage(3), st.cid) produces pure shut(d, me, 8) end };
+            6 -> { sequence _: atom <- audit("closed_by_peer", fp_of(st), stage(6), st.cid) produces pure shut(d, me, 8) end };
+            20 -> c_cancel(d, me);
+            21 -> c_cancel(d, me);
+            _: int64 -> @{V st | down: true}
+        }
+    produces pure v end
+}
+fn c_cancel(st: @{S}, me: actor_ref) -> @{V} {
+    sequence
+        busy: boolean <- st.inflight > 0 or st.wait;
+        _: atom <- case busy of { true -> tel("client_cancel", kvi("inflight_at_cancel", st.inflight), st.cid); false -> :ok };
+        _: boolean <- case busy of { true -> met(21, 1); false -> true };
+        v: @{V} <- shut(st, me, case busy of { true -> 5; false -> 6 })
+    produces pure v end
+}
+// a framing refusal (an oversize length, a bad prefix): no frame was stored or decoded, and the assembler has ended
+fn c_reject(st: @{S}, me: actor_ref, code: int64) -> @{V} {
+    sequence
+        d: @{S} <- @{S st | live: false, held: false};
+        what: string <- concat("frame refused before decoding: ", concat(bees_atoms@spelling(bees_trust_frame@reason(code)), concat(" ", bees_trust_frame@int_text(code))));
+        _: atom <- case st.multi and st.phase == 20 of { true -> tel("request.refuse", "reason=malformed", st.cid); false -> :ok };
+        _: boolean <- case st.multi and st.phase == 20 of { true -> met(18, 1); false -> true };
+        v: @{V} <- refuse(d, me, "protocol_error", what, 4)
+    produces pure v end
+}
+// the session's limits by time: 20 max_age_ms; 21 the idle tick (also asks the listener for the shutdown flag); 22 the drain
+fn c_tick(st: @{S}, me: actor_ref) -> @{V} {
+    case now_ns() - st.last >= bees_trust_conf@session_idle_ns() of {
+        true -> goaway(st, me, 1);
+        false -> {
+            sequence
+                _: boolean <- arm(me, bees_trust_conf@session_idle_tick_ms(), 21);
+                _: boolean <- lsn_tell(st.lsn, 3, me)
+            produces pure @{V st | qwait: st.qwait + 1} end
+        }
+    }
+}
+fn c_timer(st: @{S}, me: actor_ref, tag: int64) -> @{V} {
+    case tag of {
+        1 -> case st.phase == 1 of { true -> { sequence _: atom <- audit("timeout", "-", stage(1), st.cid) produces pure shut(st, me, 8) end }; false -> keep(st) };
+        3 -> case st.phase == 3 of { true -> refuse(st, me, "timeout", stage(3), 4); false -> keep(st) };
+        6 -> case st.phase == 6 of { true -> refuse(st, me, "timeout", stage(6), 4); false -> keep(st) };
+        9 -> case st.phase == 9 of { true -> @{V st | reaped: true}; false -> keep(st) };
+        20 -> case st.phase == 20 of { true -> goaway(st, me, 1); false -> keep(st) };
+        21 -> case st.phase == 20 of { true -> c_tick(st, me); false -> keep(st) };
+        22 -> case st.phase == 21 of { true -> shut(st, me, st.why); false -> keep(st) };
+        _: int64 -> keep(st)
+    }
+}
+// phase 1: the 64 bytes that name the peer (the certificate's SHA-512 over TLS; the TEST ONLY stand-in under plaintext, R5)
+fn c_fp(st: @{S}, me: actor_ref, body: string) -> @{V} {
+    sequence
+        h: string <- bees_trust_frame@hex(body);
+        idx: int64 <- bees_trust_conf@peer_index(h);
+        s: @{V} <- case idx < 0 of {
+            true -> { sequence _: atom <- audit("whitelist_reject", h, "fingerprint not in the whitelist, connection closed", st.cid) produces pure shut(st, me, 8) end };
+            false -> { sequence _: boolean <- peer_tell(idx, 1, "", me, 0) produces pure @{V st | phase: 2, peer: idx} end }
+        }
+    produces pure s end
+}
+// the fingerprint actor's answer to "is it quarantined": the gate (phase 2), or the check a session makes after it raised
+// the peer's suspicion (qwait counts the answers still on their way)
+fn c_gate(st: @{S}, me: actor_ref, quarantined: int64) -> @{V} {
+    case st.phase == 2 of {
+        true -> case st.down of {
+            true -> shut(st, me, 8);
+            false -> case quarantined == 1 of {
+                true -> { sequence _: atom <- audit("quarantined", fp_of(st), "connection refused", st.cid) produces pure shut(st, me, 8) end };
+                false -> {
+                    sequence
+                        _: boolean <- asm_go(st.asm);
+                        _: boolean <- arm(me, bees_trust_conf@first_frame_timeout_ms(), 3)
+                    produces pure @{V st | phase: 3} end
+                }
+            }
+        };
+        false -> c_quar(@{S st | qwait: st.qwait - 1}, me, quarantined)
+    }
+}
+fn c_quar(st: @{S}, me: actor_ref, quarantined: int64) -> @{V} {
+    case quarantined == 1 and (st.phase == 20 or st.phase == 21) of {
+        false -> keep(st);
+        true -> {
+            sequence
+                _: atom <- audit("quarantined", fp_of(st), "session closed", st.cid);
+                v: @{V} <- case st.phase == 20 of { true -> goaway(st, me, 3); false -> shut(st, me, 3) }
+            produces pure v end
+        }
+    }
+}
+fn c_shutdown(st: @{S}, me: actor_ref, flag: int64) -> @{V} {
+    sequence
+        d: @{S} <- @{S st | qwait: st.qwait - 1};
+        v: @{V} <- case flag == 1 and st.phase == 20 of { true -> goaway(d, me, 2); false -> keep(d) }
+    produces pure v end
+}
+// the first frame: hello or token_present, with or without the session offer (N5 Q2, ruled 2026-11-18)
+fn c_first(st: @{S}, me: actor_ref, p: { code: int64, what: string, kind: int64, token: string }, offer: boolean) -> @{V} {
+    case p.code != 0 of {
+        true -> refuse(st, me, "protocol_error", p.what, 4);
+        false -> case p.kind of {
+            1 -> {
+                sequence proc[concurrency]
+                    n: int64 <- bees_trust_conf@token_bytes();
+                    _: boolean <- cast(st.edge, (1, "", "", n, me) impl ActorMessage {})
+                produces pure @{V st | phase: 4, multi: offer} end
+            };
+            2 -> { sequence _: boolean <- peer_tell(st.peer, 5, p.token, me, 0) produces pure @{V st | phase: 5, multi: offer} end };
+            _: int64 -> refuse(st, me, "protocol_error", concat("request before the token step, frame dropped: t=", p.what), 4)
+        }
+    }
+}
+// the token step is done: SINGLE waits for its one request; a SESSION is acknowledged with ok and becomes active
+fn ready(st: @{S}, me: actor_ref) -> @{V} {
+    sequence
+        sup: actor_ref <- bees_trust_slots@sup_start(me);
+        _: boolean <- case st.multi of { true -> tx_simple(st.tx, 12, "", ""); false -> true };
+        _: boolean <- asm_go(st.asm);
+        _: boolean <- case st.multi of {
+            false -> arm(me, bees_trust_conf@first_frame_timeout_ms(), 6);
+            true -> { sequence _: boolean <- arm(me, bees_trust_conf@session_max_age_ms(), 20) produces pure arm(me, bees_trust_conf@session_idle_tick_ms(), 21) end }
+        };
+        _: atom <- tel("session.start", kvt("client_id", concat("fp:", bees_trust_frame@short(fp_of(st)))), st.cid);
+        _: boolean <- met(0, 1);
+        _: boolean <- met(1, 1);
+        t: int64 <- now_ns()
+    produces pure @{V st | sup: sup, supst: 1, phase: case st.multi of { true -> 20; false -> 6 }, held: false, t0: t, last: t} end
+}
+fn tok_ok(r: (:ok, string) | (:rejected, atom)) -> string { case r of { (:ok, t: string) -> t; (:rejected, _w: atom) -> "" } }
+// phase 4: the edge's random bytes, one ETF binary, decoded here with the language's decode (they are FFI-derived)
+fn c_random(st: @{S}, me: actor_ref, etf: string) -> @{V} {
+    case st.phase != 4 of {
+        true -> keep(st);
+        false -> case st.down of {
+            true -> shut(st, me, 8);
+            false -> {
+                sequence
+                    r: (:ok, string) | (:rejected, atom) <- bees_trust_frame@dec_token_term(etf);
+                    v: @{V} <- c_issue(st, me, tok_ok(r))
+                produces pure v end
+            }
+        }
+    }
+}
+fn c_issue(st: @{S}, me: actor_ref, tok: string) -> @{V} {
+    case length_bytes(tok) == bees_trust_conf@token_bytes() of {
+        false -> { sequence _: atom <- audit("internal_error", fp_of(st), "random bytes refused", 0) produces pure shut(st, me, 8) end };
+        true -> {
+            sequence
+                _: boolean <- peer_tell(st.peer, 4, tok, me, 0);
+                _: atom <- audit("token_issued", fp_of(st), "new token for this fingerprint (the token itself is never logged)", st.cid);
+                _: boolean <- tx_simple(st.tx, 1, tok, "");
+                s: @{V} <- ready(st, me)
+            produces pure s end
+        }
+    }
+}
+fn c_tokchk(st: @{S}, me: actor_ref, eq: int64) -> @{V} {
+    case st.phase != 5 of {
+        true -> keep(st);
+        false -> case st.down of {
+            true -> shut(st, me, 8);
+            false -> case eq == 1 of {
+                true -> {
+                    sequence
+                        _: atom <- audit("token_accepted", fp_of(st), "fast path, no token_issue", st.cid);
+                        s: @{V} <- ready(st, me)
+                    produces pure s end
+                };
+                false -> refuse(st, me, "token_reject", "token invalid, expired or revoked", 3)
+            }
+        }
+    }
+}
+fn kind_text(k: int64) -> string { case k == 1 of { true -> "call "; false -> "cast " } }
+// a request frame: N3's checks in N3's order. Which refusal is deny (3) and which protocol (4) is N5 Q3 (ruled 2026-11-18).
+fn c_request(st: @{S}, me: actor_ref, r: { code: int64, what: string, kind: int64, req_id: string, m: atom, f: atom, a: int64, args: string }) -> @{V} {
+    case r.code != 0 of {
+        true -> {
+            sequence
+                _: atom <- case st.multi of { true -> tel("request.refuse", "reason=malformed", st.cid); false -> :ok };
+                _: boolean <- case st.multi of { true -> met(18, 1); false -> true };
+                v: @{V} <- refuse(st, me, "protocol_error", r.what, 4)
+            produces pure v end
+        };
+        false -> case bees_trust_guard@forbidden(r.m, r.f) of {
+            true -> refuse(st, me, "forbidden_mfa", mfa_text(r.m, r.f, r.a), 3);
+            false -> case bees_trust_conf@permitted(st.peer, r.m, r.f, r.a) of {
+                false -> refuse(st, me, "permission_denied", mfa_text(r.m, r.f, r.a), 3);
+                true -> c_slot(st, me, r, bees_trust_mfa@slot_of(r.m, r.f, r.a))
+            }
+        }
+    }
+}
+fn c_slot(st: @{S}, me: actor_ref, r: { code: int64, what: string, kind: int64, req_id: string, m: atom, f: atom, a: int64, args: string }, slot: int64) -> @{V} {
+    case slot < 0 of {
+        true -> refuse(st, me, "permission_denied", concat(mfa_text(r.m, r.f, r.a), " is not in the program"), 3);
+        false -> c_typed(st, me, r, slot, bees_trust_mfa@check_args(slot, r.args))
+    }
+}
+fn c_typed(st: @{S}, me: actor_ref, r: { code: int64, what: string, kind: int64, req_id: string, m: atom, f: atom, a: int64, args: string }, slot: int64, why: atom) -> @{V} {
+    case why == :ok of {
+        false -> refuse(st, me, "protocol_error", concat(concat(mfa_text(r.m, r.f, r.a), ": args refused "), bees_atoms@spelling(why)), 4);
+        true -> {
+            sequence
+                _: atom <- audit("admitted", fp_of(st), concat(kind_text(r.kind), mfa_text(r.m, r.f, r.a)), st.cid);
+                _: boolean <- sup_tell(st.sup, r.kind, r.args, r.req_id, slot)
+            produces pure @{V st | phase: case st.phase == 6 of { true -> 61; false -> st.phase }, wait: true, last: now_ns()} end
+        }
+    }
+}
+// the supervisor's verdict: 30 the request is in work (kind 1 call, 2 cast); 31 it was not taken (0 a duplicate req_id in
+// work, 2 no free row). The next frame is released only now, and only below max_inflight.
+fn accept_tel(st: @{S}, rid: string, kind: int64) -> atom {
+    tel("request.accept", sp2(kvt("type", case kind == 1 of { true -> "call"; false -> "cast" }), kvt("req_id", bees_trust_frame@hex(rid))), st.cid)
+}
+fn c_admitted(st: @{S}, me: actor_ref, rid: string, kind: int64) -> @{V} {
+    sequence
+        _: atom <- accept_tel(st, rid, kind);
+        n1: int64 <- st.inflight + 1;
+        c1: int64 <- st.calls + 1;
+        pk: int64 <- case n1 > st.peak of { true -> n1; false -> st.peak };
+        d: @{S} <- @{S st | wait: false, inflight: n1, calls: c1, peak: pk, last: now_ns()};
+        v: @{V} <- case st.phase of {
+            61 -> case kind == 1 of {
+                true -> @{V d | phase: 7};
+                false -> {
+                    sequence
+                        _: boolean <- tx_end(st.tx, st.down);
+                        _: boolean <- asm_stop(st.asm, st.live)
+                    produces pure @{V d | phase: 8, live: false, held: false} end
+                }
+            };
+            20 -> case c1 >= bees_trust_conf@session_max_calls() of {
+                true -> goaway(d, me, 1);
+                false -> case n1 >= bees_trust_conf@session_max_inflight() of {
+                    true -> { sequence _: atom <- tel("pause", kvi("inflight", n1), st.cid) produces pure @{V d | paused: true, tp: now_ns()} end };
+                    false -> release(d)
+                }
+            };
+            _: int64 -> keep(d)
+        }
+    produces pure v end
+}
+fn release(st: @{S}) -> @{V} {
+    case st.held and st.live of {
+        false -> keep(st);
+        true -> { sequence _: boolean <- asm_go(st.asm) produces pure @{V st | held: false} end }
+    }
+}
+fn c_not_taken(st: @{S}, me: actor_ref, n: int64) -> @{V} {
+    sequence
+        d: @{S} <- @{S st | wait: false, dups: st.dups + 1};
+        v: @{V} <- case st.phase of {
+            61 -> shut(d, me, 8);
+            20 -> {
+                sequence
+                    _: atom <- tel("request.refuse", "reason=duplicate", st.cid);
+                    _: boolean <- met(17, 1);
+                    _: boolean <- met(20, 1)
+                produces pure release(d) end
+            };
+            21 -> { sequence _: atom <- tel("request.refuse", "reason=duplicate", st.cid); _: boolean <- met(17, 1) produces pure keep(d) end };
+            _: int64 -> keep(d)
+        }
+    produces pure v end
+}
+// a call older than call_timeout_ms (the supervisor's timer). SINGLE: N3's close, and the actor waits for the abandoned
+// worker. SESSION: audit and suspicion, the session goes on (N5 Q4, ruled 2026-11-18).
+fn c_timeout(st: @{S}, me: actor_ref) -> @{V} {
+    case st.phase of {
+        7 -> {
+            sequence
+                _: atom <- audit("timeout", fp_of(st), stage(7), st.cid);
+                _: boolean <- tx_end(st.tx, st.down);
+                _: boolean <- asm_stop(st.asm, st.live);
+                _: boolean <- peer_tell(st.peer, 2, "timeout", me, 1)
+            produces pure @{V st | phase: 8, live: false, held: false} end
+        };
+        20 -> c_timeout_s(st, me);
+        21 -> c_timeout_s(st, me);
+        _: int64 -> keep(st)
+    }
+}
+fn c_timeout_s(st: @{S}, me: actor_ref) -> @{V} {
+    sequence
+        _: atom <- audit("timeout", fp_of(st), stage(7), st.cid);
+        _: boolean <- peer_tell(st.peer, 2, "timeout", me, 1);
+        _: boolean <- peer_tell(st.peer, 1, "", me, 0)
+    produces pure @{V st | qwait: st.qwait + 1} end
+}
+// the worker's answer, through the supervisor: n = code + 10 * cast + 100 * timed_out + 1000 * duration_ms; code 0 the value
+// span (s1) for req_id (rid), 1 the user code failed (s1 the reason), 2 args refused
+fn finish_tel(st: @{S}, rid: string, good: boolean, dur: int64, cast_k: boolean) -> atom {
+    sequence
+        f: string <- sp2(sp2(kvt("req_id", bees_trust_frame@hex(rid)), kvt("outcome", case good of { true -> "ok"; false -> "error" })), kvi("duration_ms", dur));
+        _: atom <- tel("request.finish", f, st.cid);
+        _: boolean <- met(12 + 2 * b2i(cast_k) + b2i(good == false), 1);
+        _: boolean <- met(28, dur)
+    produces pure :ok end
+}
+fn c_done(st: @{S}, me: actor_ref, s1: string, rid: string, n: int64) -> @{V} {
+    sequence
+        code: int64 <- n % 10;
+        timed: boolean <- (n / 100) % 10 == 1;
+        dur: int64 <- n / 1000;
+        v: @{V} <- case st.phase of {
+            7 -> case code == 0 of {
+                true -> {
+                    sequence
+                        _: boolean <- case st.down of { true -> true; false -> tx_simple(st.tx, 2, rid, s1) };
+                        _: atom <- finish_tel(st, rid, true, dur, false);
+                        s: @{V} <- shut(@{S st | inflight: 0}, me, 7);
+                        _: boolean <- peer_tell(st.peer, 3, "", me, 0)
+                    produces pure s end
+                };
+                false -> {
+                    sequence
+                        _: atom <- finish_tel(st, rid, false, dur, false);
+                        s: @{V} <- refuse(@{S st | inflight: 0}, me, case code == 1 of { true -> "user_code_error"; false -> "protocol_error" }, s1, 4)
+                    produces pure s end
+                }
+            };
+            8 -> case timed of {
+                true -> {
+                    sequence
+                        _: atom <- audit("late_result_dropped", fp_of(st), "the call had timed out", st.cid);
+                        _: atom <- finish_tel(st, rid, false, dur, false);
+                        s: @{V} <- fin(@{S st | inflight: 0}, me, 8)
+                    produces pure s end
+                };
+                false -> {
+                    sequence
+                        _: atom <- case code == 0 of { true -> :ok; false -> audit("user_code_error", fp_of(st), s1, st.cid) };
+                        _: atom <- finish_tel(st, rid, code == 0, dur, true);
+                        s: @{V} <- fin(@{S st | inflight: 0}, me, 7);
+                        _: boolean <- case code == 0 of { true -> peer_tell(st.peer, 3, "", me, 0); false -> peer_tell(st.peer, 2, "user_code_error", me, 1) }
+                    produces pure s end
+                }
+            };
+            20 -> c_done_s(st, me, s1, rid, n);
+            21 -> c_done_s(st, me, s1, rid, n);
+            _: int64 -> keep(st)
+        }
+    produces pure v end
+}
+// in a session: a call's value is sent as result; a failure is audited and raises suspicion, nothing is sent and the session
+// goes on (N5 Q4, ruled 2026-11-18), unless the fingerprint is now quarantined (asked here, answered through c_gate)
+fn c_done_s(st: @{S}, me: actor_ref, s1: string, rid: string, n: int64) -> @{V} {
+    sequence
+        code: int64 <- n % 10;
+        cast_k: boolean <- (n / 10) % 10 == 1;
+        timed: boolean <- (n / 100) % 10 == 1;
+        dur: int64 <- n / 1000;
+        good: boolean <- code == 0 and timed == false;
+        bad: boolean <- code != 0 and timed == false;
+        _: atom <- case timed of { true -> audit("late_result_dropped", fp_of(st), "the call had timed out", st.cid); false -> :ok };
+        _: boolean <- case good and cast_k == false and st.down == false of { true -> tx_simple(st.tx, 2, rid, s1); false -> true };
+        _: atom <- case bad of { true -> audit("user_code_error", fp_of(st), s1, st.cid); false -> :ok };
+        _: atom <- case bad of { true -> tel("worker.crash", sp2(sp2(kvt("req_id", bees_trust_frame@hex(rid)), "class=error"), kvt("reason", s1)), st.cid); false -> :ok };
+        _: boolean <- case bad of { true -> met(22, 1); false -> true };
+        _: atom <- finish_tel(st, rid, good, dur, cast_k);
+        n1: int64 <- st.inflight - 1;
+        d: @{S} <- @{S st | inflight: n1, last: now_ns(), qwait: st.qwait + b2i(bad)};
+        v: @{V} <- case st.phase == 21 and n1 == 0 and st.wait == false of {
+            true -> shut(d, me, st.why);
+            false -> case st.paused and st.phase == 20 and n1 < bees_trust_conf@session_max_inflight() of {
+                true -> c_resume(d);
+                false -> keep(d)
+            }
+        };
+        // the fingerprint's actor prints its own lines: it is told after this actor's last line for this event
+        _: boolean <- case good of { true -> peer_tell(st.peer, 3, "", me, 0); false -> true };
+        _: boolean <- case bad of { true -> peer_tell(st.peer, 2, "user_code_error", me, 1); false -> true };
+        _: boolean <- case bad of { true -> peer_tell(st.peer, 1, "", me, 0); false -> true }
+    produces pure v end
+}
+fn c_resume(st: @{S}) -> @{V} {
+    sequence
+        ms: int64 <- (now_ns() - st.tp) / 1000000;
+        _: atom <- tel("resume", kvi("paused_ms", ms), st.cid);
+        _: boolean <- met(24, 1);
+        _: boolean <- met(30, ms);
+        v: @{V} <- release(@{S st | paused: false})
+    produces pure v end
+}
+// every record-returning call is bound before it is used (SD-44)
+fn c_frame(st: @{S}, me: actor_ref, body: string, rest: string) -> @{V} {
+    case st.phase of {
+        1 -> c_frame_new(st, me, body, rest);
+        3 -> c_frame_new(st, me, body, rest);
+        6 -> c_frame_new(st, me, body, rest);
+        20 -> c_frame_new(st, me, body, rest);
+        // draining: the frame is not decoded; it is counted and the next one is read (N5 Q7, ruled 2026-11-18)
+        21 -> {
+            sequence
+                a: actor_ref <- asm_new(me, 0, rest, true);
+                // one line for the first such frame of a session (the design: rate-limit request logs); all are counted
+                _: atom <- case st.refused == 0 of { true -> tel("request.refuse", "reason=draining", st.cid); false -> :ok };
+                _: boolean <- met(16, 1)
+            produces pure @{V st | asm: a, live: true, held: false, refused: st.refused + 1} end
+        };
+        _: int64 -> @{V st | live: false, held: false}
+    }
+}
+fn c_frame_new(st: @{S}, me: actor_ref, body: string, rest: string) -> @{V} {
+    sequence
+        a: actor_ref <- asm_new(me, 0, rest, false);
+        st2: @{S} <- @{S st | asm: a, live: true, held: true};
+        s: @{V} <- c_frame_in(st2, me, body)
+    produces pure s end
+}
+fn c_frame_in(st: @{S}, me: actor_ref, body: string) -> @{V} {
+    case st.phase of {
+        1 -> c_fp(st, me, body);
+        3 -> {
+            sequence
+                p: { code: int64, what: string, kind: int64, token: string } <- bees_trust_frame@parse_first(body, bees_trust_conf@term_depth_max(), bees_trust_conf@args_len_max());
+                offer: boolean <- case p.code == 0 and bees_trust_conf@session_single() == false of { true -> bees_trust_mux_frame@offers(body); false -> false };
+                s: @{V} <- c_first(st, me, p, offer)
+            produces pure s end
+        };
+        _: int64 -> {
+            sequence
+                r: { code: int64, what: string, kind: int64, req_id: string, m: atom, f: atom, a: int64, args: string } <- bees_trust_frame@parse_req(body, bees_trust_conf@term_depth_max(), bees_trust_conf@args_len_max());
+                s: @{V} <- c_request(st, me, r)
+            produces pure s end
+        }
+    }
+}
+fn c_bees(st: @{S}, me: actor_ref, k: int64, s1: string, s2: string, n: int64) -> @{V} {
+    case k of {
+        1 -> c_frame(st, me, s1, s2);
+        2 -> case st.phase != 9 and st.phase != 10 and st.phase != 8 of { true -> c_reject(st, me, n); false -> @{V st | live: false, held: false} };
+        4 -> c_more(st);
+        5 -> c_timer(st, me, n);
+        6 -> c_gate(st, me, n);
+        7 -> c_random(st, me, s1);
+        8 -> c_tokchk(st, me, n);
+        9 -> c_done(st, me, s1, s2, n);
+        // an audit line of the TLS worker under this connection (it may not print itself, E2103): event, what
+        11 -> { sequence _: atom <- audit(s1, "-", s2, st.cid) produces pure keep(st) end };
+        12 -> c_shutdown(st, me, n);
+        30 -> c_admitted(st, me, s1, n);
+        31 -> c_not_taken(st, me, n);
+        33 -> c_timeout(st, me);
+        41 -> @{V st | supst: 3};
+        _: int64 -> keep(st)
+    }
+}
+fn sess_handle(st: @{S}, me: actor_ref, msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | (:bees, int64, string, string, int64)) -> @{V} {
+    case msg of {
+        (:link_up, _info: string) -> c_up(st, me);
+        (:rx, seg: string) -> c_rx(st, seg);
+        (:tx_credit, _n: int64) -> keep(st);
+        (:tx_failed, _why: atom) -> keep(st);
+        (:link_down, _w: atom) -> c_down(st, me);
+        (:bees, k: int64, s1: string, s2: string, n: int64) -> c_bees(st, me, k, s1, s2, n)
+    }
+}
+fn msess(msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | (:bees, int64, string, string, int64), st: @{S}) -> (:no_reply, @{S}) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        s: @{V} <- sess_handle(st, me, msg);
+        // ended: closed and reaped, the supervisor's detach answered (or none was started), no answer still on its way
+        over: boolean <- s.phase == 10 or (s.phase == 9 and s.reaped and s.qwait == 0 and (s.supst == 0 or s.supst == 3));
+        _: atom <- case over of { true -> stop_self(:normal); false -> :ok }
+    produces pure (:no_reply, { asm: s.asm, c: st.c, tx: st.tx, edge: st.edge, lsn: st.lsn, sup: s.sup, cid: st.cid, phase: s.phase, peer: s.peer, down: s.down, live: s.live, held: s.held, multi: s.multi, wait: s.wait, paused: s.paused, inflight: s.inflight, calls: s.calls, peak: s.peak, refused: s.refused, dups: s.dups, t0: s.t0, last: s.last, tp: s.tp, supst: s.supst, qwait: s.qwait, reaped: s.reaped, why: s.why }) end
+}
+
+// ======================================================================== mcli (client)
+//   1 connecting (connect_timeout_ms)   0 connected: the server's token cache was asked   2 hello sent: waiting for token_issue
+//   3 reading: ok, result, goaway   6 the carrier went down while the cache's answer was on its way   9 closed   10 ended
+// acked: the server answered the offer with ok (a session). grace: goaway limit_reached or shutdown was read. kind: the first
+// request's (1 call, 2 cast). The pending table is told the end of the connection (24) and ends the send actor itself, so no
+// frame is handed to an ended send actor.
+fn kkeep(st: @{K}) -> @{KV} { @{KV st} }
+fn pend_tell(p: actor_ref, k: int64, s1: string, s2: string, n: int64) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(p, (:bees, k, s1, s2, n) impl ActorMessage {})
+    produces pure ok end
+}
+fn cache_tell(srv: int64, op: int64, tok: string, me: actor_ref) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast_registered(bees_trust_conf@server_name(srv), (:bees, op, tok, me, 0) impl ActorMessage {})
+    produces pure ok end
+}
+// the end of the connection: status 1 closed, 2 protocol_error, 3 timeout, 4 connect_failed, 5 server_not_pinned; down: the
+// carrier has said :link_down. A connection that ended without a graceful reason makes the client drop its cached token for
+// that server (the server may have revoked or forgotten it), as N3's client does.
+fn kfail(st: @{K}, me: actor_ref, status: int64, down: boolean, forget: boolean) -> @{KV} {
+    sequence
+        _: boolean <- case forget of { true -> cache_tell(st.srv, 3, "", me); false -> true };
+        _: boolean <- pend_tell(st.pend, 24, "", "", status + 100 * b2i(down));
+        _: boolean <- asm_stop(st.asm, st.live);
+        _: boolean <- arm(me, 500, 9)
+    produces pure @{KV st | phase: 9, live: false} end
+}
+// the cache answered (phase 0): everything the client says, pipelined: the stand-in fingerprint (plaintext_test_only only),
+// token_present or hello WITH THE SESSION OFFER, then the first request (the pending table sends it: 21)
+fn k_cache(st: @{K}, me: actor_ref, tok: string, has: int64) -> @{KV} {
+    case st.phase of {
+        0 -> {
+            sequence
+                _: boolean <- case bees_trust_conf@tls() of { true -> true; false -> tx_simple(st.tx, 4, bees_trust_conf@self_fp(), "") };
+                _: boolean <- case has == 1 of { true -> tx_simple(st.tx, 15, tok, ""); false -> tx_simple(st.tx, 14, "", "") };
+                _: boolean <- pend_tell(st.pend, 21, "", "", 0);
+                a: actor_ref <- asm_new(me, 0, "", true);
+                _: boolean <- arm(me, bees_trust_conf@call_timeout_ms() + bees_trust_conf@handshake_timeout_ms(), 100)
+            produces pure @{KV st | asm: a, phase: case has == 1 of { true -> 3; false -> 2 }, live: true} end
+        };
+        6 -> kfail(st, me, 1, true, true);
+        _: int64 -> kkeep(st)
+    }
+}
+fn k_frame(st: @{K}, me: actor_ref, r: { code: int64, what: string, kind: int64, a: string, b: string, n: int64 }) -> @{KV} {
+    case r.code != 0 of {
+        true -> kfail(st, me, 2, false, true);
+        false -> case r.kind of {
+            1 -> case st.phase == 2 of {
+                true -> { sequence _: boolean <- cache_tell(st.srv, 2, r.a, me) produces pure @{KV st | phase: 3} end };
+                false -> kfail(st, me, 2, false, true)
+            };
+            4 -> case st.phase == 3 and st.acked == false of {
+                true -> { sequence _: boolean <- pend_tell(st.pend, 22, "", "", 0) produces pure @{KV st | acked: true} end };
+                false -> kfail(st, me, 2, false, true)
+            };
+            2 -> case st.phase == 3 of {
+                false -> kfail(st, me, 2, false, true);
+                true -> {
+                    sequence
+                        _: boolean <- pend_tell(st.pend, 2, r.a, r.b, 0);
+                        // a result with no ok before it: the server is B1 and will close; so does the client, as N3's
+                        v: @{KV} <- case st.acked of { true -> kkeep(st); false -> kfail(st, me, 1, false, false) }
+                    produces pure v end
+                }
+            };
+            5 -> case r.n / 100000 <= 2 of {
+                true -> { sequence _: boolean <- pend_tell(st.pend, 23, "", "", 0) produces pure @{KV st | grace: true} end };
+                false -> kfail(st, me, 1, false, true)
+            };
+            _: int64 -> kfail(st, me, 2, false, true)
+        }
+    }
+}
+// why: the link's reason; over TLS a server whose certificate is not the pinned one ends the link with server_not_pinned
+fn k_down(st: @{K}, me: actor_ref, why: atom) -> @{KV} {
+    case st.phase of {
+        0 -> @{KV st | phase: 6};
+        1 -> kfail(st, me, case why == bees_atoms@a_server_not_pinned() of { true -> 5; false -> 4 }, true, false);
+        2 -> kfail(st, me, 1, true, true);
+        // a graceful end (after goaway limit_reached or shutdown), or a B1 server closing after the cast it was sent: the
+        // token stays; any other close forgets it
+        3 -> kfail(st, me, 1, true, st.grace == false and (st.acked or st.kind == 1));
+        _: int64 -> kkeep(st)
+    }
+}
+fn k_timer(st: @{K}, me: actor_ref, tag: int64) -> @{KV} {
+    case tag of {
+        0 -> case st.phase == 1 of { true -> kfail(st, me, 4, false, false); false -> kkeep(st) };
+        // no token_issue, or no ok and no close, within the call and handshake budget: not a session; closed
+        100 -> case st.phase == 2 or (st.phase == 3 and st.acked == false) of { true -> kfail(st, me, 3, false, true); false -> kkeep(st) };
+        9 -> case st.phase == 9 of { true -> @{KV st | phase: 10}; false -> kkeep(st) };
+        _: int64 -> kkeep(st)
+    }
+}
+fn k_up(st: @{K}, me: actor_ref) -> @{KV} {
+    case st.phase == 1 of {
+        false -> kkeep(st);
+        true -> { sequence _: boolean <- cache_tell(st.srv, 1, "", me) produces pure @{KV st | phase: 0} end }
+    }
+}
+fn k_bees(st: @{K}, me: actor_ref, k: int64, s1: string, s2: string, n: int64) -> @{KV} {
+    case k of {
+        1 -> case st.phase == 2 or st.phase == 3 of {
+            true -> {
+                // the next frame's assembler is created held and let go only after this frame was accepted: let go at
+                // once it could end itself (a frame or a refusal in the bytes that followed) before a refusal of this frame
+                // stopped it, and a cast to an ended actor ends the sender (F1-3)
+                sequence
+                    a: actor_ref <- asm_new(me, 0, s2, false);
+                    st2: @{K} <- @{K st | asm: a, live: true};
+                    r: { code: int64, what: string, kind: int64, a: string, b: string, n: int64 } <- bees_trust_mux_frame@parse_session(s1, bees_trust_conf@term_depth_max(), bees_trust_conf@frame_size_max());
+                    out: @{KV} <- k_frame(st2, me, r);
+                    _: boolean <- case out.live and out.phase != 9 of { true -> asm_go(a); false -> true }
+                produces pure out end
+            };
+            false -> @{KV st | live: false}
+        };
+        2 -> case st.phase != 9 and st.phase != 10 of { true -> kfail(@{K st | live: false}, me, 2, false, true); false -> @{KV st | live: false} };
+        4 -> case st.live and st.phase != 9 of { true -> { sequence _: boolean <- credit(st.c, 1) produces pure kkeep(st) end }; false -> kkeep(st) };
+        5 -> k_timer(st, me, n);
+        20 -> k_cache(st, me, s1, n);
+        // an audit line of the TLS worker under this connection (it may not print itself, E2103): event, what
+        11 -> { sequence _: atom <- audit(s1, "-", s2, st.srv) produces pure kkeep(st) end };
+        _: int64 -> kkeep(st)
+    }
+}
+fn k_rx(st: @{K}, seg: string) -> @{KV} {
+    case st.live and st.phase != 9 of {
+        false -> kkeep(st);
+        true -> {
+            sequence proc[concurrency]
+                _: boolean <- cast(st.asm, (:bees, 0, seg) impl ActorMessage {})
+            produces pure kkeep(st) end
+        }
+    }
+}
+fn cli_handle(st: @{K}, me: actor_ref, msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | (:bees, int64, string, string, int64)) -> @{KV} {
+    case msg of {
+        (:link_up, _info: string) -> k_up(st, me);
+        (:rx, seg: string) -> k_rx(st, seg);
+        (:tx_credit, _n: int64) -> kkeep(st);
+        (:tx_failed, _why: atom) -> kkeep(st);
+        (:link_down, w: atom) -> k_down(st, me, w);
+        (:bees, k: int64, s1: string, s2: string, n: int64) -> k_bees(st, me, k, s1, s2, n)
+    }
+}
+fn mcli(msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | (:bees, int64, string, string, int64), st: @{K}) -> (:no_reply, @{K}) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        s: @{KV} <- cli_handle(st, me, msg);
+        _: atom <- case s.phase == 10 of { true -> stop_self(:normal); false -> :ok }
+    produces pure (:no_reply, { asm: s.asm, c: st.c, tx: st.tx, pend: st.pend, srv: st.srv, kind: st.kind, phase: s.phase, live: s.live, acked: s.acked, grace: s.grace }) end
+}

@@ -1,0 +1,11 @@
+# the N5 server's own atoms: the demo service's MFA names and its failure reason
+demo
+add
+echo
+slow
+crash
+note
+secret
+badarith
+# the name of the forbidden MFA the goaway scenario sends: held so that the forbidden guard, not the atom policy, refuses it
+apply

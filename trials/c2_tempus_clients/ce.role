@@ -1,0 +1,92 @@
+// C2 clients trial: the Silica client as an EDGE (identity 1). It listens, so the node dials it when its entry is the
+// oldest; it walks its steps against node M and sends one tick to node O. The rows are those of design 16.2.
+// Other peers in its frames: x1 to x4 (identities 4 to 7), whose addresses nobody listens on.
+fn me_id() -> int64 { 1 }
+fn deftok() -> int64 { 6 }
+fn port() -> int64 { 23906 }
+fn node_port() -> int64 { 23901 }
+fn start_after() -> int64 { 0 }
+fn steps() -> int64 { 54 }
+fn me_at(age: int64) -> $E$ { ent(1, 6, 23906, age) }
+fn x(i: int64, age: int64) -> $E$ { ent(3 + i, 1, 23907, age) }
+fn smp() -> string { bees_tempus_client@sample(1, 3) }
+fn tck() -> string { bees_tempus_client@tick(1) }
+fn old() -> string { bees_tempus_client@shuffle(1, l1(me_at(50))) }
+fn old_what() -> string { "shuffle as the initiator: itself at age 50, so that it is the oldest entry" }
+fn short_id() -> $E$ {
+    bees_tempus_client@entry(bees_trust_frame@cut(hx(tempus_ids@id_hex(5)), 0, 63), hx(tempus_ids@pub_hex(5)), at(23907), hx(tempus_ids@tok_hex(5, 1)), 0)
+}
+fn step_a(k: int64) -> $CST$ {
+    case k of {
+        1 -> s("sample of the edge store (rows 11 and 14: admitted both ways; row 2: the entry the sentinel answered with)", smp());
+        2 -> s("shuffle as the initiator: itself at age 0 and x2 at age 2 (row 8)", bees_tempus_client@shuffle(1, l2(me_at(0), x(2, 2))));
+        3 -> s("sample of the edge store", smp());
+        4 -> s("a tick: every age rises, the oldest entry is dialed and nobody listens there (rows 3, 4, 5, 18)", tck());
+        5 -> s("a tick: the next oldest, the same", tck());
+        6 -> s("a tick: the client is the oldest and is dialed; the frame holds the node's own entry at age 0 (rows 4, 5, 6)", tck());
+        7 -> s("sample of the edge store", smp());
+        8 -> s("shuffle as the initiator: itself at age 50, x2 younger than the node holds it, x3 older (row 7)", bees_tempus_client@shuffle(1, l3(me_at(50), x(2, 1), x(3, 40))));
+        9 -> s("a tick: the client, the oldest, answers with x1, x4 younger than the node holds it and x3 older (row 7)", tck());
+        10 -> s("sample of the edge store", smp());
+        11 -> s(old_what(), old());
+        12 -> s("a tick: the client answers with one forged entry among good ones (row 17)", tck());
+        13 -> s("sample of the edge store", smp());
+        14 -> s(old_what(), old());
+        15 -> s("a tick: the client closes with no reply (row 18)", tck());
+        16 -> s(old_what(), old());
+        17 -> s("a tick: the client stays silent past the node's bound, and a second tick arrives meanwhile (rows 18, 21)", tck());
+        18 -> s("sample of the edge store", smp());
+        19 -> s(old_what(), old());
+        20 -> s("a tick: the client answers with a frame that is no reply (row 18)", tck());
+        21 -> sa("row 12: a token signed with another key", smp(), 8, 1, 0);
+        22 -> sa("row 12: an expired token", smp(), 5, 1, 0);
+        23 -> sa("row 12: a token that is not yet valid", smp(), 7, 1, 0);
+        24 -> sa("row 12: a token whose sub is another key", smp(), 9, 1, 0);
+        25 -> sa("row 12: a tempus_bridge token under a certificate the whitelist does not hold (typ not allowed)", smp(), 2, 1, 0);
+        26 -> sa("row 12: an id that is not the hash of the key", smp(), 6, 4, 0);
+        27 -> sa("row 12: a proof signed with another key", smp(), 6, 1, 1);
+        _: int64 -> sa("row 13: a token under the old kid", smp(), 4, 1, 0)
+    }
+}
+fn step_b(k: int64) -> $CST$ {
+    case k of {
+        29 -> s("row 19: the first byte is not 131", bees_tempus_client@bad_version(smp()));
+        30 -> s("row 19: a truncated frame", bees_tempus_client@bad_truncated(smp()));
+        31 -> s("row 19: a byte after the term", bees_tempus_client@bad_trailing(smp()));
+        32 -> s("row 19: a tuple, not a map", bees_tempus_client@bad_not_a_map());
+        33 -> s("row 19: t is no kind", bees_tempus_client@bad_kind());
+        34 -> s("row 19: an unknown key", bees_tempus_client@bad_extra_key());
+        35 -> s("row 19: a store that is no peer type", bees_tempus_client@bad_store());
+        36 -> s("row 19: nesting too deep", bees_tempus_client@bad_nested());
+        37 -> s("row 19: more entries than the shuffle length", bees_tempus_client@shuffle(1, l4(me_at(0), x(1, 1), x(2, 1), x(3, 1))));
+        38 -> s("row 19: an age above 65535", bees_tempus_client@shuffle(1, l1(me_at(65536))));
+        39 -> s("row 19: an id of 63 bytes", bees_tempus_client@shuffle(1, l1(short_id())));
+        40 -> s("row 19: a frame of 131073 bytes", zeros(bees_trust_frame@b1(0), 131073));
+        41 -> s("row 19: a sample that asks for more than the shuffle length", bees_tempus_client@sample(1, 9));
+        42 -> s("row 9: a shuffle of the edge store with an entry whose token says tempus_sentinel", bees_tempus_client@shuffle(1, l1(ent(2, 3, 23907, 0))));
+        43 -> { tok: 14, idv: 1, kid: kid1(), lkid: "", now: tempus_ids@now(), flags: 0, to: 1, req: tck(), what: "row 37: a tick to node O, which is not a test node (its clock runs: the client's token for it ends far away)" };
+        44 -> s("shuffle as the initiator: one entry whose token ends at 1600 (row 16)", bees_tempus_client@shuffle(1, l1(ent(3, 10, 23907, 1))));
+        45 -> s("the node's clock is set to 1700 s", bees_tempus_client@clock(1700000));
+        46 -> sn("a tick: the entry whose token has ended leaves the view (row 16)", tck(), 1700);
+        47 -> sn("sample of the edge store", smp(), 1700);
+        48 -> sn(old_what(), old(), 1700);
+        49 -> { tok: 0, idv: 1, kid: kid1(), lkid: "k9", now: 1700, flags: 0, to: 0, req: tck(), what: "a tick while the client holds k9 as the current kid: it answers the node's advert with key_rotated (row 15: the node's application passes a new token)" };
+        50 -> sn(old_what(), old(), 1700);
+        51 -> sn("a tick: the node's own entry carries the new token, which ends at 2500 (row 15)", tck(), 1700);
+        52 -> sn("the node's clock is set to 2600 s, past its own token", bees_tempus_client@clock(2600000), 1700);
+        53 -> sn("a tick: the node finds its own token expired and stops ticking (row 15)", tck(), 1700);
+        _: int64 -> sn("sample, with the client's own clock at 2600 s: the client refuses the node's advert (row 15)", smp(), 2600)
+    }
+}
+fn step_of(k: int64) -> $CST$ { case k <= 28 of { true -> step_a(k); false -> step_b(k) } }
+fn on_request(k: int64, body: string) -> $CRA$ {
+    case k of {
+        6 -> answer("answers with x2 at age 4, x3 at age 6 and x4 at age 1", bees_tempus_client@shuffle_answer(1, l3(x(2, 4), x(3, 6), x(4, 1))));
+        9 -> answer("answers with x1 at age 3, x4 at age 0 and x3 at age 70", bees_tempus_client@shuffle_answer(1, l3(x(1, 3), x(4, 0), x(3, 70))));
+        12 -> answer("answers with x1 and with x4 under a token signed with another key", bees_tempus_client@shuffle_answer(1, l2(x(1, 0), ent(7, 8, 23907, 0))));
+        17 -> { act: 31, body: tck(), what: "does not answer, and sends a second tick on another connection" };
+        20 -> answer("answers with a frame whose t is no kind", bees_tempus_client@bad_kind());
+        51 -> answer("answers with no entry", bees_tempus_client@shuffle_answer(1, l0()));
+        _: int64 -> act(21, "closes with no reply")
+    }
+}

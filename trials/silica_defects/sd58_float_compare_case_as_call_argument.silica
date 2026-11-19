@@ -1,0 +1,25 @@
+// SD-58 (expected: ", c: true, d: 4.5" twice): a `case` that compares a float64 record field with a float (a literal, or a
+// name the literal was bound to) and is written as an argument of a call with four parameters faults at run time. The same
+// comparison in a function of its own, called in the argument position, works; so does the `case` as a whole function body.
+fn cat4(a: string, b: string, c: string, d: string) -> string { concat(concat(concat(a, b), c), d) }
+fn d_text(d: float64) -> string {
+    sequence
+        want: float64 <- 4.5
+    produces pure case d == want of { true -> "4.5"; false -> "another float" } end
+}
+fn apart(v: { c: boolean, d: float64 }) -> string {
+    cat4(", c: ", case v.c of { true -> "true"; false -> "false" }, ", d: ", d_text(v.d))
+}
+fn in_place(v: { c: boolean, d: float64 }) -> string {
+    cat4(", c: ", case v.c of { true -> "true"; false -> "false" }, ", d: ", case v.d == 4.5 of { true -> "4.5"; false -> "another float" })
+}
+fn main() -> int64 {
+    sequence proc[device_io]
+        d: float64 <- 4.5;
+        v: { c: boolean, d: float64 } <- { c: true, d: d };
+        s1: string <- apart(v);
+        _: atom <- println(s1);
+        s2: string <- in_place(v);
+        _: atom <- println(s2)
+    produces pure 0 end
+}

@@ -1,0 +1,17 @@
+// SD-59 (expected: "scalar 3000000", "record 3000000", exit 0): a function that calls itself in tail position but returns a
+// record is compiled with a real call (one stack frame per step); the same function returning a scalar becomes a jump.
+// On the Mac the main actor's large stack hides this up to millions of steps; on Linux main runs on the 8 MiB process
+// stack and bees_term_wire@run faulted after about 10,000 tokens (2026-11-19). See also sd59_tail_call_mutual.
+fn scalar(i: int64, acc: int64) -> int64 { case i <= 0 of { true -> acc; false -> scalar(i - 1, acc + 1) } }
+fn record(i: int64, acc: int64) -> { n: int64, k: int64 } { case i <= 0 of { true -> { n: acc, k: 0 }; false -> record(i - 1, acc + 1) } }
+fn main() -> int64 {
+    sequence proc[device_io]
+        _: atom <- print("scalar ");
+        _: atom <- print_int64(scalar(3000000, 0));
+        _: atom <- println("");
+        r: { n: int64, k: int64 } <- record(3000000, 0);
+        _: atom <- print("record ");
+        _: atom <- print_int64(r.n);
+        _: atom <- println("")
+    produces pure 0 end
+}

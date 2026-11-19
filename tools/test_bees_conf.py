@@ -307,7 +307,7 @@ class Rules(Base):
         self.refused(BEAM % "", "beam.redial", "stated in bees.config", manifest=self.manifest("redial off\n" + MANIFEST))
 
     def test_9_not_built_yet(self):
-        self.refused(BEAM.replace("{transport, tcp}, ", "") % "", "beam.transport", "tls (the default, D25) is not built yet")
+        self.refused(BEAM.replace("{transport, tcp}, ", "") % "", "beam.transport", "required, no default")   # N2T: tls is built; ruled 2026-11-18: no default
         self.refused(BEAM % ", {spawn, any}", "beam.spawn", "any is not built yet")
 
     def test_10_name_and_mode(self):

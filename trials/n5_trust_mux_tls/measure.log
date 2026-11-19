@@ -1,0 +1,42 @@
+make[2]: `/Users/yenrab/project-bees/native/dangerous_exposure_source/lib/libsilica_bees_tls.a' is up to date.
+== 2000 calls, sessions_seq
+rate: 2000 ok answers of 2000 calls, window 1 in ms 2595; latency ms <1:1 <2:1997 <5:0 <10:1 <20:0 <50:1 >=50:0
+rate.a.out peak resident set (bytes): 9666560
+rate.b.out peak resident set (bytes): 9601024
+== 2000 calls, sessions_win4
+rate: 2000 ok answers of 2000 calls, window 4 in ms 11418; latency ms <1:0 <2:2 <5:13 <10:4 <20:7 <50:1974 >=50:0
+rate.a.out peak resident set (bytes): 10043392
+rate.b.out peak resident set (bytes): 9961472
+== 2000 calls, sessions_win
+rate: 2000 ok answers of 2000 calls, window 8 in ms 5793; latency ms <1:0 <2:0 <5:2 <10:2 <20:6 <50:1989 >=50:1
+rate.a.out peak resident set (bytes): 10649600
+rate.b.out peak resident set (bytes): 10649600
+== 2000 calls, baseline_seq
+rate: 2000 ok answers of 2000 calls, window 1 in ms 10233; latency ms <1:0 <2:0 <5:983 <10:1012 <20:0 <50:5 >=50:0
+rate.a.out peak resident set (bytes): 24428544
+rate.b.out peak resident set (bytes): 24985600
+== 2000 calls, baseline_win
+rate: 2000 ok answers of 2000 calls, window 8 in ms 5852; latency ms <1:0 <2:0 <5:9 <10:554 <20:110 <50:1284 >=50:43
+rate.a.out peak resident set (bytes): 30736384
+rate.b.out peak resident set (bytes): 31653888
+== 6000 calls, sessions_seq
+rate: 6000 ok answers of 6000 calls, window 1 in ms 7828; latency ms <1:4 <2:5981 <5:5 <10:4 <20:3 <50:3 >=50:0
+rate.a.out peak resident set (bytes): 11829248
+rate.b.out peak resident set (bytes): 11796480
+== 6000 calls, sessions_win4
+rate: 6000 ok answers of 6000 calls, window 4 in ms 32786; latency ms <1:0 <2:66 <5:215 <10:19 <20:6 <50:5694 >=50:0
+rate.a.out peak resident set (bytes): 13205504
+rate.b.out peak resident set (bytes): 13385728
+== 6000 calls, sessions_win
+rate: 6000 ok answers of 6000 calls, window 8 in ms 17235; latency ms <1:0 <2:2 <5:9 <10:37 <20:19 <50:5933 >=50:0
+rate.a.out peak resident set (bytes): 14204928
+rate.b.out peak resident set (bytes): 13926400
+== 6000 calls, baseline_seq
+rate: 6000 ok answers of 6000 calls, window 1 in ms 29754; latency ms <1:0 <2:0 <5:3662 <10:2334 <20:1 <50:3 >=50:0
+rate.a.out peak resident set (bytes): 51724288
+rate.b.out peak resident set (bytes): 51773440
+== 6000 calls, baseline_win
+rate: 6000 ok answers of 6000 calls, window 8 in ms 17758; latency ms <1:0 <2:0 <5:31 <10:1500 <20:371 <50:3986 >=50:112
+rate.a.out peak resident set (bytes): 58621952
+rate.b.out peak resident set (bytes): 58556416
+finished

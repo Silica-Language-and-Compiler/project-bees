@@ -63,8 +63,11 @@ fn beam_dial_next(i: int64, first: dangerous_actor_ref, use_first: boolean, a: d
     produces pure p end
 }
 // one link to dial peer i (a redial's too): its writer, proxies (their reaper reports to rd), connection actor and carrier c
-fn beam_dial(i: int64, c: dangerous_actor_ref, a: dangerous_actor_ref, rd: actor_ref, me: actor_ref, io_ms: uint64, tick_ms: uint64, k: int64) -> { conn: actor_ref, tx: actor_ref } {
+// N2T: the carrier of a link is what beam_tls_link answers for the (:tcp) carrier c0: c0 itself on a {transport, tcp} node
+// (beam_tls_none.part), the BEAM TLS link around it on a {transport, tls} node (beam_tls_edge.part); tools/bees_edge_gen.py pastes one.
+fn beam_dial(i: int64, c0: dangerous_actor_ref, a: dangerous_actor_ref, rd: actor_ref, me: actor_ref, io_ms: uint64, tick_ms: uint64, k: int64) -> { conn: actor_ref, tx: actor_ref } {
     sequence proc[concurrency]
+        c: dangerous_actor_ref <- beam_tls_link(c0, i);
         t: actor_ref <- spawn({ c: c, up: false, sent: 0, reaper: me, cn: me, tick_ms: tick_ms }, dangerous_beam_net@tx, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
         r: actor_ref <- beam_peers@start_proxies(i, t, rd);
         _: boolean <- cast(t, (:who, r) impl ActorMessage {});
@@ -195,7 +198,9 @@ fn beam_lookup(c: dangerous_actor_ref, n: actor_ref, i: int64, k: int64) -> bool
 fn beam_listen(c: dangerous_actor_ref, ec: dangerous_actor_ref, a: dangerous_actor_ref, sl: actor_ref, me: actor_ref, io_ms: uint64, tick_ms: uint64) -> { conn: actor_ref, tx: actor_ref } {
     sequence proc[concurrency]
         l: actor_ref <- spawn({ reaper: me, io_ms: io_ms, tick_ms: tick_ms, accepted: 0, auth: a, ec: ec, slot: sl }, dangerous_beam_net@lsn, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
-        _: boolean <- cast(c, (:open, l, beam_conf@listener_address()) impl ActorMessage {});
+        // N2T: beam_tls_listen opens the listening carrier for l: directly on a {transport, tcp} node, through the BEAM TLS listener on a
+        // {transport, tls} node (tools/bees_edge_gen.py pastes beam_tls_none.part or beam_tls_edge.part)
+        _: boolean <- beam_tls_listen(c, l, beam_conf@listener_address());
         p: { conn: actor_ref, tx: actor_ref } <- beam_pair(l, l)
     produces pure p end
 }

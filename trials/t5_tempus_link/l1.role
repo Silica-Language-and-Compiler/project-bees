@@ -1,0 +1,3 @@
+// T5 link trial: the listener of pair 1.
+fn port() -> string { "23700" }
+fn expect() -> int64 { 8 }

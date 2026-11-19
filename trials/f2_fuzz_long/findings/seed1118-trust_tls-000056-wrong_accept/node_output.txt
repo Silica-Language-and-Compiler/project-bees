@@ -1,0 +1,248 @@
+upervisor)
+[trust audit] token_issued fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 new token for this fingerprint (the token itself is never logged) 87
+[trust audit] protocol_error fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 a is not an arity 87
+[trust audit] suspicion fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 raised by protocol_error 1
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 88
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] token_issued fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 new token for this fingerprint (the token itself is never logged) 88
+[trust audit] admitted fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 call demo:add/2 88
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] suspicion fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 lowered by a permitted request 0
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 89
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] token_accepted fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 fast path, no token_issue 89
+[silica] root actor exited (no supervisor)
+[trust audit] protocol_error fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 bad_version 89
+[trust audit] suspicion fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 raised by protocol_error 1
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 90
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] token_issued fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 new token for this fingerprint (the token itself is never logged) 90
+[silica] root actor exited (no supervisor)
+[trust audit] admitted fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 call demo:add/2 90
+[silica] root actor exited (no supervisor)
+[trust audit] suspicion fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 lowered by a permitted request 0
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 91
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] token_accepted fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 fast path, no token_issue 91
+[silica] root actor exited (no supervisor)
+[trust audit] protocol_error fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 bad_tag 91
+[trust audit] suspicion fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 raised by protocol_error 1
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 92
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] token_issued fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 new token for this fingerprint (the token itself is never logged) 92
+[silica] root actor exited (no supervisor)
+[trust audit] admitted fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 call demo:add/2 92
+[silica] root actor exited (no supervisor)
+[trust audit] suspicion fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 lowered by a permitted request 0
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 93
+[silica] root actor exited (no supervisor)
+[trust audit] protocol_error fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 t or ver missing or wrong 93
+[silica] root actor exited (no supervisor)
+[trust audit] suspicion fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 raised by protocol_error 1
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 94
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] token_issued fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 new token for this fingerprint (the token itself is never logged) 94
+[silica] root actor exited (no supervisor)
+[trust audit] admitted fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 call demo:add/2 94
+[silica] root actor exited (no supervisor)
+[trust audit] suspicion fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 lowered by a permitted request 0
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 95
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] token_accepted fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 fast path, no token_issue 95
+[silica] root actor exited (no supervisor)
+[trust audit] protocol_error fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 unsupported 95
+[trust audit] suspicion fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 raised by protocol_error 1
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 96
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] token_issued fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 new token for this fingerprint (the token itself is never logged) 96
+[silica] root actor exited (no supervisor)
+[trust audit] admitted fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 call demo:add/2 96
+[silica] root actor exited (no supervisor)
+[trust audit] suspicion fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 lowered by a permitted request 0
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 97
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] token_issued fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 new token for this fingerprint (the token itself is never logged) 97
+[silica] root actor exited (no supervisor)
+[trust audit] protocol_error fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 args is not a list of a elements 97
+[trust audit] suspicion fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 raised by protocol_error 1
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 98
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] token_issued fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 new token for this fingerprint (the token itself is never logged) 98
+[silica] root actor exited (no supervisor)
+[trust audit] admitted fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 call demo:add/2 98
+[silica] root actor exited (no supervisor)
+[trust audit] suspicion fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 lowered by a permitted request 0
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 99
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] token_accepted fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 fast path, no token_issue 99
+[silica] root actor exited (no supervisor)
+[trust audit] protocol_error fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 unknown_atom 99
+[trust audit] suspicion fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 raised by protocol_error 1
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 100
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] token_issued fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 new token for this fingerprint (the token itself is never logged) 100
+[silica] root actor exited (no supervisor)
+[trust audit] admitted fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 call demo:add/2 100
+[silica] root actor exited (no supervisor)
+[trust audit] suspicion fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 lowered by a permitted request 0
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 101
+[trust audit] whitelist_reject fp=e31334560dfa956693f0a32ec1747cba8bc38bfce23b524b0fc51f5cd84b06bf85093671b3b23da296ea1adc085d5626f600dd7868d822095a4b5b5155d41f02 fingerprint not in the whitelist, connection closed 101
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 102
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] token_issued fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 new token for this fingerprint (the token itself is never logged) 102
+[silica] root actor exited (no supervisor)
+[trust audit] admitted fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 call demo:add/2 102
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 103
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] protocol_error fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 token missing or of a wrong size 103
+[silica] root actor exited (no supervisor)
+[trust audit] suspicion fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 raised by protocol_error 1
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 104
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] token_issued fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 new token for this fingerprint (the token itself is never logged) 104
+[silica] root actor exited (no supervisor)
+[trust audit] admitted fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 call demo:add/2 104
+[silica] root actor exited (no supervisor)
+[trust audit] suspicion fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 lowered by a permitted request 0
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 105
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] token_accepted fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 fast path, no token_issue 105
+[silica] root actor exited (no supervisor)
+[trust audit] admitted fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 cast demo:note/1 105
+[demo] note got 57000
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 106
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[trust audit] token_issued fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 new token for this fingerprint (the token itself is never logged) 106
+[silica] root actor exited (no supervisor)
+[trust audit] admitted fp=12058353eaa9fb8eb9beff654dd2c0598bd40f37b7628883a8303d40c24b9d62e817227e5ae7819ceb51c788ab4da2ff37dedb981e46cf11aaed06ea499314e0 call demo:add/2 106
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)

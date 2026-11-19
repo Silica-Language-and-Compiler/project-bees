@@ -1,0 +1,48 @@
+// shutdown (goaway shutdown): the node is told to shut down while a session has a call in work.
+//   1  a call (opens a session)
+//   2, 3  at once: a call that is busy for 1000 ms, and a cast of demo:stop, which sends the listener the message
+//      trust_shutdown() sends. At its next idle tick the session sends goaway shutdown, takes no more requests, lets the
+//      call finish and deliver its result, and closes.
+//   4  a call after that: its new connection is closed before anything is read (the node is shutting down): closed
+fn label(step: int64) -> string {
+    case step of {
+        1 -> "call demo:add([1, 2]) (opens a session)";
+        2 -> "call demo:slow([1000]) (in work when the node shuts down)";
+        3 -> "cast demo:stop([])";
+        4 -> "call demo:add([1, 2]) after the shutdown";
+        _: int64 -> "?"
+    }
+}
+fn both(me: actor_ref) -> atom {
+    sequence
+        _: atom <- trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_slow(), 1, ints1(1000), me, 2);
+        _: atom <- trpc_cast(server(), bees_atoms@a_demo(), bees_atoms@a_stop(), 0, no_args(), me, 3)
+    produces pure :ok end
+}
+fn next(step: int64, me: actor_ref) -> atom {
+    case step of {
+        1 -> both(me);
+        2 -> wake(me, 200, 4);
+        4 -> wake(me, 300, 5);
+        _: int64 -> :ok
+    }
+}
+fn driver(r: { req: int64, what: atom, value: string }, n: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        _: atom <- case r.value == "go" of {
+            true -> case r.req == 4 of { true -> trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_add(), 2, ints2(1, 2), me, 4); false -> say("shutdown done") };
+            false -> { sequence _: atom <- step_line(r) produces pure next(r.req, me) end }
+        }
+    produces pure (:no_reply, n + 1) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        b: int64 <- trust_boot();
+        _: atom <- start_reporter();
+        _: atom <- trust_start();
+        d: actor_ref <- spawn(0, driver, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: atom <- trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_add(), 2, ints2(1, 2), d, 1);
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

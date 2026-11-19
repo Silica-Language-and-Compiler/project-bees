@@ -16,6 +16,9 @@
 // the node itself is dropped; at equal age the entry the node already had is kept on a duplicate, and is the first evicted when
 // the view is over capacity (among those, the latest in the view's order); backfill/3 puts sent entries back while there is room
 // (after a merge, or all of them after a failed shuffle: the caller decides, this unit holds no policy).
+// Ruled 2026-11-19 (owner, NQ-16 option (b)): a received entry is also compared with the entry of the same peer the node has
+// just sent, and the younger is kept: prefer_sent/2 replaces such a received entry by the sent one before the merge (at equal
+// age the received entry stays, as it may carry a newer token).
 //
 // Randomness: every function that chooses takes its draws as a list of non-negative integers and uses one draw per choice, as an
 // index modulo the number of candidates; a missing draw counts as 0. A node passes draws made from the platform's secure source
@@ -25,6 +28,7 @@ module bees_tempus_view;
 export age_max/0;
 export entry/3;
 export none/0;
+export cons/2;
 export size/1;
 export member/2;
 export remove/2;
@@ -34,6 +38,7 @@ export outgoing/3;
 export reply_select/4;
 export merge/4;
 export backfill/3;
+export prefer_sent/2;
 export insert/4;
 export sample/3;
 export valid/3;
@@ -345,6 +350,24 @@ fn backfill(v: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: L
                 nxt: List[{ id: string, d: string, age: int64 }, mem(normal)] <- append(v, last);
                 backfill(nxt, t, cap)
             }
+        }
+    }
+}
+
+// NQ-16 (b): each received entry whose peer was just sent, and sent strictly younger, is replaced by the sent entry
+fn sent_age(sent: List[{ id: string, d: string, age: int64 }, mem(normal)], id: string) -> { id: string, d: string, age: int64 } {
+    case sent of {
+        []: List[{ id: string, d: string, age: int64 }, mem(normal)] -> { id: "", d: "", age: 0 - 1 };
+        [h: { id: string, d: string, age: int64 }, t: List[{ id: string, d: string, age: int64 }, mem(normal)]] -> case h.id == id of { true -> h; false -> sent_age(t, id) }
+    }
+}
+fn prefer_sent(received: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> List[{ id: string, d: string, age: int64 }, mem(normal)] {
+    case received of {
+        []: List[{ id: string, d: string, age: int64 }, mem(normal)] -> received;
+        [h: { id: string, d: string, age: int64 }, t: List[{ id: string, d: string, age: int64 }, mem(normal)]] -> {
+            s: { id: string, d: string, age: int64 } <- sent_age(sent, h.id);
+            r: List[{ id: string, d: string, age: int64 }, mem(normal)] <- prefer_sent(t, sent);
+            case s.age >= 0 and s.age < h.age of { true -> cons(s, r); false -> cons(h, r) }
         }
     }
 }

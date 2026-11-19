@@ -1,0 +1,21 @@
+[bees] TEST ONLY: no authentication, no encryption on this transport (127.0.0.1); TRUST's TLS is not built yet
+[bees audit] handshake complete with a@127.0.0.1 0
+b: val 0: (i, 7)
+b: val 1: (s, "hi")
+b: val 2: (f, 1.5)
+b: val 3: (pt, 3, -4)
+b: val 4: { x: 1, y: rec }
+b: val 5: none
+b: chain 0: ok, cells=3 sum=6 values: 3 2 1
+b: im 0: #{3=>c, 1=>a, 2=>b}
+b: im 1: #{9=>after}
+b: ints 0: set [3,1,2]
+b: ints 1: set [4]
+b: pkt 0: { id: 7, data: <<deadbeef>> n=4, note: n }
+b: pkt 1: { id: 10, data: <<dead>> n=2, note: after }
+b: wide 0: { a: 1, b: two, c: true, d: 4.5, e: wide, f: [1000,2000] }
+b: any 0: t14 i7 i-1234567890123 I0:0000000000000000000001 f:2.5 a:hello a:zzqx_not_held b:62696e bits3:a0 t2 a:a i1 s:010203 l2 a:x a:y nil l1 a:a a:b m1 i1 a:one nil
+b: any 1: t2 a:after i1
+b: val 6: (s, "bye")
+b: done
+exit=0

@@ -1,0 +1,6 @@
+# N2T live trial, node beesr: dials the stock node, found through EPMD (bees.config: port epmd); a proxy for its inbox;
+# serves outbox. The manifest's port is a placeholder that bees.config overrides.
+node   beesr@localhost
+peer   stock@localhost 127.0.0.1 4369 dial
+remote inbox @ stock@localhost cast { op: atom, n: int64 }
+local  outbox cast { op: atom, n: int64 }

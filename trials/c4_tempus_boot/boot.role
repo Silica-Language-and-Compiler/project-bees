@@ -1,0 +1,16 @@
+// C4 boot refusals (design 16.2 row 28; T7's checks that need no configuration reader): each entry passes tempus_node_boot
+// (src/tempus/bees_tempus_node.part) the TEST-ONLY values of lib/tempus_ids.silica with one value wrong, as its own role
+// file says (listen(), test(), cap1(), count1(), tok(), ppub()); the boot prints its one refusal line and the program
+// ends with 1, as trust_boot does for TRUST (trials/n3_trust boot_missing). Nothing is started and nothing listens.
+fn region_dump_limit() -> int64 { 0 }
+fn hx(s: string) -> string { tempus_ids@unhex(s) }
+fn main() -> int64 {
+    sequence proc[device_io]
+        idn: $NI$ <- { id: hx(tempus_ids@id_hex(0)), pub: hx(tempus_ids@pub_hex(0)), seed: hx(tempus_ids@seed_hex(0)), addr: "127.0.0.1:24300", token: hx(tempus_ids@tok_hex(0, tok())), typ: 1 };
+        net: $NN$ <- { listen: listen(), spec: tempus_spec(tempus_ids@certfile(0), tempus_ids@keyfile(0)), sents: "", wl: tempus_ids@fp_hex(2), kid: tempus_ids@kid(), ppub: ppub(), ms: 2000, mst: "2000", max: 2, skew: tempus_ids@skew(), j0: 200, j1: 800 };
+        sz: $NZ$ <- { k1: cap1(), c1: count1(), t1: 1000, k2: 4, c2: 2, t2: 1000, k3: 4, c3: 2, t3: 1000 };
+        tst: $NT$ <- { test: test(), now: tempus_ids@now(), draws: "0,1,2,3" };
+        b: int64 <- tempus_node_boot(idn, net, sz, tst);
+        _: atom <- println(case b == 0 of { true -> "boot: accepted (this entry expected a refusal)"; false -> "boot: refused, nothing started" })
+    produces pure b end
+}

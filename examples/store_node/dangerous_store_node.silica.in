@@ -1,0 +1,161 @@
+// examples/store_node: an application that reads its configuration through Silica's (:store) carrier and starts a node with it
+// (D46; development-plan/spikes/N0d-store-config.md). ONE compilation unit: this root, BEES's units and the language's, all
+// listed in this directory's silica.config (BEES's and the language's through the links in lib/; nothing is copied and nothing
+// is compiled ahead), one run of the compiler.
+//
+//   1. `carried_on config` declares the store: the path and the capacity are this application's literals.
+//   2. main starts the store's carrier and BEES's reader (dangerous_bees_cfg_beam_store@reader) with the node actor as the
+//      one to tell, and opens the carrier with the reader as its owner.
+//   3. The node actor gets (:ok, cfg) or (:error, reason). On (:error, ...) it prints the reason and starts nothing.
+//   4. On (:ok, cfg) it prints the sanitized summary and starts its listener on cfg.net.listener, a run-time value. Every
+//      frame it is sent is cut by wireframe@unframe under cfg.time.frame_max, a run-time value too (D47): a frame above the
+//      configured cap is refused and the link closed; a frame within it is answered with the node's configured name.
+//
+// WHAT THIS NODE IS. It is the smallest thing that listens with values from the store: a listener, the frame cap and one
+// answer. It is NOT BEES's BEAM-mode node: that node's units (src/inter_nodal, src/shim/*.part) still take their values from
+// the generated unit bees_peers, compiled in. Starting the real node from these values is the conversion planned in the
+// spike document; the reading, the validation and the hand-over shown here are the part that stays.
+//
+// GENERATED from dangerous_store_node.silica.in by tools/bees_pack_gen.py root (it spells the configuration type; Silica
+// has no type alias). Edit the template.
+use bees_reporter;
+use carrier;
+use wireframe;
+use wire_etf;
+use storelog;
+use dangerous_store;
+use dangerous_store_backing_carrier;
+use dangerous_sockets;
+use dangerous_tcp_carrier;
+use bees_cfg_beam;
+use dangerous_bees_cfg_beam_store;
+module dangerous_store_node;
+
+carried_on config: (:store) (:backing, "node.sildat", 65536, :stop);
+
+fn say(a: string, b: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- print(a);
+        o: atom <- println(b)
+    produces pure o end
+}
+fn say_n(a: string, n: int64, b: string, m: int64) -> atom {
+    sequence proc[device_io]
+        _: atom <- print(a);
+        _: atom <- print_int64(n);
+        _: atom <- print(b);
+        _: atom <- print_int64(m);
+        o: atom <- println("")
+    produces pure o end
+}
+fn say_atom(a: string, w: atom) -> atom {
+    sequence proc[device_io]
+        _: atom <- print(a);
+        _: atom <- print_atom(w);
+        o: atom <- println("")
+    produces pure o end
+}
+fn refused(e: @ERR@) -> atom {
+    sequence proc[device_io]
+        _: atom <- print("[node] configuration refused: record ");
+        _: atom <- print_int64(e.record);
+        _: atom <- print(" kind ");
+        _: atom <- print_int64(e.schema);
+        _: atom <- print(": ");
+        _: atom <- println(e.text);
+        _: atom <- println("[node] no node was started");
+        o: atom <- println("done")
+    produces pure o end
+}
+fn accepted(c: @CFG@) -> atom {
+    sequence proc[device_io]
+        _: atom <- println("[node] configuration read from the store");
+        o: atom <- bees_cfg_beam@show(c)
+    produces pure o end
+}
+fn open_listener(c: dangerous_actor_ref, address: string) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(c, (:open, self(), address) impl ActorMessage {})
+    produces pure ok end
+}
+fn credit(c: dangerous_actor_ref, n: int64) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(c, (:credit, n) impl ActorMessage {})
+    produces pure ok end
+}
+fn close(c: dangerous_actor_ref) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(c, :close impl ActorMessage {})
+    produces pure ok end
+}
+fn first_segment(xs: List[string, mem(normal)]) -> string {
+    case xs of {
+        []: List[string, mem(normal)] -> "";
+        [h: string, _t: List[string, mem(normal)]] -> h
+    }
+}
+fn answer(c: dangerous_actor_ref, name: string) -> boolean {
+    sequence proc[concurrency]
+        segs: List[string, mem(normal)] <- wireframe@frame(name, carrier@mtu((:tcp)), carrier@boundaries((:tcp)));
+        seg: string <- first_segment(segs);
+        ok: boolean <- cast(c, (:tx, seg, self()) impl ActorMessage {})
+    produces pure ok end
+}
+
+fn on_frame(f: string, st: { c: dangerous_actor_ref, cap: int64, name: string, rx: { mode: atom, expected: int64, pending: string }, where: string }) -> boolean {
+    _: atom <- say_n("[node] frame accepted, bytes ", length_bytes(f), ", configured cap ", st.cap);
+    _: boolean <- answer(st.c, st.name);
+    credit(st.c, 1)
+}
+fn on_rejected(why: atom, st: { c: dangerous_actor_ref, cap: int64, name: string, rx: { mode: atom, expected: int64, pending: string }, where: string }) -> boolean {
+    _: atom <- say_atom("[node] frame refused under the configured cap: ", why);
+    close(st.c)
+}
+
+fn on_rx(seg: string, st: { c: dangerous_actor_ref, cap: int64, name: string, rx: { mode: atom, expected: int64, pending: string }, where: string }) -> (:no_reply, { c: dangerous_actor_ref, cap: int64, name: string, rx: { mode: atom, expected: int64, pending: string }, where: string }) {
+    un: (:more, { mode: atom, expected: int64, pending: string }) | (:frame, string, { mode: atom, expected: int64, pending: string }) | (:rejected, atom) <- wireframe@unframe(st.rx, seg, st.cap);
+    case un of {
+        (:more, r1: { mode: atom, expected: int64, pending: string }) -> { _: boolean <- credit(st.c, 1); (:no_reply, { c: st.c, cap: st.cap, name: st.name, rx: r1, where: st.where }) };
+        (:frame, f: string, r2: { mode: atom, expected: int64, pending: string }) -> { _: boolean <- on_frame(f, st); (:no_reply, { c: st.c, cap: st.cap, name: st.name, rx: r2, where: st.where }) };
+        (:rejected, why: atom) -> { _: boolean <- on_rejected(why, st); (:no_reply, st) }
+    }
+}
+
+fn node(
+    msg: (:ok, @CFG@) | (:error, @ERR@) | (:link_up, string) | (:accepted, dangerous_actor_ref, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom),
+    st: { c: dangerous_actor_ref, cap: int64, name: string, rx: { mode: atom, expected: int64, pending: string }, where: string }
+) -> (:no_reply, { c: dangerous_actor_ref, cap: int64, name: string, rx: { mode: atom, expected: int64, pending: string }, where: string }) {
+    case msg of {
+        (:ok, c: @CFG@) -> {
+            _: atom <- accepted(c);
+            _: boolean <- open_listener(st.c, c.net.listener);
+            (:no_reply, { c: st.c, cap: c.time.frame_max, name: c.node.name, rx: st.rx, where: c.net.listener })
+        };
+        (:error, e: @ERR@) -> { _: atom <- refused(e); (:no_reply, st) };
+        (:link_up, info: string) -> case starts_with(info, "port:") of {
+            true -> { _: atom <- say("[node] ", st.name); _: atom <- say("[node] listening: ", st.where); (:no_reply, st) };
+            false -> { _: atom <- say("[node] ", "a peer is connected"); _: boolean <- credit(st.c, 1); (:no_reply, st) }
+        };
+        (:accepted, conn: dangerous_actor_ref, _info: string) -> {
+            _: boolean <- open_listener(conn, "");
+            (:no_reply, { c: conn, cap: st.cap, name: st.name, rx: st.rx, where: st.where })
+        };
+        (:rx, seg: string) -> on_rx(seg, st);
+        (:tx_credit, _n: int64) -> (:no_reply, st);
+        (:tx_failed, why: atom) -> { _: atom <- say_atom("[node] send failed: ", why); (:no_reply, st) };
+        (:link_down, why: atom) -> { _: atom <- say_atom("[node] link down: ", why); _: atom <- say("done", ""); (:no_reply, st) }
+    }
+}
+
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- bees_reporter@start();
+        // the listener's carrier, not opened until the configuration is in (its initial state spelled out, as BEES's nodes do)
+        c: dangerous_actor_ref <- spawn_dangerous({ owner: actor_ref_of_word(0), fd: 0 - 1, rx_credit: 0, up: false, listening: false, link_spec: "" }, dangerous_tcp_carrier@carrier, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        me: actor_ref <- spawn({ c: c, cap: 0, name: "", rx: wireframe@fresh(carrier@boundaries((:tcp))), where: "" }, node, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        car: dangerous_actor_ref <- spawn_dangerous_carrier(config, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        rd: actor_ref <- spawn({ acc: bees_cfg_beam@fresh(), car: car, rx: wireframe@fresh(:storage), to: me, why: "" }, dangerous_bees_cfg_beam_store@reader, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: boolean <- cast(car, (:open, rd, "") impl ActorMessage {});
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

@@ -81,6 +81,14 @@ def merge(rest, received, self_id, cap):
     return view
 
 
+def prefer_sent(received, sent):
+    """NQ-16, ruled (b) 2026-11-19: a received entry whose peer was just sent, sent strictly younger, becomes the sent one"""
+    ages = {}
+    for e in sent:
+        ages.setdefault(e[0], e)
+    return [ages[e[0]] if e[0] in ages and ages[e[0]][2] < e[2] else e for e in received]
+
+
 def backfill(view, sent, cap):
     view = list(view)
     for e in sent:

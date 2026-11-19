@@ -1,0 +1,72 @@
+// ---- F1 (fuzzer) TRUST client under test (node tc): it calls demo:add([n, 1]) on the pinned server, one call after another
+// for ever, each on its own connection (B1); the pinned server is the fuzz driver (tools/bees_fuzz.py), which answers well or
+// hostile as the case says. Every outcome is printed on one line, `call N: {ok, int V}` or `call N: {error, reason}`: that line
+// is the driver's oracle (an {ok, ..} for an answer no correct client may accept is a wrong acceptance). Request numbers start
+// at 100000, so that the request id (r100000 ...) keeps its length and the driver can write it into a generated answer.
+fn region_dump_limit() -> int64 { 0 }
+fn reporter(report: string, st: int64) -> (:no_reply, int64) {
+    sequence proc[device_io]
+        _: atom <- case contains(report, "reason:          :normal") of { true -> :ok; false -> println(concat("[fuzz actor failure report]", report)) }
+    produces pure (:no_reply, st) end
+}
+fn start_reporter() -> atom {
+    sequence proc[concurrency]
+        r: actor_ref <- spawn(0, reporter, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        ok: atom <- register_failure_reporter(r)
+    produces pure ok end
+}
+fn say(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+fn server() -> string { bees_trust_conf@server_addr(0) }
+fn ints2(a: int64, b: int64) -> string {
+    sequence proc[mem(normal)]
+        xs: List[int64, mem(normal)] <- [a, b]
+    produces pure bees_trust_frame@enc_args_ints(xs) end
+}
+// a value span as text: an integer, a binary, or its length (the language's decode)
+fn value_text(v: string) -> string {
+    case bees_trust_frame@dec_int(v) of {
+        (:ok, n: int64) -> concat("int ", bees_trust_frame@int_text(n));
+        (:rejected, _w: atom) -> case bees_trust_frame@dec_str(v) of {
+            (:ok, s: string) -> concat("binary of ", bees_trust_frame@int_text(length_bytes(s)));
+            (:rejected, _w2: atom) -> concat("bytes ", bees_trust_frame@int_text(length_bytes(v)))
+        }
+    }
+}
+fn outcome(r: { req: int64, what: atom, value: string }) -> string {
+    case r.what == bees_atoms@a_ok() of {
+        true -> concat("{ok, ", concat(value_text(r.value), "}"));
+        false -> concat(concat("{error, ", bees_atoms@spelling(r.what)), "}")
+    }
+}
+// the next call is made 10 ms after an outcome (a wake message: value "go"), so that a server that is not there is not hammered
+fn wake(me: actor_ref, req: int64) -> atom {
+    sequence proc[concurrency]
+        m: { req: int64, what: atom, value: string } <- { req: req, what: bees_atoms@a_ok(), value: "go" };
+        t: timer_ref <- send_after(10, me, m impl ActorMessage {})
+    produces pure :ok end
+}
+fn driver(r: { req: int64, what: atom, value: string }, st: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        go: boolean <- r.what == bees_atoms@a_ok() and r.value == "go";
+        _: atom <- case go of {
+            true -> trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_add(), 2, ints2(r.req, 1), me, r.req);
+            false -> say(concat(concat("call ", bees_trust_frame@int_text(r.req)), concat(": ", outcome(r))))
+        };
+        _: atom <- case go of { true -> :ok; false -> wake(me, r.req + 1) }
+    produces pure (:no_reply, st + 1) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        b: int64 <- trust_boot();
+        _: atom <- start_reporter();
+        _: atom <- trust_start();
+        d: actor_ref <- spawn(0, driver, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: atom <- wake(d, 100000);
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

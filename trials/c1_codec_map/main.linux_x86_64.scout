@@ -1,0 +1,131 @@
+-- Map[int64, string]: List[(int64, string), mem(normal)], MAP_EXT
+#{} 837400000000  = erl
+  decoded: ok #{}
+  erl's bytes decoded: ok #{}
+#{1=>a,2=>b,3=>c} 83740000000361016d000000016161026d000000016261036d0000000163  = erl
+  decoded: ok #{1=>a, 2=>b, 3=>c}
+  erl's bytes decoded: ok #{1=>a, 2=>b, 3=>c}
+#{-1=>m,300=>s,4294967296=>big} 83740000000362ffffffff6d000000016d620000012c6d00000001736e050000000000016d00000003626967  = erl
+  decoded: ok #{-1=>m, 300=>s, 4294967296=>big}
+  erl's bytes decoded: ok #{-1=>m, 300=>s, 4294967296=>big}
+the same three pairs written 3, 1, 2 (the list's order is kept; erl sorts) 83740000000361036d000000016361016d000000016161026d0000000162  (erl's bytes are decoded, not compared)
+  decoded: ok #{3=>c, 1=>a, 2=>b}
+  erl's bytes decoded: ok #{1=>a, 2=>b, 3=>c}
+40 pairs 1..40, every value v (erl's order above 32 keys is its hash order) 83740000002861016d000000017661026d00000001766103... (326 bytes)  (erl's bytes are decoded, not compared)
+  decoded: ok 40 pairs, the keys add up to 820
+  erl's bytes decoded: ok 40 pairs, the keys add up to 820
+-- Map[string, { id: int64, up: boolean }]
+#{k1=>#{id=>1,up=>true},k2=>#{id=>2,up=>false}} 8374000000026d000000026b317400000002770269646101770275707704747275656d000000026b32740000000277026964610277027570770566616c7365  = erl
+  decoded: ok #{k1=>{id 1 up}, k2=>{id 2 down}}
+  erl's bytes decoded: ok #{k1=>{id 1 up}, k2=>{id 2 down}}
+-- a map in a record field: { id: int64, m: Map[int64, atom], note: string } (the record is a map with atom keys, written in the byte order of the names)
+#{id=>7,m=>#{1=>im,2=>sm},note=>n} 83740000000377026964610777016d740000000261017702696d61027702736d77046e6f74656d000000016e  = erl
+  decoded: ok { id: 7, m: #{1=>im, 2=>sm}, note: n }
+  erl's bytes decoded: ok { id: 7, m: #{1=>im, 2=>sm}, note: n }
+-- a map in a tagged tuple: (:cfg, Map[atom, int64], string)
+{cfg,#{sm=>2,im=>1},x} (atom keys: erl's order is its atom table's; here written sm first, as erl printed it when the fixture was made) 836803770363666774000000027702736d61027702696d61016d0000000178  (erl's bytes are decoded, not compared)
+  decoded: ok (cfg, #{sm=>2, im=>1}, x)
+  erl's bytes decoded: ok (cfg, #{sm=>2, im=>1}, x)
+-- Map[int64, List[int64]]
+#{1=>[1000,2000],2=>[]} 83740000000261016c0000000262000003e862000007d06a61026a  = erl
+  decoded: ok #{1=>[1000,2000], 2=>[]}
+  erl's bytes decoded: ok #{1=>[1000,2000], 2=>[]}
+#{1=>[1,2],2=>[]} (a list of bytes: erl writes STRING_EXT, the derived encoder LIST_EXT; both decode) 83740000000261016c00000002610161026a61026a  (erl's bytes are decoded, not compared)
+  decoded: ok #{1=>[1,2], 2=>[]}
+  erl's bytes decoded: ok #{1=>[1,2], 2=>[]}
+-- Map[int64, (:i, int64) | (:s, string) | :none]
+#{1=>{i,5},2=>{s,z},3=>none} 837400000003610168027701696105610268027701736d000000017a610377046e6f6e65  = erl
+  decoded: ok #{1=>{i,5}, 2=>{s,z}, 3=>none}
+  erl's bytes decoded: ok #{1=>{i,5}, 2=>{s,z}, 3=>none}
+-- Map[int64, Map[int64, int64]]
+#{1=>#{1=>10,2=>20},2=>#{}} 837400000002610174000000026101610a6102611461027400000000  = erl
+  decoded: ok #{1=>#{1=>10, 2=>20}, 2=>#{}}
+  erl's bytes decoded: ok #{1=>#{1=>10, 2=>20}, 2=>#{}}
+-- List[Map[int64, int64]]
+[#{1=>2},#{},#{3=>4,5=>6}] 836c000000037400000001610161027400000000740000000261036104610561066a  = erl
+  decoded: ok [#{1=>2}, #{}, #{3=>4, 5=>6}]
+  erl's bytes decoded: ok [#{1=>2}, #{}, #{3=>4, 5=>6}]
+[] 836a  = erl
+  decoded: ok []
+  erl's bytes decoded: ok []
+-- Map[(int64, int64), string]: a tuple as the key
+#{{0,0}=>o,{0,1}=>n,{1,0}=>e} 8374000000036802610061006d000000016f6802610061016d000000016e6802610161006d0000000165  = erl
+  decoded: ok #{{0,0}=>o, {0,1}=>n, {1,0}=>e}
+  erl's bytes decoded: ok #{{0,0}=>o, {0,1}=>n, {1,0}=>e}
+-- the limit of 1024 pairs, both directions
+encode, 1024 pairs: a frame of 9481 bytes
+  decoded: ok 1024 pairs, the keys add up to 524800
+encode, 1025 pairs: not sent (no frame)
+decode, a frame of 1024 pairs written by hand (10246 bytes): ok 1024 pairs, the keys add up to 524800
+decode, a frame of 1025 pairs written by hand (10256 bytes): rejected too_long
+encode, the key 1 twice: not sent (no frame)
+encode, a map whose value is a map with the key 7 twice: not sent (no frame)
+encode, a list that holds such a map: not sent (no frame)
+-- refusals, decoded as Map[int64, string]
+empty frame: rejected truncated
+only the version byte: rejected truncated
+no version byte: rejected bad_version
+truncated inside the count: rejected truncated
+truncated after the count (3 pairs said, none there): rejected truncated
+truncated after the first pair: rejected truncated
+truncated after a key: rejected truncated
+truncated inside a value: rejected truncated
+a list, not a map: []: rejected bad_tag
+a tuple, not a map: {1,2}: rejected bad_tag
+an integer, not a map: rejected bad_tag
+the key 5 twice, both SMALL_INTEGER_EXT: rejected duplicate_field
+the key 5 twice, as SMALL_INTEGER_EXT (61 05) and SMALL_BIG_EXT (6e 01 00 05): rejected duplicate_field
+the key 5 twice, as INTEGER_EXT and SMALL_INTEGER_EXT, a pair between them: rejected duplicate_field
+a count of 4294967295 and one pair: rejected too_long
+a count of 1025 and one pair: rejected too_long
+a count of 5 and one pair: rejected truncated
+a trailing byte: rejected trailing_bytes
+a key of another type: #{im=>a}: rejected bad_tag
+a value of another type: #{1=>2}: rejected bad_tag
+a key that does not fit int64: #{18446744073709551616=>a}: rejected unsupported
+a frame of 70013 bytes, above the cap of 65536: rejected too_large
+-- refusals inside other types
+sm, a record value with an unknown field: rejected unknown_field
+sm, a record value with a missing field: rejected missing_field
+sm, the key <<k1>> twice: rejected duplicate_field
+holder, the field m missing: rejected missing_field
+holder, the field id twice: rejected duplicate_field
+holder, an unknown field: rejected unknown_field
+holder, four pairs: rejected unknown_field
+holder, a key that is not an atom: rejected bad_tag
+holder, m holds an atom the program does not hold: #{1=>zzqx}: rejected unknown_atom
+holder, m is a list: rejected bad_tag
+holder, m has the key 1 twice: rejected duplicate_field
+holder, id is a string: rejected bad_tag
+holder, a tuple: rejected bad_tag
+holder, a trailing byte: rejected trailing_bytes
+cfg, another tag: {im,#{},x}: rejected bad_tag
+cfg, a tag the program does not hold: {zzqx,#{},x}: rejected bad_tag
+cfg, another arity: {cfg,#{}}: rejected bad_tag
+cfg, the first element is not an atom: {1,#{},x}: rejected bad_tag
+cfg, a key the program does not hold: {cfg,#{zzqx=>1},x}: rejected unknown_atom
+cfg, truncated inside the map: rejected truncated
+cfg, a map, not a tuple: rejected bad_tag
+nest, the inner map has the key 1 twice: rejected duplicate_field
+nest, the inner map says 4294967295 pairs: rejected truncated
+nest, the inner value is a list: rejected bad_tag
+many, an improper list: [#{}|#{}]: rejected bad_tag
+many, a list of bytes (STRING_EXT): rejected bad_tag
+many, the second element is not a map: rejected bad_tag
+many, a count of 4294967295: rejected truncated
+many, truncated before the tail: rejected truncated
+sums, a variant the sum does not have: #{1=>{q,1}}: rejected bad_variant
+sums, 80 maps inside one another as a value (the scanner's nesting limit is 64): rejected too_deep
+-- 5000 decodes in a row of each (validate_named)
+a count of 4294967295, refused too_long: 5000
+1025 pairs, refused too_long: 5000
+70013 bytes, refused too_large: 5000
+64 pairs, accepted: 5000
+-- the deliverer path: bees_peers@start_deliverer decodes the payload and casts the list to the name im
+actor im, message 0: #{9=>sent by this program}
+actor im, message 1: #{1=>a, 2=>b, 3=>c}
+actor im, message 2: 40 pairs, the keys add up to 820
+actor im: now a payload with a key twice (refused), one of 1025 pairs (refused), then #{}
+actor im, message 3: #{}
+actor im: done
+exit=0

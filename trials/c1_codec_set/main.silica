@@ -1,0 +1,405 @@
+// C1 codec trial, sets (development-plan/spikes/C1-codec-term-coverage.md sections 2.4, 2.6, 2.7). Set[T] in the manifest is
+// List[T, mem(normal)] here and, on the wire, the map #{E => []} of Erlang's sets module. Printed: values encoded by
+// bees_msgs@enc_<name>, their bytes compared HERE with the bytes stock Erlang (OTP 28, term_to_binary of sets:from_list) writes
+// where erl's order is the list's, and erl's bytes decoded everywhere; a set of tagged tuples, of strings, of a sum, a set in
+// a tagged tuple and as a map's value; the empty set; 1024 elements accepted and 1025 refused in both directions; the
+// refusals; many refused and accepted decodes in a row (bees_msgs@validate_named). The frame cap is bees.config's
+// beam.frame_size_max (65536).
+use bees_atoms;
+use bees_msgs;
+use bees_reporter;
+
+fn say(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+fn hexd(v: int64) -> string { substring("0123456789abcdef", v, v + 1) }
+fn at(s: string, i: int64) -> int64 {
+    sequence proc[transport]
+        b: int64 <- byte_at(s, i)
+    produces pure b end
+}
+fn hex_of(s: string, i: int64, n: int64) -> string {
+    case i >= n of {
+        true -> "";
+        false -> concat(concat(hexd(at(s, i) / 16), hexd(at(s, i) % 16)), hex_of(s, i + 1, n))
+    }
+}
+fn hex(s: string) -> string { hex_of(s, 0, length_bytes(s)) }
+fn hv(c: int64) -> int64 { case c >= 97 of { true -> c - 87; false -> c - 48 } }
+fn unhex_acc(s: string, i: int64, acc: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    case i < 0 of {
+        true -> acc;
+        false -> {
+            sequence proc[mem(normal)]
+                b: int64 <- hv(at(s, i)) * 16 + hv(at(s, i + 1));
+                l: List[int64, mem(normal)] <- prepend[int64, mem(normal)](b, acc)
+            produces pure unhex_acc(s, i - 2, l) end
+        }
+    }
+}
+fn unhex(s: string) -> string {
+    sequence proc[mem(normal), transport]
+        e: List[int64, mem(normal)] <- [];
+        xs: List[int64, mem(normal)] <- unhex_acc(s, length_bytes(s) - 2, e);
+        out: string <- bytes_of(xs)
+    produces pure out end
+}
+fn mk(s: string, n: int64) -> string {
+    case length_bytes(s) >= n of {
+        true -> substring(s, 0, n);
+        false -> mk(concat(s, s), n)
+    }
+}
+fn pos_text(n: int64) -> string {
+    case n < 10 of {
+        true -> substring("0123456789", n, n + 1);
+        false -> concat(pos_text(n / 10), substring("0123456789", n % 10, n % 10 + 1))
+    }
+}
+fn int_text(n: int64) -> string {
+    case n < 0 of {
+        true -> case n < -9223372036854775807 of { true -> "-9223372036854775808"; false -> concat("-", pos_text(0 - n)) };
+        false -> pos_text(n)
+    }
+}
+fn str_text(s: string) -> string {
+    case length_bytes(s) > 16 of {
+        true -> concat(concat("a string of ", int_text(length_bytes(s))), " bytes");
+        false -> concat(concat("\"", s), "\"")
+    }
+}
+fn verdict(a: atom) -> string { case a == :ok of { true -> "ok"; false -> bees_atoms@spelling(a) } }
+fn why(w: atom) -> string { concat("rejected ", bees_atoms@spelling(w)) }
+fn same(f: string, erl: string) -> string {
+    case hex(f) == erl of { true -> "  = erl"; false -> "  DIFFERS from erl" }
+}
+// a long frame is shown by its length and its first bytes
+fn shown(f: string) -> string {
+    case length_bytes(f) > 64 of {
+        true -> concat(concat(concat(hex_of(f, 0, 24), "... ("), int_text(length_bytes(f))), " bytes)");
+        false -> hex(f)
+    }
+}
+
+// ---- the chain (atom, int64, ref?(L, normal, rec))
+fn cat3(a: string, b: string, c: string) -> string { concat(concat(a, b), c) }
+fn cat4(a: string, b: string, c: string, d: string) -> string { concat(concat(concat(a, b), c), d) }
+// one case: the bytes BEES wrote, compared with erl's when cmp is 1 (BEES writes the list's order, erl its own: where they can
+// differ the fixture is only decoded), what BEES's bytes decode to, what erl's bytes decode to
+fn report(label: string, f: string, erl: string, cmp: int64, own: string, theirs: string) -> atom {
+    sequence
+        _: atom <- say(cat4(label, " ", shown(f), case cmp of { 1 -> same(f, erl); _: int64 -> "  (erl's bytes are decoded, not compared)" }));
+        _: atom <- say(concat("  decoded: ", own))
+    produces pure say(concat("  erl's bytes decoded: ", theirs)) end
+}
+fn sent(f: string) -> string {
+    case length_bytes(f) == 0 of { true -> "not sent (no frame)"; false -> cat3("a frame of ", int_text(length_bytes(f)), " bytes") }
+}
+fn ints_bytes(xs: List[int64, mem(normal)]) -> string {
+    sequence proc[mem(normal), transport]
+        out: string <- bytes_of(xs)
+    produces pure out end
+}
+
+// ---- Set[int64]
+fn t_ints(l: List[int64, mem(normal)], sep: string) -> string {
+    case l of {
+        []: List[int64, mem(normal)] -> "";
+        [h: int64, t: List[int64, mem(normal)]] -> cat3(sep, int_text(h), t_ints(t, ","))
+    }
+}
+fn n_ints(l: List[int64, mem(normal)], n: int64, sum: int64) -> string {
+    case l of {
+        []: List[int64, mem(normal)] -> cat3(int_text(n), " elements that add up to ", int_text(sum));
+        [h: int64, t: List[int64, mem(normal)]] -> n_ints(t, n + 1, sum + h)
+    }
+}
+fn len_ints(l: List[int64, mem(normal)], n: int64) -> int64 {
+    case l of {
+        []: List[int64, mem(normal)] -> n;
+        [_h: int64, t: List[int64, mem(normal)]] -> len_ints(t, n + 1)
+    }
+}
+fn s_ints(l: List[int64, mem(normal)]) -> string {
+    case len_ints(l, 0) > 8 of { true -> n_ints(l, 0, 0); false -> cat3("{", t_ints(l, ""), "}") }
+}
+fn r_ints(x: (:ok, List[int64, mem(normal)]) | (:rejected, atom)) -> string {
+    case x of { (:ok, l: List[int64, mem(normal)]) -> concat("ok ", s_ints(l)); (:rejected, w: atom) -> why(w) }
+}
+fn c_ints(label: string, v: List[int64, mem(normal)], erl: string, cmp: int64) -> atom {
+    sequence
+        f: string <- bees_msgs@enc_ints(v);
+        own: string <- r_ints(bees_msgs@dec_ints(f));
+        fe: string <- unhex(erl);
+        theirs: string <- r_ints(bees_msgs@dec_ints(fe))
+    produces pure report(label, f, erl, cmp, own, theirs) end
+}
+fn x_ints(label: string, h: string) -> atom {
+    sequence
+        f: string <- unhex(h)
+    produces pure say(cat3(label, ": ", r_ints(bees_msgs@dec_ints(f)))) end
+}
+fn range(lo: int64, hi: int64, acc: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    case hi < lo of {
+        true -> acc;
+        false -> {
+            sequence proc[mem(normal)]
+                l: List[int64, mem(normal)] <- prepend[int64, mem(normal)](hi, acc)
+            produces pure range(lo, hi - 1, l) end
+        }
+    }
+}
+fn no_ints() -> List[int64, mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[int64, mem(normal)] <- []
+    produces pure e end
+}
+// a set's frame written by hand: the header says `said` elements, `n` follow (element k as INTEGER_EXT, the value NIL_EXT)
+fn members(k: int64, acc: List[string, mem(normal)]) -> List[string, mem(normal)] {
+    case k < 1 of {
+        true -> acc;
+        false -> {
+            sequence proc[mem(normal)]
+                one: List[int64, mem(normal)] <- [98, 0, 0, k / 256, k % 256, 106];
+                l: List[string, mem(normal)] <- prepend[string, mem(normal)](ints_bytes(one), acc)
+            produces pure members(k - 1, l) end
+        }
+    }
+}
+fn hand_set(said: int64, n: int64) -> string {
+    sequence proc[mem(normal), transport]
+        e: List[string, mem(normal)] <- [];
+        head: List[int64, mem(normal)] <- [131, 116, said / 16777216, (said / 65536) % 256, (said / 256) % 256, said % 256];
+        body: List[string, mem(normal)] <- members(n, e);
+        all: List[string, mem(normal)] <- prepend[string, mem(normal)](ints_bytes(head), body);
+        out: string <- join_bytes(all)
+    produces pure out end
+}
+fn is40() -> string { "83740000002861276a61166a611a6a611b6a61056a61156a611e6a61106a61036a61216a610e6a61286a61256a61186a61116a610b6a61066a61146a611c6a61196a61016a61206a61246a61236a610f6a61096a61176a610a6a61086a611f6a61266a61076a61026a610d6a611d6a61136a610c6a61226a61046a61126a" }
+fn ints_values() -> atom {
+    sequence proc[mem(normal)]
+        _: atom <- say("-- Set[int64]: List[int64, mem(normal)], the map #{E => []} on the wire");
+        _: atom <- c_ints("sets:from_list([])", no_ints(), "837400000000", 1);
+        v3: List[int64, mem(normal)] <- [1, 2, 3];
+        _: atom <- c_ints("sets:from_list([3,1,2])", v3, "83740000000361016a61026a61036a", 1);
+        u: List[int64, mem(normal)] <- [3, 1, 2];
+        _: atom <- c_ints("the same set written 3, 1, 2 (the list's order is kept; erl sorts)", u, "83740000000361016a61026a61036a", 0);
+        _: atom <- c_ints("40 elements 1..40 (erl's order above 32 keys is its hash order)", range(1, 40, no_ints()), is40(), 0)
+    produces pure :ok end
+}
+
+// ---- Set[(:pt, int64, int64)], Set[string], Set[(:i, int64) | :none]
+fn t_pts(l: List[(:pt, int64, int64), mem(normal)], sep: string) -> string {
+    case l of {
+        []: List[(:pt, int64, int64), mem(normal)] -> "";
+        [h: (:pt, int64, int64), t: List[(:pt, int64, int64), mem(normal)]] -> case h of {
+            (:pt, x: int64, y: int64) -> concat(cat4(sep, "{pt,", int_text(x), ","), cat3(int_text(y), "}", t_pts(t, ", ")))
+        }
+    }
+}
+fn r_pts(x: (:ok, List[(:pt, int64, int64), mem(normal)]) | (:rejected, atom)) -> string {
+    case x of { (:ok, l: List[(:pt, int64, int64), mem(normal)]) -> cat3("ok {", t_pts(l, ""), "}"); (:rejected, w: atom) -> why(w) }
+}
+fn t_strs(l: List[string, mem(normal)], sep: string) -> string {
+    case l of {
+        []: List[string, mem(normal)] -> "";
+        [h: string, t: List[string, mem(normal)]] -> cat3(sep, h, t_strs(t, ","))
+    }
+}
+fn r_strs(x: (:ok, List[string, mem(normal)]) | (:rejected, atom)) -> string {
+    case x of { (:ok, l: List[string, mem(normal)]) -> cat3("ok {", t_strs(l, ""), "}"); (:rejected, w: atom) -> why(w) }
+}
+fn t_enums(l: List[(:i, int64) | :none, mem(normal)], sep: string) -> string {
+    case l of {
+        []: List[(:i, int64) | :none, mem(normal)] -> "";
+        [h: (:i, int64) | :none, t: List[(:i, int64) | :none, mem(normal)]] -> cat3(sep, case h of { (:i, n: int64) -> cat3("{i,", int_text(n), "}"); :none -> "none" }, t_enums(t, ", "))
+    }
+}
+fn r_enums(x: (:ok, List[(:i, int64) | :none, mem(normal)]) | (:rejected, atom)) -> string {
+    case x of { (:ok, l: List[(:i, int64) | :none, mem(normal)]) -> cat3("ok {", t_enums(l, ""), "}"); (:rejected, w: atom) -> why(w) }
+}
+fn r_tags(x: (:ok, (:tags, int64, List[string, mem(normal)])) | (:rejected, atom)) -> string {
+    case x of {
+        (:ok, v: (:tags, int64, List[string, mem(normal)])) -> case v of { (:tags, n: int64, l: List[string, mem(normal)]) -> concat(cat4("ok (tags, ", int_text(n), ", {", t_strs(l, "")), "})") };
+        (:rejected, w: atom) -> why(w)
+    }
+}
+fn t_sets(l: List[(int64, List[int64, mem(normal)]), mem(normal)], sep: string) -> string {
+    case l of {
+        []: List[(int64, List[int64, mem(normal)]), mem(normal)] -> "";
+        [h: (int64, List[int64, mem(normal)]), t: List[(int64, List[int64, mem(normal)]), mem(normal)]] -> case h of {
+            (k: int64, v: List[int64, mem(normal)]) -> concat(cat4(sep, int_text(k), "=>{", t_ints(v, "")), concat("}", t_sets(t, ", ")))
+        }
+    }
+}
+fn r_sets(x: (:ok, List[(int64, List[int64, mem(normal)]), mem(normal)]) | (:rejected, atom)) -> string {
+    case x of { (:ok, l: List[(int64, List[int64, mem(normal)]), mem(normal)]) -> cat3("ok #{", t_sets(l, ""), "}"); (:rejected, w: atom) -> why(w) }
+}
+fn x_pts(label: string, h: string) -> atom {
+    sequence
+        f: string <- unhex(h)
+    produces pure say(cat3(label, ": ", r_pts(bees_msgs@dec_pts(f)))) end
+}
+fn x_tags(label: string, h: string) -> atom {
+    sequence
+        f: string <- unhex(h)
+    produces pure say(cat3(label, ": ", r_tags(bees_msgs@dec_tags(f)))) end
+}
+fn x_sets(label: string, h: string) -> atom {
+    sequence
+        f: string <- unhex(h)
+    produces pure say(cat3(label, ": ", r_sets(bees_msgs@dec_sets(f)))) end
+}
+fn x_enums(label: string, h: string) -> atom {
+    sequence
+        f: string <- unhex(h)
+    produces pure say(cat3(label, ": ", r_enums(bees_msgs@dec_enums(f)))) end
+}
+fn other_values() -> atom {
+    sequence proc[mem(normal)]
+        _: atom <- say("-- Set[(:pt, int64, int64)]: a set of tagged tuples");
+        p: List[(:pt, int64, int64), mem(normal)] <- [(:pt, 1, 2), (:pt, 3, 4)];
+        fp: string <- bees_msgs@enc_pts(p);
+        ep: string <- "837400000002680377027074610161026a680377027074610361046a";
+        op: string <- r_pts(bees_msgs@dec_pts(fp));
+        up: string <- unhex(ep);
+        tp: string <- r_pts(bees_msgs@dec_pts(up));
+        _: atom <- report("sets:from_list([{pt,1,2},{pt,3,4}])", fp, ep, 1, op, tp);
+        _: atom <- say("-- Set[string]");
+        s: List[string, mem(normal)] <- ["a", "b"];
+        fs: string <- bees_msgs@enc_strs(s);
+        es: string <- "8374000000026d00000001616a6d00000001626a";
+        os: string <- r_strs(bees_msgs@dec_strs(fs));
+        us: string <- unhex(es);
+        ts: string <- r_strs(bees_msgs@dec_strs(us));
+        _: atom <- report("sets:from_list([<<a>>,<<b>>])", fs, es, 1, os, ts);
+        _: atom <- say("-- Set[(:i, int64) | :none]: a set of a sum");
+        e: List[(:i, int64) | :none, mem(normal)] <- [:none, (:i, 1)];
+        fe: string <- bees_msgs@enc_enums(e);
+        ee: string <- "83740000000277046e6f6e656a680277016961016a";
+        oe: string <- r_enums(bees_msgs@dec_enums(fe));
+        ue: string <- unhex(ee);
+        te: string <- r_enums(bees_msgs@dec_enums(ue));
+        _: atom <- report("sets:from_list([{i,1},none])", fe, ee, 1, oe, te);
+        _: atom <- say("-- (:tags, int64, Set[string]): a set in a tagged tuple");
+        xy: List[string, mem(normal)] <- ["x", "y"];
+        tv: (:tags, int64, List[string, mem(normal)]) <- (:tags, 9, xy);
+        ft: string <- bees_msgs@enc_tags(tv);
+        et: string <- "836803770474616773610974000000026d00000001786a6d00000001796a";
+        ot: string <- r_tags(bees_msgs@dec_tags(ft));
+        ut: string <- unhex(et);
+        tt: string <- r_tags(bees_msgs@dec_tags(ut));
+        _: atom <- report("{tags,9,sets:from_list([<<x>>,<<y>>])}", ft, et, 1, ot, tt);
+        _: atom <- say("-- Map[int64, Set[int64]]: sets as the values of a map");
+        s12: List[int64, mem(normal)] <- [1, 2];
+        m: List[(int64, List[int64, mem(normal)]), mem(normal)] <- [(1, s12), (2, no_ints())];
+        fm: string <- bees_msgs@enc_sets(m);
+        em: string <- "8374000000026101740000000261016a61026a61027400000000";
+        om: string <- r_sets(bees_msgs@dec_sets(fm));
+        um: string <- unhex(em);
+        tm: string <- r_sets(bees_msgs@dec_sets(um))
+    produces pure report("#{1=>sets:from_list([1,2]),2=>sets:new()}", fm, em, 1, om, tm) end
+}
+
+fn limits() -> atom {
+    sequence proc[mem(normal)]
+        _: atom <- say("-- the limit of 1024 elements, both directions");
+        f1024: string <- bees_msgs@enc_ints(range(1, 1024, no_ints()));
+        _: atom <- say(concat("encode, 1024 elements: ", sent(f1024)));
+        _: atom <- say(concat("  decoded: ", r_ints(bees_msgs@dec_ints(f1024))));
+        f1025: string <- bees_msgs@enc_ints(range(1, 1025, no_ints()));
+        _: atom <- say(concat("encode, 1025 elements: ", sent(f1025)));
+        h1024: string <- hand_set(1024, 1024);
+        _: atom <- say(cat4("decode, a frame of 1024 elements written by hand (", int_text(length_bytes(h1024)), " bytes): ", r_ints(bees_msgs@dec_ints(h1024))));
+        h1025: string <- hand_set(1025, 1025);
+        _: atom <- say(cat4("decode, a frame of 1025 elements written by hand (", int_text(length_bytes(h1025)), " bytes): ", r_ints(bees_msgs@dec_ints(h1025))));
+        dup: List[int64, mem(normal)] <- [1, 2, 1];
+        _: atom <- say(concat("encode, the element 1 twice: ", sent(bees_msgs@enc_ints(dup))));
+        pd: List[(:pt, int64, int64), mem(normal)] <- [(:pt, 1, 2), (:pt, 1, 2)];
+        _: atom <- say(concat("encode, the element {pt,1,2} twice: ", sent(bees_msgs@enc_pts(pd))));
+        m: List[(int64, List[int64, mem(normal)]), mem(normal)] <- [(1, dup)];
+        _: atom <- say(concat("encode, a map whose value is a set with an element twice: ", sent(bees_msgs@enc_sets(m))))
+    produces pure :ok end
+}
+
+fn refusals() -> atom {
+    sequence
+        _: atom <- say("-- refusals, decoded as Set[int64]");
+        _: atom <- x_ints("empty frame", "");
+        _: atom <- x_ints("only the version byte", "83");
+        _: atom <- x_ints("truncated inside the count", "83740000");
+        _: atom <- x_ints("truncated after the count (3 elements said, none there)", "837400000003");
+        _: atom <- x_ints("truncated after an element, before its []", "8374000000036101");
+        _: atom <- x_ints("truncated after the first element and its []", "83740000000361016a");
+        _: atom <- x_ints("a value that is not []: #{1=>2}", "83740000000161016102");
+        _: atom <- x_ints("a value that is not []: #{1=>[],2=>true}", "83740000000261016a6102770474727565");
+        _: atom <- x_ints("a value that is an empty binary, not []", "83740000000161016d00000000");
+        _: atom <- x_ints("an ordsets list, not the sets map: [1,2,3] as STRING_EXT", "836b0003010203");
+        _: atom <- x_ints("a list: []", "836a");
+        _: atom <- x_ints("a tuple", "83680261016102");
+        _: atom <- x_ints("the element 5 twice, both SMALL_INTEGER_EXT", "83740000000261056a61056a");
+        _: atom <- x_ints("the element 5 twice, as SMALL_INTEGER_EXT (61 05) and SMALL_BIG_EXT (6e 01 00 05)", "83740000000261056a6e0100056a");
+        _: atom <- x_ints("a count of 4294967295 and one element", "8374ffffffff61016a");
+        _: atom <- x_ints("a count of 1025 and one element", "83740000040161016a");
+        _: atom <- x_ints("a count of 5 and one element", "83740000000561016a");
+        _: atom <- x_ints("a trailing byte", "83740000000161016a00");
+        _: atom <- x_ints("an element of another type: sets:from_list([<<a>>])", "8374000000016d00000001616a");
+        big: string <- concat(unhex("8374000000016d00011170"), concat(mk("x", 70000), unhex("6a")));
+        _: atom <- say(cat4("a frame of ", int_text(length_bytes(big)), " bytes, above the cap of 65536: ", r_ints(bees_msgs@dec_ints(big))));
+        _: atom <- say("-- refusals inside other types");
+        _: atom <- x_pts("pts, an element with another tag: {zz,1,2} (zz is not held)", "837400000001680377027a7a610161026a");
+        _: atom <- x_pts("pts, an element of another arity: {pt,1}", "83740000000168027702707461016a");
+        _: atom <- x_pts("pts, the element {pt,1,2} twice, the second with INTEGER_EXT", "837400000002680377027074610161026a680377027074620000000161026a");
+        _: atom <- x_enums("enums, an element the sum does not have: tags", "8374000000017704746167736a");
+        _: atom <- x_enums("enums, an atom the program does not hold: zzqx", "83740000000177047a7a71786a");
+        _: atom <- x_tags("tags, the set holds a value that is not []", "836803770474616773610974000000016d00000001786101");
+        _: atom <- x_tags("tags, the set holds <<x>> twice", "836803770474616773610974000000026d00000001786a6d00000001786a");
+        _: atom <- x_tags("tags, the third element is a list of binaries (ordsets)", "83680377047461677361096c000000016d00000001786a");
+        _: atom <- x_tags("tags, truncated inside the set", "836803770474616773610974000000026d00000001786a");
+        _: atom <- x_sets("sets, the inner set has the element 1 twice", "8374000000016101740000000261016a61016a");
+        _: atom <- x_sets("sets, the inner set has a value that is not []", "8374000000016101740000000161016101");
+        _: atom <- x_sets("sets, the key 1 twice", "8374000000026101740000000061017400000000")
+    produces pure :ok end
+}
+
+fn count(i: int64, n: int64, frame: string, want: atom, hits: int64) -> int64 {
+    case i >= n of {
+        true -> hits;
+        false -> {
+            sequence
+                a: atom <- bees_msgs@validate_named(frame, bees_atoms@a_ints());
+                h: int64 <- case a == want of { true -> hits + 1; false -> hits }
+            produces pure count(i + 1, n, frame, want, h) end
+        }
+    }
+}
+fn memory() -> atom {
+    sequence
+        _: atom <- say("-- 5000 decodes in a row of each (validate_named)");
+        huge: string <- unhex("8374ffffffff61016a");
+        n1: int64 <- count(0, 5000, huge, :too_long, 0);
+        _: atom <- say(concat("a count of 4294967295, refused too_long: ", int_text(n1)));
+        over: string <- hand_set(1025, 1025);
+        n2: int64 <- count(0, 5000, over, :too_long, 0);
+        _: atom <- say(concat("1025 elements, refused too_long: ", int_text(n2)));
+        big: string <- concat(unhex("8374000000016d00011170"), concat(mk("x", 70000), unhex("6a")));
+        n3: int64 <- count(0, 5000, big, :too_large, 0);
+        _: atom <- say(concat("70012 bytes, refused too_large: ", int_text(n3)));
+        good: string <- hand_set(64, 64);
+        n4: int64 <- count(0, 5000, good, :ok, 0);
+        _: atom <- say(concat("64 elements, accepted: ", int_text(n4)))
+    produces pure :ok end
+}
+
+fn main() -> int64 {
+    sequence
+        _: atom <- bees_reporter@start();
+        _: atom <- ints_values();
+        _: atom <- other_values();
+        _: atom <- limits();
+        _: atom <- refusals();
+        _: atom <- memory()
+    produces pure 0 end
+}

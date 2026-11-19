@@ -1,0 +1,170 @@
+[bees] mode=beam node=beesl@localhost transport=tcp auth=cookie creation=1 epmd=external epmd_port=24190 net_tick io_ms=8000 tick_ms=2000 link=stock@localhost role=listen frame_size_max=65536
+[bees] BEAM mode: Erlang cookie authentication, no encryption (transport tcp, 127.0.0.1); a downgrade from TRUST
+[bees audit] epmd: registered (the node keeps its own creation) beesl 24100
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[bees audit] cookie digest accepted from stock@localhost 0
+[bees audit] handshake complete with stock@localhost 0
+[silica] root actor exited (no supervisor)
+[bees audit] net_kernel is_auth answered yes to stock@localhost 0
+[silica] root actor exited (no supervisor)
+[bees audit] frame dropped, not a name this node serves rex -1
+[bees audit] frame dropped, not a name this node serves global_name_server -1
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+bees: sending
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+bees: echo val 0: (i, 7)
+[silica] root actor exited (no supervisor)
+bees: echo val 1: (s, "hi")
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+bees: echo val 2: (f, 1.5)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+bees: echo val 3: (pt, 3, -4)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+bees: echo val 4: { x: 1, y: rec }
+[silica] root actor exited (no supervisor)
+bees: echo val 5: none
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+bees: echo chain 0: ok, cells=3 sum=6 values: 3 2 1
+[silica] root actor exited (no supervisor)
+bees: echo im 0: #{1=>a, 2=>b, 3=>c}
+bees: a map with the key 1 twice (the encoder refuses it: not sent), then #{9=>after}
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+bees: echo im 1: #{9=>after}
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+bees: echo ints 0: set [1,2,3]
+bees: a set with the element 5 twice (not sent), then the set [4]
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+bees: echo ints 1: set [4]
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+bees: echo pkt 0: { id: 7, data: <<deadbeef>> n=4, note: n }
+bees: a buffer of 16 with the count 17, and one with the count -1 (not sent), then one with the count 2
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+bees: echo pkt 1: { id: 10, data: <<dead>> n=2, note: after }
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+bees: echo wide 0: { a: 1, b: two, c: true, d: 4.5, e: wide, f: [1000,2000] }
+[silica] root actor exited (no supervisor)
+bees: echo any 0: t14 i7 i-1234567890123 I0:0000000000000000000001 f:2.5 a:hello a:zzqx_not_held b:62696e bits3:a0 t2 a:a i1 s:010203 l2 a:x a:y nil l1 a:a a:b m1 i1 a:one nil
+bees: a token list that is a tuple of 2 with one element, and an empty one (not sent), then {after,1}
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+bees: echo any 1: t2 a:after i1
+[silica] root actor exited (no supervisor)
+bees: echo val 6: (s, "bye")
+bees: every kind was sent and came back
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[bees audit] payload refused bad_variant 11
+[bees audit] payload refused bad_tag 4
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[bees audit] payload refused bad_tag 4
+[silica] root actor exited (no supervisor)
+[bees audit] payload refused bad_variant 11
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+bees: from erl, val: (i, 42)
+[silica] root actor exited (no supervisor)
+[bees audit] payload refused too_deep 6
+[bees audit] payload refused bad_variant 11
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+bees: from erl, chain: ok, cells=65 sum=2145 values: 65 64 63 62 61 60 59 58 57 56 55 54 53 52 51 50 49 48 47 46 45 44 43 42 41 40 39 38 37 36 35 34 33 32 31 30 29 28 27 26 25 24 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1
+[bees audit] payload refused bad_tag 4
+[silica] root actor exited (no supervisor)
+[bees audit] payload refused bad_tag 4
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[bees audit] payload refused bad_tag 4
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+bees: from erl, im: #{5=>five, 6=>six}
+[silica] root actor exited (no supervisor)
+[bees audit] payload refused bad_tag 4
+[silica] root actor exited (no supervisor)
+[bees audit] payload refused bad_tag 4
+[bees audit] payload refused bad_tag 4
+[silica] root actor exited (no supervisor)
+[bees audit] payload refused bad_tag 4
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+bees: from erl, ints: set [7,8,9]
+[silica] root actor exited (no supervisor)
+[bees audit] payload refused too_long 7
+[silica] root actor exited (no supervisor)
+[bees audit] payload refused bad_tag 4
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+bees: from erl, pkt: { id: 2, data: <<0102030405060708090a0b0c0d0e0f10>> n=16, note: full }
+[silica] root actor exited (no supervisor)
+[bees audit] payload refused missing_field 12
+[silica] root actor exited (no supervisor)
+[bees audit] payload refused unknown_field 14
+[bees audit] payload refused unknown_atom 10
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+bees: from erl, wide: { a: 2, b: erl, c: false, d: 2.5, e: val, f: [1,2,300] }
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+bees: from erl, term 0: t6 k12 k13 k14 k15 k15 a:atom_bees_never_saw_qqzx
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+bees: from erl, term 1: l9 i1 i-1 f:2.5 I0:d20a3f4eeee073c3f60fe98e01 t2 b:62696e bits1:80 m1 a:k l1 a:a a:b s:737472 nil l1 a:x nil nil
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+bees: from erl, term 2: k12
+[silica] root actor exited (no supervisor)
+bees: from erl, term 3: k13
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+bees: from erl, term 4: m2 k15 k14 k12 l2 k13 k13 nil
+[silica] root actor exited (no supervisor)
+[bees audit] link down, proxies ended; reason closed 29
+[bees audit] frames delivered - 29
+[bees audit] frames dropped - 20
+[bees audit] control messages counted - 21
+[bees audit] net ticks seen (1 yes, 0 no) - 1
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+proxy ended (killed)
+proxy ended (killed)
+proxy ended (killed)
+proxy ended (killed)
+proxy ended (killed)
+proxy ended (killed)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+proxy ended (killed)
+proxy ended (killed)
+proxy ended (killed)

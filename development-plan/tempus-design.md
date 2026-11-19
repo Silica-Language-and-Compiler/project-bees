@@ -287,6 +287,12 @@ are only key names and the closed sets below; all are used in BEES's code, so ev
 in the token `[P, a detail: one source of truth]`.
 
 A connection: TLS handshake; the two adverts; the two challenges; the two responses; one request and its reply; close.
+The order on each side, the same for both until the request `[P, a detail of the specification; built in T5]`: its own
+advert at once; it reads the peer's advert and checks it (section 4), then sends its challenge; it reads the peer's
+challenge and sends its response; it reads the peer's response and verifies it. The side that dialed then sends its
+request. A side that answers `key_rotated` does not close at once: it reads and drops what the peer still sends until the
+peer closes or the connection's bound passes, because closing with unread bytes resets the connection and the reset can
+destroy the `key_rotated` frame before the peer has read it (the peer's challenge is usually on its way already).
 Any violation closes without a reply `[S: R:17]`, with one audit line locally `[B: inter-nodal-modes 3]`; the one exception
 is `key_rotated` `[B: OQ-10]`.
 
@@ -391,6 +397,20 @@ nothing is ever chosen without a draw), takes ticks as messages, and tells its l
 ended (the `done` of the test-only tick frame). It arms no timer itself: the node part (T3) does, or, under
 `control_test_only`, nobody does.
 
+What is built of this table (T3). The node actor is `tnode` in `src/tempus/bees_tempus_node.part`, pasted into the
+program's root unit because it dials; it is also the listener's owner (`tlsn`: it counts the accepted connections and
+gives one beyond `inflight_max` to a connection actor of role 3, which closes it when its link is up, one audit line
+`inflight_refused`; the TLS handshake of such a connection is still done, because the link accepts before its owner
+knows of it). `tout` and `tin` are the one connection actor of T5. Each store actor has a front, `tadp`
+(`src/tempus/bees_tempus_node.silica.in`), which turns frame bodies into the store's typed messages and back, drops the
+entries whose token has expired before every tick, answers the store's requests for draws (a test node: from the literal
+list; any other: random bytes through the node's converter, `dangerous_bees_tempus_draws@trc`, seven bytes a draw) and,
+on a test node, sends the node the view line before the message that follows a change. The node handles byte strings
+only. A node that is not a test node arms one `send_after` per store. The node's application is told when the node's
+own token is not valid any more (the check is admission's own, `bees_tempus_admit@pre`, so ticking stops exactly when no
+peer would admit the node) and when a dialed peer answered `key_rotated`; it passes a new token or a new producer key
+as a message (NQ-5).
+
 ## 10. Failure handling
 
 - A partner that cannot be reached, closes early, times out or violates the protocol: its entry stays removed `[P,
@@ -480,12 +500,12 @@ The order follows OQ-17 (admission and TLS before any networked node trial) and 
 | 3 | T2 | Frames in Silica: every message of section 5 written and read, the bounds of section 8, hostile frames | goldens; flat memory over many refused frames, as N3 | built 2026-11-18 (memory read at one count only) |
 | 3 | C1 | The Python client's codec (`tools/bees_tempus_client.py`), independent of the Silica one; the Silica client library's pure part (`src/tempus_client/`) | each side's bytes for every frame equal the other's, and each reads the other's | built 2026-11-18 |
 | 4 | T4 | Admission: Ed25519 verify and sign and SHA-512 in the native edge (`native/tempus/`), the token check, proof of possession, `kid` pinning, expiry and skew, `key_rotated`; a tool that makes test keys and tokens | goldens for acceptance and for each refusal, in one process | built 2026-11-18: the rules, the native edge, the verifier actor, `trials/t4_tempus_admission` (the `key_rotated` frame itself is written by T3's connection actor; T4 gives the verdict) |
-| 5 | T5 | Mutual TLS 1.3 with ALPN `tempus/1` and self-signed Ed25519 certificates; the `tempus` whitelist | as N4.1 | waits on the coordinator's decision of 17.6 (the TLS link cannot be reused as it is: three missing parameters) and on NQ-4 for the whitelist part |
-| 6 | T3 | Nodes over TLS on loopback: listener, connection actors, join through a sentinel, `control_test_only`; a three-node trial | goldens for join, shuffle, a dead partner, a hostile peer | after T5; a port block |
-| 7 | C2 | Both clients as TEMPUS peers on the wire (dialing and listening); the thin Silica app; the rows of 16.2 that need no bridge | each such row has a trial from each client | after T3 |
-| 8 | T6 | The bridge node (section 17): TRUST and TEMPUS in one program, two keys, per-type spec, per-peer score and bounds from the application | goldens with an edge client, two bridges and a TRUST node | after T3; NQ-1 for what a client can observe |
-| 9 | C3 | The clients against the bridge: the rest of 16.2 | every row of 16.2 has a trial from each client | after T6 |
-| 10 | T7 | Configuration: the `tempus` section and the three `mode` spellings through the `(:store)` carrier, validation, the packer | when D46's store reader exists for TRUST | not started |
+| 5 | T5 | Mutual TLS 1.3 with ALPN `tempus/1` and self-signed Ed25519 certificates; the `tempus` whitelist | as N4.1 | built 2026-11-18: the engine's three additions (`trials/t5_tempus_tls`), the TEMPUS link and the connection actor's admission with the channel binding and the whitelist (`trials/t5_tempus_link`, two processes over TLS on loopback) |
+| 6 | T3 | Nodes over TLS on loopback: listener, connection actors, join through a sentinel, `control_test_only`; a three-node trial | goldens for join, shuffle, a dead partner, a hostile peer | built 2026-11-18: the node part (`src/tempus/bees_tempus_node.part`), the store adapters (`bees_tempus_node.silica.in`), the draw converter (`dangerous_bees_tempus_draws.silica`), `trials/t3_tempus_nodes` (three nodes and the Python client; port block 23800); NQ-11 to NQ-14 are open and built provisionally |
+| 7 | C2 | Both clients as TEMPUS peers on the wire (dialing and listening); the thin Silica app; the rows of 16.2 that need no bridge | each such row has a trial from each client | built 2026-11-18, goldens 2026-11-19: `src/tempus_client/bees_tempus_client.part`, `trials/c2_tempus_clients` (port block 23900) with `COVERAGE.md`; rows 12 "no proof", 18 "closes after the advert" and 20 from the Python client only (16.4) |
+| 8 | T6 | The bridge node (section 17): TRUST and TEMPUS in one program, two keys, per-type spec, per-peer score and bounds from the application | goldens with an edge client, two bridges and a TRUST node | built 2026-11-19: `src/tempus/bees_tempus_bridge.silica` (the per-peer table and the per-request actor), `bees_tempus_bridge.part` (`tempus_bridge_start`, `tempus_bridge_onward`), the node's call and cast going to the bridge's table (`bees_tempus_node.part`), `tools/bees_tempus_gen.py bridge` and `spec`; `src/trust` unchanged; NQ-18 to NQ-20 |
+| 9 | C3 | The clients against the bridge: the rest of 16.2 | every row of 16.2 has a trial from each client | built 2026-11-19: `trials/c3_tempus_bridge` (port block 24200) with `COVERAGE.md`; rows 29 and 33 and the quarantine of 17.7 from the Python client only |
+| 10 | T7 | Configuration: the `tempus` section and the three `mode` spellings through the `(:store)` carrier, validation, the packer | when D46's store reader exists for TRUST | in part 2026-11-19: the node's boot refusals from its arguments (`tempus_node_boot`, `bees_tempus_node@boot_why`, `trials/c4_tempus_boot`, port block 24300), `tools/bees_tempus_conf.py` (the mode spellings and the `tempus` section, with tests); the store-carrier conversion waits on D46's reader (NQ-21) |
 | 11 | T8 | Churn and soak measurements (hosted platforms; the boards are not TEMPUS nodes in the first build, NQ-6) | numbers recorded | not started |
 
 ## 14. Open questions for the project owner
@@ -813,6 +833,16 @@ are fixtures. Everything else a client does (join as sentinel, shuffles, samples
   through the language's carrier and the TLS link, running admission, sending one request, handing the typed reply to the
   actor the caller named; a `dangerous_` unit because it spawns a carrier). It reads no file: addresses, key bytes, token
   bytes and draws are arguments `[B: N0c, D46]`.
+  Built in C2 `[P, forced by the language: the carrier's spawn site stays in the root unit (SD-17) and a root unit may not
+  call a function of a dangerous_ unit (E4042)]`: the active part is not a unit but `src/tempus_client/bees_tempus_client.part`,
+  pasted into the application's root unit by `tools/bees_tempus_gen.py` as the node part is. Each connection is the node's
+  own connection actor (`dangerous_bees_tempus_conn@tcon`), so the client and the node share one implementation of
+  admission; the Python client is the independent one. Functions: `tempus_client_start(app, ci)`, `tempus_client_dial`,
+  `tempus_client_set` (the token, peer id, clock, kid, public key or whitelist for the connections that follow: the way
+  to every refusal of row 12), `tempus_client_answer` and `tempus_client_close` (the listening position: the application
+  is handed each admitted peer's request and answers it when it chooses). What this client cannot do on purpose, because
+  the connection actor has no such switch: leave out its proof, stay silent or close before its request, hold a
+  connection open before its advert (rows 12 "no proof", 18 "closes after the advert", 20). The Python client does those.
 - Thin app: an entry unit that calls the library per its compiled-in scenario and prints each reply as one line
   `[B: OQ-21]`. It lives in the trial leaves, one per scenario role.
 
@@ -956,6 +986,16 @@ From reading `src/trust/` and spikes/N3-trust.md, to be confirmed when T5 and T6
   includes X25519MLKEM768, which the engine requires (D40), is not verified. If it does not, the Python client needs the
   per-peer classical opt-in (D44) or another TLS binding; that would be a question for the owner.
 
+Confirmed in T6 (2026-11-19): `src/trust` is used unchanged. A bridge program is the root unit `tools/bees_trust_gen.py
+edge` writes from the TRUST side's `bees.config`, with the TEMPUS link, node and bridge parts and the roles pasted after it
+(`tools/bees_tempus_gen.py bridge`); the generated MFA table (`bees_trust_gen.py mfa`) lists the functions edges may name,
+`bees_trust_frame@parse_req`, `bees_trust_guard@forbidden` and `bees_trust_work@twork` are reused as they are, and the
+per-type specs are a unit of their own (`bees_tempus_gen.py spec`, `bees_tempus_spec@permitted`; a whitelisted peer's entry
+line replaces its type's, NQ-4). The bridge's TRUST side calls out with `trpc_call` (a plain TRUST client: pins, token,
+suspicion at the server); `tempus_bridge_onward` gives it the application's request. Nothing in `src/trust`,
+`tools/bees_trust_gen.py` or `tools/bees_config_trust.py` was changed. The client library gained `call_frame`,
+`cast_frame`, a reading of `result` in `show`, and `pick_bridge(body, count, draw)`, the one function that picks a bridge.
+
 ### 17.7 Trials
 
 T6 and C3's trial has two bridges and one TRUST node, driven by both clients admitted as edges (rows 24, 25, 29 to 36 of 16.2): a call
@@ -965,8 +1005,8 @@ node by the trial itself, to show that edges then see `closed` and nothing else.
 
 ## 18. New open questions after the rulings
 
-All seven were ruled by the owner on 2026-11-18 (the lines beginning "RULED"); the sections above state the results as
-`[B: NQ-n]`. One further question has come up since and is at the end of this section if present.
+NQ-1 to NQ-10 were all ruled by the owner on 2026-11-18 (the lines beginning "RULED"); the sections above state the
+results of NQ-1 to NQ-7 as `[B: NQ-n]`; NQ-8 to NQ-10 came up in T5 and are at the end of this section.
 
 None of these blocks T1, T2, C1 or T4. Each says what it blocks.
 
@@ -1015,4 +1055,120 @@ a joiner asking a sentinel. Options: (a) any admitted peer may ask any node; (b)
 (a): it reveals nothing a shuffle would not, and it is how an application finds a bridge. Blocks: nothing.
 RULED 2026-11-18 (owner): option (a), yes: any admitted peer may send `sample` to any node.
 
+NQ-8. May a TEMPUS connection use the classical key exchange (X25519 alone)? D44 lets a TRUST peer do so when its whitelist
+entry is marked classical-allowed (for the boards); nothing rules it for TEMPUS, and the boards are not TEMPUS nodes
+(NQ-6). Options: (a) no: `tempus/1` accepts X25519MLKEM768 only; (b) the D44 opt-in for whitelisted bridges and sentinels.
+Recommendation: (a) until a board is a TEMPUS node. Provisional behaviour, built: (a) (`dangerous_bees_tempus_tls`, marked
+as provisional). Blocks: nothing.
+RULED 2026-11-18 (owner): provisional choice accepted: TEMPUS connections use the hybrid key exchange (X25519MLKEM768) only; no classical opt-in.
 
+NQ-9. A gossiped entry whose token says `tempus_bridge` or `tempus_sentinel` cannot be checked against the `tempus`
+whitelist without contact: the whitelist is keyed by the SHA-512 of a certificate (OQ-3) and an entry carries only the
+public key. Options: (a) such an entry is admitted to the store by its token alone and the whitelist is checked when the
+node first connects to that peer (a peer not in the whitelist is then refused and its entry dropped, as a failed
+shuffle); (b) BEES also derives each whitelisted certificate's public key when the whitelist is read, and an entry of
+those two types is admitted only when its `pub` is one of them. Recommendation: (b): it keeps a bridge nobody listed out
+of the bridge store altogether, and the key is in the certificate already. Provisional behaviour, built: (a), the weaker
+one, because (b) needs a second form of the whitelist that nothing rules; no unlisted bridge or sentinel is ever spoken
+to past its advert either way. Blocks: nothing; it changes T3's entry check.
+RULED 2026-11-18 (owner): provisional choice accepted: option (a): a gossiped bridge or sentinel entry is checked against the `tempus` whitelist at first contact.
+
+NQ-10. Are the validity dates of a TEMPUS certificate checked? The certificate is self-signed over the identity key and
+no chain is verified (OQ-2, D43); the engine's no-CA path does not check dates, and the token already carries the
+producer's validity window. Options: (a) not checked: the token's `nbf` and `exp` are the validity of a TEMPUS identity;
+(b) checked against the node's clock. Recommendation: (a). Provisional behaviour, built: (a) (what the engine does for
+TRUST's pins). Blocks: nothing.
+RULED 2026-11-18 (owner): provisional choice accepted: option (a): certificate validity dates are not checked; the producer token carries the validity window.
+
+NQ-11. Where does a node that is not a test node read the time of day for token checks? The language has a monotonic
+clock and no wall clock. Options: (a) the application passes the time of day once, at start, and BEES adds the monotonic
+time since then; (b) the application passes the time again whenever it likes (a message, as it passes a new token) and
+BEES never advances it by itself; (c) a call in the TEMPUS native edge that reads the system clock, as the random source
+is read through an edge. Recommendation: (c) on the hosted platforms: (a) never sees a clock that was corrected or a
+machine that slept. Provisional behaviour, built: (a) (`tn_now` in `bees_tempus_node.part`, marked PROVISIONAL); a test
+node's clock is the value passed at start until a `clock` frame. Blocks: nothing in the trials (they run under
+`control_test_only`); it decides what a deployed node's token window means.
+
+NQ-12. Does a joiner put the sentinel it joined through into its own sentinel store? Section 6 says the sentinel answers
+from its stores and inserts the joiner; a sentinel is not in its own stores, so with one sentinel every node's sentinel
+store stays empty (seen in `trials/t3_tempus_nodes`), and a node reaches a sentinel again only through its
+configuration. Options: (a) no, as the text says; (b) yes: the joiner inserts the sentinel that answered, at age 0, into
+its sentinel store (its advert was verified and its certificate is in the whitelist). Recommendation: (b): the sentinel
+store is otherwise empty until a second sentinel exists, and Cyclon's views are filled the same way from an introducer.
+Provisional behaviour, built: (a). Blocks: nothing.
+
+NQ-13. Which requests make a sentinel insert the asker? Section 6 names the joiner's `sample`; NQ-7 lets any admitted
+peer send `sample` to any node. Options: (a) every `sample` a sentinel answers inserts the asker into the sentinel's
+store of the asker's type (an insert of a peer already there changes nothing but its age); (b) only the first, or only
+a peer the sentinel does not hold; (c) a separate join request. Recommendation: (a): a sample to a sentinel is the join,
+and an admitted peer that asks is alive. Provisional behaviour, built: (a); the sample is taken first and the insert
+follows, so a joiner is never answered with itself. Blocks: nothing.
+
+NQ-14. What does `shuffle_timeout_ms` bound? Section 8 says "time for a whole connection". Built: the carrier's connect
+budget, the TLS handshake and the admitted connection (from the link being up to its close) each get that value, so a
+dialed connection can last up to three times it. Options: (a) as built; (b) one timer from the dial to the close.
+Recommendation: (b), when the connection actor is next changed. Provisional behaviour, built: (a). Blocks: nothing.
+
+NQ-15. A store of another type than the node's own loses an entry at every shuffle. In such a store the node's own entry
+is not sent (OQ-5), and the partner leaves the view as in every shuffle (3.2 step 4), so nothing puts the link back: the
+partner cannot hold the node in that store. Seen by hand with three nodes on their own timers (not a trial): the
+sentinel's edge store went from two entries to none in four ticks and stayed empty until an edge asked it again
+(the insert of NQ-13). Options: (a) as built, the rules as written; (b) in a store that is not of the node's own type,
+a partner that answered is put back at age 0 after the merge (it was just reached); (c) a node does not tick the stores
+that are not of its own type and only answers in them. Recommendation: (b). Provisional behaviour, built: (a). Blocks:
+nothing; it decides how long a sentinel or a bridge keeps knowing edges, and an edge keeps knowing bridges (17.3).
+
+NQ-16. A received entry that names a peer the node has just SENT replaces it even when the received one is older. 3.4
+step 2 compares a received entry only with what was "received and still in the view"; the sent entries have left the
+view (3.2 step 4, 3.3) and return only where there is room and the peer is not there (step 4). Seen in
+`trials/c2_tempus_clients` (both clients, step 8): the node held x3 at age 6, answered a shuffle with it, received x3 at
+age 40 in the same shuffle, and now holds x3 at age 40. Options: (a) as built, the rules as written; (b) a received
+entry is also compared with the sent one of the same peer and the younger of the two is kept (R:382 "prefer younger
+entries"). Recommendation: (b): the node had the fresher news of that peer and gives it up for older news. Provisional
+behaviour, built: (a), `bees_tempus_view@merge` and `backfill` unchanged. Blocks: nothing.
+RULED 2026-11-19 (owner): option (b), keep the younger of the two: a received entry is also compared with the entry of the same peer the node just sent, and the younger is kept.
+
+NQ-17. Does a node whose own token has expired still answer peers? Section 6 and row 15 say it stops ticking and tells
+its application. Built in T3: nothing else changes, so it still accepts connections, admits peers and answers `sample`
+and `shuffle` with an advert whose token every correct peer refuses (seen in `trials/c2_tempus_clients`, step 54: the
+client refuses the node's advert, the node records a closed connection). Options: (a) as built; (b) it stops listening
+until its application passes a new token (ops 70, 71); (c) it goes on listening and closes every accepted connection at
+once with one audit line. Recommendation: (a): a peer's own check already refuses it, and a refreshed token makes the
+node whole again with no restart of its listener. Provisional behaviour, built: (a). Blocks: nothing.
+RULED 2026-11-19 (owner): option (a), as built: a node whose own token has expired still answers peers.
+
+
+NQ-18. How does a bridge's application run an edge's request? Section 17.4 says the request runs "a function the bridge's
+application exported, in a per-request worker", and that function may call onward with `trpc`. A TRUST MFA function is
+synchronous (`(:ok, V) | (:error, R)`) and `trpc` answers by a message, so a function in the MFA table cannot wait for a
+TRUST call. Options: (a) every admitted request is handed to the bridge application as a message, after all of BEES's checks
+(score, bounds, guard, per-type spec, the MFA table's type check), and the application answers it once: with a value, a
+failure, "run the MFA function" (BEES runs it in a per-request worker, `bees_trust_work`, as TRUST does), or one TRUST call
+of its own making whose result becomes the answer (`tempus_bridge_onward`); the call timeout bounds it either way; (b) MFA
+functions only, no onward calls (the bridge then cannot reach TRUST, which is its purpose); (c) a new kind of manifest
+line that names a TRUST call to make (BEES would then forward by configuration, which 7 and 17.4 rule out).
+Recommendation: (a). Built: (a) (`bees_tempus_bridge.silica`, `tempus_bridge_start`; the edge's identity is never passed on).
+Blocks: nothing.
+
+NQ-19. What raises an edge's score at a bridge? 17.5 says TRUST's rule: up on a refusal, a failure or a timeout, down on
+success. Built: +1 for the peer's in-flight bound, the peer's rate bound, a refused TRUST request (frame, guard, spec, not in
+the program, argument types), a failed function and a timeout (also of a call the application held on purpose); no change
+for the score refusal itself and for the bridge's in-flight bound in total (not the peer's doing); -1 on an answered call or
+a cast that ran. A frame that is no TEMPUS request at all is refused by the connection actor before the bridge sees it and
+does not count. Options: (a) as built; (b) count the connection actor's refusals of an admitted peer too (the node would be
+told). Recommendation: (b), when the connection actor is next changed: an admitted peer sending garbage is misbehaving.
+Blocks: nothing.
+
+NQ-20. When is an edge's cast closed? TRUST closes a cast's connection when the cast is admitted. Built: the bridge closes
+it when the cast's outcome is known (it ran, failed or timed out), so that the bridge's lines about it come before the close
+and a trial's outputs have one order. The edge sees the same (a close with no reply) either way. Options: (a) as built; (b)
+at admission, as TRUST. Recommendation: (a). Blocks: nothing.
+
+NQ-21. The bare `{mode, tempus-trust}`. Section 11 chose that BEES's reader accepts the owner's bare spelling as the value
+of `mode` (and the quoted atom). `tools/bees_conf.py` (not TEMPUS's file) reads `'tempus-trust'` but refuses the bare form
+as a syntax error, and knows only `beam` and `trust`. Built, provisionally, in `tools/bees_tempus_conf.py`: the bare
+spelling is quoted before the text reaches that reader (as the value of `mode` only), and the trust part of a
+`tempus-trust` file is checked by that reader on a copy with `{mode, trust}` and no `tempus` section. Options: (a) the reader
+of `tools/bees_conf.py` takes the bare spelling for `mode` and the two new modes, and calls `bees_tempus_conf.tempus_section`
+(three small edits, listed in tempus-progress.md); (b) keep the stand-in. Recommendation: (a), by that file's owner. Blocks:
+T7's store-carrier part only.

@@ -1,0 +1,509 @@
+// C1 codec trial, buf (development-plan/spikes/C1-codec-term-coverage.md sections 2.2, 2.5, 2.6). buf(L, normal, uint8, N) in
+// the manifest is { b: buf(L, normal, uint8, N), n: int64 } here, n the bytes in use, which cross as BINARY_EXT; a message
+// that holds one is { r: region(L, normal), v: T }. Printed: buffers filled in a region, encoded by bees_msgs@enc_<name>,
+// their bytes compared HERE with the bytes stock Erlang (OTP 28, term_to_binary) writes (fixtures printed by
+// tools/bees_codec_fixtures2.erl), each decoded into a fresh region (bees_msgs@dec_<name>(frame, r)) and the buffer read
+// there; a buffer in a record with other fields, two buffers of different sizes in a tuple, one in a tagged tuple; the
+// refusals in both directions; many refused and accepted decodes in a row, each into a scratch region
+// (bees_msgs@validate_named); and last the deliverer path: bees_peers@start_deliverer decodes a payload into a fresh region
+// and casts { r, v } to the registered names `blob` and `pkt`, where actors of this program read the buffer. The frame cap
+// is bees.config's beam.frame_size_max (1024).
+use bees_atoms;
+use bees_msgs;
+use bees_peers;
+use bees_reporter;
+use bees_codec_kinds;
+
+fn say(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+fn hexd(v: int64) -> string { substring("0123456789abcdef", v, v + 1) }
+fn at(s: string, i: int64) -> int64 {
+    sequence proc[transport]
+        b: int64 <- byte_at(s, i)
+    produces pure b end
+}
+fn hex_of(s: string, i: int64, n: int64) -> string {
+    case i >= n of {
+        true -> "";
+        false -> concat(concat(hexd(at(s, i) / 16), hexd(at(s, i) % 16)), hex_of(s, i + 1, n))
+    }
+}
+fn hex(s: string) -> string { hex_of(s, 0, length_bytes(s)) }
+fn hv(c: int64) -> int64 { case c >= 97 of { true -> c - 87; false -> c - 48 } }
+fn unhex_acc(s: string, i: int64, acc: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    case i < 0 of {
+        true -> acc;
+        false -> {
+            sequence proc[mem(normal)]
+                b: int64 <- hv(at(s, i)) * 16 + hv(at(s, i + 1));
+                l: List[int64, mem(normal)] <- prepend[int64, mem(normal)](b, acc)
+            produces pure unhex_acc(s, i - 2, l) end
+        }
+    }
+}
+fn unhex(s: string) -> string {
+    sequence proc[mem(normal), transport]
+        e: List[int64, mem(normal)] <- [];
+        xs: List[int64, mem(normal)] <- unhex_acc(s, length_bytes(s) - 2, e);
+        out: string <- bytes_of(xs)
+    produces pure out end
+}
+fn mk(s: string, n: int64) -> string {
+    case length_bytes(s) >= n of {
+        true -> substring(s, 0, n);
+        false -> mk(concat(s, s), n)
+    }
+}
+fn pos_text(n: int64) -> string {
+    case n < 10 of {
+        true -> substring("0123456789", n, n + 1);
+        false -> concat(pos_text(n / 10), substring("0123456789", n % 10, n % 10 + 1))
+    }
+}
+fn int_text(n: int64) -> string {
+    case n < 0 of {
+        true -> case n < -9223372036854775807 of { true -> "-9223372036854775808"; false -> concat("-", pos_text(0 - n)) };
+        false -> pos_text(n)
+    }
+}
+fn str_text(s: string) -> string {
+    case length_bytes(s) > 16 of {
+        true -> concat(concat("a string of ", int_text(length_bytes(s))), " bytes");
+        false -> concat(concat("\"", s), "\"")
+    }
+}
+fn verdict(a: atom) -> string { case a == :ok of { true -> "ok"; false -> bees_atoms@spelling(a) } }
+fn why(w: atom) -> string { concat("rejected ", bees_atoms@spelling(w)) }
+fn same(f: string, erl: string) -> string {
+    case hex(f) == erl of { true -> "  = erl"; false -> "  DIFFERS from erl" }
+}
+// a long frame is shown by its length and its first bytes
+fn shown(f: string) -> string {
+    case length_bytes(f) > 64 of {
+        true -> concat(concat(concat(hex_of(f, 0, 24), "... ("), int_text(length_bytes(f))), " bytes)");
+        false -> hex(f)
+    }
+}
+
+// ---- the chain (atom, int64, ref?(L, normal, rec))
+fn cat3(a: string, b: string, c: string) -> string { concat(concat(a, b), c) }
+fn cat4(a: string, b: string, c: string, d: string) -> string { concat(concat(concat(a, b), c), d) }
+// one case: the bytes BEES wrote, compared with erl's when cmp is 1 (BEES writes the list's order, erl its own: where they can
+// differ the fixture is only decoded), what BEES's bytes decode to, what erl's bytes decode to
+fn report(label: string, f: string, erl: string, cmp: int64, own: string, theirs: string) -> atom {
+    sequence
+        _: atom <- say(cat4(label, " ", shown(f), case cmp of { 1 -> same(f, erl); _: int64 -> "  (erl's bytes are decoded, not compared)" }));
+        _: atom <- say(concat("  decoded: ", own))
+    produces pure say(concat("  erl's bytes decoded: ", theirs)) end
+}
+fn sent(f: string) -> string {
+    case length_bytes(f) == 0 of { true -> "not sent (no frame)"; false -> cat3("a frame of ", int_text(length_bytes(f)), " bytes") }
+}
+fn ints_bytes(xs: List[int64, mem(normal)]) -> string {
+    sequence proc[mem(normal), transport]
+        out: string <- bytes_of(xs)
+    produces pure out end
+}
+// buf(L, normal, uint8, 4): build one from a list of bytes, and its bytes in use as text
+fn fill4(b: buf(L, normal, uint8, 4), r: region(L, normal), xs: List[int64, mem(normal)], i: int64) -> int64 {
+    case xs of {
+        []: List[int64, mem(normal)] -> i;
+        [h: int64, t: List[int64, mem(normal)]] -> {
+            sequence proc[mem(normal)]
+                y: uint8 <- bees_codec_kinds@int_byte(h);
+                _: atom <- write_buf(b, i, y)
+            produces pure fill4(b, r, t, i + 1) end
+        }
+    }
+}
+fn mk4(r: region(L, normal), xs: List[int64, mem(normal)]) -> { b: buf(L, normal, uint8, 4), n: int64 } {
+    sequence proc[mem(normal)]
+        b: buf(L, normal, uint8, 4) <- alloc_buf(r, 4);
+        n: int64 <- fill4(b, r, xs, 0)
+    produces pure { b: b, n: n } end
+}
+fn hx4(b: buf(L, normal, uint8, 4), r: region(L, normal), i: int64, n: int64) -> string {
+    case i >= n of {
+        true -> "";
+        false -> {
+            sequence proc[mem(normal)]
+                x: uint8 <- read_buf(b, i);
+                y: int64 <- bees_codec_kinds@byte_int(x)
+            produces pure cat3(hexd(y / 16), hexd(y % 16), hx4(b, r, i + 1, n)) end
+        }
+    }
+}
+fn t_b4(v: { b: buf(L, normal, uint8, 4), n: int64 }, r: region(L, normal)) -> string {
+    cat4("<<", hx4(v.b, r, 0, v.n), ">> n=", int_text(v.n))
+}
+// buf(L, normal, uint8, 8): build one from a list of bytes, and its bytes in use as text
+fn fill8(b: buf(L, normal, uint8, 8), r: region(L, normal), xs: List[int64, mem(normal)], i: int64) -> int64 {
+    case xs of {
+        []: List[int64, mem(normal)] -> i;
+        [h: int64, t: List[int64, mem(normal)]] -> {
+            sequence proc[mem(normal)]
+                y: uint8 <- bees_codec_kinds@int_byte(h);
+                _: atom <- write_buf(b, i, y)
+            produces pure fill8(b, r, t, i + 1) end
+        }
+    }
+}
+fn mk8(r: region(L, normal), xs: List[int64, mem(normal)]) -> { b: buf(L, normal, uint8, 8), n: int64 } {
+    sequence proc[mem(normal)]
+        b: buf(L, normal, uint8, 8) <- alloc_buf(r, 8);
+        n: int64 <- fill8(b, r, xs, 0)
+    produces pure { b: b, n: n } end
+}
+fn hx8(b: buf(L, normal, uint8, 8), r: region(L, normal), i: int64, n: int64) -> string {
+    case i >= n of {
+        true -> "";
+        false -> {
+            sequence proc[mem(normal)]
+                x: uint8 <- read_buf(b, i);
+                y: int64 <- bees_codec_kinds@byte_int(x)
+            produces pure cat3(hexd(y / 16), hexd(y % 16), hx8(b, r, i + 1, n)) end
+        }
+    }
+}
+fn t_b8(v: { b: buf(L, normal, uint8, 8), n: int64 }, r: region(L, normal)) -> string {
+    cat4("<<", hx8(v.b, r, 0, v.n), ">> n=", int_text(v.n))
+}
+// buf(L, normal, uint8, 16): build one from a list of bytes, and its bytes in use as text
+fn fill16(b: buf(L, normal, uint8, 16), r: region(L, normal), xs: List[int64, mem(normal)], i: int64) -> int64 {
+    case xs of {
+        []: List[int64, mem(normal)] -> i;
+        [h: int64, t: List[int64, mem(normal)]] -> {
+            sequence proc[mem(normal)]
+                y: uint8 <- bees_codec_kinds@int_byte(h);
+                _: atom <- write_buf(b, i, y)
+            produces pure fill16(b, r, t, i + 1) end
+        }
+    }
+}
+fn mk16(r: region(L, normal), xs: List[int64, mem(normal)]) -> { b: buf(L, normal, uint8, 16), n: int64 } {
+    sequence proc[mem(normal)]
+        b: buf(L, normal, uint8, 16) <- alloc_buf(r, 16);
+        n: int64 <- fill16(b, r, xs, 0)
+    produces pure { b: b, n: n } end
+}
+fn hx16(b: buf(L, normal, uint8, 16), r: region(L, normal), i: int64, n: int64) -> string {
+    case i >= n of {
+        true -> "";
+        false -> {
+            sequence proc[mem(normal)]
+                x: uint8 <- read_buf(b, i);
+                y: int64 <- bees_codec_kinds@byte_int(x)
+            produces pure cat3(hexd(y / 16), hexd(y % 16), hx16(b, r, i + 1, n)) end
+        }
+    }
+}
+fn t_b16(v: { b: buf(L, normal, uint8, 16), n: int64 }, r: region(L, normal)) -> string {
+    cat4("<<", hx16(v.b, r, 0, v.n), ">> n=", int_text(v.n))
+}
+
+// ---- buf(L, normal, uint8, 8) as the whole message
+fn r_blob(x: (:ok, { b: buf(L, normal, uint8, 8), n: int64 }) | (:rejected, atom), r: region(L, normal)) -> string {
+    case x of { (:ok, v: { b: buf(L, normal, uint8, 8), n: int64 }) -> concat("ok ", t_b8(v, r)); (:rejected, w: atom) -> why(w) }
+}
+// decode into a fresh region (this function's own) and read the buffer there
+fn fresh_blob(frame: string) -> string {
+    sequence proc[mem(normal)]
+        L: lifetime <- fresh_lifetime();
+        r: region(L, normal) <- alloc_region(normal);
+        x: (:ok, { b: buf(L, normal, uint8, 8), n: int64 }) | (:rejected, atom) <- bees_msgs@dec_blob(frame, r)
+    produces pure r_blob(x, r) end
+}
+fn c_blob(label: string, xs: List[int64, mem(normal)], erl: string) -> atom {
+    sequence proc[mem(normal)]
+        L: lifetime <- fresh_lifetime();
+        r: region(L, normal) <- alloc_region(normal);
+        v: { b: buf(L, normal, uint8, 8), n: int64 } <- mk8(r, xs);
+        f: string <- bees_msgs@enc_blob({ r: r, v: v });
+        own: string <- fresh_blob(f);
+        fe: string <- unhex(erl);
+        theirs: string <- fresh_blob(fe)
+    produces pure report(label, f, erl, 1, own, theirs) end
+}
+fn x_blob(label: string, h: string) -> atom {
+    sequence
+        f: string <- unhex(h)
+    produces pure say(cat3(label, ": ", fresh_blob(f))) end
+}
+// a buffer of 3 bytes whose count is set to n: what enc_blob does with a count outside 0..8
+fn bad_n(n: int64) -> atom {
+    sequence proc[mem(normal)]
+        L: lifetime <- fresh_lifetime();
+        r: region(L, normal) <- alloc_region(normal);
+        xs: List[int64, mem(normal)] <- [1, 2, 3];
+        v: { b: buf(L, normal, uint8, 8), n: int64 } <- mk8(r, xs);
+        f: string <- bees_msgs@enc_blob({ r: r, v: { b: v.b, n: n } })
+    produces pure say(cat4("encode, n = ", int_text(n), " in a buffer of 8: ", sent(f))) end
+}
+fn blob_values() -> atom {
+    sequence proc[mem(normal)]
+        _: atom <- say("-- buf(L, normal, uint8, 8): { b, n }, the n bytes in use as BINARY_EXT");
+        b3: List[int64, mem(normal)] <- [1, 2, 3];
+        _: atom <- c_blob("<<1,2,3>>", b3, "836d00000003010203");
+        b0: List[int64, mem(normal)] <- [];
+        _: atom <- c_blob("<<>>", b0, "836d00000000");
+        b8: List[int64, mem(normal)] <- [0, 255, 128, 127, 1, 2, 3, 4];
+        _: atom <- c_blob("<<0,255,128,127,1,2,3,4>> (the buffer is full)", b8, "836d0000000800ff807f01020304");
+        _: atom <- x_blob("erl's [1,2,3], a list of bytes (STRING_EXT): the derived decoder of a string takes it", "836b0003010203");
+        _: atom <- x_blob("erl's [] (NIL_EXT), the empty list of bytes", "836a");
+        _: atom <- bad_n(8);
+        _: atom <- bad_n(0);
+        _: atom <- bad_n(9);
+        _: atom <- bad_n(-1)
+    produces pure :ok end
+}
+
+// ---- { id: int64, data: buf(L, normal, uint8, 16), note: string }
+fn r_pkt(x: (:ok, { id: int64, data: { b: buf(L, normal, uint8, 16), n: int64 }, note: string }) | (:rejected, atom), r: region(L, normal)) -> string {
+    case x of {
+        (:ok, v: { id: int64, data: { b: buf(L, normal, uint8, 16), n: int64 }, note: string }) -> concat(cat4("ok { id: ", int_text(v.id), ", data: ", t_b16(v.data, r)), cat3(", note: ", v.note, " }"));
+        (:rejected, w: atom) -> why(w)
+    }
+}
+fn fresh_pkt(frame: string) -> string {
+    sequence proc[mem(normal)]
+        L: lifetime <- fresh_lifetime();
+        r: region(L, normal) <- alloc_region(normal);
+        x: (:ok, { id: int64, data: { b: buf(L, normal, uint8, 16), n: int64 }, note: string }) | (:rejected, atom) <- bees_msgs@dec_pkt(frame, r)
+    produces pure r_pkt(x, r) end
+}
+fn x_pkt(label: string, h: string) -> atom {
+    sequence
+        f: string <- unhex(h)
+    produces pure say(cat3(label, ": ", fresh_pkt(f))) end
+}
+fn pkt_frame(n: int64) -> string {
+    sequence proc[mem(normal)]
+        L: lifetime <- fresh_lifetime();
+        r: region(L, normal) <- alloc_region(normal);
+        xs: List[int64, mem(normal)] <- [222, 173, 190, 239];
+        d: { b: buf(L, normal, uint8, 16), n: int64 } <- mk16(r, xs);
+        f: string <- bees_msgs@enc_pkt({ r: r, v: { id: 7, data: { b: d.b, n: n }, note: "n" } })
+    produces pure f end
+}
+// ---- (buf(L, normal, uint8, 4), string, buf(L, normal, uint8, 8)) and (:blob, int64, buf(L, normal, uint8, 8))
+fn r_pair(x: (:ok, ({ b: buf(L, normal, uint8, 4), n: int64 }, string, { b: buf(L, normal, uint8, 8), n: int64 })) | (:rejected, atom), r: region(L, normal)) -> string {
+    case x of {
+        (:ok, v: ({ b: buf(L, normal, uint8, 4), n: int64 }, string, { b: buf(L, normal, uint8, 8), n: int64 })) -> case v of {
+            (a: { b: buf(L, normal, uint8, 4), n: int64 }, s: string, c: { b: buf(L, normal, uint8, 8), n: int64 }) -> concat(cat4("ok (", t_b4(a, r), ", ", s), cat3(", ", t_b8(c, r), ")"))
+        };
+        (:rejected, w: atom) -> why(w)
+    }
+}
+fn fresh_pair(frame: string) -> string {
+    sequence proc[mem(normal)]
+        L: lifetime <- fresh_lifetime();
+        r: region(L, normal) <- alloc_region(normal);
+        x: (:ok, ({ b: buf(L, normal, uint8, 4), n: int64 }, string, { b: buf(L, normal, uint8, 8), n: int64 })) | (:rejected, atom) <- bees_msgs@dec_pair(frame, r)
+    produces pure r_pair(x, r) end
+}
+fn x_pair(label: string, h: string) -> atom {
+    sequence
+        f: string <- unhex(h)
+    produces pure say(cat3(label, ": ", fresh_pair(f))) end
+}
+fn r_tb(x: (:ok, (:blob, int64, { b: buf(L, normal, uint8, 8), n: int64 })) | (:rejected, atom), r: region(L, normal)) -> string {
+    case x of {
+        (:ok, v: (:blob, int64, { b: buf(L, normal, uint8, 8), n: int64 })) -> case v of {
+            (:blob, k: int64, c: { b: buf(L, normal, uint8, 8), n: int64 }) -> concat(cat4("ok (blob, ", int_text(k), ", ", t_b8(c, r)), ")")
+        };
+        (:rejected, w: atom) -> why(w)
+    }
+}
+fn fresh_tb(frame: string) -> string {
+    sequence proc[mem(normal)]
+        L: lifetime <- fresh_lifetime();
+        r: region(L, normal) <- alloc_region(normal);
+        x: (:ok, (:blob, int64, { b: buf(L, normal, uint8, 8), n: int64 })) | (:rejected, atom) <- bees_msgs@dec_tb(frame, r)
+    produces pure r_tb(x, r) end
+}
+fn x_tb(label: string, h: string) -> atom {
+    sequence
+        f: string <- unhex(h)
+    produces pure say(cat3(label, ": ", fresh_tb(f))) end
+}
+fn inside_values() -> atom {
+    sequence proc[mem(normal)]
+        _: atom <- say("-- a record with a buffer and other fields: { id: int64, data: buf(L, normal, uint8, 16), note: string }");
+        f: string <- pkt_frame(4);
+        erl: string <- "8374000000037704646174616d00000004deadbeef77026964610777046e6f74656d000000016e";
+        own: string <- fresh_pkt(f);
+        fe: string <- unhex(erl);
+        theirs: string <- fresh_pkt(fe);
+        _: atom <- report("#{id=>7,data=><<de,ad,be,ef>>,note=>n}", f, erl, 1, own, theirs);
+        _: atom <- say(concat("encode, data.n = 17 in a buffer of 16: ", sent(pkt_frame(17))));
+        _: atom <- say("-- two buffers of different sizes in a tuple: (buf(L, normal, uint8, 4), string, buf(L, normal, uint8, 8))");
+        L: lifetime <- fresh_lifetime();
+        r: region(L, normal) <- alloc_region(normal);
+        x12: List[int64, mem(normal)] <- [1, 2];
+        x345: List[int64, mem(normal)] <- [3, 4, 5];
+        a: { b: buf(L, normal, uint8, 4), n: int64 } <- mk4(r, x12);
+        c: { b: buf(L, normal, uint8, 8), n: int64 } <- mk8(r, x345);
+        pv: ({ b: buf(L, normal, uint8, 4), n: int64 }, string, { b: buf(L, normal, uint8, 8), n: int64 }) <- (a, "mid", c);
+        fp: string <- bees_msgs@enc_pair({ r: r, v: pv });
+        ep: string <- "8368036d0000000201026d000000036d69646d00000003030405";
+        op: string <- fresh_pair(fp);
+        up: string <- unhex(ep);
+        tp: string <- fresh_pair(up);
+        _: atom <- report("{<<1,2>>,<<mid>>,<<3,4,5>>}", fp, ep, 1, op, tp);
+        _: atom <- say("-- a buffer in a tagged tuple: (:blob, int64, buf(L, normal, uint8, 8))");
+        x987: List[int64, mem(normal)] <- [9, 8, 7];
+        d: { b: buf(L, normal, uint8, 8), n: int64 } <- mk8(r, x987);
+        tv: (:blob, int64, { b: buf(L, normal, uint8, 8), n: int64 }) <- (:blob, 5, d);
+        ft: string <- bees_msgs@enc_tb({ r: r, v: tv });
+        et: string <- "8368037704626c6f6261056d00000003090807";
+        ot: string <- fresh_tb(ft);
+        ut: string <- unhex(et);
+        tt: string <- fresh_tb(ut)
+    produces pure report("{blob,5,<<9,8,7>>}", ft, et, 1, ot, tt) end
+}
+
+fn refusals() -> atom {
+    sequence
+        _: atom <- say("-- refusals, decoded as buf(L, normal, uint8, 8)");
+        _: atom <- x_blob("a binary of 9 bytes", "836d00000009010203040506070809");
+        _: atom <- x_blob("a list of 9 bytes (STRING_EXT)", "836b0009010203040506070809");
+        _: atom <- x_blob("a binary that says 4294967295 bytes", "836dffffffff0102");
+        _: atom <- x_blob("empty frame", "");
+        _: atom <- x_blob("only the version byte", "83");
+        _: atom <- x_blob("no version byte", "6d00000003010203");
+        _: atom <- x_blob("truncated inside the length", "836d0000");
+        _: atom <- x_blob("truncated inside the bytes", "836d000000030102");
+        _: atom <- x_blob("an integer", "836105");
+        _: atom <- x_blob("an atom", "8377026f6b");
+        _: atom <- x_blob("a bit string (BIT_BINARY_EXT)", "834d000000010480");
+        _: atom <- x_blob("a list of integers above 255", "836c0000000162000003e86a");
+        _: atom <- x_blob("a trailing byte", "836d0000000301020300");
+        big: string <- concat(unhex("836d000007d0"), mk("x", 2000));
+        _: atom <- say(cat4("a frame of ", int_text(length_bytes(big)), " bytes, above the cap of 1024: ", fresh_blob(big)));
+        _: atom <- say("-- refusals inside other types");
+        _: atom <- x_pkt("pkt, data of 17 bytes", "8374000000037704646174616d000000110102030405060708090a0b0c0d0e0f101177026964610777046e6f74656d000000016e");
+        _: atom <- x_pkt("pkt, data of 16 bytes", "8374000000037704646174616d000000100102030405060708090a0b0c0d0e0f1077026964610777046e6f74656d000000016e");
+        _: atom <- x_pkt("pkt, data is an integer", "837400000003770464617461610577026964610777046e6f74656d000000016e");
+        _: atom <- x_pkt("pkt, the field data missing", "83740000000277026964610777046e6f74656d000000016e");
+        _: atom <- x_pkt("pkt, the field data twice", "8374000000037704646174616d000000007704646174616d00000000770269646107");
+        _: atom <- x_pkt("pkt, an unknown field", "8374000000037704646174616d0000000077026964610777017a6101");
+        _: atom <- x_pkt("pkt, truncated inside data", "8374000000037704646174616d00000004dead");
+        _: atom <- x_pkt("pkt, the keys in another order (note, id, data)", "83740000000377046e6f74656d000000016e7702696461077704646174616d00000004deadbeef");
+        _: atom <- x_pair("pair, the first buffer holds 5 bytes (it has 4)", "8368036d0000000501020304056d000000036d69646d00000003030405");
+        _: atom <- x_pair("pair, the third buffer holds 9 bytes (it has 8)", "8368036d0000000201026d000000036d69646d00000009010203040506070809");
+        _: atom <- x_pair("pair, two elements", "8368026d0000000201026d000000036d6964");
+        _: atom <- x_pair("pair, truncated inside the third element", "8368036d0000000201026d000000036d69646d000000030304");
+        _: atom <- x_tb("tb, another tag: {pkt,5,<<>>}", "8368037703706b7461056d00000000");
+        _: atom <- x_tb("tb, the buffer holds 9 bytes", "8368037704626c6f6261056d00000009010203040506070809");
+        _: atom <- x_tb("tb, a trailing byte", "8368037704626c6f6261056d0000000309080700")
+    produces pure :ok end
+}
+
+// many decodes in a row through validate_named, each into a scratch region of its own
+fn count(i: int64, n: int64, frame: string, want: atom, hits: int64) -> int64 {
+    case i >= n of {
+        true -> hits;
+        false -> {
+            sequence
+                a: atom <- bees_msgs@validate_named(frame, bees_atoms@a_pkt());
+                h: int64 <- case a == want of { true -> hits + 1; false -> hits }
+            produces pure count(i + 1, n, frame, want, h) end
+        }
+    }
+}
+fn memory() -> atom {
+    sequence
+        _: atom <- say("-- 5000 decodes in a row of each as pkt, every one into a scratch region (validate_named)");
+        long: string <- unhex("8374000000037704646174616d000000110102030405060708090a0b0c0d0e0f101177026964610777046e6f74656d000000016e");
+        n1: int64 <- count(0, 5000, long, :too_long, 0);
+        _: atom <- say(concat("data of 17 bytes, refused too_long: ", int_text(n1)));
+        big: string <- concat(unhex("8374000000037704646174616d000007d0"), mk("x", 2000));
+        n2: int64 <- count(0, 5000, big, :too_large, 0);
+        _: atom <- say(concat("a frame of 2017 bytes, refused too_large: ", int_text(n2)));
+        good: string <- unhex("8374000000037704646174616d000000100102030405060708090a0b0c0d0e0f1077026964610777046e6f74656d000000016e");
+        n3: int64 <- count(0, 5000, good, :ok, 0);
+        _: atom <- say(concat("data of 16 bytes, accepted: ", int_text(n3)))
+    produces pure :ok end
+}
+
+// ---- the deliverer path. The actors registered as `blob` and `pkt` receive { r, v } and read the buffer in the region that came
+// with it; each message starts the next delivery, so the order of the lines does not depend on scheduling. A refused payload is
+// dropped by its deliverer: nothing arrives for it.
+fn deliver_blob(h: string) -> atom {
+    sequence proc[concurrency]
+        f: string <- unhex(h);
+        d: actor_ref <- bees_peers@start_deliverer(bees_peers@local_index(bees_atoms@a_blob()));
+        _: boolean <- cast(d, f impl ActorMessage {})
+    produces pure :ok end
+}
+fn deliver_pkt(h: string) -> atom {
+    sequence proc[concurrency]
+        f: string <- unhex(h);
+        d: actor_ref <- bees_peers@start_deliverer(bees_peers@local_index(bees_atoms@a_pkt()));
+        _: boolean <- cast(d, f impl ActorMessage {})
+    produces pure :ok end
+}
+fn next_blob(step: int64) -> atom {
+    case step of {
+        0 -> deliver_blob("836d00000003010203");
+        1 -> {
+            sequence
+                _: atom <- say("actor blob: now a payload of 9 bytes (refused), an integer (refused), then 8 bytes");
+                _: atom <- deliver_blob("836d00000009010203040506070809");
+                _: atom <- deliver_blob("836105")
+            produces pure deliver_blob("836d0000000800ff807f01020304") end
+        };
+        _: int64 -> deliver_pkt("8374000000037704646174616d00000004deadbeef77026964610777046e6f74656d000000016e")
+    }
+}
+fn rx_blob(msg: { r: region(L, normal), v: { b: buf(L, normal, uint8, 8), n: int64 } }, st: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- say(cat4("actor blob, message ", int_text(st), ": ", t_b8(msg.v, msg.r)));
+        _: atom <- next_blob(st)
+    produces pure (:no_reply, st + 1) end
+}
+fn next_pkt(step: int64) -> atom {
+    case step of {
+        0 -> {
+            sequence
+                _: atom <- say("actor pkt: now a payload whose data is 17 bytes (refused), then one whose data is 16 bytes");
+                _: atom <- deliver_pkt("8374000000037704646174616d000000110102030405060708090a0b0c0d0e0f101177026964610777046e6f74656d000000016e")
+            produces pure deliver_pkt("8374000000037704646174616d000000100102030405060708090a0b0c0d0e0f1077026964610777046e6f74656d000000016e") end
+        };
+        _: int64 -> say("actor pkt: done")
+    }
+}
+fn rx_pkt(msg: { r: region(L, normal), v: { id: int64, data: { b: buf(L, normal, uint8, 16), n: int64 }, note: string } }, st: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- say(concat(cat4("actor pkt, message ", int_text(st), ": id ", int_text(msg.v.id)), cat4(", data ", t_b16(msg.v.data, msg.r), ", note ", msg.v.note)));
+        _: atom <- next_pkt(st)
+    produces pure (:no_reply, st + 1) end
+}
+// the sender's side: a buffer filled in a fresh region and the region, in one message
+fn built() -> { r: region(L, normal), v: { b: buf(L, normal, uint8, 8), n: int64 } } {
+    sequence proc[mem(normal)]
+        L: lifetime <- fresh_lifetime();
+        r: region(L, normal) <- alloc_region(normal);
+        xs: List[int64, mem(normal)] <- [170, 187];
+        v: { b: buf(L, normal, uint8, 8), n: int64 } <- mk8(r, xs)
+    produces pure { r: r, v: v } end
+}
+
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- bees_reporter@start();
+        _: atom <- blob_values();
+        _: atom <- inside_values();
+        _: atom <- refusals();
+        _: atom <- memory();
+        _: atom <- say("-- the deliverer path: bees_peers@start_deliverer decodes into a fresh region and casts { r, v } to the names blob and pkt");
+        _: actor_ref <- spawn_registered(0, rx_blob, bees_atoms@a_blob(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: actor_ref <- spawn_registered(0, rx_pkt, bees_atoms@a_pkt(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        m: { r: region(L, normal), v: { b: buf(L, normal, uint8, 8), n: int64 } } <- built();
+        _: boolean <- cast_registered(bees_atoms@a_blob(), m impl ActorMessage {});
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

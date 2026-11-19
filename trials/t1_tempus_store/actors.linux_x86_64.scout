@@ -15,9 +15,9 @@ tick 14 of n1: shuffle merged
 tick 15 of n2: shuffle merged
 tick 16 of n3: shuffle merged
 store actor's committed memory the same after tick 40 and after the last tick: yes
-  n0: n2:0 n1:1
-  n1: n0:1 n3:1
-  n2: n3:0 n1:2
-  n3: n1:1 n0:1
+  n0: n2:0 n1:0
+  n1: n0:1 n3:0
+  n2: n1:0 n3:1
+  n3: n0:1
 done
 exit=0

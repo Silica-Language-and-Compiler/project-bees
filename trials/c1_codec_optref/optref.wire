@@ -1,0 +1,14 @@
+# C1 codec trial, optional references (recursive tuples; development-plan/spikes/C1-codec-term-coverage.md 2, 2.2, 2.7): an
+# in-memory node manifest (no link is opened; the peer port is only data). A message whose type holds ref?(L, normal, rec) is
+# the record { r: region(L, normal), v: T } on the Silica side: the region its cells live in travels with the value.
+# bees.config sets beam.frame_size_max to 1024.
+node   b@127.0.0.1
+peer   a@127.0.0.1 127.0.0.1 23900 dial
+# a chain, {ok,5,{ok,3,{ok,4,none}}} to Erlang; local, so that bees_peers has its deliverer
+local  chain  cast (atom, int64, ref?(L, normal, rec))
+# a tagged recursive tuple, alone and as a variant of a sum
+local  cons   cast (:cons, int64, ref?(L, normal, rec))
+local  lst    cast (:cons, int64, ref?(L, normal, rec)) | :nil
+# a recursive tuple inside a tagged tuple and a record, and inside a record
+remote tagged @ a@127.0.0.1 cast (:chain, { id: int64, head: (int64, string, ref?(L, normal, rec)) })
+remote holder @ a@127.0.0.1 cast { id: int64, head: (int64, string, ref?(L, normal, rec)) }

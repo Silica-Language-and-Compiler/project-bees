@@ -1,0 +1,2 @@
+[silica] fault at 0xADDR in sd57_bare_tag_variant_encode_faults___tr_enc_etf___pong_int64____ping__21_299608406_0+0xADDR  addr=0xADDR  actor=0xADDR  sbase=0xADDR  ssize=0xADDR
+exit=70

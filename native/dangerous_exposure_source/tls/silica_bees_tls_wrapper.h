@@ -27,7 +27,7 @@ typedef struct bees_tls_bytes {
     int64_t error_code;
 } bees_tls_bytes;
 
-bees_tls_tagged bees_tls_set_args(int64_t a, int64_t b);
+bees_tls_tagged bees_tls_set_args(int64_t a, int64_t b);   /* b: for bees_tls_open the profile, 0 TRUST (trust/1), 1 TEMPUS (tempus/1), 16 BEAM distribution (no ALPN; N2T; not 2: see silica_bees_tls.c) */
 bees_tls_tagged bees_tls_version(int64_t unused);                           /* OpenSSL_version_num() */
 bees_tls_tagged bees_tls_open(const uint8_t *spec_ptr, uint64_t spec_len);   /* a: role 1 client, 2 server */
 bees_tls_tagged bees_tls_feed(const uint8_t *data_ptr, uint64_t data_len);   /* a: handle */
@@ -36,6 +36,7 @@ bees_tls_tagged bees_tls_pull(int64_t handle);
 bees_tls_tagged bees_tls_read(int64_t handle, int64_t max);
 bees_tls_tagged bees_tls_facts(int64_t handle);     /* what a finished handshake shows, packed (silica_bees_tls.c) */
 bees_tls_tagged bees_tls_peer_fp(int64_t handle);   /* the SHA-512 of the peer certificate's DER into the span */
+bees_tls_tagged bees_tls_peer_key(int64_t handle);  /* TEMPUS: the peer certificate's raw Ed25519 public key (32) into the span */
 bees_tls_tagged bees_tls_discard(int64_t handle);   /* drop the ciphertext not yet pulled */
 bees_tls_tagged bees_tls_close(int64_t handle);
 bees_tls_tagged bees_tls_free(int64_t handle);

@@ -1,0 +1,24 @@
+// T5 link trial, pair edge: the dialer holds the node identity's certificate (identity 0) and lists the sentinel's
+// certificate in its tempus whitelist.
+fn port() -> string { "23700" }
+fn me_id() -> int64 { 0 }
+fn certfile() -> string { tempus_ids@certfile(0) }
+fn keyfile() -> string { tempus_ids@keyfile(0) }
+fn steps() -> int64 { 8 }
+fn s(i: int64, v: int64, wl: string, kid: string, alt: boolean, what: string) -> { i: int64, v: int64, wl: string, kid: string, alt: boolean, what: string } {
+    { i: i, v: v, wl: wl, kid: kid, alt: alt, what: what }
+}
+fn step_of(k: int64) -> { i: int64, v: int64, wl: string, kid: string, alt: boolean, what: string } {
+    wl: string <- tempus_ids@fp_hex(2);
+    kid: string <- tempus_ids@kid();
+    case k of {
+        1 -> s(0, 1, wl, kid, false, "an edge with a good token");
+        2 -> s(1, 1, wl, kid, false, "another peer's advert under this node's certificate (a relay in the middle)");
+        3 -> s(0, 2, wl, kid, false, "a tempus_bridge token under a certificate the listener's whitelist does not hold");
+        4 -> s(0, 4, wl, kid, false, "a token under the old kid");
+        5 -> s(0, 5, wl, kid, false, "an expired token");
+        6 -> s(0, 1, wl, kid, true, "a proof of possession signed with another key");
+        7 -> s(0, 1, "", kid, false, "this node's whitelist is empty: the listener's sentinel token is not acceptable");
+        _: int64 -> s(0, 1, wl, "k9", false, "this node's current kid is k9: the listener's token is under another kid")
+    }
+}

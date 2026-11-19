@@ -41,6 +41,11 @@ Silica-level atoms, allowed by `bees_config check`):
                         the declared type's own nesting plus one (BEAM has no depth limit; a typed decode cannot go deeper
                         than its type). They are literals because the language's decode bakes its limits into the derived
                         decoder (transport design 4.1, E2402): a build-time value whatever reads the file.
+                        C1 (spikes/C1-codec-term-coverage.md 2.1, 2.2, 2.7): a type may hold sums, tagged tuples and optional
+                        references. A message whose type holds ref?(L, normal, rec) is { r: region(L, normal), v: T }: enc_<name>
+                        encodes v, dec_<name>(frame, r) decodes into the caller's region, its max_depth is the nesting plus 64, and
+                        its deliverer decodes into a fresh region and casts { r, v }. When a type writes atom literals,
+                        bees_msgs.atoms, bees_peers.atoms and beam_peers.atoms list them (what `bees_config check` allows a unit).
     bees_peers.silica   node_name, node_creation, open_ms, io_ms, tick_ms, frame_max (the unframe cap and the send cap),
                         link_address, link_dials, link_peer, link_resolve, link_host, link_port (the first link's; a dial host that is a name is
                         turned into an IPv4 literal at boot by the resolver edge, N1), the same per peer (link_dials_of(i), link_resolve_of,
@@ -185,11 +190,15 @@ def variable_sized(ty):
         return any(variable_sized(t) for t in ty[1])
     if kind == "record":
         return any(variable_sized(t) for _, t in ty[1])
-    return True
+    if kind == "atomlit":
+        return False
+    if kind == "sum":
+        return any(variable_sized(t) for t in ty[1])
+    return True  # a list; an optional reference (C1: a recursive tuple has no fixed size)
 
 
 def limits_arg(ty, frame_max):
-    return f", {{ max_bytes: {frame_max}, max_depth: {W.depth_of(ty) + 1}, max_length: {frame_max} }}" if variable_sized(ty) else ""
+    return f", {{ max_bytes: {frame_max}, max_depth: {W.max_depth(ty)}, max_length: {frame_max} }}" if variable_sized(ty) else ""
 
 
 def result_type(st):
@@ -239,12 +248,19 @@ def generate_msgs(out_dir, msgs, frame_max=BEAM_FRAME_MAX):
           "// (transport design 4.1, 4.3), each in the sequence of a `sequence proc[mem(normal), transport] ... produces pure` block, so that",
           "// what leaves is a pure typed value or a pure string. validate_named(frame, name) is the connection actor's check of a",
           "// payload against its target name's declared type: :ok, or the language's rejection atom.",
-          "module bees_msgs;", "use wire_etf;", "use bees_atoms;", ""]
+          "module bees_msgs;", "use wire_etf;", "use bees_atoms;"] + W.split_uses(msgs) + [""]
     ex = ["validate_named/2"]
-    for name, _ in msgs:
-        ex += [f"enc_{name}/1", f"dec_{name}/1"]
-    ln += [f"export {e};" for e in ex] + [""]
     for name, ty in msgs:
+        ex += [f"enc_{name}/1", f"dec_{name}/{2 if W.has_region(ty) else 1}"]
+    ln += [f"export {e};" for e in ex] + [""]
+    # C1 (design 2.3 to 2.6, 3.5): a dynamic term, and a type that holds a Map, a Set or a buf (or, while W.SD37_SPLIT is set, a
+    # record of more than four fields) are not one derived call: W.split_msgs writes them, after the plain messages
+    for name, ty in msgs:
+        if not W.is_plain(ty):
+            continue
+        if W.has_slot(ty):
+            ln += recursive_msg(name, ty, frame_max)
+            continue
         st = W.silica(ty)
         rt = result_type(st)
         ln += [f"fn enc_{name}(msg: {st}) -> string {{",
@@ -260,12 +276,59 @@ def generate_msgs(out_dir, msgs, frame_max=BEAM_FRAME_MAX):
                f"        r: {rt} <- dec_{name}(frame);",
                f"        why: atom <- case r of {{ (:ok, _v: {st}) -> :ok; (:rejected, w: atom) -> w }}",
                "    produces pure why end", "}", ""]
+    ln += W.split_msgs(msgs, frame_max, limits_arg, result_type)
     names = [n for n, _ in msgs]
     ln += ["fn validate_named(frame: string, name: atom) -> atom { " +
            chain(names, lambda k, n, e: f"case name == bees_atoms@a_{n}() of {{ true -> check_{n}(frame); false -> {e} }}",
                  "bees_atoms@a_unknown_atom()") + " }", ""]
     with open(os.path.join(out_dir, "bees_msgs.silica"), "w") as out:
         out.write("\n".join(ln))
+    write_type_atoms(out_dir, msgs)
+
+
+def recursive_msg(name, ty, frame_max):
+    """C1 (spikes/C1-codec-term-coverage.md 2.2): a message whose type holds an optional reference is the record
+    { r: region(L, normal), v: T }. enc_<name> encodes v; dec_<name>(frame, r) decodes into the caller's region (the fourth argument
+    of the language's decode); check_<name> validates by decoding into a scratch region of its own."""
+    st, vt = W.silica(ty), W.silica_value(ty)
+    rt = result_type(vt)
+    return [f"fn enc_{name}(msg: {st}) -> string {{",
+            "    sequence proc[mem(normal), transport]",
+            f"        v: {vt} <- msg.v;",
+            "        s: string <- encode((:etf), v)",
+            "    produces pure s end", "}", "",
+            f"fn dec_{name}(frame: string, r: {W.REGION}) -> {rt} {{",
+            "    sequence proc[mem(normal), transport]",
+            f"        x: {rt} <- decode((:etf), frame{limits_arg(ty, frame_max)}, r)",
+            "    produces pure x end", "}", "",
+            f"fn check_{name}(frame: string) -> atom {{",
+            "    sequence proc[mem(normal)]",
+            "        L: lifetime <- fresh_lifetime();",
+            f"        r: {W.REGION} <- alloc_region(normal);",
+            f"        x: {rt} <- dec_{name}(frame, r);",
+            f"        why: atom <- case x of {{ (:ok, _v: {vt}) -> :ok; (:rejected, w: atom) -> w }}",
+            "    produces pure why end", "}", ""]
+
+
+TYPE_ATOM_UNITS = ("bees_msgs", "bees_peers", "beam_peers")
+TYPE_ATOMS_HEAD = "# Generated by tools/bees_dist_gen.py (bees_config generate). Do not edit. The atom literals written in this program's"
+
+
+def write_type_atoms(out_dir, msgs):
+    """C1: a message type may write atom literals (tags, atom variants), and the generated units that spell the types (bees_msgs,
+    bees_peers, and beam_peers in BEAM mode) then hold them as literals; `bees_config check` allows a unit the atoms of the X.atoms
+    file beside it. Written only when a type has an atom literal; a file this tool wrote earlier is removed when none has."""
+    atoms = W.type_atom_names(msgs)
+    for unit in TYPE_ATOM_UNITS:
+        path = os.path.join(out_dir, unit + ".atoms")
+        if atoms:
+            with open(path, "w") as out:
+                out.write("\n".join([TYPE_ATOMS_HEAD, f"# message types (.wire manifest), which {unit} spells; all are in bees_atoms."] + atoms) + "\n")
+        elif os.path.isfile(path):
+            with open(path) as fh:
+                mine = fh.readline().rstrip("\n") == TYPE_ATOMS_HEAD
+            if mine:
+                os.remove(path)
 
 
 def generate(out_dir, paths, link=None):
@@ -332,6 +395,22 @@ def generate(out_dir, paths, link=None):
     for n in locs:
         st = W.silica(msgs[n])
         rt = result_type(st)
+        if W.has_region(msgs[n]):
+            # C1: a recursive message, and one that holds a buf, is decoded into a fresh region, which is cast with the value ({ r, v }, design 2.2)
+            vt = W.silica_value(msgs[n])
+            ln += [f"fn dlv_{n}(msg: string, st: int64) -> (:no_reply, int64) {{",
+                   "    sequence proc[concurrency, mem(normal)]",
+                   "        L: lifetime <- fresh_lifetime();",
+                   f"        r: {W.REGION} <- alloc_region(normal);",
+                   f"        x: {result_type(vt)} <- bees_msgs@dec_{n}(msg, r);",
+                   f"        _: boolean <- case x of {{ (:ok, v: {vt}) -> cast_registered(bees_atoms@a_{n}(), {{ r: r, v: v }} impl ActorMessage {{}}); (:rejected, _w: atom) -> true }};",
+                   "        _: atom <- stop_self(:normal)",
+                   "    produces pure (:no_reply, st) end", "}", "",
+                   f"fn start_dlv_{n}() -> actor_ref {{",
+                   "    sequence proc[concurrency]",
+                   f"        a: actor_ref <- spawn(0, dlv_{n}, {POL})",
+                   "    produces pure a end", "}", ""]
+            continue
         ln += [f"fn dlv_{n}(msg: string, st: int64) -> (:no_reply, int64) {{",
                "    sequence proc[concurrency]",
                f"        r: {rt} <- bees_msgs@dec_{n}(msg);",

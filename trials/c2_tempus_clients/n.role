@@ -1,0 +1,5 @@
+// C2 clients trial: node N, the test node the Python client drives; its sentinel is the Python client's listener.
+fn port() -> string { "23900" }
+fn sents() -> string { "127.0.0.1:23903" }
+fn test() -> boolean { true }
+fn tick_ms() -> uint64 { 1000 }

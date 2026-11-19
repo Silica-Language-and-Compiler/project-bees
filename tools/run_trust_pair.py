@@ -8,7 +8,15 @@ in the client's output (a node stopped while a connection is open). With --time 
 (peak resident set in OUT.rusage). A server that refuses to boot (it exits by itself) is simply recorded; the client is then
 not started.
 
+With --rss TEXT:SECONDS:FILE (N5) the server's resident set (ps, KiB) is written to FILE twice: when TEXT first appears in the
+server's output, and SECONDS later (`at_text KiB` and `later KiB`): the read-pause trial shows with it that a paused session
+holds no growing queue.
+
     run_trust_pair.py SERVER_EXE SERVER_OUT READY CLIENT_EXE CLIENT_OUT DONE [--kill TEXT] [--cap S] [--quiet S] [--time]
+                      [--rss TEXT:SECONDS:FILE] [--settle]
+
+With --settle (N5) the server is told "exit" only QUIET seconds after the later of its last output and the client's end
+(without it: after its last output, which may be before the client ended).
 """
 import argparse
 import os
@@ -81,12 +89,20 @@ def main():
     ap.add_argument("--cap", type=float, default=60.0)
     ap.add_argument("--quiet", type=float, default=0.7)
     ap.add_argument("--time", action="store_true")
+    ap.add_argument("--rss", default=None)
+    ap.add_argument("--settle", action="store_true")
     o = ap.parse_args()
     t0 = time.monotonic()
     s = Proc(o.server, o.server_out, o.time)
     c = None
     killed = False
     capped = False
+    rss_text, rss_wait, rss_file = (o.rss.split(":", 2) if o.rss else (None, "0", None))
+    rss_at, rss_lines = None, []
+    c_closed_at = None
+
+    def rss_now():
+        return subprocess.run(["ps", "-o", "rss=", "-p", str(s.p.pid)], capture_output=True, text=True).stdout.strip() or "0"
     while True:
         live = [p for p in (s, c) if p is not None and not p.closed]
         if not live:
@@ -98,6 +114,11 @@ def main():
             elif p.p.poll() is not None:
                 p.closed = True
         now = time.monotonic()
+        if rss_text and rss_at is None and rss_text in s.text():
+            rss_at = now
+            rss_lines.append(f"at_text {rss_now()}")
+        if rss_at is not None and len(rss_lines) == 1 and now - rss_at >= float(rss_wait):
+            rss_lines.append(f"later {rss_now()}")
         if c is None and o.ready in s.text():
             c = Proc(o.client, o.client_out, o.time)
         if c is None and s.closed:
@@ -107,7 +128,11 @@ def main():
             killed = True
         if c is not None and o.done in c.text() and now - c.last >= o.quiet:
             c.tell_exit()
-        if c is not None and c.closed and now - s.last >= o.quiet:
+        if c is not None and c.closed and c_closed_at is None:
+            c_closed_at = now
+        # --settle: the server's quiet time is counted from the client's end at the earliest, so what the server prints
+        # about the client's close (a session's end) is always in its output
+        if c is not None and c.closed and now - (max(s.last, c_closed_at) if o.settle else s.last) >= o.quiet:
             s.tell_exit()
         if now - t0 > o.cap:
             capped = True
@@ -116,6 +141,9 @@ def main():
                     p.kill()
             break
     rs = s.finish()
+    if rss_file:
+        with open(rss_file, "w") as f:
+            f.write("".join(line + "\n" for line in rss_lines))
     if c is not None:
         c.finish()
     else:

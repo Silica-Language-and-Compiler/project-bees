@@ -1,0 +1,96 @@
+[trust] TEST ONLY: plaintext transport, peer identity is a test-supplied stand-in for the certificate fingerprint
+[trust] mode trust, listen 127.0.0.1:23512, whitelist 0 entries, pinned servers 1, frame_size_max 4096, args_len_max 4096, term_depth_max 32, call_timeout_ms 400, first_frame_timeout_ms 2000, suspicion_limit 3, token_bytes 48, token_ttl_sec 300, one request per connection (B1)
+[trust] TRUST standalone: no whitelist file configured, no inbound connections accepted
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+call 100000: {ok, int 100001}
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+call 100001: {error, closed}
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+call 100002: {ok, int 100003}
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+call 100003: {ok, bytes 12}
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+call 100004: {ok, int 100005}
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+call 100005: {error, protocol_error}
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+call 100006: {ok, int 100007}
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+call 100007: {error, protocol_error}
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+call 100008: {ok, int 100009}
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+call 100009: {error, protocol_error}
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+call 100010: {ok, int 100011}
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[fuzz actor failure report]
+=== Silica Actor Failure ===
+actor_id:        4294967331
+agent_type_atom: 0
+reason:          (:explicit, :actor_not_found)
+reason_tag:      4
+supervisor_acb:  0x0
+call_stack:
+  #0  dangerous_bees_trust_tcli
+  #1  _actor_thread_main
+=== End Silica Actor Failure ===
+
+[fuzz actor failure report]
+=== Silica Actor Failure ===
+actor_id:        4294967329
+agent_type_atom: 0
+reason:          (:explicit, :actor_not_found)
+reason_tag:      4
+supervisor_acb:  0x0
+call_stack:
+  #0  dangerous_tcp_carrier_carrier
+  #1  _actor_thread_main
+=== End Silica Actor Failure ===
+
+call 100011: {error, protocol_error}
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+call 100012: {ok, int 100013}
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)
+[silica] root actor exited (no supervisor)

@@ -55,6 +55,7 @@ kit: kit-trust
 .PHONY: kit-trust
 kit-trust:
 	@python3 "$(BEES_ROOT)/tools/test_bees_config_trust.py" 2>&1 | tail -3
+	@python3 "$(BEES_ROOT)/tools/test_bees_trust_mux.py" 2>&1 | tail -3
 
 # N2 (BEAM mode): the beam half of the bees.config reader, and the BEAM-mode layouts and digests against erl and OTP's sources
 kit: kit-beam

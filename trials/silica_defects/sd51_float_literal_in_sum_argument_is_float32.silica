@@ -1,0 +1,18 @@
+// SD-51 (expected: "bound true", "direct true"): a float literal written inside a tuple literal that is passed directly as a
+// sum-typed ARGUMENT is stored as a float32 when an earlier variant of the sum holds an int64 (the derived encoder then writes
+// 46 00000001 3fc00000 for 1.5). Binding the literal to a float64 name first works.
+fn is15(label: string, v: (:i, int64) | (:s, string) | (:f, float64) | :none, erl: string) -> boolean { case v of { (:i, _k: int64) -> false; (:s, _s: string) -> false; (:f, x: float64) -> x == 1.5; :none -> false } }
+fn show(label: string, b: boolean) -> atom {
+    sequence proc[device_io]
+        _: atom <- print_string(label);
+        _: atom <- println(case b of { true -> " true"; false -> " false" })
+    produces pure :ok end
+}
+fn main() -> int64 {
+    sequence
+        x: float64 <- 1.5;
+        v: (:i, int64) | (:s, string) | (:f, float64) | :none <- (:f, x);
+        _: atom <- show("bound", is15("a", v, "b"));
+        _: atom <- show("direct", is15("a", (:f, 1.5), "b"))
+    produces pure 0 end
+}

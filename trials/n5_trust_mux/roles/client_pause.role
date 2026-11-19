@@ -1,0 +1,82 @@
+// pause (acceptance criterion 3): read-pause backpressure with no queue, against node a (max_inflight 2). One raw peer writes,
+// in one go: the session offer, a call that is busy 1200 ms (A), a call that is busy 2500 ms (B), a cast (C), and then about
+// 6 MiB of further request frames (65536 casts of the forbidden erlang:apply/3). The server takes A and B and PAUSES: it reads
+// nothing more, so the megabytes stay in the kernel's buffers and in this peer. tools/run_trust_pair.py samples the server's
+// resident set when `pause` is printed and one second later (the Makefile prints whether it stayed flat). When A ends the
+// server resumes, takes C (and pauses and resumes again, B still being in work), then reads the first forbidden request:
+// audit, goaway deny, closed at once. None of the 65535 frames behind it was ever read.
+fn label(step: int64) -> string {
+    case step of {
+        1 -> "raw: a session, two slow calls, a cast, then 6 MiB of requests";
+        2 -> "cast demo:stats([])";
+        _: int64 -> "?"
+    }
+}
+fn forbidden_frame() -> string { f4(bees_trust_frame@enc_request(bees_atoms@a_cast(), "f", bees_atoms@a_erlang(), bees_atoms@a_apply(), 3, ints3(1, 2, 3))) }
+// the bytes on the wire are the same as one 6 MiB write: the head (identity, offer, A, B, C), then 16 pieces of 4096 forbidden
+// frames each (about 380 KiB), handed to the send actor one after another, so no actor holds or copies the whole 6 MiB (on the
+// Linux box the 6 MiB string faulted the client: N5-multiplexing.md 11.2)
+fn pause_head() -> string {
+    cat3(bees_trust_conf@self_fp(), offer_hello(),
+        cat3(call_frame("A", bees_atoms@a_slow(), 1, ints1(1200)), call_frame("B", bees_atoms@a_slow(), 1, ints1(2500)),
+            cast_frame("C", bees_atoms@a_note(), 1, ints1(7))))
+}
+fn send_pieces(tx: actor_ref, piece: string, n: int64) -> boolean {
+    case n <= 0 of { true -> true; false -> { sequence _: boolean <- trust_raw_send(tx, piece) produces pure send_pieces(tx, piece, n - 1) end } }
+}
+fn praw_event(msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | (:bees, int64, string, string, int64), st: { c: dangerous_actor_ref, tx: actor_ref, driver: actor_ref, done: boolean }) -> boolean {
+    case msg of {
+        (:link_up, _i: string) -> {
+            sequence
+                _: boolean <- trust_raw_send(st.tx, pause_head());
+                _: boolean <- send_pieces(st.tx, doubled(forbidden_frame(), 12), 16)
+            produces pure raw_credit(st.c) end
+        };
+        (:rx, _seg: string) -> raw_credit(st.c);
+        (:link_down, _w: atom) -> {
+            sequence proc[concurrency]
+                m: { req: int64, what: atom, value: string } <- { req: 1, what: bees_atoms@a_closed(), value: "0" };
+                _: boolean <- cast(st.driver, m impl ActorMessage {})
+            produces pure trust_raw_end(st.tx) end
+        };
+        _: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | (:bees, int64, string, string, int64) -> false
+    }
+}
+fn praw(msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | (:bees, int64, string, string, int64), st: { c: dangerous_actor_ref, tx: actor_ref, driver: actor_ref, done: boolean }) -> (:no_reply, { c: dangerous_actor_ref, tx: actor_ref, driver: actor_ref, done: boolean }) {
+    sequence
+        _: boolean <- case st.done of { true -> false; false -> praw_event(msg, st) }
+    produces pure (:no_reply, { c: st.c, tx: st.tx, driver: st.driver, done: st.done or (case msg of { (:link_down, _w: atom) -> true; _: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | (:bees, int64, string, string, int64) -> false }) }) end
+}
+fn praw_open(driver: actor_ref) -> atom {
+    sequence proc[concurrency]
+        c: dangerous_actor_ref <- trust_link(carrier_new());
+        t: actor_ref <- trust_raw_writer(c);
+        r: actor_ref <- spawn({ c: c, tx: t, driver: driver, done: false }, praw, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        da: string <- trust_dial_address(server());
+        _: boolean <- cast(c, (:open, r, da) impl ActorMessage {})
+    produces pure :ok end
+}
+fn driver(r: { req: int64, what: atom, value: string }, n: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        _: atom <- case r.value == "go" of {
+            true -> case r.req == 2 of { true -> stats_cast(me, 2); false -> say("pause done") };
+            false -> case r.req == 1 of {
+                // the count of bytes it got back is not printed: the server closed with megabytes unread, which resets the
+                // connection, and what a reset connection still delivers varies
+                true -> { sequence _: atom <- say("step 1 raw: a session, two slow calls, a cast, then 6 MiB of requests: the server closed the connection") produces pure wake(me, 1700, 2) end };
+                false -> { sequence _: atom <- step_line(r) produces pure wake(me, 500, 3) end }
+            }
+        }
+    produces pure (:no_reply, n + 1) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        b: int64 <- trust_boot();
+        _: atom <- start_reporter();
+        _: atom <- trust_start();
+        d: actor_ref <- spawn(0, driver, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: atom <- praw_open(d);
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

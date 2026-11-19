@@ -1,0 +1,16 @@
+// SD-56 (expected: compiles, exit code 7): a unit that defines its own function named `decode` cannot call the builtin
+// decode((:etf), frame) any more (E2020); the same holds for `encode` and `empty`. A library unit that exports decode and
+// encode must put its calls of the builtins in another unit (src/inter_nodal/bees_etf_scan.silica holds them for
+// bees_term_wire).
+use wire_etf;
+fn decode(frame: string) -> int64 {
+    sequence proc[mem(normal), transport]
+        r: (:ok, int64) | (:rejected, atom) <- decode((:etf), frame);
+        n: int64 <- case r of { (:ok, k: int64) -> k; (:rejected, _w: atom) -> 0 - 1 }
+    produces pure n end
+}
+fn main() -> int64 {
+    sequence proc[mem(normal), transport]
+        frame: string <- encode((:etf), 7)
+    produces pure decode(frame) end
+}

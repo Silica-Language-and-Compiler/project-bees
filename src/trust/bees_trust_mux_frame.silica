@@ -1,0 +1,225 @@
+// BEES TRUST mode, sessions (N5, B2; development-plan/spikes/N5-multiplexing.md section 2): the frames and frame parts that
+// windowed multiplexing adds to trust/1, and small pure helpers of the session actors. Pure functions over strings; nothing
+// here touches a carrier. Every value is made by the language's encode((:etf), ...) and read by the language's
+// decode((:etf), ...) (through bees_trust_frame@dec_*), each in the sequence of a `sequence ... produces pure` block
+// (mvp.md section 4). Keys are written in name order, as the language writes a record.
+//   the session offer   hello and token_present with opts => #{goaway => 1}: "this client reads goaway and ok". Only atoms
+//                       every B1 build holds, so a B1 server ignores the key (N5 Q2, ruled 2026-11-18).
+//   ok                  #{t => ok, ver => 1}: the server's acknowledgement; the connection is a session from then on.
+//                       (N5 Q2, ruled 2026-11-18: the multiplexing design names an `OK` and gives it no shape).
+//   goaway              #{drain_ms => D, reason => R, t => goaway, ver => 1}, R one of limit_reached, shutdown, deny, protocol
+module bees_trust_mux_frame;
+use bees_atoms;
+use bees_trust_frame;
+use wire_etf;
+
+export enc_ok/0;
+export enc_goaway/2;
+export enc_hello_offer/0;
+export enc_token_present_offer/1;
+export offers/1;
+export parse_session/3;
+export reason_atom/1;
+export reason_text/1;
+export id_a/1;
+export id_b/1;
+export id_c/1;
+export id_make/2;
+export id_slot/1;
+export id_seq/1;
+export tel/3;
+export kv_text/2;
+export kv_int/2;
+export status_atom/1;
+
+fn e_atom(a: atom) -> string {
+    sequence proc[mem(normal), transport]
+        s: string <- encode((:etf), a)
+    produces pure bees_trust_frame@cut(s, 1, length_bytes(s)) end
+}
+fn e_int(n: int64) -> string {
+    sequence proc[mem(normal), transport]
+        s: string <- encode((:etf), n)
+    produces pure bees_trust_frame@cut(s, 1, length_bytes(s)) end
+}
+fn e_str(v: string) -> string {
+    sequence proc[mem(normal), transport]
+        s: string <- encode((:etf), v)
+    produces pure bees_trust_frame@cut(s, 1, length_bytes(s)) end
+}
+fn cat(a: string, b: string) -> string { bees_trust_frame@cat2(a, b) }
+fn cat3(a: string, b: string, c: string) -> string {
+    sequence
+        ab: string <- cat(a, b)
+    produces pure cat(ab, c) end
+}
+fn be32(n: int64) -> string {
+    sequence
+        hi: string <- cat(bees_trust_frame@b1((n / 16777216) % 256), bees_trust_frame@b1((n / 65536) % 256));
+        lo: string <- cat(bees_trust_frame@b1((n / 256) % 256), bees_trust_frame@b1(n % 256))
+    produces pure cat(hi, lo) end
+}
+fn kv(k: atom, v: string) -> string {
+    sequence
+        ks: string <- e_atom(k)
+    produces pure cat(ks, v) end
+}
+// a map of n pairs as a whole term (131, 116, count, pairs)
+fn map_of(n: int64, body: string) -> string {
+    sequence
+        head: string <- cat(bees_trust_frame@b1(131), bees_trust_frame@b1(116));
+        cnt: string <- be32(n)
+    produces pure cat3(head, cnt, body) end
+}
+fn ver1() -> string {
+    sequence
+        v: string <- e_int(1)
+    produces pure kv(bees_atoms@a_ver(), v) end
+}
+fn t_of(kind: atom) -> string {
+    sequence
+        v: string <- e_atom(kind)
+    produces pure kv(bees_atoms@a_t(), v) end
+}
+// the value of the offer: the map #{goaway => 1} as a span
+fn offer_value() -> string {
+    sequence
+        one: string <- e_int(1);
+        pair: string <- kv(bees_atoms@a_goaway(), one);
+        cnt: string <- be32(1)
+    produces pure cat3(bees_trust_frame@b1(116), cnt, pair) end
+}
+fn offer_pair() -> string {
+    sequence
+        v: string <- offer_value()
+    produces pure kv(bees_atoms@a_opts(), v) end
+}
+fn enc_ok() -> string {
+    sequence
+        t: string <- t_of(bees_atoms@a_ok());
+        v: string <- ver1()
+    produces pure map_of(2, cat(t, v)) end
+}
+fn enc_goaway(reason: atom, drain: int64) -> string {
+    sequence
+        d: string <- e_int(drain);
+        dp: string <- kv(bees_atoms@a_drain_ms(), d);
+        r: string <- e_atom(reason);
+        rp: string <- kv(bees_atoms@a_reason(), r);
+        t: string <- t_of(bees_atoms@a_goaway());
+        v: string <- ver1();
+        front: string <- cat(dp, rp);
+        back: string <- cat(t, v)
+    produces pure map_of(4, cat(front, back)) end
+}
+fn enc_hello_offer() -> string {
+    sequence
+        o: string <- offer_pair();
+        t: string <- t_of(bees_atoms@a_hello());
+        v: string <- ver1()
+    produces pure map_of(3, cat3(o, t, v)) end
+}
+fn enc_token_present_offer(tok: string) -> string {
+    sequence
+        o: string <- offer_pair();
+        t: string <- t_of(bees_atoms@a_token_present());
+        tv: string <- e_str(tok);
+        tp: string <- kv(bees_atoms@a_token(), tv);
+        v: string <- ver1();
+        front: string <- cat(o, t);
+        back: string <- cat(tp, v)
+    produces pure map_of(4, cat(front, back)) end
+}
+fn int_or(r: (:ok, int64) | (:rejected, atom)) -> int64 { case r of { (:ok, n: int64) -> n; (:rejected, _w: atom) -> 0 - 1 } }
+fn atom_or(r: (:ok, atom) | (:rejected, atom)) -> atom { case r of { (:ok, a: atom) -> a; (:rejected, _w: atom) -> bees_atoms@a_error() } }
+// does a first frame (already checked by bees_trust_frame@parse_first) carry the session offer: opts is a map whose key
+// goaway is the integer 1
+fn offers(body: string) -> boolean {
+    sequence
+        o: string <- bees_trust_frame@span(body, "opts");
+        whole: string <- cat(bees_trust_frame@b1(131), o);
+        g: string <- case bees_trust_frame@is_map(o) of { true -> bees_trust_frame@span(whole, "goaway"); false -> "" };
+        r: (:ok, int64) | (:rejected, atom) <- case length_bytes(g) > 0 of { true -> bees_trust_frame@dec_int(g); false -> (:rejected, bees_atoms@a_error()) }
+    produces pure int_or(r) == 1 end
+}
+// goaway reasons as codes: 1 limit_reached, 2 shutdown, 3 deny, 4 protocol (an unknown reason is read as protocol)
+fn reason_atom(code: int64) -> atom {
+    case code of {
+        1 -> bees_atoms@a_limit_reached();
+        2 -> bees_atoms@a_shutdown();
+        3 -> bees_atoms@a_deny();
+        _: int64 -> bees_atoms@a_protocol()
+    }
+}
+fn reason_text(code: int64) -> string { bees_atoms@spelling(reason_atom(code)) }
+fn reason_code(a: atom) -> int64 {
+    case a == bees_atoms@a_limit_reached() of { true -> 1; false ->
+    case a == bees_atoms@a_shutdown() of { true -> 2; false ->
+    case a == bees_atoms@a_deny() of { true -> 3; false -> 4 } } }
+}
+// what a session client reads: { code (0 ok, else a reason code, 20 a protocol error), what, kind, a, b, n }
+//   kind 1 token_issue (a the token)   2 result (a req_id, b the value span)   3 another known frame kind
+//   4 ok (the session acknowledgement)   5 goaway (n = 100000 * reason code + drain_ms)
+fn sr(code: int64, what: string, kind: int64, a: string, b: string, n: int64) -> { code: int64, what: string, kind: int64, a: string, b: string, n: int64 } {
+    { code: code, what: what, kind: kind, a: a, b: b, n: n }
+}
+fn parse_goaway(body: string) -> { code: int64, what: string, kind: int64, a: string, b: string, n: int64 } {
+    sequence
+        rs: string <- bees_trust_frame@span(body, "reason");
+        r: (:ok, atom) | (:rejected, atom) <- bees_trust_frame@dec_atom(rs);
+        ds: string <- bees_trust_frame@span(body, "drain_ms");
+        d: (:ok, int64) | (:rejected, atom) <- bees_trust_frame@dec_int(ds);
+        dn: int64 <- int_or(d);
+        rc: int64 <- reason_code(atom_or(r))
+    produces pure case dn < 0 or dn > 60000 of {
+        true -> sr(20, "goaway without drain_ms 0 to 60000", 0, "", "", 0);
+        false -> sr(0, "goaway", 5, "", "", 100000 * rc + dn)
+    } end
+}
+fn parse_session(body: string, dmax: int64, args_max: int64) -> { code: int64, what: string, kind: int64, a: string, b: string, n: int64 } {
+    sequence
+        p: { code: int64, what: string, kind: int64, a: string, b: string } <- bees_trust_frame@parse_reply(body, dmax, args_max);
+        out: { code: int64, what: string, kind: int64, a: string, b: string, n: int64 } <- case p.code == 0 and p.kind == 3 of {
+            false -> sr(p.code, p.what, p.kind, p.a, p.b, 0);
+            true -> case p.what == "ok" of {
+                true -> sr(0, "ok", 4, "", "", 0);
+                false -> case p.what == "goaway" of {
+                    true -> parse_goaway(body);
+                    false -> sr(0, p.what, 3, "", "", 0)
+                }
+            }
+        }
+    produces pure out end
+}
+// a req_id (1 to 16 bytes) as three words, for the supervisor's table: bytes 0..6, 7..13, and 14..15 with the length in the
+// low bits (never 0, so 0 marks a free row)
+fn id_a(rid: string) -> int64 { bees_trust_frame@word7(rid, 0) }
+fn id_b(rid: string) -> int64 { bees_trust_frame@word7(rid, 1) }
+fn id_c(rid: string) -> int64 { bees_trust_frame@word7(rid, 2) + length_bytes(rid) }
+// a session client's req_id: 14 bytes, the table row (7 bytes) and a per-session sequence number (7 bytes)
+fn id_make(slot: int64, seq: int64) -> string {
+    bees_trust_frame@bytes7({ w0: slot, w1: seq, w2: 0, w3: 0, w4: 0, w5: 0, w6: 0, w7: 0, w8: 0, w9: 0 }, 14)
+}
+fn id_slot(rid: string) -> int64 { case length_bytes(rid) == 14 of { true -> bees_trust_frame@word7(rid, 0); false -> 0 - 1 } }
+fn id_seq(rid: string) -> int64 { case length_bytes(rid) == 14 of { true -> bees_trust_frame@word7(rid, 1); false -> 0 - 1 } }
+// one telemetry line, written by one println: the event, its fields (already "k=v k=v"), the connection id
+fn tel(event: string, fields: string, cid: int64) -> atom {
+    sequence proc[device_io]
+        head: string <- concat("[trust telemetry] ", event);
+        mid: string <- case length_bytes(fields) > 0 of { true -> concat(" ", fields); false -> "" };
+        tail: string <- concat(" conn=", bees_trust_frame@int_text(cid));
+        _: atom <- println(concat(concat(head, mid), tail))
+    produces pure :ok end
+}
+fn kv_text(k: string, v: string) -> string { concat(concat(k, "="), v) }
+fn kv_int(k: string, n: int64) -> string { concat(concat(k, "="), bees_trust_frame@int_text(n)) }
+// a client connection's end as a trpc result: 1 closed, 2 protocol_error, 3 timeout, 4 connect_failed, 5 server_not_pinned
+fn status_atom(code: int64) -> atom {
+    case code of {
+        2 -> bees_atoms@a_protocol_error();
+        3 -> bees_atoms@a_timeout();
+        4 -> bees_atoms@a_connect_failed();
+        5 -> bees_atoms@a_server_not_pinned();
+        _: int64 -> bees_atoms@a_closed()
+    }
+}

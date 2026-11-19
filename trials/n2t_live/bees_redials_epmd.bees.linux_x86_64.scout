@@ -1,0 +1,27 @@
+[bees] mode=beam node=beesr@localhost transport=tls tls_verify=verify_peer auth=cookie creation=1 epmd=external epmd_port=23390 net_tick io_ms=8000 tick_ms=2000 link=stock@localhost role=dial via epmd frame_size_max=4096
+[bees] BEAM mode: Erlang cookie authentication inside TLS 1.3 (transport tls, verify_peer against cacertfile, 127.0.0.1); key exchange X25519MLKEM768 or classical X25519; certificates Ed25519, ECDSA P-256 or RSA (PSS, 2048 bits or more); a downgrade from TRUST
+[bees] resolve localhost: ok 127.0.0.1
+[bees audit] epmd: the peer is not registered stock 2
+[bees audit] link down, proxies ended; reason fault 0
+[bees audit] frames delivered - 0
+[bees audit] frames dropped - 0
+[bees audit] control messages counted - 0
+[bees audit] net ticks seen (1 yes, 0 no) - 0
+[bees audit] link lost; redial scheduled, delay in ms stock@localhost 6000
+[bees audit] redial attempt stock@localhost 1
+[bees] resolve localhost: ok 127.0.0.1
+[bees audit] epmd: found, dialing stock 0
+[bees audit] tls: established TLSv1.3 X25519 TLS_AES_256_GCM_SHA384, both certificates verified, as client 0
+[bees audit] cookie digest accepted from stock@localhost 0
+[bees audit] handshake complete with stock@localhost 0
+[bees audit] frame dropped, not a name this node serves global_name_server -1
+[bees audit] frame dropped, not a name this node serves rex -1
+outbox got op=inc n=42
+[bees audit] link down, proxies ended; reason closed 1
+[bees audit] frames delivered - 1
+[bees audit] frames dropped - 2
+[bees audit] control messages counted - 2
+[bees audit] net ticks seen (1 yes, 0 no) - 0
+[bees audit] link lost; redial scheduled, delay in ms stock@localhost 6000
+driver: the first EPMD lookup failed and the stock node registered before the next attempt: yes
+exit=0

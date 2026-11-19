@@ -1,0 +1,23 @@
+// N5 trial: two functions of the session servers' demo service that speak to the node's own session actors (so a node
+// without sessions, which does not hold their names, does not get this unit).
+module n5_ops;
+use bees_atoms;
+
+export stats/1;
+export stop/1;
+
+// asks the node's metrics actor to print the session metrics 200 ms from now (trust_metrics_dump() asks for them at once;
+// here the request that asks is itself still being finished, and two actors printing at once can mix their lines)
+fn stats(xs: List[int64, mem(normal)]) -> (:ok, int64) | (:error, atom) {
+    sequence proc[concurrency]
+        _: boolean <- cast_registered(bees_atoms@a_bees_trust_metrics(), (:bees, 101, "", "", 0) impl ActorMessage {})
+    produces pure (:ok, 0) end
+}
+// tells the node's listener to shut down (the same message trust_shutdown() sends): no new connection is served and every
+// session sends goaway shutdown at its next idle tick
+fn stop(xs: List[int64, mem(normal)]) -> (:ok, int64) | (:error, atom) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        _: boolean <- cast_registered(bees_atoms@a_bees_trust_listener(), (:bees, 5, "", me, 0) impl ActorMessage {})
+    produces pure (:ok, 0) end
+}

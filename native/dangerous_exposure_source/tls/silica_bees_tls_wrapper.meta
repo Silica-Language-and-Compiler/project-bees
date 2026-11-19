@@ -66,6 +66,12 @@ wrapper bees_tls_peer_fp {
     error_domain: "dangerous_bees_tls_native"
 }
 
+wrapper bees_tls_peer_key {
+    symbol: "bees_tls_peer_key"
+    result: "tagged_result"
+    error_domain: "dangerous_bees_tls_native"
+}
+
 wrapper bees_tls_discard {
     symbol: "bees_tls_discard"
     result: "tagged_result"

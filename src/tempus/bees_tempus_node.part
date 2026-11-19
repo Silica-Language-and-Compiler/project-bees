@@ -1,0 +1,536 @@
+// ---- BEES TEMPUS node (T3): pasted by tools/bees_tempus_gen.py (--part bees_tempus_node.part) into the dangerous_ root
+// unit of a program that is a TEMPUS node, after the TEMPUS link edge (bees_tempus_link.part). The node actor is here
+// because it dials (the carrier's spawn site stays in the root unit, SD-17). development-plan/tempus-design.md sections
+// 3 to 6, 8 to 10 and 16.3. Nothing here reads a file or holds a default: every value is an argument.
+//
+// tempus_node_start(app, idn, net, sz, tst) -> the node actor. It listens, joins through its sentinels, serves admitted
+// peers and ticks its three stores.
+//   app   the application's actor; it is told (:bees, op, s1, "", 0, 0, node): 80 the node's own token is not valid any
+//         more and ticking has stopped (s1: why); 81 a peer answered key_rotated (s1: the kid it named)
+//   idn   { id, pub, seed, addr, token, typ }: the TEMPUS identity (peer id, public key, private seed), the address other
+//         nodes dial, the producer's token, the node's own type (1 edge, 2 bridge, 3 sentinel)
+//   net   { listen, spec, sents, wl, kid, ppub, ms, mst, max, skew, j0, j1 }: the carrier's listen text; the engine's
+//         credential text (tempus_spec); the sentinels as "a.b.c.d:port,..." ("" for a first sentinel); the tempus
+//         whitelist (128 hex characters per certificate); the current producer key; shuffle_timeout_ms as a number and
+//         as text; inflight_max; clock_skew in seconds; join_retry_initial_ms and join_retry_max_ms
+//   sz    { k1, c1, t1, k2, c2, t2, k3, c3, t3 }: capacity, shuffle length and tick_ms of the edge, bridge and sentinel store
+//   tst   { test, now, draws }: control_test_only; the clock in seconds since 1970 at start; under control_test_only the
+//         literal draws as text ("3,0,7"), otherwise ""
+// What the application may cast to the node, as (:bees, op, s1, s2, 0, 0, app):
+//   70 a new token (s1)       71 a new producer key (s1: kid, s2: the 32-byte key; ruling NQ-5)
+//
+// The clock. A test node's clock is `now` until a peer's clock frame changes it. Any other node's clock is `now` plus the
+// time since start by the language's monotonic clock (PROVISIONAL, design section 18 NQ-11: the language has no wall
+// clock; the application passes the time of day once).
+// Under control_test_only the stores are ticked by a peer's tick frame only; otherwise each store has its own timer.
+// One bound for a connection: the carrier's connect budget, the handshake and the admitted connection each get
+// shuffle_timeout_ms (the connection actor's timer starts when the link is up).
+//
+// What the node waits for is one list of { k, cid, st, x, who }:
+//   k 1 a partner's shuffle and k 2 a sample, each waiting for store st (cid: the accepted connection, who: its actor)
+//   k 3 a tick of store st whose first answer has not come (cid 0: the timer's; else a tick frame's connection)
+//   k 4 a tick of store st whose shuffle is in flight
+//   k 5 the dialed connection cid of store st's shuffle     k 6 the dialed connection cid of a sample to sentinel x / 2
+//       (x odd: part of the join at start, which goes on to the next store and retries; x even: asked again after a
+//       tick found the view empty)                          k 7 that sample's entries on their way into the store
+//   k 2 with x 1: a sentinel's insert of the asking peer is still on its way; k 8: the sample is ready (s: the reply
+//       body, x: 1 ok) and waits for that insert, so the node's lines about one connection come before its reply
+fn tn_say(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+fn tn_num(n: int64) -> string { bees_trust_frame@int_text(n) }
+fn tn_typ(t: int64) -> string { bees_tempus_node@typ_text(t) }
+fn tn_null() -> actor_ref { actor_ref_of_word(0) }
+fn tn_now(c: $NC$, v: $NV$) -> int64 {
+    case c.test of {
+        true -> v.now;
+        false -> {
+            sequence proc[concurrency]
+                m: int64 <- monotonic_time()
+            produces pure v.now + (m - v.m0) / 1000000000 end
+        }
+    }
+}
+fn tn_count(c: $NC$, st: int64) -> int64 { case st of { 1 -> c.c1; 2 -> c.c2; _: int64 -> c.c3 } }
+fn tn_maxcount(c: $NC$) -> int64 {
+    m: int64 <- case c.c1 > c.c2 of { true -> c.c1; false -> c.c2 };
+    case m > c.c3 of { true -> m; false -> c.c3 }
+}
+fn tn_adp(v: $NV$, st: int64) -> actor_ref { case st of { 1 -> v.a1; 2 -> v.a2; _: int64 -> v.a3 } }
+fn tn_desc(c: $NC$, v: $NV$) -> $D$ { bees_tempus_frame@desc(c.id, c.pub, c.addr, v.mtok) }
+fn tn_cfg(c: $NC$, v: $NV$, me: actor_ref, count: int64) -> $CFG$ {
+    mine: string <- bees_tempus_frame@enc_advert(tn_desc(c, v));
+    { node: me, sig: c.sig, edge: c.edge, rnd: c.rnd, mine: mine, mtok: v.mtok, kid: v.kid, ppub: v.ppub, wl: c.wl, now: tn_now(c, v), skew: c.skew, count: count, ms: c.ms }
+}
+fn tn_to(v: $NV$, st: int64, op: int64, id: string, d: string, n: int64) -> boolean {
+    bees_tempus_node@to_adp(tn_adp(v, st), op, id, d, n)
+}
+// the answer to an accepted connection: 20 a reply body, 21 close with no reply
+fn tn_ans(who: actor_ref, k: int64, body: string) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(who, (:bees, k, body, "", 0) impl ActorMessage {})
+    produces pure ok end
+}
+fn tn_app(c: $NC$, me: actor_ref, op: int64, s1: string) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(c.app, (:bees, op, s1, "", 0, 0, me) impl ActorMessage {})
+    produces pure ok end
+}
+fn tn_vq(v: $NV$, q: $PL$) -> $NV$ {
+    { up: v.up, rc: v.rc, a1: v.a1, a2: v.a2, a3: v.a3, now: v.now, m0: v.m0, mtok: v.mtok, kid: v.kid, ppub: v.ppub, live: v.live, na: v.na, nd: v.nd, stop: v.stop, jst: v.jst, jd: v.jd, q: q }
+}
+fn tn_vc(v: $NV$, live: int64, na: int64, nd: int64) -> $NV$ {
+    { up: v.up, rc: v.rc, a1: v.a1, a2: v.a2, a3: v.a3, now: v.now, m0: v.m0, mtok: v.mtok, kid: v.kid, ppub: v.ppub, live: live, na: na, nd: nd, stop: v.stop, jst: v.jst, jd: v.jd, q: v.q }
+}
+fn tn_vj(v: $NV$, jst: int64, jd: uint64) -> $NV$ {
+    { up: v.up, rc: v.rc, a1: v.a1, a2: v.a2, a3: v.a3, now: v.now, m0: v.m0, mtok: v.mtok, kid: v.kid, ppub: v.ppub, live: v.live, na: v.na, nd: v.nd, stop: v.stop, jst: jst, jd: jd, q: v.q }
+}
+fn tn_vk(v: $NV$, now: int64, mtok: string, kid: string, ppub: string, stop: boolean) -> $NV$ {
+    { up: v.up, rc: v.rc, a1: v.a1, a2: v.a2, a3: v.a3, now: now, m0: v.m0, mtok: mtok, kid: kid, ppub: ppub, live: v.live, na: v.na, nd: v.nd, stop: stop, jst: v.jst, jd: v.jd, q: v.q }
+}
+fn tn_wait(v: $NV$, k: int64, cid: int64, st: int64, who: actor_ref) -> $NV$ {
+    p: $P$ <- { k: k, cid: cid, st: st, x: 0, who: who, s: "" };
+    tn_vq(v, bees_tempus_node@p_push(v.q, p))
+}
+// one audit line of the node about an accepted connection's request, in the form of the connection's own lines
+fn tn_audit(r: $RQ$, event: string, what: string) -> atom {
+    pd: { ok: boolean, d: $D$ } <- bees_tempus_frame@desc_of(r.pd);
+    d: $D$ <- pd.d;
+    tn_say(concat(concat(concat("[tempus audit] ", event), concat(" peer=", bees_trust_frame@cut(bees_trust_frame@hex(d.id), 0, 16))), concat(concat(" ", what), concat(" a", tn_num(r.cid)))))
+}
+fn tn_refuse(v: $NV$, r: $RQ$, event: string, what: string) -> $NV$ {
+    sequence
+        _: atom <- tn_audit(r, event, what);
+        _: boolean <- tn_ans(r.who, 21, "")
+    produces pure v end
+}
+
+// ---- the join (section 6): one sample per store to a sentinel
+fn tn_dbl(jd: uint64, j1: uint64) -> uint64 {
+    n: uint64 <- jd * 2;
+    case n > j1 of { true -> j1; false -> n }
+}
+fn tn_join(c: $NC$, v: $NV$, me: actor_ref, st: int64, x: int64) -> $NV$ {
+    cid: int64 <- v.nd + 1;
+    addr: string <- bees_tempus_node@csv_nth(c.sents, x / 2);
+    cfg: $CFG$ <- tn_cfg(c, v, me, tn_count(c, st));
+    p: $P$ <- { k: 6, cid: cid, st: st, x: x, who: tn_null(), s: "" };
+    sequence
+        _: atom <- tn_say(concat(concat(concat("join: asking the sentinel at ", addr), concat(" for ", tn_typ(st))), concat(" d", tn_num(cid))));
+        _: boolean <- tempus_dial(cfg, addr, bees_tempus_frame@enc_sample(st, tn_count(c, st)), cid, c.spec, c.mst, c.ms);
+        v1: $NV$ <- tn_vc(v, v.live, v.na, cid)
+    produces pure tn_vq(v1, bees_tempus_node@p_push(v.q, p)) end
+}
+fn tn_join_start(c: $NC$, v: $NV$, me: actor_ref) -> $NV$ {
+    case bees_tempus_node@csv_count(c.sents) == 0 of {
+        true -> { sequence _: atom <- tn_say("join: no sentinel is configured") produces pure tn_vj(v, 4, c.j0) end };
+        false -> tn_join(c, tn_vj(v, 1, c.j0), me, 1, 1)
+    }
+}
+fn tn_join_ok(c: $NC$, v: $NV$, me: actor_ref, p: $P$) -> $NV$ {
+    case p.x % 2 == 1 of {
+        false -> v;
+        true -> case p.st < 3 of {
+            true -> tn_join(c, tn_vj(v, p.st + 1, c.j0), me, p.st + 1, 1);
+            false -> { sequence _: atom <- tn_say("join: done") produces pure tn_vj(v, 4, c.j0) end }
+        }
+    }
+}
+fn tn_join_failed(c: $NC$, v: $NV$, me: actor_ref, p: $P$) -> $NV$ {
+    case p.x / 2 + 1 < bees_tempus_node@csv_count(c.sents) of {
+        true -> tn_join(c, v, me, p.st, p.x + 2);
+        false -> case p.x % 2 == 1 of {
+            false -> { sequence _: atom <- tn_say(concat("join: no sentinel answered for ", tn_typ(p.st))) produces pure v end };
+            true -> {
+                sequence proc[concurrency]
+                    _: atom <- tn_say(concat(concat("join: no sentinel answered for ", tn_typ(p.st)), "; waiting to try again"));
+                    t: timer_ref <- send_after(v.jd, me, (:bees, 72, "", "", p.st, 0, me) impl ActorMessage {})
+                produces pure tn_vj(v, p.st, tn_dbl(v.jd, c.j1)) end
+            }
+        }
+    }
+}
+
+// ---- ticks
+fn tn_own_why(c: $NC$, v: $NV$) -> string {
+    p: { why: string, payload: string, sig: string } <- bees_tempus_admit@pre(tn_desc(c, v), v.kid, tn_now(c, v), c.skew, 0);
+    p.why
+}
+fn tn_done(cid: int64, who: actor_ref) -> boolean {
+    case cid == 0 of { true -> true; false -> tn_ans(who, 20, bees_tempus_frame@enc_done()) }
+}
+fn tn_tick(c: $NC$, v: $NV$, me: actor_ref, st: int64, p: $P$) -> $NV$ {
+    why: string <- tn_own_why(c, v);
+    case length_bytes(why) > 0 of {
+        true -> {
+            sequence
+                _: atom <- case v.stop of { true -> :ok; false -> tn_say(concat(concat("own token: ", why), "; ticking has stopped")) };
+                _: boolean <- case v.stop of { true -> true; false -> tn_app(c, me, 80, why) };
+                _: boolean <- tn_done(p.cid, p.who)
+            produces pure tn_vk(v, v.now, v.mtok, v.kid, v.ppub, true) end
+        };
+        false -> {
+            sequence
+                _: boolean <- tn_to(v, st, 46, "", "", tn_now(c, v))
+            produces pure tn_wait(v, 3, p.cid, st, p.who) end
+        }
+    }
+}
+fn tn_how(n: int64) -> string {
+    case n of { 0 -> "aged only (a shuffle is in flight)"; 1 -> "shuffle merged"; 2 -> "shuffle failed"; 3 -> "skipped (no draws)"; _: int64 -> "the view is empty" }
+}
+// the store's shuffle goes out (120)
+fn tn_out(c: $NC$, v: $NV$, me: actor_ref, st: int64, pdesc: string, body: string) -> $NV$ {
+    w: $P$ <- bees_tempus_node@p_first(v.q, 3, st);
+    v1: $NV$ <- tn_wait(tn_vq(v, bees_tempus_node@p_drop(v.q, w)), 4, w.cid, st, w.who);
+    pd: { ok: boolean, d: $D$ } <- bees_tempus_frame@desc_of(pdesc);
+    d: $D$ <- pd.d;
+    cid: int64 <- v.nd + 1;
+    head: string <- concat(concat(concat("tick ", tn_typ(st)), ": shuffle with "), bees_tempus_node@peer8(d.id));
+    case bees_tempus_node@addr_ok(d.addr) of {
+        false -> {
+            sequence
+                _: atom <- tn_say(concat(head, ": its address is not one this build dials"));
+                _: boolean <- tn_to(v, st, 42, "", "", 0)
+            produces pure v1 end
+        };
+        true -> {
+            cfg: $CFG$ <- tn_cfg(c, v, me, tn_count(c, st));
+            sequence
+                _: atom <- tn_say(concat(concat(concat(head, " at "), d.addr), concat(" d", tn_num(cid))));
+                _: boolean <- tempus_dial(cfg, d.addr, body, cid, c.spec, c.mst, c.ms);
+                v2: $NV$ <- tn_wait(v1, 5, cid, st, tn_null())
+            produces pure tn_vc(v2, v2.live, v2.na, cid) end
+        }
+    }
+}
+// a tick has ended (124)
+fn tn_ended(c: $NC$, v: $NV$, me: actor_ref, st: int64, how: int64) -> $NV$ {
+    w: $P$ <- bees_tempus_node@p_first(v.q, case how == 1 or how == 2 of { true -> 4; false -> 3 }, st);
+    v1: $NV$ <- tn_vq(v, bees_tempus_node@p_drop(v.q, w));
+    j6: $P$ <- bees_tempus_node@p_first(v.q, 6, st);
+    j7: $P$ <- bees_tempus_node@p_first(v.q, 7, st);
+    j: $P$ <- case j6.k == 0 of { true -> j7; false -> j6 };
+    again: boolean <- how == 4 and v.jst == 4 and j.k == 0 and bees_tempus_node@csv_count(c.sents) > 0;
+    sequence
+        _: atom <- tn_say(concat(concat(concat("tick ", tn_typ(st)), ": "), tn_how(how)));
+        _: boolean <- tn_done(w.cid, w.who);
+        v2: $NV$ <- case again of { true -> tn_join(c, v1, me, st, 0); false -> v1 }
+    produces pure v2 end
+}
+
+// ---- a dialed connection's outcome (60 a reply, 61 failed, 62 key_rotated)
+fn tn_dialed_shuffle(v: $NV$, p: $P$, op: int64, s1: string, what: string) -> $NV$ {
+    case op == 60 of {
+        true -> { sequence _: boolean <- tn_to(v, p.st, 41, "", s1, 0) produces pure v end };
+        false -> {
+            sequence
+                _: atom <- tn_say(concat(concat(concat("tick ", tn_typ(p.st)), concat(": the partner did not answer, ", what)), concat(" d", tn_num(p.cid))));
+                _: boolean <- tn_to(v, p.st, 42, "", "", 0)
+            produces pure v end
+        }
+    }
+}
+fn tn_dialed_join(c: $NC$, v: $NV$, me: actor_ref, p: $P$, s1: string, what: string) -> $NV$ {
+    case bees_tempus_frame@kind(s1) == 8 of {
+        true -> {
+            sequence
+                _: atom <- tn_say(concat(concat("join: the sentinel answered for ", tn_typ(p.st)), concat(" d", tn_num(p.cid))));
+                _: boolean <- tn_to(v, p.st, 43, "", s1, 0 - p.cid);
+                w: $P$ <- { k: 7, cid: p.cid, st: p.st, x: p.x, who: p.who, s: "" }
+            produces pure tn_vq(v, bees_tempus_node@p_push(v.q, w)) end
+        };
+        false -> {
+            sequence
+                _: atom <- tn_say(concat(concat(concat("join: the sentinel did not answer for ", tn_typ(p.st)), concat(", ", what)), concat(" d", tn_num(p.cid))));
+                v2: $NV$ <- tn_join_failed(c, v, me, p)
+            produces pure v2 end
+        }
+    }
+}
+fn tn_dialed(c: $NC$, v: $NV$, me: actor_ref, op: int64, s1: string, cid: int64) -> $NV$ {
+    p: $P$ <- bees_tempus_node@p_cid(v.q, cid, 5, 6);
+    v1: $NV$ <- tn_vq(v, bees_tempus_node@p_drop(v.q, p));
+    what: string <- case op == 62 of { true -> "key_rotated"; false -> s1 };
+    sequence
+        _: boolean <- case op == 62 of { true -> tn_app(c, me, 81, s1); false -> true };
+        v2: $NV$ <- case p.k of {
+            5 -> tn_dialed_shuffle(v1, p, op, s1, what);
+            6 -> tn_dialed_join(c, v1, me, p, case op == 60 of { true -> s1; false -> "" }, what);
+            _: int64 -> v
+        }
+    produces pure v2 end
+}
+
+// ---- an admitted peer's request (63)
+fn tn_rq_shuffle(c: $NC$, v: $NV$, r: $RQ$) -> $NV$ {
+    e: { ok: boolean, why: string, store: int64, entries: $L$ } <- bees_tempus_frame@dec_entries(r.body, tn_maxcount(c));
+    pd: { ok: boolean, d: $D$ } <- bees_tempus_frame@desc_of(r.pd);
+    d: $D$ <- pd.d;
+    case e.ok of {
+        false -> tn_refuse(v, r, "protocol_error", e.why);
+        true -> {
+            sequence
+                _: boolean <- tn_to(v, e.store, 40, d.id, r.body, r.cid)
+            produces pure tn_wait(v, 1, r.cid, e.store, r.who) end
+        }
+    }
+}
+fn tn_rq_sample(c: $NC$, v: $NV$, r: $RQ$) -> $NV$ {
+    s0: { ok: boolean, why: string, store: int64, n: int64 } <- bees_tempus_frame@dec_sample(r.body, bees_tempus_frame@entries_max());
+    s: { ok: boolean, why: string, store: int64, n: int64 } <- bees_tempus_frame@dec_sample(r.body, tn_count(c, s0.store));
+    pd: { ok: boolean, d: $D$ } <- bees_tempus_frame@desc_of(r.pd);
+    d: $D$ <- pd.d;
+    case s0.ok and s.ok of {
+        false -> tn_refuse(v, r, "protocol_error", case s0.ok of { true -> s.why; false -> s0.why });
+        true -> {
+            sequence
+                _: boolean <- tn_to(v, s.store, 45, "", "", s.n);
+                // a sentinel inserts the peer that asks it into its store of the peer's type (the join, section 6), after
+                // the sample was taken; the answer goes out when both are done (x 1: the insert is still on its way)
+                _: boolean <- case c.typ == 3 of { true -> tn_to(v, r.m % 4, 44, d.id, r.pd, r.cid); false -> true };
+                w: $P$ <- { k: 2, cid: r.cid, st: s.store, x: case c.typ == 3 of { true -> 1; false -> 0 }, who: r.who, s: "" }
+            produces pure tn_vq(v, bees_tempus_node@p_push(v.q, w)) end
+        }
+    }
+}
+fn tn_rq_tick(c: $NC$, v: $NV$, me: actor_ref, r: $RQ$) -> $NV$ {
+    t: { ok: boolean, why: string, store: int64 } <- bees_tempus_frame@dec_tick(r.body);
+    p: $P$ <- { k: 3, cid: r.cid, st: t.store, x: 0, who: r.who, s: "" };
+    case t.ok of {
+        false -> tn_refuse(v, r, "protocol_error", t.why);
+        true -> tn_tick(c, v, me, t.store, p)
+    }
+}
+fn tn_rq_clock(c: $NC$, v: $NV$, r: $RQ$) -> $NV$ {
+    k: { ok: boolean, why: string, ms: int64 } <- bees_tempus_frame@dec_clock(r.body);
+    case k.ok of {
+        false -> tn_refuse(v, r, "protocol_error", k.why);
+        true -> {
+            sequence
+                _: atom <- tn_say(concat(concat("clock: ", tn_num(k.ms / 1000)), " s"));
+                _: boolean <- tn_ans(r.who, 20, bees_tempus_frame@enc_done())
+            produces pure tn_vk(v, k.ms / 1000, v.mtok, v.kid, v.ppub, v.stop) end
+        }
+    }
+}
+fn tn_request(c: $NC$, v: $NV$, me: actor_ref, r: $RQ$) -> $NV$ {
+    k: int64 <- bees_tempus_frame@kind(r.body);
+    case k of {
+        5 -> tn_rq_shuffle(c, v, r);
+        7 -> tn_rq_sample(c, v, r);
+        9 -> case c.test of { true -> tn_rq_tick(c, v, me, r); false -> tn_refuse(v, r, "test_only_refused", "a tick frame at a node without control_test_only") };
+        10 -> case c.test of { true -> tn_rq_clock(c, v, r); false -> tn_refuse(v, r, "test_only_refused", "a clock frame at a node without control_test_only") };
+        12 -> tn_rq_call(c, v, r);
+        13 -> tn_rq_call(c, v, r);
+        _: int64 -> tn_refuse(v, r, "request_refused", "call and cast are served by a bridge only")
+    }
+}
+// T6: on a bridge (role 2) a call or cast goes to the node's application, which on a bridge is the table actor of
+// src/tempus/bees_tempus_bridge.silica (tbr): it answers the connection actor itself, exactly once. m carries the node's
+// clock (seconds * 65536) beside the connection's whitelist index and peer type (m < 65536). Any other node refuses.
+fn tn_rq_call(c: $NC$, v: $NV$, r: $RQ$) -> $NV$ {
+    case c.typ == 2 of {
+        false -> tn_refuse(v, r, "request_refused", "call and cast are served by a bridge only");
+        true -> {
+            sequence proc[concurrency]
+                ok: boolean <- cast(c.app, (:bees, 82, r.body, r.pd, r.cid, tn_now(c, v) * 65536 + r.m, r.who) impl ActorMessage {})
+            produces pure v end
+        }
+    }
+}
+// ---- the stores' answers for accepted connections (121, 122, 126)
+fn tn_answer(v: $NV$, tag: int64, k: int64, body: string) -> $NV$ {
+    p: $P$ <- bees_tempus_node@p_cid(v.q, tag, 1, 1);
+    sequence
+        _: atom <- case k == 21 of { true -> tn_say(concat("[tempus audit] shuffle_refused peer=- the store refused the frame a", tn_num(tag))); false -> :ok };
+        _: boolean <- case p.k == 0 of { true -> true; false -> tn_ans(p.who, k, body) }
+    produces pure tn_vq(v, bees_tempus_node@p_drop(v.q, p)) end
+}
+fn tn_sampled(v: $NV$, st: int64, ok: int64, body: string) -> $NV$ {
+    p: $P$ <- bees_tempus_node@p_first(v.q, 2, st);
+    held: $P$ <- { k: 8, cid: p.cid, st: p.st, x: ok, who: p.who, s: body };
+    case p.k == 0 of {
+        true -> v;
+        false -> case p.x == 1 of {
+            true -> tn_vq(v, bees_tempus_node@p_swap(v.q, p, held));
+            false -> {
+                sequence
+                    _: boolean <- tn_ans(p.who, case ok == 1 of { true -> 20; false -> 21 }, body)
+                produces pure tn_vq(v, bees_tempus_node@p_drop(v.q, p)) end
+            }
+        }
+    }
+}
+// an insert the node asked for is in its store (129): tag < 0 the join's (the dialed connection), else a sample's peer
+fn tn_inserted(c: $NC$, v: $NV$, me: actor_ref, tag: int64) -> $NV$ {
+    case tag < 0 of {
+        true -> {
+            p: $P$ <- bees_tempus_node@p_cid(v.q, 0 - tag, 7, 7);
+            case p.k == 0 of { true -> v; false -> tn_join_ok(c, tn_vq(v, bees_tempus_node@p_drop(v.q, p)), me, p) }
+        };
+        false -> {
+            p: $P$ <- bees_tempus_node@p_cid(v.q, tag, 2, 2);
+            h: $P$ <- bees_tempus_node@p_cid(v.q, tag, 8, 8);
+            fr: $P$ <- { k: 2, cid: p.cid, st: p.st, x: 0, who: p.who, s: "" };
+            case p.k == 2 of {
+                true -> tn_vq(v, bees_tempus_node@p_swap(v.q, p, fr));
+                false -> case h.k == 8 of {
+                    false -> v;
+                    true -> {
+                        sequence
+                            _: boolean <- tn_ans(h.who, case h.x == 1 of { true -> 20; false -> 21 }, h.s)
+                        produces pure tn_vq(v, bees_tempus_node@p_drop(v.q, h)) end
+                    }
+                }
+            }
+        }
+    }
+}
+
+// a store wants draws (123): the converter is asked for one more than the shuffle length
+fn tn_draws(c: $NC$, v: $NV$, st: int64, which: int64) -> $NV$ {
+    sequence proc[concurrency]
+        _: boolean <- cast(v.rc, (:bees, 1, "", "", (4 * st + which) * 1000 + tn_count(c, st) + 1) impl ActorMessage {})
+    produces pure v end
+}
+// ---- start, the listener's events, the application's values
+fn tn_arm(me: actor_ref, ms: uint64, st: int64) -> boolean {
+    sequence proc[concurrency]
+        t: timer_ref <- send_after(ms, me, (:bees, 1, "", "", 0, st, me) impl ActorMessage {})
+    produces pure true end
+}
+fn tn_boot(c: $NC$, v: $NV$, me: actor_ref) -> $NV$ {
+    d: string <- bees_tempus_frame@desc_bytes(tn_desc(c, v));
+    sequence proc[concurrency]
+        z1: $AZ$ <- { typ: 1, id: c.id, d: d, own: c.typ == 1, cap: c.k1, count: c.c1, test: c.test, skew: c.skew, lit: c.draws };
+        z2: $AZ$ <- { typ: 2, id: c.id, d: d, own: c.typ == 2, cap: c.k2, count: c.c2, test: c.test, skew: c.skew, lit: c.draws };
+        z3: $AZ$ <- { typ: 3, id: c.id, d: d, own: c.typ == 3, cap: c.k3, count: c.c3, test: c.test, skew: c.skew, lit: c.draws };
+        a1: actor_ref <- bees_tempus_node@adp_start(me, z1);
+        a2: actor_ref <- bees_tempus_node@adp_start(me, z2);
+        a3: actor_ref <- bees_tempus_node@adp_start(me, z3);
+        rc: actor_ref <- spawn({ node: me, rnd: c.rnd, pend: "", got: "", bad: false }, dangerous_bees_tempus_draws@trc, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        m0: int64 <- monotonic_time();
+        _: boolean <- case c.test of { true -> true; false -> tn_arm(me, c.t1, 1) };
+        _: boolean <- case c.test of { true -> true; false -> tn_arm(me, c.t2, 2) };
+        _: boolean <- case c.test of { true -> true; false -> tn_arm(me, c.t3, 3) }
+    produces pure { up: true, rc: rc, a1: a1, a2: a2, a3: a3, now: v.now, m0: m0, mtok: v.mtok, kid: v.kid, ppub: v.ppub, live: v.live, na: v.na, nd: v.nd, stop: v.stop, jst: v.jst, jd: v.jd, q: v.q } end
+}
+fn tn_store_line(st: int64, cap: int64, count: int64) -> atom {
+    tn_say(concat(concat(concat("store ", tn_typ(st)), concat(": capacity ", tn_num(cap))), concat(", shuffle length ", tn_num(count))))
+}
+fn tn_up(c: $NC$, v: $NV$, me: actor_ref) -> $NV$ {
+    sequence
+        _: atom <- tn_say(concat(concat(concat(tn_typ(c.typ), " node "), bees_tempus_node@peer8(c.id)), concat(" listening on ", c.addr)));
+        _: atom <- case c.test of { true -> tn_say("TEST ONLY: tick and clock frames are accepted"); false -> :ok };
+        _: atom <- tn_store_line(1, c.k1, c.c1);
+        _: atom <- tn_store_line(2, c.k2, c.c2);
+        _: atom <- tn_store_line(3, c.k3, c.c3)
+    produces pure tn_join_start(c, v, me) end
+}
+fn tn_accepted(c: $NC$, v: $NV$, me: actor_ref, l: dangerous_actor_ref) -> $NV$ {
+    over: boolean <- v.live >= c.max;
+    cfg: $CFG$ <- tn_cfg(c, v, me, tn_maxcount(c));
+    sequence
+        _: boolean <- tempus_conn(cfg, l, case over of { true -> 3; false -> 2 }, v.na + 1, "", "")
+    produces pure tn_vc(v, case over of { true -> v.live; false -> v.live + 1 }, v.na + 1, v.nd) end
+}
+fn tn_token(c: $NC$, v: $NV$, token: string) -> $NV$ {
+    v1: $NV$ <- tn_vk(v, v.now, token, v.kid, v.ppub, false);
+    d: string <- bees_tempus_frame@desc_bytes(tn_desc(c, v1));
+    sequence
+        _: atom <- tn_say("own token replaced");
+        _: boolean <- tn_to(v, 1, 47, "", d, 0);
+        _: boolean <- tn_to(v, 2, 47, "", d, 0);
+        _: boolean <- tn_to(v, 3, 47, "", d, 0)
+    produces pure v1 end
+}
+fn tn_key(v: $NV$, kid: string, ppub: string) -> $NV$ {
+    sequence
+        _: atom <- tn_say(concat("producer key replaced, kid ", kid))
+    produces pure tn_vk(v, v.now, v.mtok, kid, ppub, v.stop) end
+}
+fn tn_timer(c: $NC$, v: $NV$, me: actor_ref, st: int64) -> $NV$ {
+    p: $P$ <- { k: 3, cid: 0, st: st, x: 0, who: tn_null(), s: "" };
+    sequence
+        _: boolean <- tn_arm(me, case st of { 1 -> c.t1; 2 -> c.t2; _: int64 -> c.t3 }, st)
+    produces pure tn_tick(c, v, me, st, p) end
+}
+fn tn_bees(c: $NC$, v: $NV$, me: actor_ref, b: $NB$) -> $NV$ {
+    case b.op of {
+        1 -> tn_timer(c, v, me, b.m);
+        60 -> tn_dialed(c, v, me, b.op, b.s1, b.n);
+        61 -> tn_dialed(c, v, me, b.op, b.s1, b.n);
+        62 -> tn_dialed(c, v, me, b.op, b.s1, b.n);
+        63 -> { r: $RQ$ <- { body: b.s1, pd: b.s2, cid: b.n, m: b.m, who: b.who }; tn_request(c, v, me, r) };
+        64 -> tn_vc(v, v.live - 1, v.na, v.nd);
+        70 -> tn_token(c, v, b.s1);
+        71 -> tn_key(v, b.s1, b.s2);
+        72 -> tn_join(c, v, me, b.n, 1);
+        120 -> tn_out(c, v, me, b.m, b.s1, b.s2);
+        121 -> tn_answer(v, b.n, 20, b.s2);
+        122 -> tn_answer(v, b.n, 21, "");
+        124 -> tn_ended(c, v, me, b.m, b.n);
+        125 -> { sequence _: atom <- tn_say(b.s1) produces pure v end };
+        126 -> tn_sampled(v, b.m, b.n, b.s2);
+        123 -> tn_draws(c, v, b.m, b.n);
+        129 -> tn_inserted(c, v, me, b.n);
+        128 -> { sequence _: boolean <- tn_to(v, b.m, 48 + b.n, "", b.s1, 0) produces pure v end };
+        _: int64 -> v
+    }
+}
+fn tn_handle(c: $NC$, v: $NV$, me: actor_ref, msg: $NM$) -> $NV$ {
+    case msg of {
+        (:accepted, l: dangerous_actor_ref, _i: string) -> tn_accepted(c, v, me, l);
+        (:link_up, _info: string) -> tn_up(c, v, me);
+        (:rx, _s: string) -> v;
+        (:tx_credit, _n: int64) -> v;
+        (:tx_failed, _w: atom) -> v;
+        (:link_down, _w2: atom) -> { sequence _: atom <- tn_say("the listening link has gone down") produces pure v end };
+        (:bees, op: int64, s1: string, s2: string, n: int64, m: int64, who: actor_ref) -> { b: $NB$ <- { op: op, s1: s1, s2: s2, n: n, m: m, who: who }; tn_bees(c, v, me, b) }
+    }
+}
+fn tnode(msg: $NM$, st: $NS$) -> (:no_reply, $NS$) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        v0: $NV$ <- case st.v.up of { true -> st.v; false -> tn_boot(st.c, st.v, me) };
+        v: $NV$ <- tn_handle(st.c, v0, me, msg)
+    produces pure (:no_reply, { c: st.c, v: v }) end
+}
+// T7: tempus_node_boot(idn, net, sz, tst) -> 0 to go on, 1 refused: the refusal is one line, "tempus: boot refused: WHY"
+// (bees_tempus_node@boot_why: the bounds of section 8, the identity and its token, control_test_only only on a loopback
+// listen address). FIRST in main, as trust_boot. tempus_node_start refuses the same values (a line, the application told
+// (:bees, 85, why, ...), the application itself returned, nothing started).
+fn tempus_node_boot(idn: $NI$, net: $NN$, sz: $NZ$, tst: $NT$) -> int64 {
+    why: string <- bees_tempus_node@boot_why(idn, net, sz, tst);
+    case length_bytes(why) > 0 of {
+        true -> { sequence _: atom <- tn_say(concat("tempus: boot refused: ", why)) produces pure 1 end };
+        false -> 0
+    }
+}
+fn tempus_node_start(app: actor_ref, idn: $NI$, net: $NN$, sz: $NZ$, tst: $NT$) -> actor_ref {
+    why: string <- bees_tempus_node@boot_why(idn, net, sz, tst);
+    case length_bytes(why) > 0 of {
+        true -> {
+            sequence proc[concurrency]
+                _: atom <- tn_say(concat("tempus: boot refused: ", why));
+                ok: boolean <- cast(app, (:bees, 85, why, "", 0, 0, app) impl ActorMessage {})
+            produces pure app end
+        };
+        false -> tn_start(app, idn, net, sz, tst)
+    }
+}
+fn tn_start(app: actor_ref, idn: $NI$, net: $NN$, sz: $NZ$, tst: $NT$) -> actor_ref {
+    sequence proc[concurrency]
+        e: dangerous_actor_ref <- spawn_dangerous(0, dangerous_bees_tempus_edge@ted, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        r: dangerous_actor_ref <- spawn_dangerous(0, dangerous_bees_trust_edge@trnd, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        sg: actor_ref <- tempus_signer(e, idn.seed);
+        q: $PL$ <- bees_tempus_node@p_none();
+        c: $NC$ <- { app: app, sig: sg, edge: e, rnd: r, wl: net.wl, sents: net.sents, spec: net.spec, mst: net.mst, id: idn.id, pub: idn.pub, addr: idn.addr, draws: tst.draws, typ: idn.typ, skew: net.skew, max: net.max, k1: sz.k1, c1: sz.c1, k2: sz.k2, c2: sz.c2, k3: sz.k3, c3: sz.c3, ms: net.ms, t1: sz.t1, t2: sz.t2, t3: sz.t3, j0: net.j0, j1: net.j1, test: tst.test };
+        v: $NV$ <- { up: false, rc: app, a1: app, a2: app, a3: app, now: tst.now, m0: 0, mtok: idn.token, kid: net.kid, ppub: net.ppub, live: 0, na: 0, nd: 0, stop: false, jst: 0, jd: net.j0, q: q };
+        n: actor_ref <- spawn({ c: c, v: v }, tnode, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: boolean <- tempus_listen(n, net.listen, net.spec, net.ms)
+    produces pure n end
+}

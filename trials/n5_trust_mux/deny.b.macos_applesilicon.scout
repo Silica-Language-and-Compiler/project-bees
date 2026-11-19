@@ -1,0 +1,13 @@
+[trust] TEST ONLY: plaintext transport, peer identity is a test-supplied stand-in for the certificate fingerprint
+[trust] mode trust, listen 127.0.0.1:23001, whitelist 0 entries, pinned servers 3, frame_size_max 4096, args_len_max 4096, term_depth_max 32, call_timeout_ms 1500, first_frame_timeout_ms 2000, suspicion_limit 3, token_bytes 48, token_ttl_sec 300, sessions (B2): max_inflight 4, max_calls 8, max_age_ms 60000, idle_ms 2000, drain_ms 1000
+[trust] TRUST standalone: no whitelist file configured, no inbound connections accepted
+step 1 call demo:add([1, 2]) (opens a session): {ok, int 3}
+step 2 call erlang:apply/3 (forbidden) on the session: {error, closed}
+step 3 call demo:secret/0 (not in b.cert's spec): {error, closed}
+step 4 call demo:add([1, 2]) (a new session): {ok, int 3}
+step 5 call demo:crash/1 (the user code fails; the session goes on): {error, timeout}
+step 6 cast demo:crash/1: {ok, cast}
+step 7 cast demo:crash/1 (suspicion above the limit: quarantine, the session is closed): {ok, cast}
+step 8 call demo:add([1, 2]) while quarantined: {error, closed}
+deny done
+exit=0

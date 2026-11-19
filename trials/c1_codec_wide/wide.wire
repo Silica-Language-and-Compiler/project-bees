@@ -1,0 +1,13 @@
+# C1 codec trial, records of more than four fields (development-plan/spikes/C1-codec-term-coverage.md 2.6; SD-37): an in-memory
+# node manifest (no link is opened; the peer port is only data). The pinned compiler's derived decoder of such a record does
+# not compile, so while tools/bees_wire_gen.py SD37_SPLIT is set the record is decoded field by field (each field one derived
+# decode). bees.config sets beam.frame_size_max to 65536.
+node   b@127.0.0.1
+peer   a@127.0.0.1 127.0.0.1 24400 dial
+local  wide6 cast { a: int64, b: string, c: boolean, d: float64, e: atom, f: List[int64] }
+# a wide record inside a tagged tuple, a list and a map
+remote inw   @ a@127.0.0.1 cast (:w, { p: int64, q: int64, r: int64, s: int64, t: int64 }, string)
+remote rows  @ a@127.0.0.1 cast List[{ a: int64, b: int64, c: int64, d: int64, e: int64 }]
+remote wm    @ a@127.0.0.1 cast Map[int64, { a: int64, b: int64, c: int64, d: int64, e: int64 }]
+# four fields: plain, one derived encode and decode as before
+remote four  @ a@127.0.0.1 cast { a: int64, b: int64, c: int64, d: int64 }

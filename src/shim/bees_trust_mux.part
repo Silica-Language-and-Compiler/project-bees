@@ -1,0 +1,152 @@
+// ---- BEES TRUST node edge, sessions (N5, B2: windowed multiplexing; development-plan/spikes/N5-multiplexing.md): pasted by
+// tools/bees_trust_gen.py AFTER bees_trust_node.part into the root unit of a TRUST node whose bees.config multiplexes. In
+// that root unit the generator has renamed three functions of bees_trust_node.part (trust_start, trust_listen, trpc_request
+// became trust_start_b1, trust_listen_b1, trpc_request_b1), and the functions below take their names, so a program calls
+// trust_start, trpc_call and trpc_cast as before. The session manager lives here because only the root unit may create a
+// carrier (the spawn_dangerous site, SD-17).
+//
+// trust_start() -> atom          as before, then the metrics actor and one session manager per pinned server
+// trpc_call / trpc_cast          as before (same arguments, same one answer { req, what, value }). On a node whose limits are
+//                                not 1 and 1 the request goes to the server's manager: onto the open session if there is one;
+//                                else on a new connection that offers a session; while that connection is not acknowledged,
+//                                on its own connection (N3's client). A call the server never answers ends in timeout
+//                                (call_timeout_ms); a call written to a session that ends without its result ends in closed
+//                                and is never sent again (owner's ruling on N5 Q5).
+// trpc_close(addr) -> atom       closes the open session to that server, if there is one: the connection is closed, which the
+//                                server takes as a cancel of everything in work on it (results dropped, no suspicion); every
+//                                call waiting on it is answered closed; the next request opens a new connection. No answer
+//                                message. Without an open session it does nothing (owner's ruling on N5 Q13).
+// trust_shutdown() -> atom       the listener stops serving new connections and every session sends goaway shutdown at its
+//                                next idle tick, drains and closes
+// trust_metrics_dump() -> atom   prints the session metrics, one `[trust metrics] name value` line each
+fn trust_listen(e: dangerous_actor_ref) -> boolean {
+    sequence proc[concurrency]
+        c: dangerous_actor_ref <- carrier_new();
+        l: actor_ref <- spawn_registered({ edge: e, n: 0, open: 0, shut: false }, dangerous_bees_trust_mux@mlsn, bees_atoms@a_bees_trust_listener(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        sp: string <- bees_trust_conf@listen_spec();
+        ok: boolean <- trust_listen_link(c, l, sp)
+    produces pure ok end
+}
+fn trust_mgr_k(msg: (:who, int64, atom, atom, int64, string, actor_ref, int64)) -> int64 { case msg of { (:who, k: int64, _m: atom, _f: atom, _a: int64, _s: string, _w: actor_ref, _r: int64) -> k } }
+fn trust_mgr_m(msg: (:who, int64, atom, atom, int64, string, actor_ref, int64)) -> atom { case msg of { (:who, _k: int64, m: atom, _f: atom, _a: int64, _s: string, _w: actor_ref, _r: int64) -> m } }
+fn trust_mgr_f(msg: (:who, int64, atom, atom, int64, string, actor_ref, int64)) -> atom { case msg of { (:who, _k: int64, _m: atom, f: atom, _a: int64, _s: string, _w: actor_ref, _r: int64) -> f } }
+fn trust_mgr_a(msg: (:who, int64, atom, atom, int64, string, actor_ref, int64)) -> int64 { case msg of { (:who, _k: int64, _m: atom, _f: atom, a: int64, _s: string, _w: actor_ref, _r: int64) -> a } }
+fn trust_mgr_s(msg: (:who, int64, atom, atom, int64, string, actor_ref, int64)) -> string { case msg of { (:who, _k: int64, _m: atom, _f: atom, _a: int64, s: string, _w: actor_ref, _r: int64) -> s } }
+fn trust_mgr_w(msg: (:who, int64, atom, atom, int64, string, actor_ref, int64)) -> actor_ref { case msg of { (:who, _k: int64, _m: atom, _f: atom, _a: int64, _s: string, w: actor_ref, _r: int64) -> w } }
+fn trust_mgr_r(msg: (:who, int64, atom, atom, int64, string, actor_ref, int64)) -> int64 { case msg of { (:who, _k: int64, _m: atom, _f: atom, _a: int64, _s: string, _w: actor_ref, r: int64) -> r } }
+// a new connection to pinned server srv that offers a session, with msg as its first request: the carrier (or TLS link), its
+// send actor, its pending table (which holds the request until the handshake frames are written) and its receive actor
+fn trust_session_open(srv: int64, gen: int64, msg: (:who, int64, atom, atom, int64, string, actor_ref, int64)) -> actor_ref {
+    sequence proc[concurrency]
+        c: dangerous_actor_ref <- trust_link(carrier_new());
+        t: actor_ref <- spawn({ c: c, n: 0 }, dangerous_bees_trust_mux@mtx, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        p: actor_ref <- bees_trust_slots@pend_start(t, srv, gen, msg);
+        k: actor_ref <- spawn({ asm: t, c: c, tx: t, pend: p, srv: srv, kind: trust_mgr_k(msg) % 10, phase: 1, live: false, acked: false, grace: false }, dangerous_bees_trust_mux@mcli, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        tm: timer_ref <- send_after(bees_trust_conf@connect_timeout_ms(), k, (:bees, 5, "", "", 0) impl ActorMessage {});
+        ad: string <- bees_trust_conf@server_addr(srv);
+        da: string <- trust_dial_address(ad);
+        _: boolean <- cast(c, (:open, k, da) impl ActorMessage {})
+    produces pure p end
+}
+fn trust_mgr_fwd(sess: actor_ref, k: int64, msg: (:who, int64, atom, atom, int64, string, actor_ref, int64)) -> boolean {
+    sequence proc[concurrency]
+        m: atom <- trust_mgr_m(msg);
+        f: atom <- trust_mgr_f(msg);
+        s: string <- trust_mgr_s(msg);
+        w: actor_ref <- trust_mgr_w(msg);
+        ok: boolean <- cast(sess, (:who, k, m, f, trust_mgr_a(msg), s, w, trust_mgr_r(msg)) impl ActorMessage {})
+    produces pure ok end
+}
+fn trust_mgr_own(srv: int64, kind: int64, msg: (:who, int64, atom, atom, int64, string, actor_ref, int64)) -> boolean {
+    sequence
+        ad: string <- bees_trust_conf@server_addr(srv);
+        s: string <- trust_mgr_s(msg);
+        _: atom <- trpc_open(kind, ad, trust_mgr_m(msg), trust_mgr_f(msg), trust_mgr_a(msg), s, trust_mgr_w(msg), trust_mgr_r(msg))
+    produces pure true end
+}
+fn trust_mgr_ack(who: actor_ref) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(who, (:who, 120, bees_atoms@a_error(), bees_atoms@a_error(), 0, "", who, 0) impl ActorMessage {})
+    produces pure ok end
+}
+// the session manager of one pinned server. Messages (:who, k, m, f, arity, args, who, req), k = 10 * how + kind (1 call, 2 cast):
+//   how 0 a request of the program; 1 a request a session could not take because it is ending: as how 0
+//   how 2 a request a session could not take because its table is full: its own connection (N3's client)
+//   k 30  trpc_close: passed to the open session, if any
+//   k 100 the session of number req is acknowledged by the server: requests go to it (who is its pending table)
+//   k 110 the session of number req takes no more: forgotten; its pending table (who) is answered 120, after which nothing
+//         is sent to it
+// phase: 0 no session   1 a connection that offered a session is open, not yet acknowledged   2 a session
+fn trust_mgr(msg: (:who, int64, atom, atom, int64, string, actor_ref, int64), st: { srv: int64, phase: int64, gen: int64, sess: actor_ref }) -> (:no_reply, { srv: int64, phase: int64, gen: int64, sess: actor_ref }) {
+    sequence
+        k: int64 <- trust_mgr_k(msg);
+        kind: int64 <- k % 10;
+        how: int64 <- k / 10;
+        isreq: boolean <- how == 0 or how == 1;
+        opens: boolean <- isreq and st.phase == 0;
+        fresh: actor_ref <- case opens of { true -> trust_session_open(st.srv, st.gen + 1, msg); false -> st.sess };
+        _: boolean <- case isreq and st.phase == 2 of { true -> trust_mgr_fwd(st.sess, kind, msg); false -> true };
+        _: boolean <- case (isreq and st.phase == 1) or how == 2 of { true -> trust_mgr_own(st.srv, kind, msg); false -> true };
+        _: boolean <- case k == 30 and st.phase == 2 of { true -> trust_mgr_fwd(st.sess, 30, msg); false -> true };
+        mine: boolean <- trust_mgr_r(msg) == st.gen;
+        _: boolean <- case k == 110 of { true -> trust_mgr_ack(trust_mgr_w(msg)); false -> true };
+        p1: int64 <- case opens of { true -> 1; false -> case k == 100 and mine and st.phase == 1 of { true -> 2; false -> case k == 110 and mine of { true -> 0; false -> st.phase } } }
+    produces pure (:no_reply, { srv: st.srv, phase: p1, gen: st.gen + case opens of { true -> 1; false -> 0 }, sess: fresh }) end
+}
+fn trust_start_mgrs(i: int64, me: actor_ref) -> int64 {
+    case i >= bees_trust_conf@server_count() of {
+        true -> i;
+        false -> {
+            sequence proc[concurrency]
+                p: actor_ref <- spawn_registered({ srv: i, phase: 0, gen: 0, sess: me }, trust_mgr, bees_trust_conf@mgr_name(i), stack_policy(0, :keep_last_message), state_policy(:keep_state_area))
+            produces pure trust_start_mgrs(i + 1, me) end
+        }
+    }
+}
+fn trust_start() -> atom {
+    sequence proc[concurrency]
+        _: atom <- trust_start_b1();
+        me: actor_ref <- self();
+        m: actor_ref <- case bees_trust_conf@session_single() of { true -> me; false -> bees_trust_slots@met_start() };
+        _: int64 <- case bees_trust_conf@session_single() of { true -> 0; false -> trust_start_mgrs(0, me) }
+    produces pure :ok end
+}
+fn trust_to_mgr(srv: int64, k: int64, m: atom, f: atom, arity: int64, args: string, reply_to: actor_ref, req: int64) -> atom {
+    sequence proc[concurrency]
+        _: boolean <- cast_registered(bees_trust_conf@mgr_name(srv), (:who, k, m, f, arity, args, reply_to, req) impl ActorMessage {})
+    produces pure :ok end
+}
+// N3's checks first (a pinned address, an IPv4 literal, an identity), then the manager; a node whose limits are 1 and 1 calls as N3 does
+fn trpc_request(kind: int64, addr: string, m: atom, f: atom, arity: int64, args: string, reply_to: actor_ref, req: int64) -> atom {
+    case bees_trust_conf@session_single() of {
+        true -> trpc_request_b1(kind, addr, m, f, arity, args, reply_to, req);
+        false -> case bees_trust_conf@server_index(addr) < 0 of {
+            true -> trust_reply(reply_to, req, bees_atoms@a_server_not_pinned());
+            false -> case trust_ipv4_char(addr, 0, length_bytes(addr), 0, false) of {
+                false -> trust_reply(reply_to, req, bees_atoms@a_dns_error());
+                true -> case bees_trust_conf@tls() or length_bytes(bees_trust_conf@self_fp()) == 64 of {
+                    false -> trust_reply(reply_to, req, bees_atoms@a_protocol_error());
+                    true -> trust_to_mgr(bees_trust_conf@server_index(addr), kind, m, f, arity, args, reply_to, req)
+                }
+            }
+        }
+    }
+}
+fn trpc_close(addr: string) -> atom {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        srv: int64 <- bees_trust_conf@server_index(addr);
+        _: atom <- case srv < 0 or bees_trust_conf@session_single() of { true -> :ok; false -> trust_to_mgr(srv, 30, bees_atoms@a_error(), bees_atoms@a_error(), 0, "", me, 0) }
+    produces pure :ok end
+}
+fn trust_shutdown() -> atom {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        _: boolean <- case bees_trust_conf@listens() of { true -> cast_registered(bees_atoms@a_bees_trust_listener(), (:bees, 5, "", me, 0) impl ActorMessage {}); false -> true }
+    produces pure :ok end
+}
+fn trust_metrics_dump() -> atom {
+    sequence proc[concurrency]
+        _: boolean <- case bees_trust_conf@session_single() of { true -> true; false -> cast_registered(bees_atoms@a_bees_trust_metrics(), (:bees, 100, "", "", 0) impl ActorMessage {}) }
+    produces pure :ok end
+}

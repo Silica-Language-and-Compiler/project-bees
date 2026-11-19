@@ -1,0 +1,518 @@
+// BEES position scanner for the Erlang External Term Format (C1, development-plan/spikes/C1-codec-term-coverage.md).
+//
+// Positions only: where a term ends, how many pairs a map has, where its first key is, the text of an atom. It builds no
+// value. Every value still comes from the language: a caller cuts a term out with slice_term (131 ++ the term's bytes)
+// and hands it to the derived decode((:etf), ...). The units that need it are the dynamic term codec (bees_term_wire) and
+// the typed kinds with no derived form (maps with value keys, sets, buf). The last section holds the four calls of the
+// derived codec that bees_term_wire needs for its integer and float leaves (it cannot make them itself: a unit that
+// exports functions named decode and encode cannot call the builtins of that name, E2020).
+//
+// A position always points at a TAG byte (never at the 131 that starts a frame). Every function checks the position
+// against the frame's length before it reads (byte_at out of range is a run-time failure of the actor) and answers a
+// NEGATIVE code instead of faulting: the negated number of one of the language's rejection reasons, as bees_ingress numbers
+// them (transport design 4.3); code_reason gives the atom:
+//     -2 truncated     the frame ends inside the term, or a count is larger than the bytes that remain
+//     -4 bad_tag       a byte that is no ETF tag, or not the tag the function was asked about
+//     -6 too_deep      more than max_depth() containers inside one another
+//     -7 too_long      an atom name of more than 255 characters
+//     -9 bad_utf8      an atom name that is not UTF-8
+//    -16 unsupported   FLOAT_EXT 99, an atom cache reference 82, a compressed term 80, a distribution header 68/69, the old
+//                      FUN_EXT 117, LOCAL_EXT 121
+// Stack use is bounded: the elements of a list, tuple or map are walked by a tail-recursive loop, and only nesting
+// recurses, at most max_depth() levels. Nothing is allocated by skip and the count questions.
+module bees_etf_scan;
+use wire_etf;
+
+export max_depth/0;
+export skip/2;
+export skip_within/3;
+export code_reason/1;
+export tag_at/2;
+export rd16/2;
+export rd32/2;
+export map_count/2;
+export map_first/2;
+export tuple_arity/2;
+export tuple_first/2;
+export list_count/2;
+export list_first/2;
+export atom_end/2;
+export atom_check/2;
+export atom_text/2;
+export atom_is/3;
+export utf8_chars/1;
+export latin1_to_utf8/1;
+export slice_term/3;
+export body_of/1;
+export bytes_compare/2;
+export bytes_less/2;
+export leaf_int/1;
+export leaf_float/1;
+export int_term/1;
+export float_term/1;
+
+// the nesting limit: containers (tuples, lists, maps) inside one another
+fn max_depth() -> int64 { 64 }
+
+// ---- bytes ----
+fn at(s: string, i: int64) -> int64 {
+    sequence proc[transport]
+        b: int64 <- byte_at(s, i)
+    produces pure b end
+}
+fn cut(s: string, start: int64, stop: int64) -> string {
+    sequence proc[mem(normal), transport]
+        out: string <- byte_slice(s, start, stop)
+    produces pure out end
+}
+// big-endian 2 and 4 byte numbers; the CALLER has checked that the bytes exist
+fn rd16(s: string, pos: int64) -> int64 { at(s, pos) * 256 + at(s, pos + 1) }
+fn rd32(s: string, pos: int64) -> int64 {
+    at(s, pos) * 16777216 + at(s, pos + 1) * 65536 + at(s, pos + 2) * 256 + at(s, pos + 3)
+}
+// `stop` when it is inside the frame, else truncated
+fn need(len: int64, stop: int64) -> int64 { case stop > len of { true -> 0 - 2; false -> stop } }
+
+// ---- rejection reasons ----
+fn code_reason(code: int64) -> atom {
+    case code of {
+        -1 -> :bad_version;
+        -2 -> :truncated;
+        -3 -> :trailing_bytes;
+        -4 -> :bad_tag;
+        -5 -> :too_large;
+        -6 -> :too_deep;
+        -7 -> :too_long;
+        -8 -> :out_of_range;
+        -9 -> :bad_utf8;
+        -10 -> :unknown_atom;
+        -11 -> :bad_variant;
+        -12 -> :missing_field;
+        -13 -> :duplicate_field;
+        -14 -> :unknown_field;
+        -15 -> :foreign_actor;
+        -16 -> :unsupported;
+        _: int64 -> case code >= 0 of { true -> :ok; false -> :unsupported }
+    }
+}
+
+// ---- the extent of a term ----
+// The position just after the term whose tag is at pos, or a negative code.
+fn skip(frame: string, pos: int64) -> int64 { skip_within(frame, pos, max_depth()) }
+// the same with the nesting limit given (0: a term that holds no container)
+fn skip_within(frame: string, pos: int64, depth_max: int64) -> int64 {
+    case pos < 0 of {
+        true -> 0 - 2;
+        false -> one(frame, length_bytes(frame), pos, 0, depth_max)
+    }
+}
+// `count` terms one after another, starting at pos, `depth` containers down
+fn seq(s: string, len: int64, pos: int64, count: int64, depth: int64, dmax: int64) -> int64 {
+    case count <= 0 of {
+        true -> pos;
+        false -> {
+            r: int64 <- one(s, len, pos, depth, dmax);
+            case r < 0 of {
+                true -> r;
+                false -> seq(s, len, r, count - 1, depth, dmax)
+            }
+        }
+    }
+}
+// the `count` terms of a container whose first one is at p: one level deeper; the count is checked against the bytes left
+// (every term is at least one byte) before anything is read
+fn inside(s: string, len: int64, p: int64, count: int64, depth: int64, dmax: int64) -> int64 {
+    case p > len of {
+        true -> 0 - 2;
+        false -> case depth + 1 > dmax of {
+            true -> 0 - 6;
+            false -> case count > len - p of {
+                true -> 0 - 2;
+                false -> seq(s, len, p, count, depth + 1, dmax)
+            }
+        }
+    }
+}
+fn one(s: string, len: int64, pos: int64, depth: int64, dmax: int64) -> int64 {
+    case pos >= len of {
+        true -> 0 - 2;
+        false -> one_tag(s, len, pos, depth, dmax, at(s, pos))
+    }
+}
+// a 1-byte, 2-byte or 4-byte length at pos + 1 and that many bytes after `extra` more bytes
+fn sized1(s: string, len: int64, pos: int64, extra: int64) -> int64 {
+    case pos + 2 > len of { true -> 0 - 2; false -> need(len, pos + 2 + extra + at(s, pos + 1)) }
+}
+fn sized2(s: string, len: int64, pos: int64) -> int64 {
+    case pos + 3 > len of { true -> 0 - 2; false -> need(len, pos + 3 + rd16(s, pos + 1)) }
+}
+fn sized4(s: string, len: int64, pos: int64, extra: int64) -> int64 {
+    case pos + 5 > len of { true -> 0 - 2; false -> need(len, pos + 5 + extra + rd32(s, pos + 1)) }
+}
+// `more` bytes after position p (p may be a negative code, which is passed on)
+fn then(len: int64, p: int64, more: int64) -> int64 {
+    case p < 0 of { true -> p; false -> need(len, p + more) }
+}
+fn one_tag(s: string, len: int64, pos: int64, depth: int64, dmax: int64, tag: int64) -> int64 {
+    case tag of {
+        97 -> need(len, pos + 2);
+        98 -> need(len, pos + 5);
+        70 -> need(len, pos + 9);
+        110 -> sized1(s, len, pos, 1);
+        111 -> sized4(s, len, pos, 1);
+        119 -> sized1(s, len, pos, 0);
+        115 -> sized1(s, len, pos, 0);
+        118 -> sized2(s, len, pos);
+        100 -> sized2(s, len, pos);
+        109 -> sized4(s, len, pos, 0);
+        77 -> sized4(s, len, pos, 1);
+        107 -> sized2(s, len, pos);
+        106 -> pos + 1;
+        104 -> case pos + 2 > len of { true -> 0 - 2; false -> inside(s, len, pos + 2, at(s, pos + 1), depth, dmax) };
+        105 -> case pos + 5 > len of { true -> 0 - 2; false -> inside(s, len, pos + 5, rd32(s, pos + 1), depth, dmax) };
+        108 -> case pos + 5 > len of { true -> 0 - 2; false -> inside(s, len, pos + 5, rd32(s, pos + 1) + 1, depth, dmax) };
+        116 -> case pos + 5 > len of { true -> 0 - 2; false -> inside(s, len, pos + 5, rd32(s, pos + 1) * 2, depth, dmax) };
+        88 -> then(len, atom_span(s, len, pos + 1), 12);
+        103 -> then(len, atom_span(s, len, pos + 1), 9);
+        90 -> case pos + 3 > len of { true -> 0 - 2; false -> then(len, atom_span(s, len, pos + 3), 4 + 4 * rd16(s, pos + 1)) };
+        114 -> case pos + 3 > len of { true -> 0 - 2; false -> then(len, atom_span(s, len, pos + 3), 1 + 4 * rd16(s, pos + 1)) };
+        101 -> then(len, atom_span(s, len, pos + 1), 5);
+        120 -> then(len, atom_span(s, len, pos + 1), 12);
+        89 -> then(len, atom_span(s, len, pos + 1), 8);
+        102 -> then(len, atom_span(s, len, pos + 1), 5);
+        112 -> new_fun(s, len, pos);
+        113 -> export_fun(s, len, atom_span(s, len, atom_span(s, len, pos + 1)));
+        99 -> 0 - 16;
+        82 -> 0 - 16;
+        80 -> 0 - 16;
+        68 -> 0 - 16;
+        69 -> 0 - 16;
+        117 -> 0 - 16;
+        121 -> 0 - 16;
+        _: int64 -> 0 - 4
+    }
+}
+// NEW_FUN_EXT: its 4-byte size counts everything after the tag, the size field included
+fn new_fun(s: string, len: int64, pos: int64) -> int64 {
+    case pos + 5 > len of {
+        true -> 0 - 2;
+        false -> case rd32(s, pos + 1) < 4 of {
+            true -> 0 - 2;
+            false -> need(len, pos + 1 + rd32(s, pos + 1))
+        }
+    }
+}
+// EXPORT_EXT: module atom, function atom, then the arity as SMALL_INTEGER_EXT; p is the position after the two atoms
+fn export_fun(s: string, len: int64, p: int64) -> int64 {
+    case p < 0 of {
+        true -> p;
+        false -> case p + 2 > len of {
+            true -> 0 - 2;
+            false -> case at(s, p) == 97 of { true -> p + 2; false -> 0 - 4 }
+        }
+    }
+}
+// the position after the atom at pos (any of the four atom tags); pos may be a negative code, which is passed on
+fn atom_span(s: string, len: int64, pos: int64) -> int64 {
+    case pos < 0 of {
+        true -> pos;
+        false -> case pos >= len of {
+            true -> 0 - 2;
+            false -> atom_span_tag(s, len, pos, at(s, pos))
+        }
+    }
+}
+fn atom_span_tag(s: string, len: int64, pos: int64, tag: int64) -> int64 {
+    case tag of {
+        119 -> sized1(s, len, pos, 0);
+        115 -> sized1(s, len, pos, 0);
+        118 -> sized2(s, len, pos);
+        100 -> sized2(s, len, pos);
+        82 -> 0 - 16;
+        _: int64 -> 0 - 4
+    }
+}
+
+// ---- what the typed kinds ask ----
+// the tag byte at pos, or -2 when pos is outside the frame
+fn tag_at(frame: string, pos: int64) -> int64 {
+    case pos < 0 or pos >= length_bytes(frame) of { true -> 0 - 2; false -> at(frame, pos) }
+}
+// a 4-byte count at pos + 1 when the tag at pos is `want`; `per` terms for each counted thing and `plus` more must fit in
+// the bytes that remain
+fn count4(s: string, pos: int64, want: int64, per: int64, plus: int64) -> int64 {
+    len: int64 <- length_bytes(s);
+    case pos < 0 or pos >= len of {
+        true -> 0 - 2;
+        false -> case at(s, pos) == want of {
+            false -> 0 - 4;
+            true -> case pos + 5 > len of {
+                true -> 0 - 2;
+                false -> case rd32(s, pos + 1) * per + plus > len - (pos + 5) of {
+                    true -> 0 - 2;
+                    false -> rd32(s, pos + 1)
+                }
+            }
+        }
+    }
+}
+// MAP_EXT at pos: the number of pairs (each pair needs at least two bytes: checked), and where the first key is
+fn map_count(frame: string, pos: int64) -> int64 { count4(frame, pos, 116, 2, 0) }
+fn map_first(frame: string, pos: int64) -> int64 {
+    n: int64 <- map_count(frame, pos);
+    case n < 0 of { true -> n; false -> pos + 5 }
+}
+// SMALL_TUPLE_EXT or LARGE_TUPLE_EXT at pos: the arity, and where the first element is
+fn tuple_arity(frame: string, pos: int64) -> int64 {
+    len: int64 <- length_bytes(frame);
+    case pos < 0 or pos >= len of {
+        true -> 0 - 2;
+        false -> case at(frame, pos) == 104 of {
+            true -> case pos + 2 > len of {
+                true -> 0 - 2;
+                false -> case at(frame, pos + 1) > len - (pos + 2) of { true -> 0 - 2; false -> at(frame, pos + 1) }
+            };
+            false -> count4(frame, pos, 105, 1, 0)
+        }
+    }
+}
+fn tuple_first(frame: string, pos: int64) -> int64 {
+    n: int64 <- tuple_arity(frame, pos);
+    case n < 0 of {
+        true -> n;
+        false -> case at(frame, pos) == 104 of { true -> pos + 2; false -> pos + 5 }
+    }
+}
+// A list at pos: the number of elements. LIST_EXT 108: the elements are terms, the first at list_first, and one tail
+// term follows the last (NIL for a proper list). NIL_EXT 106: 0. STRING_EXT 107: the elements are that many single BYTES
+// starting at list_first, not terms, and there is no tail (tag_at tells the caller which form it has).
+fn list_count(frame: string, pos: int64) -> int64 {
+    len: int64 <- length_bytes(frame);
+    case pos < 0 or pos >= len of {
+        true -> 0 - 2;
+        false -> case at(frame, pos) == 106 of {
+            true -> 0;
+            false -> case at(frame, pos) == 107 of {
+                true -> case pos + 3 > len of {
+                    true -> 0 - 2;
+                    false -> case pos + 3 + rd16(frame, pos + 1) > len of { true -> 0 - 2; false -> rd16(frame, pos + 1) }
+                };
+                false -> count4(frame, pos, 108, 1, 1)
+            }
+        }
+    }
+}
+fn list_first(frame: string, pos: int64) -> int64 {
+    n: int64 <- list_count(frame, pos);
+    case n < 0 of {
+        true -> n;
+        false -> case at(frame, pos) == 106 of {
+            true -> pos + 1;
+            false -> case at(frame, pos) == 107 of { true -> pos + 3; false -> pos + 5 }
+        }
+    }
+}
+
+// ---- atoms ----
+// the position after the atom at pos (its extent only), or a code (-4 when the term at pos is not an atom)
+fn atom_end(frame: string, pos: int64) -> int64 {
+    case pos < 0 of { true -> 0 - 2; false -> atom_span(frame, length_bytes(frame), pos) }
+}
+// where the name bytes of the atom at pos start (the caller has a non-negative atom_end)
+fn name_start(frame: string, pos: int64) -> int64 {
+    case at(frame, pos) == 119 or at(frame, pos) == 115 of { true -> pos + 2; false -> pos + 3 }
+}
+fn is_latin1(frame: string, pos: int64) -> boolean { at(frame, pos) == 115 or at(frame, pos) == 100 }
+// 0 when the term at pos is an atom whose name is at most 255 characters of UTF-8 (the UTF-8 tags) or at most 255 bytes
+// of Latin-1 (the old tags); else -4 (not an atom), -2, -7 (too long), -9 (not UTF-8), -16 (an atom cache reference)
+fn atom_check(frame: string, pos: int64) -> int64 {
+    stop: int64 <- atom_end(frame, pos);
+    case stop < 0 of {
+        true -> stop;
+        false -> {
+            start: int64 <- name_start(frame, pos);
+            case is_latin1(frame, pos) of {
+                true -> case stop - start > 255 of { true -> 0 - 7; false -> 0 };
+                false -> case stop - start > 1020 of {
+                    true -> 0 - 7;
+                    false -> {
+                        chars: int64 <- utf8_run(frame, stop, start, 0);
+                        case chars < 0 of {
+                            true -> chars;
+                            false -> case chars > 255 of { true -> 0 - 7; false -> 0 }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+// The name of the atom at pos as UTF-8 (a Latin-1 name converted). "" when atom_check is not 0; the empty atom '' is also
+// "", so a caller that must tell the two apart asks atom_check.
+fn atom_text(frame: string, pos: int64) -> string {
+    case atom_check(frame, pos) == 0 of {
+        false -> "";
+        true -> {
+            raw: string <- cut(frame, name_start(frame, pos), atom_end(frame, pos));
+            case is_latin1(frame, pos) of { true -> latin1_to_utf8(raw); false -> raw }
+        }
+    }
+}
+// the term at pos is the atom `name` (UTF-8), under any of the four tags
+fn atom_is(frame: string, pos: int64, name: string) -> boolean {
+    case atom_check(frame, pos) == 0 of {
+        false -> false;
+        true -> atom_text(frame, pos) == name
+    }
+}
+
+// ---- UTF-8 ----
+// the number of characters in s, or -9 when s is not well-formed UTF-8 (overlong forms, surrogates and code points above
+// U+10FFFF are refused)
+fn utf8_chars(s: string) -> int64 { utf8_run(s, length_bytes(s), 0, 0) }
+fn cont(b: int64) -> boolean { b >= 128 and b <= 191 }
+fn utf8_run(s: string, stop: int64, i: int64, n: int64) -> int64 {
+    case i >= stop of {
+        true -> n;
+        false -> {
+            w: int64 <- utf8_width(s, stop, i, at(s, i));
+            case w < 0 of {
+                true -> w;
+                false -> utf8_run(s, stop, i + w, n + 1)
+            }
+        }
+    }
+}
+// the width in bytes of the character whose first byte b is at i, or -9
+fn utf8_width(s: string, stop: int64, i: int64, b: int64) -> int64 {
+    case b < 128 of {
+        true -> 1;
+        false -> case b >= 194 and b <= 223 of {
+            true -> case i + 2 > stop of {
+                true -> 0 - 9;
+                false -> case cont(at(s, i + 1)) of { true -> 2; false -> 0 - 9 }
+            };
+            false -> case b >= 224 and b <= 239 of {
+                true -> case i + 3 > stop of {
+                    true -> 0 - 9;
+                    false -> case cont(at(s, i + 1)) and cont(at(s, i + 2)) and second3(b, at(s, i + 1)) of { true -> 3; false -> 0 - 9 }
+                };
+                false -> case b >= 240 and b <= 244 of {
+                    true -> case i + 4 > stop of {
+                        true -> 0 - 9;
+                        false -> case cont(at(s, i + 1)) and cont(at(s, i + 2)) and cont(at(s, i + 3)) and second4(b, at(s, i + 1)) of { true -> 4; false -> 0 - 9 }
+                    };
+                    false -> 0 - 9
+                }
+            }
+        }
+    }
+}
+// the second byte of a 3-byte form: no overlong (E0 needs A0..BF), no surrogate (ED needs 80..9F)
+fn second3(b: int64, c: int64) -> boolean {
+    case b == 224 of {
+        true -> c >= 160;
+        false -> case b == 237 of { true -> c <= 159; false -> true }
+    }
+}
+// the second byte of a 4-byte form: no overlong (F0 needs 90..BF), nothing above U+10FFFF (F4 needs 80..8F)
+fn second4(b: int64, c: int64) -> boolean {
+    case b == 240 of {
+        true -> c >= 144;
+        false -> case b == 244 of { true -> c <= 143; false -> true }
+    }
+}
+// Latin-1 bytes as UTF-8: a byte of 128 or more becomes two bytes
+fn latin1_to_utf8(s: string) -> string {
+    sequence proc[mem(normal), transport]
+        e: List[int64, mem(normal)] <- [];
+        xs: List[int64, mem(normal)] <- latin1_acc(s, length_bytes(s) - 1, e);
+        out: string <- bytes_of(xs)
+    produces pure out end
+}
+fn latin1_acc(s: string, i: int64, acc: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    case i < 0 of {
+        true -> acc;
+        false -> {
+            b: int64 <- at(s, i);
+            case b < 128 of {
+                true -> {
+                    sequence proc[mem(normal)]
+                        l: List[int64, mem(normal)] <- prepend[int64, mem(normal)](b, acc)
+                    produces pure latin1_acc(s, i - 1, l) end
+                };
+                false -> {
+                    sequence proc[mem(normal)]
+                        l1: List[int64, mem(normal)] <- prepend[int64, mem(normal)](128 + b % 64, acc);
+                        l2: List[int64, mem(normal)] <- prepend[int64, mem(normal)](192 + b / 64, l1)
+                    produces pure latin1_acc(s, i - 1, l2) end
+                }
+            }
+        }
+    }
+}
+
+// ---- slices ----
+// The bytes from `start` to `stop` as a frame of their own: 131 and the bytes, what the derived decode takes. "" when the
+// range is not inside the frame.
+fn slice_term(frame: string, start: int64, stop: int64) -> string {
+    case start < 0 or stop < start or stop > length_bytes(frame) of {
+        true -> "";
+        false -> {
+            sequence proc[mem(normal), transport]
+                body: string <- byte_slice(frame, start, stop);
+                parts: List[string, mem(normal)] <- ["\x83", body];
+                out: string <- join_bytes(parts)
+            produces pure out end
+        }
+    }
+}
+// a frame without its first byte (the 131): what follows a header BEES writes itself. "" for an empty frame.
+fn body_of(frame: string) -> string {
+    case length_bytes(frame) < 1 of {
+        true -> "";
+        false -> cut(frame, 1, length_bytes(frame))
+    }
+}
+
+// ---- byte-wise order of two strings ----
+// -1 when a sorts before b, 0 when they are the same bytes, 1 when a sorts after b: byte by byte as unsigned numbers, a
+// string that is the start of a longer one first. The order canonical forms are sorted by (map keys, set elements).
+fn bytes_compare(a: string, b: string) -> int64 { cmp_run(a, b, length_bytes(a), length_bytes(b), 0) }
+fn bytes_less(a: string, b: string) -> boolean { bytes_compare(a, b) < 0 }
+fn cmp_run(a: string, b: string, la: int64, lb: int64, i: int64) -> int64 {
+    case i >= la of {
+        true -> case i >= lb of { true -> 0; false -> 0 - 1 };
+        false -> case i >= lb of {
+            true -> 1;
+            false -> case at(a, i) == at(b, i) of {
+                true -> cmp_run(a, b, la, lb, i + 1);
+                false -> case at(a, i) < at(b, i) of { true -> 0 - 1; false -> 1 }
+            }
+        }
+    }
+}
+
+// ---- leaves through the language's codec ----
+// An integer or a float is never read or written by hand: a frame of one leaf (slice_term) goes through the derived
+// decode, and the derived encode's frame loses its 131 (the term bytes, to place after a header).
+fn leaf_int(frame: string) -> { ok: boolean, v: int64 } {
+    sequence proc[mem(normal), transport]
+        r: (:ok, int64) | (:rejected, atom) <- decode((:etf), frame)
+    produces pure case r of { (:ok, v: int64) -> { ok: true, v: v }; (:rejected, _w: atom) -> { ok: false, v: 0 } } end
+}
+fn leaf_float(frame: string) -> { ok: boolean, v: float64 } {
+    sequence proc[mem(normal), transport]
+        r: (:ok, float64) | (:rejected, atom) <- decode((:etf), frame)
+    produces pure case r of { (:ok, v: float64) -> { ok: true, v: v }; (:rejected, _w: atom) -> { ok: false, v: 0.0 } } end
+}
+fn int_term(n: int64) -> string {
+    sequence proc[mem(normal), transport]
+        f: string <- encode((:etf), n)
+    produces pure body_of(f) end
+}
+fn float_term(v: float64) -> string {
+    sequence proc[mem(normal), transport]
+        f: string <- encode((:etf), v)
+    produces pure body_of(f) end
+}

@@ -211,7 +211,12 @@ NODE_OPTS = {
     "creation": Opt("creation", default=1, lo=0, hi=4294967295, manifest="creation"),
 }
 BEAM_OPTS = {
-    "transport": Opt("atom", "tls", choices=("tcp", "tls")),
+    # N2T, owner ruling 2026-11-18 (Q8, which changes D25): transport has NO default; a beam node's file says tcp or tls
+    "transport": Opt("atom", required="in mode beam (no default)", choices=("tcp", "tls")),
+    # N2T (spikes/N2T-beam-tls.md): BEAM-mode links inside TLS, compatible with stock Erlang's inet_tls_dist. Both are required
+    # when transport is tls and refused when it is tcp (no defaults); tls_opts takes certfile, keyfile and cacertfile, all three
+    "tls_opts": Opt("tls", required="when transport is tls"),
+    "tls_verify": Opt("atom", required="when transport is tls", choices=("verify_peer",)),
     "auth": Opt("atom", "cookie", choices=("cookie", "none")),
     "cookie_file": Opt("path", required="when auth is cookie"),
     "listen_address": Opt("str", required="in the selected mode's section (R6)"),
@@ -262,6 +267,12 @@ TRUST_OPTS = {
     "session_slots_max": Opt("int", None, 1, 1000000),
     "plaintext_test_only": Opt("bool", False),
 }
+# THE ONE SWITCH of the owner's ruling on N5 Q1 (2026-11-18): "a node without a `session` key multiplexes, with the defaults
+# of bees-config-file.md 5.3". False: such a node serves and calls one request per connection (B1, N3's actors), as before N5.
+# True: it runs sessions with max_inflight 8, max_calls 100 (the target). It is still False because the goldens of the existing
+# TRUST trials were recorded without sessions; the list to re-record is in development-plan/spikes/N5-multiplexing.md section 12.
+# A node stays at one request per connection, whatever this says, by writing {session, #{max_inflight => 1, max_calls => 1}}.
+SESSION_DEFAULT_ON = False
 SESSION_OPTS = {
     "max_inflight": ((1, 64), 8), "max_age_ms": ((1000, 3600000), 60000), "idle_ms": ((100, 600000), 5000),
     "max_calls": ((1, 100000), 100), "drain_ms": ((0, 60000), 1000),
@@ -587,9 +598,11 @@ def beam_section(top, mode, manifest, base, E, sec_line):
             v[k] = want_r(want_str, E, node, p)
         elif o.kind == "bool":
             v[k] = want_r(want_bool, E, node, p)
+        elif o.kind == "tls":
+            v[k] = {kk: (want_r(want_str, E, vv, f"{p}.{kk}"), ln) for kk, (vv, ln) in proplist_r(node, p, TLS_KEYS, E).items()}
     if "redial_initial_ms" in v and "redial_max_ms" in v and v["redial_initial_ms"] > v["redial_max_ms"]:
         raise E(bl("redial_initial_ms"), "beam.redial_initial_ms", f"{v['redial_initial_ms']} is above redial_max_ms {v['redial_max_ms']}")
-    transport = v.get("transport", "tls")
+    transport = v.get("transport")
     auth = v.get("auth", "cookie")
     eff = {"mode": mode, "auth": auth, "transport": transport, "cookie_path": ""}
     # spawn_allowlist (validated now, takes effect at L3)
@@ -652,9 +665,41 @@ def beam_section(top, mode, manifest, base, E, sec_line):
         return eff
     # ---- required values and "not built yet" (rules 7 and 9), mode beam
     eff["active"] = True
+    # N2T: transport tls puts every link of the node inside TLS (spikes/N2T-beam-tls.md section 3); nothing is defaulted
+    if transport is None:
+        raise E(sl, "beam.transport", "required, no default (ruled 2026-11-18): write {transport, tls} (every link inside TLS; needs "
+                "tls_opts and tls_verify) or {transport, tcp} (plaintext, BEAM parity)")
+    eff["tls"] = transport == "tls"
     if transport == "tls":
-        raise E(bl("transport") if "transport" in b else sl, "beam.transport",
-                "tls (the default, D25) is not built yet; write {transport, tcp}")
+        tw = bl("transport")
+        if auth != "cookie":
+            raise E(bl("auth"), "beam.auth", "none is the loopback test wire of M3 and is not built inside TLS: with transport tls "
+                    "write {auth, cookie}")
+        for k, what in (("tls_opts", '{tls_opts, [{certfile, "..."}, {keyfile, "..."}, {cacertfile, "..."}]}'),
+                        ("tls_verify", "{tls_verify, verify_peer}")):
+            if k not in v:
+                raise E(tw, f"beam.{k}", f"required when transport is tls, no default: write {what}, or "
+                        "{transport, tcp} for a plaintext node")
+        missing = [kk for kk in TLS_KEYS if kk not in v["tls_opts"]]
+        if missing:
+            raise E(bl("tls_opts"), "beam.tls_opts", f"needs certfile, keyfile and cacertfile ({', '.join(missing)} missing): in BEAM mode "
+                    "a peer is verified against cacertfile (verify_peer); pins without a CA are TRUST's rule (D43), not this mode's")
+        eff["tls_verify"] = v["tls_verify"]
+        eff["tls_paths"] = {}
+        for kk, (rel, ln) in v["tls_opts"].items():
+            try:
+                full = check_file(base, rel, ln, f"beam.tls_opts.{kk}", "file")
+            except ConfError as e:
+                raise E(_line_of(e), _path_of(e), _msg_of(e))
+            if kk == "keyfile" and os.stat(full).st_mode & 0o077:
+                raise E(ln, "beam.tls_opts.keyfile", f'key file "{rel}" is readable or writable by group or others (mode '
+                        f'{os.stat(full).st_mode & 0o777:o}; rule 8)')
+            eff["tls_paths"][kk] = os.path.abspath(full)
+    else:
+        stray = [k for k in ("tls_opts", "tls_verify") if k in v]
+        if stray:
+            raise E(bl(stray[0]), f"beam.{stray[0]}", "transport is tcp, so there is no TLS to configure: remove tls_opts and tls_verify "
+                    "(or write {transport, tls})")
     if auth == "cookie" and "cookie_file" not in b:
         raise E(bl("auth") if "auth" in b else sl, "beam.cookie_file", "required when auth is cookie")
     if "cookie_file" in b:
@@ -821,6 +866,9 @@ def trust_section(top, mode, base, E, sec_line, notes, fname):
     lines = {k: tr[k][1] for k in tr}
     v["lines"] = lines
     sess = {k: d for k, (_, d) in SESSION_OPTS.items()}
+    # N5: a node multiplexes (B2) when its file WRITES `session`, or when SESSION_DEFAULT_ON (N5 Q1, ruled 2026-11-18: development-plan/spikes/N5-multiplexing.md);
+    # without the key the defaults are still reported, and the node serves one request per connection with N3's actors
+    v["session_set"] = v["session"] is not None or SESSION_DEFAULT_ON
     sess.update(v["session"] or {})
     v["session"] = sess
     if sess["idle_ms"] > sess["max_age_ms"]:

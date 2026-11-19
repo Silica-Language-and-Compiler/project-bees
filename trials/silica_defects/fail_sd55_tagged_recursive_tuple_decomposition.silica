@@ -1,0 +1,13 @@
+// SD-55 (expected: compiles, exit code 1): a tagged recursive tuple cannot be taken apart with a tuple decomposition in a
+// sequence binding (E2005: the pattern's type and the value's differ only in how the recursion is written); a `case` arm with
+// the same pattern compiles and works.
+fn first(w: (:cons, int64, ref?(L, normal, rec))) -> int64 {
+    sequence
+        (_: :cons, v: int64, _nx: ref?(L, normal, (:cons, int64, ref?(L, normal, rec)))) <- w
+    produces pure v end
+}
+fn main() -> int64 {
+    sequence
+        t: (:cons, int64, ref?(L, normal, rec)) <- (:cons, 1, :none)
+    produces pure first(t) end
+}

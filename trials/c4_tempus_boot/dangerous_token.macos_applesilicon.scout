@@ -1,0 +1,3 @@
+tempus: boot refused: the node's token is for another peer type than the node's
+boot: refused, nothing started
+exit=1

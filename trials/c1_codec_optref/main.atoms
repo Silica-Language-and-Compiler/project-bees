@@ -1,0 +1,5 @@
+# the tags and the atom variant main.silica writes in its types, values and patterns (message-type atoms of optref.wire, so
+# all are in bees_atoms)
+chain
+cons
+nil

@@ -58,7 +58,7 @@ class Store:
         if len(received) > self.count:
             self.failed()
             return
-        merged = view.merge(self.view, received, self.me[0], self.cap)
+        merged = view.merge(self.view, view.prefer_sent(received, self.sent), self.me[0], self.cap)
         self.view = view.backfill(merged, self.sent, self.cap)
         self.sent, self.partner = [], None
 
@@ -68,7 +68,7 @@ class Store:
             return None
         out, kept = view.reply_select(self.view, self.count, asker, self.reply_draws)
         self.reply_draws = None
-        merged = view.merge(kept, received, self.me[0], self.cap)
+        merged = view.merge(kept, view.prefer_sent(received, out), self.me[0], self.cap)
         self.view = view.backfill(merged, out, self.cap)
         return out
 

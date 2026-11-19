@@ -1,0 +1,20 @@
+{
+ "auth": "no",
+ "canary": 17000,
+ "epmd": {
+  "hold": true,
+  "own_port": false,
+  "reply": "5eed749d33afa92370eb252b729607d6e5f12ccf48f1d3caa53e8d514072f0e87e17bc1adb04"
+ },
+ "index": 16,
+ "kind": "epmd/random",
+ "same_link_probe": false,
+ "seed": 1118,
+ "steps": [
+  [
+   "accept_any"
+  ]
+ ],
+ "surface": "beam_dial",
+ "target": "outbox"
+}

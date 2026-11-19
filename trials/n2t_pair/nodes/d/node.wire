@@ -1,0 +1,5 @@
+# N2T edge d: dials the hub, sends req_d and receives its own answer on ans_d
+node   d@localhost
+peer   hub@localhost 127.0.0.1 23200 dial
+remote req_d @ hub@localhost cast { op: atom, n: int64 }
+local  ans_d cast { op: atom, n: int64 }

@@ -1,0 +1,513 @@
+// BEES TEMPUS (T3): what stands between a node actor and its three stores (development-plan/tempus-design.md sections 3,
+// 6, 9 and 10). The node actor itself is a part pasted into the program's root unit (src/tempus/bees_tempus_node.part),
+// because it dials; everything that needs a typed view is here, so the node handles only byte strings.
+//
+// This file is written with the type names of tools/bees_tempus_gen.py (a name between two dollar signs) (Silica has no type names); the unit a
+// program compiles is what `bees_tempus_gen.py unit` writes from it.
+//
+// tadp, one per store: the store's front in both directions. It spawns its store (bees_tempus_store_actor) at its first
+// message and is that store's link. Its message type is the store's record { op, id, d, n, entries, draws }.
+//   From the node:
+//     40 a partner's shuffle (id: the asker, d: the frame body, n: the node's tag)
+//     41 the reply of the shuffle this store started (d: the frame body)        42 that shuffle failed
+//     43 a sentinel's sample_reply (d: the frame body, n: the node's tag): its entries are inserted (the join, section 6)
+//     44 insert one admitted peer (id, d: its descriptor, n: the node's tag)    45 sample (n: how many)
+//     46 tick (n: the node's clock, seconds): entries whose token has expired leave the view first (ruling OQ-4; the
+//        window is admission's: now >= exp + skew), then the store's tick
+//     47 the node's own descriptor replaced (d)                                 48 drop (id)
+//   To the node, as (:bees, op, s1, s2, n, typ, me):
+//     120 dial for a shuffle (s1: the partner's descriptor, s2: the shuffle frame body)
+//     121 the answer to a partner (s2: the shuffle_reply body, n: the tag)       122 refused (n: the tag)
+//     124 a tick has ended (n: 0 aged only, 1 merged, 2 failed, 3 skipped for want of draws, 4 empty view)
+//     126 a sample (s2: the sample_reply body, n: 1, or 0 when refused)
+//     129 the insert of 43 or 44 is in the store (n: the tag)
+//     125 a line for the node to print: the view after a change, or the entries that expired (test nodes only for the
+//         view: under control_test_only a node prints one line per view change, design 16.2)
+//   Draws. The store asks its link for draws (op 23). A test node's adapter answers from the literal list it was given
+//   at start, turned by one place per answer (TEST ONLY, design 3.5). Any other adapter asks the node (123, n: 1 the
+//   tick's, 2 a reply's), which asks its converter (dangerous_bees_tempus_draws@trc) and passes the random bytes back as
+//   49 (the tick's) or 50 (a reply's) in d: seven bytes a draw. No bytes give no draws: the store then skips that tick
+//   or refuses that request, and asks again.
+//   The view line is sent to the node BEFORE the store's message that follows the change, so a node prints the view
+//   before it answers a peer: the adapter holds such a message, asks the store for its view, and lets the message go
+//   when the view arrives (the store answers in order).
+// The unit also holds the pure helpers of the node part (a root unit may not call a dangerous_ unit's functions, E4042).
+module bees_tempus_node;
+use bees_trust_frame;
+use bees_tempus_view;
+use bees_tempus_frame;
+use bees_tempus_store_actor;
+
+export tadp/2;
+export typ_text/1;
+export csv_count/1;
+export csv_nth/2;
+export addr_ok/1;
+export peer8/1;
+export p_none/0;
+export p_push/2;
+export p_first/3;
+export p_cid/4;
+export p_swap/3;
+export p_drop/2;
+export p_blank/0;
+export draws_of/1;
+export adp_start/2;
+export to_adp/5;
+export boot_why/4;
+export loopback/1;
+
+fn typ_text(typ: int64) -> string { case typ of { 1 -> "tempus_edge"; 2 -> "tempus_bridge"; 3 -> "tempus_sentinel"; _: int64 -> "?" } }
+fn num(n: int64) -> string { bees_trust_frame@int_text(n) }
+fn at(s: string, i: int64) -> int64 {
+    sequence proc[transport]
+        b: int64 <- byte_at(s, i)
+    produces pure b end
+}
+// the first 8 hex digits of a peer id (lines of a test node; the audit lines of a connection show 16)
+fn peer8(id: string) -> string { bees_trust_frame@cut(bees_trust_frame@hex(bees_trust_frame@cut(id, 0, 4)), 0, 8) }
+
+// ---- a list of addresses as text, "a.b.c.d:port,a.b.c.d:port" (the node's sentinels)
+fn csv_from(s: string, i: int64, n: int64) -> int64 {
+    case i >= length_bytes(s) of {
+        true -> n;
+        false -> csv_from(s, i + 1, case at(s, i) == 44 of { true -> n + 1; false -> n })
+    }
+}
+fn csv_count(s: string) -> int64 { case length_bytes(s) == 0 of { true -> 0; false -> csv_from(s, 0, 1) } }
+fn csv_skip(s: string, i: int64, k: int64) -> int64 {
+    case k <= 0 or i >= length_bytes(s) of {
+        true -> i;
+        false -> csv_skip(s, i + 1, case at(s, i) == 44 of { true -> k - 1; false -> k })
+    }
+}
+fn csv_end(s: string, i: int64) -> int64 {
+    case i >= length_bytes(s) of { true -> i; false -> case at(s, i) == 44 of { true -> i; false -> csv_end(s, i + 1) } }
+}
+fn csv_nth(s: string, k: int64) -> string {
+    a: int64 <- csv_skip(s, 0, k);
+    bees_trust_frame@cut(s, a, csv_end(s, a))
+}
+// an address this build dials: a dotted quad, a colon, a port of 1 to 65535 in decimal (a name is not resolved here)
+fn digits_ok(s: string, i: int64, stop: int64, dots: int64, run: int64) -> boolean {
+    case i >= stop of {
+        true -> dots == 3 and run > 0;
+        false -> {
+            b: int64 <- at(s, i);
+            case b == 46 of {
+                true -> run > 0 and digits_ok(s, i + 1, stop, dots + 1, 0);
+                false -> b >= 48 and b <= 57 and run < 3 and digits_ok(s, i + 1, stop, dots, run + 1)
+            }
+        }
+    }
+}
+fn port_from(s: string, i: int64, acc: int64) -> int64 {
+    case i >= length_bytes(s) of {
+        true -> acc;
+        false -> {
+            b: int64 <- at(s, i);
+            case b >= 48 and b <= 57 and acc < 100000 of { true -> port_from(s, i + 1, acc * 10 + b - 48); false -> 0 - 1 }
+        }
+    }
+}
+fn colon_at(s: string, i: int64) -> int64 {
+    case i >= length_bytes(s) of { true -> 0 - 1; false -> case at(s, i) == 58 of { true -> i; false -> colon_at(s, i + 1) } }
+}
+fn addr_ok(s: string) -> boolean {
+    c: int64 <- colon_at(s, 0);
+    case c < 7 or c + 1 >= length_bytes(s) of {
+        true -> false;
+        false -> {
+            p: int64 <- port_from(s, c + 1, 0);
+            p >= 1 and p <= 65535 and digits_ok(s, 0, c, 0, 0)
+        }
+    }
+}
+
+fn p_cons(p: $P$, q: $PL$) -> $PL$ {
+    sequence proc[mem(normal)]
+        r: $PL$ <- prepend[$P$, mem(normal)](p, q)
+    produces pure r end
+}
+fn d_cons(h: int64, t: $DL$) -> $DL$ {
+    sequence proc[mem(normal)]
+        r: $DL$ <- prepend[int64, mem(normal)](h, t)
+    produces pure r end
+}
+fn q_cons(m: $M$, q: $ML$) -> $ML$ {
+    sequence proc[mem(normal)]
+        r: $ML$ <- prepend[$M$, mem(normal)](m, q)
+    produces pure r end
+}
+fn e_cons(e: $E$, v: $L$) -> $L$ {
+    sequence proc[mem(normal)]
+        r: $L$ <- prepend[$E$, mem(normal)](e, v)
+    produces pure r end
+}
+// ---- what a node waits for: { k, cid, st, x, who, s } (the node part says what each k means)
+fn p_blank() -> $P$ { { k: 0, cid: 0, st: 0, x: 0, who: actor_ref_of_word(0), s: "" } }
+fn p_none() -> $PL$ {
+    sequence proc[mem(normal)]
+        e: $PL$ <- empty[$P$, mem(normal)]()
+    produces pure e end
+}
+fn p_push(q: $PL$, p: $P$) -> $PL$ {
+    case q of {
+        []: $PL$ -> { e: $PL$ <- p_none(); p_cons(p, e) };
+        [h: $P$, t: $PL$] -> { r: $PL$ <- p_push(t, p); p_cons(h, r) }
+    }
+}
+// the first waiting entry of kind k for store st (k 0 when there is none)
+fn p_first(q: $PL$, k: int64, st: int64) -> $P$ {
+    case q of {
+        []: $PL$ -> p_blank();
+        [h: $P$, t: $PL$] -> case h.k == k and h.st == st of { true -> h; false -> p_first(t, k, st) }
+    }
+}
+// the waiting entry with this connection number among kinds lo to hi
+fn p_cid(q: $PL$, cid: int64, lo: int64, hi: int64) -> $P$ {
+    case q of {
+        []: $PL$ -> p_blank();
+        [h: $P$, t: $PL$] -> case h.cid == cid and h.k >= lo and h.k <= hi of { true -> h; false -> p_cid(t, cid, lo, hi) }
+    }
+}
+// the list with the first entry that has was's kind, store and connection number replaced, in its place
+fn p_swap(q: $PL$, was: $P$, p: $P$) -> $PL$ {
+    case q of {
+        []: $PL$ -> q;
+        [h: $P$, t: $PL$] -> case h.k == was.k and h.st == was.st and h.cid == was.cid of {
+            true -> p_cons(p, t);
+            false -> { r: $PL$ <- p_swap(t, was, p); p_cons(h, r) }
+        }
+    }
+}
+// the list without the first entry that has p's kind, store and connection number
+fn p_drop(q: $PL$, p: $P$) -> $PL$ {
+    case q of {
+        []: $PL$ -> q;
+        [h: $P$, t: $PL$] -> case h.k == p.k and h.st == p.st and h.cid == p.cid of {
+            true -> t;
+            false -> { r: $PL$ <- p_drop(t, p); p_cons(h, r) }
+        }
+    }
+}
+
+// ---- draws
+fn d_none() -> $DL$ {
+    sequence proc[mem(normal)]
+        e: $DL$ <- empty[int64, mem(normal)]()
+    produces pure e end
+}
+fn d_app(a: $DL$, b: $DL$) -> $DL$ {
+    case a of {
+        []: $DL$ -> b;
+        [h: int64, t: $DL$] -> { r: $DL$ <- d_app(t, b); d_cons(h, r) }
+    }
+}
+fn d_split(a: $DL$, k: int64, front: $DL$) -> $DL$ {
+    case a of {
+        []: $DL$ -> front;
+        [h: int64, t: $DL$] -> case k <= 0 of {
+            true -> d_app(a, front);
+            false -> { one: $DL$ <- d_none(); f1: $DL$ <- d_cons(h, one); d_split(t, k - 1, d_app(front, f1)) }
+        }
+    }
+}
+fn d_size(a: $DL$) -> int64 { case a of { []: $DL$ -> 0; [_h: int64, t: $DL$] -> 1 + d_size(t) } }
+// the literal list turned left by j places
+fn d_rot(a: $DL$, j: int64) -> $DL$ {
+    n: int64 <- d_size(a);
+    e: $DL$ <- d_none();
+    case n == 0 of { true -> a; false -> d_split(a, j % n, e) }
+}
+// draws from text, "3,0,7" (how a trial's source gives a test node its literal list)
+fn draws_from(s: string, i: int64, acc: int64, have: boolean) -> $DL$ {
+    case i >= length_bytes(s) of {
+        true -> { e: $DL$ <- d_none(); case have of { true -> d_cons(acc, e); false -> e } };
+        false -> {
+            b: int64 <- at(s, i);
+            case b == 44 of {
+                true -> { r: $DL$ <- draws_from(s, i + 1, 0, false); case have of { true -> d_cons(acc, r); false -> r } };
+                false -> draws_from(s, i + 1, acc * 10 + b - 48, true)
+            }
+        }
+    }
+}
+fn draws_of(s: string) -> $DL$ { draws_from(s, 0, 0, false) }
+
+// ---- the store's messages
+fn e_none() -> $L$ { bees_tempus_view@none() }
+fn mk(op: int64, id: string, d: string, n: int64) -> $M$ {
+    e: $L$ <- e_none();
+    ds: $DL$ <- d_none();
+    bees_tempus_store_actor@msg(op, id, d, n, e, ds)
+}
+fn mk_e(op: int64, id: string, n: int64, entries: $L$) -> $M$ {
+    ds: $DL$ <- d_none();
+    bees_tempus_store_actor@msg(op, id, "", n, entries, ds)
+}
+fn mk_d(op: int64, draws: $DL$) -> $M$ {
+    e: $L$ <- e_none();
+    bees_tempus_store_actor@msg(op, "", "", 0, e, draws)
+}
+fn to_adp(adp: actor_ref, op: int64, id: string, d: string, n: int64) -> boolean {
+    m: $M$ <- mk(op, id, d, n);
+    sequence proc[concurrency]
+        ok: boolean <- cast(adp, m impl ActorMessage {})
+    produces pure ok end
+}
+fn to_store(a: $A$, m: $M$) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(a.st, m impl ActorMessage {})
+    produces pure ok end
+}
+fn to_node(a: $A$, me: actor_ref, op: int64, s1: string, s2: string, n: int64) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(a.node, (:bees, op, s1, s2, n, a.typ, me) impl ActorMessage {})
+    produces pure ok end
+}
+fn q_none() -> $ML$ {
+    sequence proc[mem(normal)]
+        e: $ML$ <- empty[$M$, mem(normal)]()
+    produces pure e end
+}
+fn q_push(q: $ML$, m: $M$) -> $ML$ {
+    case q of {
+        []: $ML$ -> { e: $ML$ <- q_none(); q_cons(m, e) };
+        [h: $M$, t: $ML$] -> { r: $ML$ <- q_push(t, m); q_cons(h, r) }
+    }
+}
+fn q_head(q: $ML$) -> $M$ { case q of { []: $ML$ -> mk(0 - 1, "", "", 0); [h: $M$, _t: $ML$] -> h } }
+fn q_tail(q: $ML$) -> $ML$ { case q of { []: $ML$ -> q; [_h: $M$, t: $ML$] -> t } }
+
+fn with_q(a: $A$, q: $ML$, j: int64) -> $A$ {
+    { node: a.node, st: a.st, up: a.up, typ: a.typ, id: a.id, d: a.d, own: a.own, cap: a.cap, count: a.count, test: a.test, skew: a.skew, lit: a.lit, j: j, q: q }
+}
+fn with_d(a: $A$, d: string) -> $A$ {
+    { node: a.node, st: a.st, up: a.up, typ: a.typ, id: a.id, d: d, own: a.own, cap: a.cap, count: a.count, test: a.test, skew: a.skew, lit: a.lit, j: a.j, q: a.q }
+}
+// hold m until the store's view has come
+fn hold(a: $A$, m: $M$) -> $A$ {
+    sequence
+        _: boolean <- to_store(a, mk(10, "", "", 0))
+    produces pure with_q(a, q_push(a.q, m), a.j) end
+}
+// after a change nobody waits for: the view line alone (test nodes)
+fn show(a: $A$) -> $A$ { case a.test of { true -> hold(a, mk(0, "", "", 0)); false -> a } }
+
+fn view_text(v: $L$, acc: string) -> string {
+    case v of {
+        []: $L$ -> acc;
+        [h: $E$, t: $L$] -> view_text(t, concat(concat(acc, " "), concat(concat(peer8(h.id), "@"), num(h.age))))
+    }
+}
+fn view_line(a: $A$, v: $L$) -> string {
+    concat(concat("view ", typ_text(a.typ)), concat(":", case bees_tempus_view@size(v) == 0 of { true -> " (empty)"; false -> view_text(v, "") }))
+}
+fn exp_of(e: $E$) -> int64 {
+    r: { ok: boolean, d: $D$ } <- bees_tempus_frame@desc_of(e.d);
+    d: $D$ <- r.d;
+    t: { ok: boolean, why: string, kid: string, sub: string, typ: int64, nbf: int64, exp: int64, payload: string, sig: string } <- bees_tempus_frame@tok(d.token);
+    case r.ok and t.ok of { true -> t.exp; false -> 0 }
+}
+// every entry whose token has expired is dropped from the store; the answer names them
+fn sweep(a: $A$, v: $L$, now: int64, acc: string) -> string {
+    case v of {
+        []: $L$ -> acc;
+        [h: $E$, t: $L$] -> case now >= exp_of(h) + a.skew of {
+            false -> sweep(a, t, now, acc);
+            true -> {
+                sequence
+                    _: boolean <- to_store(a, mk(8, h.id, "", 0))
+                produces pure sweep(a, t, now, concat(concat(acc, " "), peer8(h.id))) end
+            }
+        }
+    }
+}
+fn emit(a: $A$, me: actor_ref, m: $M$) -> boolean {
+    case m.op of {
+        20 -> to_node(a, me, 120, m.d, bees_tempus_frame@enc_entries(5, a.typ, m.entries), 0);
+        21 -> to_node(a, me, 121, m.id, bees_tempus_frame@enc_entries(6, a.typ, m.entries), m.n);
+        22 -> to_node(a, me, 122, m.id, "", m.n);
+        24 -> to_node(a, me, 124, "", "", m.n);
+        26 -> to_node(a, me, 126, "", bees_tempus_frame@enc_entries(8, a.typ, m.entries), m.n);
+        27 -> to_node(a, me, 129, "", "", m.n);
+        _: int64 -> true
+    }
+}
+// the store's view has come: the head of what is held decides what it was asked for
+fn on_view(a: $A$, me: actor_ref, v: $L$) -> $A$ {
+    h: $M$ <- q_head(a.q);
+    nxt: $A$ <- with_q(a, q_tail(a.q), a.j);
+    case h.op == 46 of {
+        true -> {
+            gone: string <- sweep(a, v, h.n, "");
+            sequence
+                _: boolean <- case length_bytes(gone) > 0 of { true -> to_node(a, me, 125, concat(concat("expired in ", typ_text(a.typ)), concat(":", gone)), "", 0); false -> true };
+                _: boolean <- to_store(a, mk(1, "", "", 0))
+            produces pure nxt end
+        };
+        false -> {
+            sequence
+                _: boolean <- case a.test and h.op >= 0 of { true -> to_node(a, me, 125, view_line(a, v), "", 0); false -> true };
+                _: boolean <- emit(a, me, h)
+            produces pure nxt end
+        }
+    }
+}
+// random bytes from the node's converter, seven per draw (design 3.5); none when the random source refused
+fn words(s: string, i: int64, acc: $DL$) -> $DL$ {
+    case 7 * i + 7 > length_bytes(s) of { true -> acc; false -> words(s, i + 1, d_cons(bees_trust_frame@word7(s, i), acc)) }
+}
+fn on_bytes(a: $A$, op: int64, raw: string) -> $A$ {
+    e: $DL$ <- d_none();
+    sequence
+        _: boolean <- to_store(a, mk_d(op, words(raw, 0, e)))
+    produces pure a end
+}
+fn on_draws(a: $A$, me: actor_ref, which: int64) -> $A$ {
+    case a.test of {
+        true -> {
+            sequence
+                _: boolean <- to_store(a, mk_d(1 + which, d_rot(a.lit, a.j)))
+            produces pure with_q(a, a.q, a.j + 1) end
+        };
+        false -> {
+            sequence
+                _: boolean <- to_node(a, me, 123, "", "", which)
+            produces pure a end
+        }
+    }
+}
+// a frame of entries from the node: kind and store must be this store's, else the answer is `bad`
+fn entries_in(a: $A$, body: string, kind: int64) -> { ok: boolean, entries: $L$ } {
+    e: { ok: boolean, why: string, store: int64, entries: $L$ } <- bees_tempus_frame@dec_entries(body, a.count);
+    { ok: bees_tempus_frame@kind(body) == kind and e.ok and e.store == a.typ, entries: e.entries }
+}
+fn on_request(a: $A$, me: actor_ref, m: $M$) -> $A$ {
+    e: { ok: boolean, entries: $L$ } <- entries_in(a, m.d, 5);
+    sequence
+        _: boolean <- case e.ok of { true -> to_store(a, mk_e(4, m.id, m.n, e.entries)); false -> to_node(a, me, 122, m.id, "", m.n) }
+    produces pure a end
+}
+fn on_reply(a: $A$, m: $M$) -> $A$ {
+    e: { ok: boolean, entries: $L$ } <- entries_in(a, m.d, 6);
+    sequence
+        _: boolean <- to_store(a, case e.ok of { true -> mk_e(5, "", 0, e.entries); false -> mk(6, "", "", 0) })
+    produces pure a end
+}
+// the node is told (129, n: the tag) when an insert it asked for is in the store; on a test node after the view line
+fn ack(a: $A$, me: actor_ref, tag: int64) -> $A$ {
+    case a.test of {
+        true -> hold(a, mk(27, "", "", tag));
+        false -> { sequence _: boolean <- to_node(a, me, 129, "", "", tag) produces pure a end }
+    }
+}
+fn on_joined(a: $A$, me: actor_ref, m: $M$) -> $A$ {
+    e: { ok: boolean, entries: $L$ } <- entries_in(a, m.d, 8);
+    sequence
+        _: boolean <- case e.ok of { true -> to_store(a, mk_e(7, "", 0, e.entries)); false -> true }
+    produces pure ack(a, me, m.n) end
+}
+fn on_insert(a: $A$, me: actor_ref, m: $M$) -> $A$ {
+    one: $L$ <- e_none();
+    l: $L$ <- e_cons(bees_tempus_view@entry(m.id, m.d, 0), one);
+    sequence
+        _: boolean <- to_store(a, mk_e(7, "", 0, l))
+    produces pure ack(a, me, m.n) end
+}
+fn pass(a: $A$, m: $M$) -> $A$ {
+    sequence
+        _: boolean <- to_store(a, m)
+    produces pure a end
+}
+fn handle(a: $A$, me: actor_ref, m: $M$) -> $A$ {
+    case m.op of {
+        20 -> case a.test of { true -> hold(a, m); false -> { sequence _: boolean <- emit(a, me, m) produces pure a end } };
+        21 -> case a.test of { true -> hold(a, m); false -> { sequence _: boolean <- emit(a, me, m) produces pure a end } };
+        24 -> case a.test of { true -> hold(a, m); false -> { sequence _: boolean <- emit(a, me, m) produces pure a end } };
+        22 -> { sequence _: boolean <- emit(a, me, m) produces pure a end };
+        26 -> { sequence _: boolean <- emit(a, me, m) produces pure a end };
+        23 -> on_draws(a, me, m.n);
+        25 -> on_view(a, me, m.entries);
+        40 -> on_request(a, me, m);
+        41 -> on_reply(a, m);
+        42 -> pass(a, mk(6, "", "", 0));
+        43 -> on_joined(a, me, m);
+        44 -> on_insert(a, me, m);
+        45 -> pass(a, mk(9, "", "", m.n));
+        46 -> hold(a, m);
+        47 -> pass(with_d(a, m.d), mk(11, "", m.d, 0));
+        48 -> show(pass(a, mk(8, m.id, "", 0)));
+        49 -> on_bytes(a, 2, m.d);
+        50 -> on_bytes(a, 3, m.d);
+        _: int64 -> a
+    }
+}
+fn boot(a: $A$, me: actor_ref) -> $A$ {
+    sequence
+        st: actor_ref <- bees_tempus_store_actor@start(a.id, a.d, a.own, a.cap, a.count, me)
+    produces pure { node: a.node, st: st, up: true, typ: a.typ, id: a.id, d: a.d, own: a.own, cap: a.cap, count: a.count, test: a.test, skew: a.skew, lit: a.lit, j: a.j, q: a.q } end
+}
+fn tadp(m: $M$, a: $A$) -> (:no_reply, $A$) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        a1: $A$ <- case a.up of { true -> a; false -> boot(a, me) };
+        a2: $A$ <- handle(a1, me, m)
+    produces pure (:no_reply, a2) end
+}
+
+// an adapter and, at its first message, its store. z: the store's type, the node's id and descriptor, whether the node's own
+// entry belongs in this store, capacity, shuffle length, control_test_only, the clock skew in seconds, the literal draws
+fn adp_start(node: actor_ref, z: $AZ$) -> actor_ref {
+    q: $ML$ <- q_none();
+    lit: $DL$ <- draws_of(z.lit);
+    a: $A$ <- { node: node, st: node, up: false, typ: z.typ, id: z.id, d: z.d, own: z.own, cap: z.cap, count: z.count, test: z.test, skew: z.skew, lit: lit, j: 0, q: q };
+    first: $M$ <- mk(0, "", "", 0);
+    sequence proc[concurrency]
+        ref: actor_ref <- spawn(a, tadp, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: boolean <- cast(ref, first impl ActorMessage {})
+    produces pure ref end
+}
+
+// ---- T7: what refuses a node's start, from its arguments alone (design 11, 16.3; ruling OQ-20). "" when it may start.
+// The bounds are the literal ceilings of section 8; no value is clamped.
+fn digits(s: string, i: int64) -> boolean {
+    case i >= length_bytes(s) of {
+        true -> length_bytes(s) > 0;
+        false -> { c: int64 <- at(s, i); case c >= 48 and c <= 57 of { true -> digits(s, i + 1); false -> false } }
+    }
+}
+// the carrier's listen text names a loopback address: "listen:PORT" (127.0.0.1) or "listen:127.a.b.c:PORT"
+fn loopback(listen: string) -> boolean {
+    case starts_with(listen, "listen:") of {
+        false -> false;
+        true -> {
+            rest: string <- bees_trust_frame@cut(listen, 7, length_bytes(listen));
+            digits(rest, 0) or starts_with(rest, "127.")
+        }
+    }
+}
+fn store_why(name: string, cap: int64, count: int64, tick: uint64) -> string {
+    case cap < 1 or cap > 256 of { true -> concat(name, ": capacity is not 1 to 256"); false ->
+    case count < 1 or count > 64 or count > cap of { true -> concat(name, ": shuffle_length is not 1 to 64 and at most the capacity"); false ->
+    case tick < 1 of { true -> concat(name, ": tick_ms is below 1"); false -> "" } } }
+}
+fn first_of(a: string, b: string) -> string { case length_bytes(a) > 0 of { true -> a; false -> b } }
+fn boot_why(idn: $NI$, net: $NN$, sz: $NZ$, tst: $NT$) -> string {
+    t: { ok: boolean, why: string, kid: string, sub: string, typ: int64, nbf: int64, exp: int64, payload: string, sig: string } <- bees_tempus_frame@tok(idn.token);
+    w1: string <- case idn.typ < 1 or idn.typ > 3 of { true -> "the node's type is not edge, bridge or sentinel"; false ->
+        case length_bytes(idn.id) != 64 or length_bytes(idn.pub) != 32 or length_bytes(idn.seed) != 32 of { true -> "the identity is not a 64-byte peer id, a 32-byte key and a 32-byte seed"; false ->
+        case t.ok == false of { true -> concat("the node's token does not read: ", t.why); false ->
+        case t.typ != idn.typ of { true -> "the node's token is for another peer type than the node's"; false ->
+        case t.sub != idn.pub of { true -> "the node's token names another key"; false -> "" } } } } };
+    w2: string <- case length_bytes(net.kid) < 1 or length_bytes(net.kid) > 64 or length_bytes(net.ppub) != 32 of { true -> "the producer key is not a kid of 1 to 64 bytes and a 32-byte key"; false ->
+        case net.max < 1 or net.max > 64 of { true -> "inflight_max is not 1 to 64"; false ->
+        case net.ms < 1 of { true -> "shuffle_timeout_ms is below 1"; false ->
+        case net.j0 < 1 or net.j1 < net.j0 of { true -> "the join's initial delay is below 1 or above its maximum"; false ->
+        case net.skew < 0 of { true -> "clock_skew is below 0"; false ->
+        case length_bytes(net.wl) % 128 != 0 of { true -> "the tempus whitelist is not 128 hex characters per certificate"; false -> "" } } } } } };
+    w3: string <- first_of(store_why("tempus_edge", sz.k1, sz.c1, sz.t1), first_of(store_why("tempus_bridge", sz.k2, sz.c2, sz.t2), store_why("tempus_sentinel", sz.k3, sz.c3, sz.t3)));
+    w4: string <- case tst.test and loopback(net.listen) == false of { true -> "control_test_only on a listen address that is not loopback"; false -> "" };
+    first_of(w4, first_of(w1, first_of(w2, w3)))
+}

@@ -1,0 +1,7 @@
+# the functions a TRUST peer may name on the N5 server nodes (tools/bees_trust_gen.py); permission is the whitelist's business
+export demo add 2 n5_demo@add args int64 result int64
+export demo echo 1 n5_demo@echo args string result string
+export demo slow 1 n5_demo@slow args int64 result int64
+export demo crash 1 n5_demo@crash args int64 result int64
+export demo note 1 n5_demo@note args int64 result int64
+export demo secret 0 n5_demo@secret args int64 result int64

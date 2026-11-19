@@ -1,0 +1,6 @@
+# the functions a TRUST peer may name on the node under test (tools/bees_trust_gen.py); permission is the whitelist's business
+export demo add 2 f1_demo@add args int64 result int64
+export demo echo 1 f1_demo@echo args string result string
+export demo crash 1 f1_demo@crash args int64 result int64
+export demo note 1 f1_demo@note args int64 result int64
+export demo secret 0 f1_demo@secret args int64 result int64

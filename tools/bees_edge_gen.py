@@ -41,6 +41,13 @@ RESOLVE_NONE = os.path.join(HERE, "..", "src", "shim", "bees_resolve_none.part")
 RESOLVE_USES = ["wire_etf", "bees_addr", "dangerous_bees_resolve"]
 # --resolve-stub (a trial's build-time test hook): the worker is dangerous_bees_resolve_stub, fixed answers for a few names
 RESOLVE_STUB_USES = ["wire_etf", "bees_addr", "dangerous_bees_resolve_stub"]
+# N2T (spikes/N2T-beam-tls.md): a BEAM-mode node program (dangerous_beam_net) gets beam_tls_link and beam_tls_listen, which
+# beam_node_edge.part calls where it makes a link carrier or opens the listener: with `--use dangerous_beam_tls` they wrap the
+# (:tcp) carrier in the BEAM TLS link (the program then links the TLS engine and OpenSSL); without it they return the carrier
+# untouched, and the program uses no TLS unit at all.
+BEAM_TLS_PART = os.path.join(HERE, "..", "src", "shim", "beam_tls_edge.part")
+BEAM_TLS_NONE = os.path.join(HERE, "..", "src", "shim", "beam_tls_none.part")
+BEAM_TLS_UNIT = "dangerous_beam_tls"
 HEADER_USES = ["bees_reporter", "bees_atoms", "carrier", "wireframe", "dangerous_sockets", "dangerous_tcp_carrier"]
 
 
@@ -99,6 +106,8 @@ def main(argv):
     if any_node:
         part = open(RESOLVE_PART if resolve else RESOLVE_NONE).read()
         text += part.replace("dangerous_bees_resolve@", "dangerous_bees_resolve_stub@") if stub else part
+    if "dangerous_beam_net" in uses:
+        text += open(BEAM_TLS_PART if BEAM_TLS_UNIT in uses else BEAM_TLS_NONE).read()
     for r in roles:
         text += "\n" + open(r).read()
     with open(out, "w") as f:

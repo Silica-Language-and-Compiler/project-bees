@@ -1,0 +1,61 @@
+== 2000 calls, sessions_seq
+rate: 2000 ok answers of 2000 calls, window 1 in ms 2574; latency ms <1:0 <2:1998 <5:2 <10:0 <20:0 <50:0 >=50:0
+rate.a.out peak resident set (bytes): 4161536
+rate.b.out peak resident set (bytes): 3833856
+== 2000 calls, sessions_win4
+rate: 2000 ok answers of 2000 calls, window 4 in ms 7295; latency ms <1:0 <2:299 <5:491 <10:6 <20:0 <50:1204 >=50:0
+rate.a.out peak resident set (bytes): 4587520
+rate.b.out peak resident set (bytes): 4587520
+== 2000 calls, sessions_win
+rate: 2000 ok answers of 2000 calls, window 8 in ms 5816; latency ms <1:0 <2:1 <5:16 <10:7 <20:5 <50:1971 >=50:0
+rate.a.out peak resident set (bytes): 4505600
+rate.b.out peak resident set (bytes): 4374528
+== 2000 calls, baseline_seq
+rate: 2000 ok answers of 2000 calls, window 1 in ms 11135; latency ms <1:0 <2:0 <5:756 <10:1215 <20:1 <50:28 >=50:0
+rate.a.out peak resident set (bytes): 7159808
+rate.b.out peak resident set (bytes): 7192576
+== 2000 calls, baseline_win
+rate: 2000 ok answers of 2000 calls, window 8 in ms 10997; latency ms <1:0 <2:0 <5:0 <10:7 <20:80 <50:1234 >=50:679
+rate.a.out peak resident set (bytes): 9191424
+rate.b.out peak resident set (bytes): 9404416
+== 6000 calls, sessions_seq
+rate: 6000 ok answers of 6000 calls, window 1 in ms 13957; latency ms <1:0 <2:5582 <5:185 <10:11 <20:17 <50:203 >=50:2
+rate.a.out peak resident set (bytes): 5193728
+rate.b.out peak resident set (bytes): 4947968
+== 6000 calls, sessions_win4
+rate: 6000 ok answers of 6000 calls, window 4 in ms 34408; latency ms <1:0 <2:16 <5:48 <10:10 <20:15 <50:5911 >=50:0
+rate.a.out peak resident set (bytes): 5210112
+rate.b.out peak resident set (bytes): 5095424
+== 6000 calls, sessions_win
+rate: 6000 ok answers of 6000 calls, window 8 in ms 17991; latency ms <1:0 <2:12 <5:11 <10:25 <20:18 <50:5926 >=50:8
+rate.a.out peak resident set (bytes): 5062656
+rate.b.out peak resident set (bytes): 5111808
+== 6000 calls, baseline_seq
+rate: 6000 ok answers of 6000 calls, window 1 in ms 25979; latency ms <1:0 <2:0 <5:5242 <10:742 <20:2 <50:14 >=50:0
+rate.a.out peak resident set (bytes): 11354112
+rate.b.out peak resident set (bytes): 10518528
+== 6000 calls, baseline_win
+rate: 6000 ok answers of 6000 calls, window 8 in ms 16469; latency ms <1:0 <2:0 <5:150 <10:998 <20:1571 <50:3252 >=50:29
+rate.a.out peak resident set (bytes): 14401536
+rate.b.out peak resident set (bytes): 14073856
+== 20000 calls, sessions_seq
+rate: 20000 ok answers of 20000 calls, window 1 in ms 26326; latency ms <1:27 <2:19909 <5:39 <10:1 <20:0 <50:24 >=50:0
+rate.a.out peak resident set (bytes): 7864320
+rate.b.out peak resident set (bytes): 6422528
+== 20000 calls, sessions_win4
+rate: 19996 ok answers of 20000 calls, window 4 in ms 1058150; latency ms <1:0 <2:51 <5:237 <10:93 <20:187 <50:19153 >=50:279
+rate.a.out peak resident set (bytes): 7487488
+rate.b.out peak resident set (bytes): 6799360
+== 20000 calls, sessions_win
+rate: 19988 ok answers of 20000 calls, window 8 in ms 996980; latency ms <1:0 <2:55 <5:116 <10:80 <20:219 <50:19357 >=50:173
+rate.a.out peak resident set (bytes): 8273920
+rate.b.out peak resident set (bytes): 8257536
+== 20000 calls, baseline_seq
+rate: 19999 ok answers of 20000 calls, window 1 in ms 996144; latency ms <1:0 <2:0 <5:19406 <10:352 <20:55 <50:165 >=50:22
+rate.a.out peak resident set (bytes): 24035328
+rate.b.out peak resident set (bytes): 20086784
+== 20000 calls, baseline_win
+rate: 4154 ok answers of 20000 calls, window 8 in ms 203845; latency ms <1:0 <2:2 <5:1360 <10:8579 <20:6724 <50:3271 >=50:64
+rate.a.out peak resident set (bytes): 27115520
+rate.b.out peak resident set (bytes): 24985600
+finished

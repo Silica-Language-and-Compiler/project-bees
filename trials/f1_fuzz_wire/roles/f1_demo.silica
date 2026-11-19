@@ -1,0 +1,45 @@
+// F1 (fuzzer): the demo service of the TRUST nodes under test (ts, tt), the functions their demo.trust manifest offers. As
+// trials/n3_trust's n3_demo, except that note prints its argument in decimal on one line: the fuzz driver's oracle reads that line
+// (an execution it cannot account for is a wrong acceptance), and there is no busy loop a peer could ask for.
+module f1_demo;
+use bees_atoms;
+
+export add/1;
+export echo/1;
+export crash/1;
+export note/1;
+export secret/1;
+
+fn sum(xs: List[int64, mem(normal)], acc: int64) -> int64 {
+    case xs of {
+        []: List[int64, mem(normal)] -> acc;
+        [h: int64, t: List[int64, mem(normal)]] -> sum(t, acc + h)
+    }
+}
+fn first_int(xs: List[int64, mem(normal)]) -> int64 {
+    case xs of { []: List[int64, mem(normal)] -> 0; [h: int64, _t: List[int64, mem(normal)]] -> h }
+}
+fn first_str(xs: List[string, mem(normal)]) -> string {
+    case xs of { []: List[string, mem(normal)] -> ""; [h: string, _t: List[string, mem(normal)]] -> h }
+}
+fn digits(n: int64, acc: string) -> string {
+    case n < 10 of {
+        true -> concat(substring("0123456789", n, n + 1), acc);
+        false -> digits(n / 10, concat(substring("0123456789", n % 10, n % 10 + 1), acc))
+    }
+}
+fn int_text(n: int64) -> string {
+    case n < 0 - 9223372036854775807 of {
+        true -> "-9223372036854775808";
+        false -> case n < 0 of { true -> concat("-", digits(0 - n, "")); false -> digits(n, "") }
+    }
+}
+fn add(xs: List[int64, mem(normal)]) -> (:ok, int64) | (:error, atom) { (:ok, sum(xs, 0)) }
+fn echo(xs: List[string, mem(normal)]) -> (:ok, string) | (:error, atom) { (:ok, first_str(xs)) }
+fn crash(xs: List[int64, mem(normal)]) -> (:ok, int64) | (:error, atom) { (:error, bees_atoms@a_badarith()) }
+fn note(xs: List[int64, mem(normal)]) -> (:ok, int64) | (:error, atom) {
+    sequence proc[device_io]
+        _: atom <- println(concat("[demo] note got ", int_text(first_int(xs))))
+    produces pure (:ok, first_int(xs)) end
+}
+fn secret(xs: List[int64, mem(normal)]) -> (:ok, int64) | (:error, atom) { (:ok, 42) }

@@ -1,0 +1,14 @@
+# node a's own atoms: the demo service's MFA names and its failure reason
+demo
+add
+echo
+slow
+crash
+note
+secret
+badarith
+# the names of the forbidden MFAs the negative suite sends: held by node a so that the forbidden guard, not the atom
+# policy, is what refuses them (an atom the program does not hold is refused first, as unknown_atom)
+apply
+bees_trust_admin
+reset

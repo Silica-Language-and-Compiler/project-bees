@@ -1,0 +1,15 @@
+// ---- N2T live trial, node beesr (F1-1, development-plan/spikes/F1-fuzzer.md): the dialing node of scenario bees_redials_epmd. It
+// only serves outbox, which prints what the stock node sends once BEES's redial (after a failed EPMD lookup) has connected.
+fn outbox(msg: { op: atom, n: int64 }, st: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- say(concat(concat("outbox got op=", bees_atoms@spelling(msg.op)), concat(" n=", case msg.n == 42 of { true -> "42"; false -> "?" })))
+    produces pure (:no_reply, st + 1) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- start_reporter();
+        o: actor_ref <- spawn_registered(0, outbox, bees_atoms@a_outbox(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        n: actor_ref <- node_start(io_ms(), tick_ms());
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

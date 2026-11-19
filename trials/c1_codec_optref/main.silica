@@ -1,0 +1,430 @@
+// C1 codec trial, optional references (recursive tuples; development-plan/spikes/C1-codec-term-coverage.md sections 2, 2.2,
+// 2.7). A message whose type holds ref?(L, normal, rec) is { r: region(L, normal), v: T }: bees_msgs@enc_<name> encodes v,
+// bees_msgs@dec_<name>(frame, r) decodes into the caller's region. Printed: chains built in a region, their bytes compared HERE
+// with the bytes stock Erlang (OTP 28, term_to_binary) writes for the same term (fixtures printed by
+// tools/bees_codec_fixtures.erl), each decoded into a fresh region and walked; a recursive tuple inside a tagged tuple and a
+// record (a map: erl's key order is not fixed, so its bytes are decoded, not compared); the refusals; many refusals and many
+// accepted decodes in a row (each in a scratch region of its own: bees_msgs@validate_named); and last the deliverer path: the
+// generated bees_peers@start_deliverer decodes a payload into a fresh region and casts { r, v } to the registered name
+// `chain`, where an actor of this program walks it. The frame cap is bees.config's beam.frame_size_max (1024); max_depth is
+// the type's nesting plus 64 (65 for the chain).
+use bees_atoms;
+use bees_msgs;
+use bees_peers;
+use bees_reporter;
+
+fn say(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+fn hexd(v: int64) -> string { substring("0123456789abcdef", v, v + 1) }
+fn at(s: string, i: int64) -> int64 {
+    sequence proc[transport]
+        b: int64 <- byte_at(s, i)
+    produces pure b end
+}
+fn hex_of(s: string, i: int64, n: int64) -> string {
+    case i >= n of {
+        true -> "";
+        false -> concat(concat(hexd(at(s, i) / 16), hexd(at(s, i) % 16)), hex_of(s, i + 1, n))
+    }
+}
+fn hex(s: string) -> string { hex_of(s, 0, length_bytes(s)) }
+fn hv(c: int64) -> int64 { case c >= 97 of { true -> c - 87; false -> c - 48 } }
+fn unhex_acc(s: string, i: int64, acc: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    case i < 0 of {
+        true -> acc;
+        false -> {
+            sequence proc[mem(normal)]
+                b: int64 <- hv(at(s, i)) * 16 + hv(at(s, i + 1));
+                l: List[int64, mem(normal)] <- prepend[int64, mem(normal)](b, acc)
+            produces pure unhex_acc(s, i - 2, l) end
+        }
+    }
+}
+fn unhex(s: string) -> string {
+    sequence proc[mem(normal), transport]
+        e: List[int64, mem(normal)] <- [];
+        xs: List[int64, mem(normal)] <- unhex_acc(s, length_bytes(s) - 2, e);
+        out: string <- bytes_of(xs)
+    produces pure out end
+}
+fn mk(s: string, n: int64) -> string {
+    case length_bytes(s) >= n of {
+        true -> substring(s, 0, n);
+        false -> mk(concat(s, s), n)
+    }
+}
+fn pos_text(n: int64) -> string {
+    case n < 10 of {
+        true -> substring("0123456789", n, n + 1);
+        false -> concat(pos_text(n / 10), substring("0123456789", n % 10, n % 10 + 1))
+    }
+}
+fn int_text(n: int64) -> string {
+    case n < 0 of {
+        true -> case n < -9223372036854775807 of { true -> "-9223372036854775808"; false -> concat("-", pos_text(0 - n)) };
+        false -> pos_text(n)
+    }
+}
+fn str_text(s: string) -> string {
+    case length_bytes(s) > 16 of {
+        true -> concat(concat("a string of ", int_text(length_bytes(s))), " bytes");
+        false -> concat(concat("\"", s), "\"")
+    }
+}
+fn verdict(a: atom) -> string { case a == :ok of { true -> "ok"; false -> bees_atoms@spelling(a) } }
+fn why(w: atom) -> string { concat("rejected ", bees_atoms@spelling(w)) }
+fn same(f: string, erl: string) -> string {
+    case hex(f) == erl of { true -> "  = erl"; false -> "  DIFFERS from erl" }
+}
+// a long frame is shown by its length and its first bytes
+fn shown(f: string) -> string {
+    case length_bytes(f) > 64 of {
+        true -> concat(concat(concat(hex_of(f, 0, 24), "... ("), int_text(length_bytes(f))), " bytes)");
+        false -> hex(f)
+    }
+}
+
+// ---- the chain (atom, int64, ref?(L, normal, rec))
+fn push(r: region(L, normal), top: ref?(L, normal, (atom, int64, ref?(L, normal, rec))), v: int64) -> ref?(L, normal, (atom, int64, ref?(L, normal, rec))) {
+    sequence proc[mem(normal)]
+        cell: ref(L, normal, (atom, int64, ref?(L, normal, rec))) <- alloc_rec(r, (:ok, v, top))
+    produces pure cell end
+}
+// cells 1 .. n - 1 (the innermost is 1), below a top cell that holds n: {ok,n,{ok,n-1,...{ok,1,none}}}
+fn below(r: region(L, normal), k: int64, n: int64, top: ref?(L, normal, (atom, int64, ref?(L, normal, rec)))) -> ref?(L, normal, (atom, int64, ref?(L, normal, rec))) {
+    case k >= n of {
+        true -> top;
+        false -> below(r, k + 1, n, push(r, top, k))
+    }
+}
+fn chain_of(r: region(L, normal), n: int64) -> (atom, int64, ref?(L, normal, rec)) {
+    sequence
+        rest: ref?(L, normal, (atom, int64, ref?(L, normal, rec))) <- below(r, 1, n, :none)
+    produces pure (:ok, n, rest) end
+}
+// "cells=N sum=S" and, for a short chain, the values in order
+fn walk(top: ref?(L, normal, (atom, int64, ref?(L, normal, rec))), n: int64, sum: int64, vals: string) -> string {
+    case top of {
+        :none -> concat(concat(concat(concat("cells=", int_text(n)), " sum="), int_text(sum)), case n > 8 of { true -> ""; false -> concat(" values:", vals) });
+        c: ref(L, normal, (atom, int64, ref?(L, normal, rec))) -> {
+            sequence proc[mem(normal)]
+                node: (atom, int64, ref?(L, normal, rec)) <- read_ref(c);
+                (_: atom, v: int64, nx: ref?(L, normal, (atom, int64, ref?(L, normal, rec)))) <- node
+            produces pure walk(nx, n + 1, sum + v, concat(concat(vals, " "), int_text(v))) end
+        }
+    }
+}
+fn t_chain(w: (atom, int64, ref?(L, normal, rec))) -> string {
+    sequence
+        (a: atom, v0: int64, nx: ref?(L, normal, (atom, int64, ref?(L, normal, rec)))) <- w
+    produces pure concat(concat(verdict(a), ", "), walk(nx, 1, v0, concat(" ", int_text(v0)))) end
+}
+fn r_chain(x: (:ok, (atom, int64, ref?(L, normal, rec))) | (:rejected, atom)) -> string {
+    case x of { (:ok, w: (atom, int64, ref?(L, normal, rec))) -> concat("ok ", t_chain(w)); (:rejected, w: atom) -> why(w) }
+}
+// decode into a fresh region (this function's own) and walk what was built there
+fn fresh_chain(frame: string) -> string {
+    sequence proc[mem(normal)]
+        L: lifetime <- fresh_lifetime();
+        r: region(L, normal) <- alloc_region(normal);
+        x: (:ok, (atom, int64, ref?(L, normal, rec))) | (:rejected, atom) <- bees_msgs@dec_chain(frame, r)
+    produces pure r_chain(x) end
+}
+fn go_chain(label: string, n: int64, erl: string) -> atom {
+    sequence proc[mem(normal)]
+        L: lifetime <- fresh_lifetime();
+        r: region(L, normal) <- alloc_region(normal);
+        top: (atom, int64, ref?(L, normal, rec)) <- chain_of(r, n);
+        m: { r: region(L, normal), v: (atom, int64, ref?(L, normal, rec)) } <- { r: r, v: top };
+        f: string <- bees_msgs@enc_chain(m);
+        _: atom <- say(concat(concat(concat(label, " "), shown(f)), same(f, erl)));
+        _: atom <- say(concat("  decoded into a fresh region: ", fresh_chain(f)));
+        fe: string <- unhex(erl);
+        _: atom <- say(concat("  erl's bytes decoded: ", fresh_chain(fe)))
+    produces pure :ok end
+}
+// a chain whose frame is above the frame cap: it is encoded (the proxy's send cap is what stops it on the way out) and refused
+fn over_cap(n: int64) -> atom {
+    sequence proc[mem(normal)]
+        L: lifetime <- fresh_lifetime();
+        r: region(L, normal) <- alloc_region(normal);
+        top: (atom, int64, ref?(L, normal, rec)) <- chain_of(r, n);
+        m: { r: region(L, normal), v: (atom, int64, ref?(L, normal, rec)) } <- { r: r, v: top };
+        f: string <- bees_msgs@enc_chain(m)
+    produces pure say(concat(concat(concat(concat(int_text(n), " cells, a frame of "), int_text(length_bytes(f))), " bytes, above the cap of 1024: "), fresh_chain(f))) end
+}
+fn x_chain(label: string, h: string) -> atom {
+    sequence
+        f: string <- unhex(h)
+    produces pure say(concat(concat(label, ": "), fresh_chain(f))) end
+}
+
+// ---- the tagged recursive tuple (:cons, int64, ref?(L, normal, rec)), alone and as a variant of a sum
+// (an empty slot is passed as the literal :none: a name of the sequence bound to :none and then written inside a tuple literal
+// is not an empty slot on the pin, see the C1 note)
+fn cons_cell(r: region(L, normal), top: ref?(L, normal, (:cons, int64, ref?(L, normal, rec))), v: int64) -> ref?(L, normal, (:cons, int64, ref?(L, normal, rec))) {
+    sequence proc[mem(normal)]
+        c: ref(L, normal, (:cons, int64, ref?(L, normal, rec))) <- alloc_rec(r, (:cons, v, top))
+    produces pure c end
+}
+fn walk_cons(top: ref?(L, normal, (:cons, int64, ref?(L, normal, rec))), vals: string) -> string {
+    case top of {
+        :none -> vals;
+        c: ref(L, normal, (:cons, int64, ref?(L, normal, rec))) -> {
+            sequence proc[mem(normal)]
+                node: (:cons, int64, ref?(L, normal, rec)) <- read_ref(c)
+            produces pure t_cons(node, vals) end
+        }
+    }
+}
+fn t_cons(w: (:cons, int64, ref?(L, normal, rec)), vals: string) -> string {
+    case w of { (:cons, v: int64, nx: ref?(L, normal, (:cons, int64, ref?(L, normal, rec)))) -> walk_cons(nx, concat(concat(vals, " "), int_text(v))) }
+}
+fn r_cons(x: (:ok, (:cons, int64, ref?(L, normal, rec))) | (:rejected, atom)) -> string {
+    case x of { (:ok, w: (:cons, int64, ref?(L, normal, rec))) -> concat("ok cons:", t_cons(w, "")); (:rejected, w: atom) -> why(w) }
+}
+fn fresh_cons(frame: string) -> string {
+    sequence proc[mem(normal)]
+        L: lifetime <- fresh_lifetime();
+        r: region(L, normal) <- alloc_region(normal);
+        x: (:ok, (:cons, int64, ref?(L, normal, rec))) | (:rejected, atom) <- bees_msgs@dec_cons(frame, r)
+    produces pure r_cons(x) end
+}
+fn t_lst(w: (:cons, int64, ref?(L, normal, rec)) | :nil) -> string {
+    case w of { (:cons, v: int64, nx: ref?(L, normal, (:cons, int64, ref?(L, normal, rec)))) -> concat("cons:", walk_cons(nx, concat(" ", int_text(v)))); :nil -> "nil" }
+}
+fn r_lst(x: (:ok, (:cons, int64, ref?(L, normal, rec)) | :nil) | (:rejected, atom)) -> string {
+    case x of { (:ok, w: (:cons, int64, ref?(L, normal, rec)) | :nil) -> concat("ok ", t_lst(w)); (:rejected, w: atom) -> why(w) }
+}
+fn fresh_lst(frame: string) -> string {
+    sequence proc[mem(normal)]
+        L: lifetime <- fresh_lifetime();
+        r: region(L, normal) <- alloc_region(normal);
+        x: (:ok, (:cons, int64, ref?(L, normal, rec)) | :nil) | (:rejected, atom) <- bees_msgs@dec_lst(frame, r)
+    produces pure r_lst(x) end
+}
+fn go_cons(erl: string) -> atom {
+    sequence proc[mem(normal)]
+        L: lifetime <- fresh_lifetime();
+        r: region(L, normal) <- alloc_region(normal);
+        c2: ref?(L, normal, (:cons, int64, ref?(L, normal, rec))) <- cons_cell(r, :none, 2);
+        top: (:cons, int64, ref?(L, normal, rec)) <- (:cons, 1, c2);
+        m: { r: region(L, normal), v: (:cons, int64, ref?(L, normal, rec)) } <- { r: r, v: top };
+        f: string <- bees_msgs@enc_cons(m);
+        _: atom <- say(concat(concat("{cons,1,{cons,2,none}} ", shown(f)), same(f, erl)));
+        _: atom <- say(concat("  decoded into a fresh region: ", fresh_cons(f)));
+        fe: string <- unhex(erl);
+        _: atom <- say(concat("  erl's bytes decoded: ", fresh_cons(fe)));
+        _: atom <- say("-- the same tuple as a variant of a sum: (:cons, int64, ref?(L, normal, rec)) | :nil");
+        v1: (:cons, int64, ref?(L, normal, rec)) | :nil <- (:cons, 1, c2);
+        m1: { r: region(L, normal), v: (:cons, int64, ref?(L, normal, rec)) | :nil } <- { r: r, v: v1 };
+        f1: string <- bees_msgs@enc_lst(m1);
+        _: atom <- say(concat(concat("{cons,1,{cons,2,none}} ", shown(f1)), same(f1, erl)));
+        _: atom <- say(concat("  decoded into a fresh region: ", fresh_lst(f1)));
+        v2: (:cons, int64, ref?(L, normal, rec)) | :nil <- :nil;
+        m2: { r: region(L, normal), v: (:cons, int64, ref?(L, normal, rec)) | :nil } <- { r: r, v: v2 };
+        f2: string <- bees_msgs@enc_lst(m2);
+        _: atom <- say(concat(concat("nil ", shown(f2)), same(f2, "8377036e696c")));
+        _: atom <- say(concat("  decoded into a fresh region: ", fresh_lst(f2)))
+    produces pure :ok end
+}
+fn x_cons(label: string, h: string) -> atom {
+    sequence
+        f: string <- unhex(h)
+    produces pure say(concat(concat(label, ": "), fresh_cons(f))) end
+}
+fn x_lst(label: string, h: string) -> atom {
+    sequence
+        f: string <- unhex(h)
+    produces pure say(concat(concat(label, ": "), fresh_lst(f))) end
+}
+
+// ---- a recursive tuple (int64, string, ref?(L, normal, rec)) inside a record, and inside a tagged tuple
+fn hd_cell(r: region(L, normal), top: ref?(L, normal, (int64, string, ref?(L, normal, rec))), k: int64, s: string) -> ref?(L, normal, (int64, string, ref?(L, normal, rec))) {
+    sequence proc[mem(normal)]
+        c: ref(L, normal, (int64, string, ref?(L, normal, rec))) <- alloc_rec(r, (k, s, top))
+    produces pure c end
+}
+fn walk_hd(top: ref?(L, normal, (int64, string, ref?(L, normal, rec))), vals: string) -> string {
+    case top of {
+        :none -> vals;
+        c: ref(L, normal, (int64, string, ref?(L, normal, rec))) -> {
+            sequence proc[mem(normal)]
+                node: (int64, string, ref?(L, normal, rec)) <- read_ref(c)
+            produces pure t_hd(node, vals) end
+        }
+    }
+}
+fn t_hd(w: (int64, string, ref?(L, normal, rec)), vals: string) -> string {
+    sequence
+        (k: int64, s: string, nx: ref?(L, normal, (int64, string, ref?(L, normal, rec)))) <- w
+    produces pure walk_hd(nx, concat(concat(concat(concat(vals, " "), int_text(k)), ":"), s)) end
+}
+fn t_idhead(id: int64, head: (int64, string, ref?(L, normal, rec))) -> string { concat(concat(concat("{ id: ", int_text(id)), ", head:"), concat(t_hd(head, ""), " }")) }
+fn t_holder(rc: { id: int64, head: (int64, string, ref?(L, normal, rec)) }) -> string { t_idhead(rc.id, rc.head) }
+fn r_holder(x: (:ok, { id: int64, head: (int64, string, ref?(L, normal, rec)) }) | (:rejected, atom)) -> string {
+    case x of { (:ok, w: { id: int64, head: (int64, string, ref?(L, normal, rec)) }) -> concat("ok ", t_holder(w)); (:rejected, w: atom) -> why(w) }
+}
+fn t_tagged(w: (:chain, { id: int64, head: (int64, string, ref?(L, normal, rec)) })) -> string {
+    case w of { (:chain, rc: { id: int64, head: (int64, string, ref?(L, normal, rec)) }) -> concat(concat("(chain, ", t_holder(rc)), ")") }
+}
+fn r_tagged(x: (:ok, (:chain, { id: int64, head: (int64, string, ref?(L, normal, rec)) })) | (:rejected, atom)) -> string {
+    case x of { (:ok, w: (:chain, { id: int64, head: (int64, string, ref?(L, normal, rec)) })) -> concat("ok ", t_tagged(w)); (:rejected, w: atom) -> why(w) }
+}
+fn fresh_holder(frame: string) -> string {
+    sequence proc[mem(normal)]
+        L: lifetime <- fresh_lifetime();
+        r: region(L, normal) <- alloc_region(normal);
+        x: (:ok, { id: int64, head: (int64, string, ref?(L, normal, rec)) }) | (:rejected, atom) <- bees_msgs@dec_holder(frame, r)
+    produces pure r_holder(x) end
+}
+fn fresh_tagged(frame: string) -> string {
+    sequence proc[mem(normal)]
+        L: lifetime <- fresh_lifetime();
+        r: region(L, normal) <- alloc_region(normal);
+        x: (:ok, (:chain, { id: int64, head: (int64, string, ref?(L, normal, rec)) })) | (:rejected, atom) <- bees_msgs@dec_tagged(frame, r)
+    produces pure r_tagged(x) end
+}
+fn go_inside(erl_holder: string, erl_tagged: string) -> atom {
+    sequence proc[mem(normal)]
+        L: lifetime <- fresh_lifetime();
+        r: region(L, normal) <- alloc_region(normal);
+        c2: ref?(L, normal, (int64, string, ref?(L, normal, rec))) <- hd_cell(r, :none, 2, "b");
+        head: (int64, string, ref?(L, normal, rec)) <- (1, "a", c2);
+        ho: { id: int64, head: (int64, string, ref?(L, normal, rec)) } <- { id: 7, head: head };
+        mh: { r: region(L, normal), v: { id: int64, head: (int64, string, ref?(L, normal, rec)) } } <- { r: r, v: ho };
+        fh: string <- bees_msgs@enc_holder(mh);
+        _: atom <- say(concat(concat("#{id=>7,head=>{1,<<\"a\">>,{2,<<\"b\">>,none}}} ", shown(fh)), "  (a map: erl's bytes are decoded, not compared)"));
+        _: atom <- say(concat("  decoded into a fresh region: ", fresh_holder(fh)));
+        feh: string <- unhex(erl_holder);
+        _: atom <- say(concat("  erl's bytes decoded: ", fresh_holder(feh)));
+        tg: (:chain, { id: int64, head: (int64, string, ref?(L, normal, rec)) }) <- (:chain, ho);
+        mt: { r: region(L, normal), v: (:chain, { id: int64, head: (int64, string, ref?(L, normal, rec)) }) } <- { r: r, v: tg };
+        ft: string <- bees_msgs@enc_tagged(mt);
+        _: atom <- say(concat(concat("{chain,#{id=>7,head=>{1,<<\"a\">>,{2,<<\"b\">>,none}}}} ", shown(ft)), "  (a map: erl's bytes are decoded, not compared)"));
+        _: atom <- say(concat("  decoded into a fresh region: ", fresh_tagged(ft)));
+        fet: string <- unhex(erl_tagged);
+        _: atom <- say(concat("  erl's bytes decoded: ", fresh_tagged(fet)))
+    produces pure :ok end
+}
+
+fn c60() -> string { "83680377026f6b613c680377026f6b613b680377026f6b613a680377026f6b6139680377026f6b6138680377026f6b6137680377026f6b6136680377026f6b6135680377026f6b6134680377026f6b6133680377026f6b6132680377026f6b6131680377026f6b6130680377026f6b612f680377026f6b612e680377026f6b612d680377026f6b612c680377026f6b612b680377026f6b612a680377026f6b6129680377026f6b6128680377026f6b6127680377026f6b6126680377026f6b6125680377026f6b6124680377026f6b6123680377026f6b6122680377026f6b6121680377026f6b6120680377026f6b611f680377026f6b611e680377026f6b611d680377026f6b611c680377026f6b611b680377026f6b611a680377026f6b6119680377026f6b6118680377026f6b6117680377026f6b6116680377026f6b6115680377026f6b6114680377026f6b6113680377026f6b6112680377026f6b6111680377026f6b6110680377026f6b610f680377026f6b610e680377026f6b610d680377026f6b610c680377026f6b610b680377026f6b610a680377026f6b6109680377026f6b6108680377026f6b6107680377026f6b6106680377026f6b6105680377026f6b6104680377026f6b6103680377026f6b6102680377026f6b610177046e6f6e65" }
+fn c65() -> string { "83680377026f6b6141680377026f6b6140680377026f6b613f680377026f6b613e680377026f6b613d680377026f6b613c680377026f6b613b680377026f6b613a680377026f6b6139680377026f6b6138680377026f6b6137680377026f6b6136680377026f6b6135680377026f6b6134680377026f6b6133680377026f6b6132680377026f6b6131680377026f6b6130680377026f6b612f680377026f6b612e680377026f6b612d680377026f6b612c680377026f6b612b680377026f6b612a680377026f6b6129680377026f6b6128680377026f6b6127680377026f6b6126680377026f6b6125680377026f6b6124680377026f6b6123680377026f6b6122680377026f6b6121680377026f6b6120680377026f6b611f680377026f6b611e680377026f6b611d680377026f6b611c680377026f6b611b680377026f6b611a680377026f6b6119680377026f6b6118680377026f6b6117680377026f6b6116680377026f6b6115680377026f6b6114680377026f6b6113680377026f6b6112680377026f6b6111680377026f6b6110680377026f6b610f680377026f6b610e680377026f6b610d680377026f6b610c680377026f6b610b680377026f6b610a680377026f6b6109680377026f6b6108680377026f6b6107680377026f6b6106680377026f6b6105680377026f6b6104680377026f6b6103680377026f6b6102680377026f6b610177046e6f6e65" }
+fn c66() -> string { "83680377026f6b6142680377026f6b6141680377026f6b6140680377026f6b613f680377026f6b613e680377026f6b613d680377026f6b613c680377026f6b613b680377026f6b613a680377026f6b6139680377026f6b6138680377026f6b6137680377026f6b6136680377026f6b6135680377026f6b6134680377026f6b6133680377026f6b6132680377026f6b6131680377026f6b6130680377026f6b612f680377026f6b612e680377026f6b612d680377026f6b612c680377026f6b612b680377026f6b612a680377026f6b6129680377026f6b6128680377026f6b6127680377026f6b6126680377026f6b6125680377026f6b6124680377026f6b6123680377026f6b6122680377026f6b6121680377026f6b6120680377026f6b611f680377026f6b611e680377026f6b611d680377026f6b611c680377026f6b611b680377026f6b611a680377026f6b6119680377026f6b6118680377026f6b6117680377026f6b6116680377026f6b6115680377026f6b6114680377026f6b6113680377026f6b6112680377026f6b6111680377026f6b6110680377026f6b610f680377026f6b610e680377026f6b610d680377026f6b610c680377026f6b610b680377026f6b610a680377026f6b6109680377026f6b6108680377026f6b6107680377026f6b6106680377026f6b6105680377026f6b6104680377026f6b6103680377026f6b6102680377026f6b610177046e6f6e65" }
+
+fn values() -> atom {
+    sequence
+        _: atom <- say("-- a chain: (atom, int64, ref?(L, normal, rec))");
+        _: atom <- go_chain("{ok,1,none}", 1, "83680377026f6b610177046e6f6e65");
+        _: atom <- go_chain("{ok,3,{ok,2,{ok,1,none}}}", 3, "83680377026f6b6103680377026f6b6102680377026f6b610177046e6f6e65");
+        _: atom <- x_chain("erl's {ok,5,{ok,3,{ok,4,none}}}", "83680377026f6b6105680377026f6b6103680377026f6b610477046e6f6e65");
+        _: atom <- go_chain("60 cells", 60, c60());
+        _: atom <- go_chain("65 cells (max_depth is 65)", 65, c65());
+        _: atom <- say("-- a tagged recursive tuple: (:cons, int64, ref?(L, normal, rec))");
+        _: atom <- go_cons("8368037704636f6e73610168037704636f6e73610277046e6f6e65");
+        _: atom <- say("-- a recursive tuple inside a record and inside a tagged tuple: (:chain, { id: int64, head: (int64, string, ref?(L, normal, rec)) })");
+        _: atom <- go_inside("837400000002770269646107770468656164680361016d0000000161680361026d000000016277046e6f6e65", "8368027705636861696e7400000002770269646107770468656164680361016d0000000161680361026d000000016277046e6f6e65")
+    produces pure :ok end
+}
+
+fn refusals() -> atom {
+    sequence
+        _: atom <- say("-- refusals, decoded as (atom, int64, ref?(L, normal, rec))");
+        _: atom <- go_chain("66 cells, one deeper than max_depth", 66, c66());
+        _: atom <- x_chain("the slot holds an atom other than none: {ok,1,nil}", "83680377026f6b610177036e696c");
+        _: atom <- x_chain("the slot holds an atom the program does not hold: {ok,1,zzqx}", "83680377026f6b610177047a7a7178");
+        _: atom <- x_chain("the slot of the third cell holds nil: {ok,5,{ok,3,{ok,4,nil}}}", "83680377026f6b6105680377026f6b6103680377026f6b610477036e696c");
+        _: atom <- x_chain("the slot holds an integer: {ok,1,2}", "83680377026f6b61016102");
+        _: atom <- x_chain("the slot holds a cell of another arity: {ok,1,{ok,2}}", "83680377026f6b6101680277026f6b6102");
+        _: atom <- x_chain("the cell's atom is one the program does not hold: {zzqx,1,none}", "83680377047a7a7178610177046e6f6e65");
+        _: atom <- x_chain("empty frame", "");
+        _: atom <- x_chain("truncated after the first cell's integer", "83680377026f6b6105");
+        _: atom <- x_chain("truncated inside the second cell", "83680377026f6b6105680377026f");
+        _: atom <- x_chain("truncated inside the last slot's atom", "83680377026f6b6105680377026f6b6103680377026f6b610477046e6f");
+        _: atom <- x_chain("trailing byte", "83680377026f6b610177046e6f6e6500");
+        _: atom <- over_cap(200);
+        _: atom <- x_cons("cons, a cell with another tag: {cons,1,{ok,2,none}}", "8368037704636f6e736101680377026f6b610277046e6f6e65");
+        _: atom <- x_cons("cons, the slot holds nil: {cons,1,nil}", "8368037704636f6e73610177036e696c");
+        _: atom <- x_lst("lst, the slot holds nil (a variant of the sum, not an empty slot): {cons,1,nil}", "8368037704636f6e73610177036e696c");
+        _: atom <- x_lst("lst, the atom none (an empty slot, not a variant)", "8377046e6f6e65")
+    produces pure :ok end
+}
+
+// many decodes in a row through validate_named, each into a scratch region of its own
+fn count(i: int64, n: int64, frame: string, want: atom, hits: int64) -> int64 {
+    case i >= n of {
+        true -> hits;
+        false -> {
+            sequence
+                a: atom <- bees_msgs@validate_named(frame, bees_atoms@a_chain());
+                h: int64 <- case a == want of { true -> hits + 1; false -> hits }
+            produces pure count(i + 1, n, frame, want, h) end
+        }
+    }
+}
+fn memory() -> atom {
+    sequence
+        _: atom <- say("-- 20000 decodes in a row of each, every one into a scratch region (validate_named)");
+        deep: string <- unhex(c66());
+        n1: int64 <- count(0, 20000, deep, :too_deep, 0);
+        _: atom <- say(concat("66 cells, refused too_deep: ", int_text(n1)));
+        good: string <- unhex(c60());
+        n2: int64 <- count(0, 20000, good, :ok, 0);
+        _: atom <- say(concat("60 cells, accepted: ", int_text(n2)))
+    produces pure :ok end
+}
+
+// ---- the deliverer path. The actor registered as `chain` receives { r, v }; each message it reads starts the next delivery, so
+// the order of the lines does not depend on scheduling. A refused payload is dropped by its deliverer: nothing arrives for it.
+fn deliver(h: string) -> atom {
+    sequence proc[concurrency]
+        f: string <- unhex(h);
+        d: actor_ref <- bees_peers@start_deliverer(bees_peers@local_index(bees_atoms@a_chain()));
+        _: boolean <- cast(d, f impl ActorMessage {})
+    produces pure :ok end
+}
+fn next(step: int64) -> atom {
+    case step of {
+        0 -> deliver("83680377026f6b6105680377026f6b6103680377026f6b610477046e6f6e65");
+        1 -> deliver(c60());
+        2 -> {
+            sequence
+                _: atom <- say("actor chain: now a payload of 66 cells (refused), one whose slot holds nil (refused), then {ok,1,none}");
+                _: atom <- deliver(c66());
+                _: atom <- deliver("83680377026f6b610177036e696c")
+            produces pure deliver("83680377026f6b610177046e6f6e65") end
+        };
+        _: int64 -> say("actor chain: done")
+    }
+}
+fn rx(msg: { r: region(L, normal), v: (atom, int64, ref?(L, normal, rec)) }, st: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- say(concat(concat(concat("actor chain, message ", int_text(st)), ": "), t_chain(msg.v)));
+        _: atom <- next(st)
+    produces pure (:no_reply, st + 1) end
+}
+// the sender's side: a chain built in a fresh region and the region, in one message
+fn built(n: int64) -> { r: region(L, normal), v: (atom, int64, ref?(L, normal, rec)) } {
+    sequence proc[mem(normal)]
+        L: lifetime <- fresh_lifetime();
+        r: region(L, normal) <- alloc_region(normal);
+        top: (atom, int64, ref?(L, normal, rec)) <- chain_of(r, n)
+    produces pure { r: r, v: top } end
+}
+
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- bees_reporter@start();
+        _: atom <- values();
+        _: atom <- refusals();
+        _: atom <- memory();
+        _: atom <- say("-- the deliverer path: bees_peers@start_deliverer decodes into a fresh region and casts { r, v } to the name chain");
+        _: actor_ref <- spawn_registered(0, rx, bees_atoms@a_chain(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        m: { r: region(L, normal), v: (atom, int64, ref?(L, normal, rec)) } <- built(4);
+        _: boolean <- cast_registered(bees_atoms@a_chain(), m impl ActorMessage {});
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

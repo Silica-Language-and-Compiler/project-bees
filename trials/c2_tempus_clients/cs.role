@@ -1,0 +1,48 @@
+// C2 clients trial: the Silica client as a SENTINEL (identity 2, the certificate the node's tempus whitelist holds). It
+// listens at the address node M's configuration names as its sentinel, so M joins through it (three requests, before
+// step 1); then it walks its steps, which use the sentinel store and, with a tempus_bridge token, the bridge store.
+// It goes on listening afterwards: while dangerous_ce runs, M asks it again whenever a tick finds a store empty.
+fn me_id() -> int64 { 2 }
+fn deftok() -> int64 { 11 }
+fn port() -> int64 { 23905 }
+fn node_port() -> int64 { 23901 }
+fn start_after() -> int64 { 3 }
+fn steps() -> int64 { 10 }
+fn step_of(k: int64) -> $CST$ {
+    case k of {
+        1 -> s("sample of the sentinel store (row 2: what the client answered at the join is there)", bees_tempus_client@sample(3, 2));
+        2 -> s("the same sample again (row 23: a sample changes nothing)", bees_tempus_client@sample(3, 2));
+        3 -> s("a tick of the sentinel store: the client is the oldest entry and is dialed (rows 4, 5, 10)", bees_tempus_client@tick(3));
+        4 -> s("sample of the sentinel store", bees_tempus_client@sample(3, 2));
+        5 -> s("shuffle of the sentinel store as the initiator: itself at age 0 and x3 as a sentinel at age 7 (row 8)", bees_tempus_client@shuffle(3, l2(ent(2, 11, 23905, 0), ent(6, 3, 23907, 7))));
+        6 -> s("a tick of the bridge store, which is empty: the node asks its sentinel again (row 22)", bees_tempus_client@tick(2));
+        7 -> sa("with a tempus_bridge token: a tick of the bridge store, the client is dialed (rows 4, 5, 10)", bees_tempus_client@tick(2), 13, 2, 0);
+        8 -> sa("with a tempus_bridge token: shuffle of the bridge store as the initiator (row 8)", bees_tempus_client@shuffle(2, l1(ent(2, 13, 23905, 0))), 13, 2, 0);
+        9 -> s("sample of the bridge store", bees_tempus_client@sample(2, 2));
+        _: int64 -> s("a shuffle of the sentinel store with an entry whose token says tempus_edge (row 9: no mixing)", bees_tempus_client@shuffle(3, l1(ent(4, 1, 23907, 0))))
+    }
+}
+fn on_sample(k: int64, store: int64) -> $CRA$ {
+    case store of {
+        1 -> answer("answers with x1 at age 1", bees_tempus_client@sample_answer(1, l1(ent(4, 1, 23907, 1))));
+        2 -> case k == 0 of {
+            true -> answer("answers with no entry", bees_tempus_client@sample_answer(2, l0()));
+            false -> answer("answers with itself as a bridge at age 0", bees_tempus_client@sample_answer(2, l1(ent(2, 13, 23905, 0))))
+        };
+        _: int64 -> answer("answers with itself at age 0", bees_tempus_client@sample_answer(3, l1(ent(2, 11, 23905, 0))))
+    }
+}
+fn on_shuffle(store: int64) -> $CRA$ {
+    case store of {
+        2 -> answer("answers with the bridge identity at age 2", bees_tempus_client@shuffle_answer(2, l1(ent(3, 2, 23907, 2))));
+        _: int64 -> answer("answers with the bridge identity as a sentinel at age 1", bees_tempus_client@shuffle_answer(3, l1(ent(3, 3, 23907, 1))))
+    }
+}
+fn on_request(k: int64, body: string) -> $CRA$ {
+    st: int64 <- bees_tempus_client@request_store(body, 8);
+    case bees_tempus_client@reply_kind(body) of {
+        7 -> on_sample(k, st);
+        5 -> on_shuffle(st);
+        _: int64 -> act(21, "closes with no reply")
+    }
+}

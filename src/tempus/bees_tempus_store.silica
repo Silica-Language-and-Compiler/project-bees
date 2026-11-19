@@ -27,6 +27,7 @@
 //   insert(s, e)         an admitted peer enters the view by the merge rules (a joiner at a sentinel).
 //   drop(s, id)          a peer leaves the view (failed proof of possession, expired token).
 //   tick_draws(s, ds), reply_draws(s, ds)   the holder's refill.
+//   with_me(s, d)        the node's own descriptor replaced (a refreshed token, design section 6): the next buffer carries it.
 module bees_tempus_store;
 use bees_tempus_view;
 
@@ -44,6 +45,7 @@ export view_of/1;
 export phase_of/1;
 export needs_tick_draws/1;
 export needs_reply_draws/1;
+export with_me/2;
 
 fn no_draws() -> List[int64, mem(normal)] {
     sequence proc[mem(normal)]
@@ -155,7 +157,8 @@ fn reply(s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], se
         true -> case k > s.count of {
             true -> failed(s);
             false -> {
-                m: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@merge(s.view, received, s.me.id, s.cap);
+                rcv: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@prefer_sent(received, s.sent);
+                m: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@merge(s.view, rcv, s.me.id, s.cap);
                 back: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@backfill(m, s.sent, s.cap);
                 idle(s, back)
             }
@@ -175,7 +178,8 @@ fn request(s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], 
             r: { sent: List[{ id: string, d: string, age: int64 }, mem(normal)], rest: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_view@reply_select(s.view, s.count, asker, s.rdraws);
             out: List[{ id: string, d: string, age: int64 }, mem(normal)] <- r.sent;
             kept: List[{ id: string, d: string, age: int64 }, mem(normal)] <- r.rest;
-            m: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@merge(kept, received, s.me.id, s.cap);
+            rcv: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@prefer_sent(received, out);
+            m: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@merge(kept, rcv, s.me.id, s.cap);
             back: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@backfill(m, out, s.cap);
             used: List[int64, mem(normal)] <- no_draws();
             z: { cap: int64, count: int64, own: boolean } <- sizes_of(s);
@@ -204,4 +208,9 @@ fn insert(s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], s
 fn drop(s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, id: string) -> { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } {
     v: List[{ id: string, d: string, age: int64 }, mem(normal)] <- bees_tempus_view@remove(s.view, id);
     with_view(s, v)
+}
+fn with_me(s: { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean }, self_d: string) -> { view: List[{ id: string, d: string, age: int64 }, mem(normal)], sent: List[{ id: string, d: string, age: int64 }, mem(normal)], pend: { id: string, d: string, age: int64 }, phase: int64, tdraws: List[int64, mem(normal)], rdraws: List[int64, mem(normal)], me: { id: string, d: string, age: int64 }, cap: int64, count: int64, own: boolean } {
+    z: { cap: int64, count: int64, own: boolean } <- sizes_of(s);
+    me: { id: string, d: string, age: int64 } <- bees_tempus_view@entry(s.me.id, self_d, 0);
+    make(s.view, s.sent, s.pend, s.phase, s.tdraws, s.rdraws, me, z)
 }

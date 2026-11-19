@@ -14,6 +14,7 @@
 //    7 insert (entries: admitted peers)   8 drop (id)
 //    9 sample (n: how many, d: the link's tag as text is not needed: the answer goes to the link)
 //   10 give the view
+//   11 the node's own descriptor replaced (d)
 // From the store to its link (id is always the store's own node id unless said):
 //   20 shuffle out (id, d: the partner's id and descriptor; entries: the buffer)
 //   21 the answer to a request (id: the asker, n: the tag, entries)     22 request refused (id: the asker, n: the tag)
@@ -171,6 +172,7 @@ fn handle(m: { op: int64, id: string, d: string, n: int64, entries: List[{ id: s
         8 -> act(bees_tempus_store@drop(a.s, m.id), a.lnk);
         9 -> on_sample(a, m.n);
         10 -> on_view(a);
+        11 -> act(bees_tempus_store@with_me(a.s, m.d), a.lnk);
         _: int64 -> a
     }
 }

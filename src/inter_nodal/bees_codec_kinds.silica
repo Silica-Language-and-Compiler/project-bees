@@ -1,0 +1,912 @@
+// BEES helpers of the typed kinds that have no derived form (C1, development-plan/spikes/C1-codec-term-coverage.md 2.3 to
+// 2.6): maps with value keys, sets, buf, and the composites around them. The generated bees_msgs calls these; nothing here
+// knows a message type. Like bees_etf_scan (which it uses for every position) it reads and writes only tags, counts and
+// atom names of record keys: every VALUE is converted by the language's derived encode and decode in the generated unit,
+// on a frame of its own (131 and one term) that these helpers cut out or put together.
+//
+// Two conventions:
+//   a frame that cannot be built is "" (a value that cannot be sent: more than max_entries() pairs, a duplicate key, a buf
+//     whose count is out of range). app, push and the *_frame functions pass "" on, so one test at the end is enough;
+//   a decode question answers a NEGATIVE code (bees_etf_scan@code_reason gives the atom) or a list of positions whose first
+//     element is 0, or that code alone: [code].
+// Nothing is allocated before the header of a map, set or list has been checked against the limit and the bytes that remain.
+module bees_codec_kinds;
+use bees_etf_scan;
+
+export max_entries/0;
+export frame_check/2;
+export nth/2;
+export part/2;
+export app/2;
+export push/2;
+export push_pair/3;
+export push_elem/2;
+export push_member/2;
+export pair_ok/4;
+export seen/2;
+export no_strs/0;
+export no_ints/0;
+export atom_term/1;
+export tuple_head/1;
+export map_head/1;
+export map_frame/2;
+export list_frame/2;
+export tuple_parts/3;
+export record_parts/2;
+export list_open/1;
+export list_close/2;
+export map_open/1;
+export pair_end/2;
+export nil_end/2;
+export at_end/2;
+export byte_int/1;
+export int_byte/1;
+
+// the most pairs of a map and elements of a set, in both directions (the duplicate check is quadratic; ruling Q5)
+fn max_entries() -> int64 { 1024 }
+
+fn at(s: string, i: int64) -> int64 {
+    sequence proc[transport]
+        b: int64 <- byte_at(s, i)
+    produces pure b end
+}
+fn no_strs() -> List[string, mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[string, mem(normal)] <- []
+    produces pure e end
+}
+fn no_ints() -> List[int64, mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[int64, mem(normal)] <- []
+    produces pure e end
+}
+fn one_int(n: int64) -> List[int64, mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[int64, mem(normal)] <- [n]
+    produces pure e end
+}
+fn rev_ints(xs: List[int64, mem(normal)], acc: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    case xs of {
+        []: List[int64, mem(normal)] -> acc;
+        [h: int64, t: List[int64, mem(normal)]] -> {
+            sequence proc[mem(normal)]
+                l: List[int64, mem(normal)] <- prepend[int64, mem(normal)](h, acc)
+            produces pure rev_ints(t, l) end
+        }
+    }
+}
+fn rev_strs(xs: List[string, mem(normal)], acc: List[string, mem(normal)]) -> List[string, mem(normal)] {
+    case xs of {
+        []: List[string, mem(normal)] -> acc;
+        [h: string, t: List[string, mem(normal)]] -> {
+            sequence proc[mem(normal)]
+                l: List[string, mem(normal)] <- prepend[string, mem(normal)](h, acc)
+            produces pure rev_strs(t, l) end
+        }
+    }
+}
+fn cons_int(h: int64, t: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    sequence proc[mem(normal)]
+        l: List[int64, mem(normal)] <- prepend[int64, mem(normal)](h, t)
+    produces pure l end
+}
+// the i-th element (0 first) of a list of positions; -2 when there is none
+fn nth(ps: List[int64, mem(normal)], i: int64) -> int64 {
+    case ps of {
+        []: List[int64, mem(normal)] -> 0 - 2;
+        [h: int64, t: List[int64, mem(normal)]] -> case i <= 0 of { true -> h; false -> nth(t, i - 1) }
+    }
+}
+
+// ---- a whole frame ----
+// 0 when the frame may be looked at: not above max_bytes (-5 too_large), not empty (-2 truncated), 131 first (-1 bad_version)
+fn frame_check(frame: string, max_bytes: int64) -> int64 {
+    len: int64 <- length_bytes(frame);
+    case len > max_bytes of {
+        true -> 0 - 5;
+        false -> case len < 1 of {
+            true -> 0 - 2;
+            false -> case at(frame, 0) == 131 of { true -> 0; false -> 0 - 1 }
+        }
+    }
+}
+// 0 when pos is the end of the frame, -3 (trailing_bytes) when bytes follow, pos itself when it is a code
+fn at_end(frame: string, pos: int64) -> int64 {
+    case pos < 0 of {
+        true -> pos;
+        false -> case pos == length_bytes(frame) of { true -> 0; false -> 0 - 3 }
+    }
+}
+// the term at pos as a frame of its own (131 and its bytes); "" when pos is a code or the term does not end in the frame
+// (the derived decode of "" is :truncated)
+fn part(frame: string, pos: int64) -> string {
+    case pos < 0 of {
+        true -> "";
+        false -> bees_etf_scan@slice_term(frame, pos, bees_etf_scan@skip(frame, pos))
+    }
+}
+
+// ---- putting a frame together ----
+// acc and the term of the frame `piece` after it; "" when either is ""
+fn app(acc: string, piece: string) -> string {
+    case length_bytes(acc) == 0 or length_bytes(piece) == 0 of {
+        true -> "";
+        false -> {
+            sequence proc[mem(normal), transport]
+                body: string <- bees_etf_scan@body_of(piece);
+                parts: List[string, mem(normal)] <- [acc, body];
+                out: string <- join_bytes(parts)
+            produces pure out end
+        }
+    }
+}
+// a fragment in front of the fragments collected so far (newest first)
+fn push(acc: List[string, mem(normal)], s: string) -> List[string, mem(normal)] {
+    sequence proc[mem(normal)]
+        l: List[string, mem(normal)] <- prepend[string, mem(normal)](s, acc)
+    produces pure l end
+}
+// the term of the frame `piece` as the newest fragment
+fn push_elem(acc: List[string, mem(normal)], piece: string) -> List[string, mem(normal)] {
+    push(acc, bees_etf_scan@body_of(piece))
+}
+// a set's element: the term of its frame and NIL_EXT, the value the sets module gives every element
+fn push_member(acc: List[string, mem(normal)], piece: string) -> List[string, mem(normal)] {
+    push(push(acc, bees_etf_scan@body_of(piece)), "\x6a")
+}
+// the terms of a key frame and a value frame as the newest fragments
+fn push_pair(acc: List[string, mem(normal)], key: string, value: string) -> List[string, mem(normal)] {
+    push(push(acc, bees_etf_scan@body_of(key)), bees_etf_scan@body_of(value))
+}
+// the same bytes as one of the canonical frames seen so far
+fn seen(keys: List[string, mem(normal)], k: string) -> boolean {
+    case keys of {
+        []: List[string, mem(normal)] -> false;
+        [h: string, t: List[string, mem(normal)]] -> case bees_etf_scan@bytes_compare(h, k) == 0 of { true -> true; false -> seen(t, k) }
+    }
+}
+// may the n-th pair (0 first) be written: under the limit, both frames built, the key not written before
+fn pair_ok(n: int64, keys: List[string, mem(normal)], key: string, value: string) -> boolean {
+    case n >= max_entries() or length_bytes(key) == 0 or length_bytes(value) == 0 of {
+        true -> false;
+        false -> case seen(keys, key) of { true -> false; false -> true }
+    }
+}
+fn ints_string(xs: List[int64, mem(normal)]) -> string {
+    sequence proc[mem(normal), transport]
+        s: string <- bytes_of(xs)
+    produces pure s end
+}
+fn head5(tag: int64, n: int64) -> string {
+    sequence proc[mem(normal)]
+        xs: List[int64, mem(normal)] <- [131, tag, n / 16777216, (n / 65536) % 256, (n / 256) % 256, n % 256]
+    produces pure ints_string(xs) end
+}
+// the frame of the atom `name` as SMALL_ATOM_UTF8_EXT (a record's key, a tuple's tag); the generator gives names of at
+// most 255 bytes
+fn atom_term(name: string) -> string {
+    sequence proc[mem(normal), transport]
+        xs: List[int64, mem(normal)] <- [131, 119, length_bytes(name)];
+        head: string <- bytes_of(xs);
+        parts: List[string, mem(normal)] <- [head, name];
+        out: string <- join_bytes(parts)
+    produces pure out end
+}
+// 131 and the header of a tuple of n elements (SMALL_TUPLE_EXT, or LARGE_TUPLE_EXT above 255)
+fn tuple_head(n: int64) -> string {
+    case n > 255 of {
+        true -> head5(105, n);
+        false -> {
+            sequence proc[mem(normal)]
+                xs: List[int64, mem(normal)] <- [131, 104, n]
+            produces pure ints_string(xs) end
+        }
+    }
+}
+// 131 and the header of a map of n pairs
+fn map_head(n: int64) -> string { head5(116, n) }
+fn joined(head: string, parts: List[string, mem(normal)]) -> string {
+    sequence proc[mem(normal), transport]
+        fwd: List[string, mem(normal)] <- rev_strs(parts, no_strs());
+        all: List[string, mem(normal)] <- prepend[string, mem(normal)](head, fwd);
+        s: string <- join_bytes(all)
+    produces pure s end
+}
+// the map of n pairs whose key and value terms were collected newest first; "" above max_entries()
+fn map_frame(n: int64, parts: List[string, mem(normal)]) -> string {
+    case n > max_entries() of { true -> ""; false -> joined(map_head(n), parts) }
+}
+// the list of n elements whose terms were collected newest first: NIL_EXT when empty, else LIST_EXT and a NIL tail
+fn list_frame(n: int64, parts: List[string, mem(normal)]) -> string {
+    case n == 0 of {
+        true -> "\x83\x6a";
+        false -> joined(head5(108, n), push(parts, "\x6a"))
+    }
+}
+
+// ---- finding the parts of a frame (the term starts at position 1) ----
+fn fail(code: int64) -> List[int64, mem(normal)] { one_int(code) }
+// A tuple of exactly n elements, the first the atom `tag` when tag is not "": [0, start of element 0, ..., start of element
+// n - 1], or [code]: -4 bad_tag (not a tuple, another arity, a first element that is no atom or another atom: what the
+// derived decoder of a tagged tuple reports, wire_etf@dec_tag), -3 trailing_bytes, or what the scanner answers for a cut or
+// too deep element.
+fn tuple_parts(frame: string, n: int64, tag: string) -> List[int64, mem(normal)] {
+    ar: int64 <- bees_etf_scan@tuple_arity(frame, 1);
+    case ar < 0 of {
+        true -> fail(ar);
+        false -> case ar == n of {
+            false -> fail(0 - 4);
+            true -> tuple_tag(frame, tag, bees_etf_scan@tuple_first(frame, 1), tuple_walk(frame, bees_etf_scan@tuple_first(frame, 1), n, no_ints()))
+        }
+    }
+}
+fn tuple_tag(frame: string, tag: string, first: int64, ps: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    case nth(ps, 0) < 0 or length_bytes(tag) == 0 of {
+        true -> ps;
+        false -> case bees_etf_scan@atom_check(frame, first) < 0 of {
+            true -> fail(bees_etf_scan@atom_check(frame, first));
+            false -> case bees_etf_scan@atom_is(frame, first, tag) of { true -> ps; false -> fail(0 - 4) }
+        }
+    }
+}
+fn tuple_walk(frame: string, pos: int64, left: int64, acc: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    case pos < 0 of {
+        true -> fail(pos);
+        false -> case left == 0 of {
+            true -> case pos == length_bytes(frame) of {
+                true -> cons_int(0, rev_ints(acc, no_ints()));
+                false -> fail(0 - 3)
+            };
+            false -> tuple_walk(frame, bees_etf_scan@skip(frame, pos), left - 1, cons_int(pos, acc))
+        }
+    }
+}
+// A record: MAP_EXT whose keys are the atoms `names`, in any order. [0, start of the value of names[0], ...], or [code], as
+// the derived decoder of a record reports: -14 unknown_field (more pairs than fields, a key that is no field), -13
+// duplicate_field, -12 missing_field, the atom's own code for a key that is not an atom, -3 trailing_bytes.
+fn record_parts(frame: string, names: List[string, mem(normal)]) -> List[int64, mem(normal)] {
+    c: int64 <- bees_etf_scan@map_count(frame, 1);
+    case c < 0 of {
+        true -> fail(c);
+        false -> case c > count_strs(names, 0) of {
+            true -> fail(0 - 14);
+            false -> record_walk(frame, names, 6, c, blanks(names, no_ints()))
+        }
+    }
+}
+fn count_strs(xs: List[string, mem(normal)], n: int64) -> int64 {
+    case xs of {
+        []: List[string, mem(normal)] -> n;
+        [_h: string, t: List[string, mem(normal)]] -> count_strs(t, n + 1)
+    }
+}
+fn blanks(xs: List[string, mem(normal)], acc: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    case xs of {
+        []: List[string, mem(normal)] -> acc;
+        [_h: string, t: List[string, mem(normal)]] -> blanks(t, cons_int(0 - 1, acc))
+    }
+}
+// the index of name in names, -1 when it is not there
+fn index_in(names: List[string, mem(normal)], name: string, i: int64) -> int64 {
+    case names of {
+        []: List[string, mem(normal)] -> 0 - 1;
+        [h: string, t: List[string, mem(normal)]] -> case bees_etf_scan@bytes_compare(h, name) == 0 of { true -> i; false -> index_in(t, name, i + 1) }
+    }
+}
+fn put(xs: List[int64, mem(normal)], i: int64, v: int64) -> List[int64, mem(normal)] {
+    case xs of {
+        []: List[int64, mem(normal)] -> xs;
+        [h: int64, t: List[int64, mem(normal)]] -> case i == 0 of { true -> cons_int(v, t); false -> cons_int(h, put(t, i - 1, v)) }
+    }
+}
+fn has_blank(xs: List[int64, mem(normal)]) -> boolean {
+    case xs of {
+        []: List[int64, mem(normal)] -> false;
+        [h: int64, t: List[int64, mem(normal)]] -> case h < 0 of { true -> true; false -> has_blank(t) }
+    }
+}
+fn record_walk(frame: string, names: List[string, mem(normal)], pos: int64, left: int64, got: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    case left == 0 of {
+        true -> case pos == length_bytes(frame) of {
+            false -> fail(0 - 3);
+            true -> case has_blank(got) of { true -> fail(0 - 12); false -> cons_int(0, got) }
+        };
+        false -> case bees_etf_scan@atom_check(frame, pos) < 0 of {
+            true -> fail(bees_etf_scan@atom_check(frame, pos));
+            false -> record_key(frame, names, pos, left, got, index_in(names, bees_etf_scan@atom_text(frame, pos), 0))
+        }
+    }
+}
+fn record_key(frame: string, names: List[string, mem(normal)], pos: int64, left: int64, got: List[int64, mem(normal)], i: int64) -> List[int64, mem(normal)] {
+    case i < 0 of {
+        true -> fail(0 - 14);
+        false -> case nth(got, i) >= 0 of {
+            true -> fail(0 - 13);
+            false -> record_value(frame, names, bees_etf_scan@atom_end(frame, pos), left, got, i)
+        }
+    }
+}
+fn record_value(frame: string, names: List[string, mem(normal)], vpos: int64, left: int64, got: List[int64, mem(normal)], i: int64) -> List[int64, mem(normal)] {
+    stop: int64 <- bees_etf_scan@skip(frame, vpos);
+    case stop < 0 of {
+        true -> fail(stop);
+        false -> record_walk(frame, names, stop, left - 1, put(got, i, vpos))
+    }
+}
+// A list whose elements are terms: the number of elements (the first is at bees_etf_scan@list_first(frame, 1)), or a code.
+// STRING_EXT (bytes, not terms) is -4: the elements of a list on this path are never integers.
+fn list_open(frame: string) -> int64 {
+    case bees_etf_scan@tag_at(frame, 1) == 107 of {
+        true -> 0 - 4;
+        false -> bees_etf_scan@list_count(frame, 1)
+    }
+}
+// after the last element: 0 when the list ends the frame properly (a NIL tail for a LIST_EXT, nothing for a NIL_EXT), else
+// -4 (an improper tail), -3 or -2
+fn list_close(frame: string, pos: int64) -> int64 {
+    case bees_etf_scan@tag_at(frame, 1) == 106 of {
+        true -> at_end(frame, pos);
+        false -> case bees_etf_scan@tag_at(frame, pos) of {
+            106 -> at_end(frame, pos + 1);
+            _: int64 -> case bees_etf_scan@tag_at(frame, pos) < 0 of { true -> 0 - 2; false -> 0 - 4 }
+        }
+    }
+}
+// A map or a set: the number of pairs (the first key is at position 6), or -4 when the term is not MAP_EXT, -7 (too_long)
+// when the header's count is above max_entries(), -2 when the header is cut or the count is larger than the bytes that
+// remain. Only the tag and the four count bytes are read.
+fn map_open(frame: string) -> int64 {
+    len: int64 <- length_bytes(frame);
+    case len < 2 of {
+        true -> 0 - 2;
+        false -> case at(frame, 1) == 116 of {
+            false -> 0 - 4;
+            true -> case len < 6 of {
+                true -> 0 - 2;
+                false -> case bees_etf_scan@rd32(frame, 2) > max_entries() of {
+                    true -> 0 - 7;
+                    false -> bees_etf_scan@map_count(frame, 1)
+                }
+            }
+        }
+    }
+}
+// the position after the key at pos and the value that follows it, or a code
+fn pair_end(frame: string, pos: int64) -> int64 {
+    vpos: int64 <- bees_etf_scan@skip(frame, pos);
+    case vpos < 0 of { true -> vpos; false -> bees_etf_scan@skip(frame, vpos) }
+}
+// a set's element at pos must be followed by NIL_EXT: the position after it, or -4 (another value), or a code
+fn nil_end(frame: string, pos: int64) -> int64 {
+    vpos: int64 <- bees_etf_scan@skip(frame, pos);
+    case vpos < 0 of {
+        true -> vpos;
+        false -> case bees_etf_scan@tag_at(frame, vpos) of {
+            106 -> vpos + 1;
+            _: int64 -> case bees_etf_scan@tag_at(frame, vpos) < 0 of { true -> 0 - 2; false -> 0 - 4 }
+        }
+    }
+}
+
+// ---- a buffer's bytes: Silica has no type conversion, so a byte becomes an int64 and back through a lookup ----
+fn byte_int(b: uint8) -> int64 {
+    case b of {
+        0 -> 0;
+        1 -> 1;
+        2 -> 2;
+        3 -> 3;
+        4 -> 4;
+        5 -> 5;
+        6 -> 6;
+        7 -> 7;
+        8 -> 8;
+        9 -> 9;
+        10 -> 10;
+        11 -> 11;
+        12 -> 12;
+        13 -> 13;
+        14 -> 14;
+        15 -> 15;
+        16 -> 16;
+        17 -> 17;
+        18 -> 18;
+        19 -> 19;
+        20 -> 20;
+        21 -> 21;
+        22 -> 22;
+        23 -> 23;
+        24 -> 24;
+        25 -> 25;
+        26 -> 26;
+        27 -> 27;
+        28 -> 28;
+        29 -> 29;
+        30 -> 30;
+        31 -> 31;
+        32 -> 32;
+        33 -> 33;
+        34 -> 34;
+        35 -> 35;
+        36 -> 36;
+        37 -> 37;
+        38 -> 38;
+        39 -> 39;
+        40 -> 40;
+        41 -> 41;
+        42 -> 42;
+        43 -> 43;
+        44 -> 44;
+        45 -> 45;
+        46 -> 46;
+        47 -> 47;
+        48 -> 48;
+        49 -> 49;
+        50 -> 50;
+        51 -> 51;
+        52 -> 52;
+        53 -> 53;
+        54 -> 54;
+        55 -> 55;
+        56 -> 56;
+        57 -> 57;
+        58 -> 58;
+        59 -> 59;
+        60 -> 60;
+        61 -> 61;
+        62 -> 62;
+        63 -> 63;
+        64 -> 64;
+        65 -> 65;
+        66 -> 66;
+        67 -> 67;
+        68 -> 68;
+        69 -> 69;
+        70 -> 70;
+        71 -> 71;
+        72 -> 72;
+        73 -> 73;
+        74 -> 74;
+        75 -> 75;
+        76 -> 76;
+        77 -> 77;
+        78 -> 78;
+        79 -> 79;
+        80 -> 80;
+        81 -> 81;
+        82 -> 82;
+        83 -> 83;
+        84 -> 84;
+        85 -> 85;
+        86 -> 86;
+        87 -> 87;
+        88 -> 88;
+        89 -> 89;
+        90 -> 90;
+        91 -> 91;
+        92 -> 92;
+        93 -> 93;
+        94 -> 94;
+        95 -> 95;
+        96 -> 96;
+        97 -> 97;
+        98 -> 98;
+        99 -> 99;
+        100 -> 100;
+        101 -> 101;
+        102 -> 102;
+        103 -> 103;
+        104 -> 104;
+        105 -> 105;
+        106 -> 106;
+        107 -> 107;
+        108 -> 108;
+        109 -> 109;
+        110 -> 110;
+        111 -> 111;
+        112 -> 112;
+        113 -> 113;
+        114 -> 114;
+        115 -> 115;
+        116 -> 116;
+        117 -> 117;
+        118 -> 118;
+        119 -> 119;
+        120 -> 120;
+        121 -> 121;
+        122 -> 122;
+        123 -> 123;
+        124 -> 124;
+        125 -> 125;
+        126 -> 126;
+        127 -> 127;
+        128 -> 128;
+        129 -> 129;
+        130 -> 130;
+        131 -> 131;
+        132 -> 132;
+        133 -> 133;
+        134 -> 134;
+        135 -> 135;
+        136 -> 136;
+        137 -> 137;
+        138 -> 138;
+        139 -> 139;
+        140 -> 140;
+        141 -> 141;
+        142 -> 142;
+        143 -> 143;
+        144 -> 144;
+        145 -> 145;
+        146 -> 146;
+        147 -> 147;
+        148 -> 148;
+        149 -> 149;
+        150 -> 150;
+        151 -> 151;
+        152 -> 152;
+        153 -> 153;
+        154 -> 154;
+        155 -> 155;
+        156 -> 156;
+        157 -> 157;
+        158 -> 158;
+        159 -> 159;
+        160 -> 160;
+        161 -> 161;
+        162 -> 162;
+        163 -> 163;
+        164 -> 164;
+        165 -> 165;
+        166 -> 166;
+        167 -> 167;
+        168 -> 168;
+        169 -> 169;
+        170 -> 170;
+        171 -> 171;
+        172 -> 172;
+        173 -> 173;
+        174 -> 174;
+        175 -> 175;
+        176 -> 176;
+        177 -> 177;
+        178 -> 178;
+        179 -> 179;
+        180 -> 180;
+        181 -> 181;
+        182 -> 182;
+        183 -> 183;
+        184 -> 184;
+        185 -> 185;
+        186 -> 186;
+        187 -> 187;
+        188 -> 188;
+        189 -> 189;
+        190 -> 190;
+        191 -> 191;
+        192 -> 192;
+        193 -> 193;
+        194 -> 194;
+        195 -> 195;
+        196 -> 196;
+        197 -> 197;
+        198 -> 198;
+        199 -> 199;
+        200 -> 200;
+        201 -> 201;
+        202 -> 202;
+        203 -> 203;
+        204 -> 204;
+        205 -> 205;
+        206 -> 206;
+        207 -> 207;
+        208 -> 208;
+        209 -> 209;
+        210 -> 210;
+        211 -> 211;
+        212 -> 212;
+        213 -> 213;
+        214 -> 214;
+        215 -> 215;
+        216 -> 216;
+        217 -> 217;
+        218 -> 218;
+        219 -> 219;
+        220 -> 220;
+        221 -> 221;
+        222 -> 222;
+        223 -> 223;
+        224 -> 224;
+        225 -> 225;
+        226 -> 226;
+        227 -> 227;
+        228 -> 228;
+        229 -> 229;
+        230 -> 230;
+        231 -> 231;
+        232 -> 232;
+        233 -> 233;
+        234 -> 234;
+        235 -> 235;
+        236 -> 236;
+        237 -> 237;
+        238 -> 238;
+        239 -> 239;
+        240 -> 240;
+        241 -> 241;
+        242 -> 242;
+        243 -> 243;
+        244 -> 244;
+        245 -> 245;
+        246 -> 246;
+        247 -> 247;
+        248 -> 248;
+        249 -> 249;
+        250 -> 250;
+        251 -> 251;
+        252 -> 252;
+        253 -> 253;
+        254 -> 254;
+        _: uint8 -> 255
+    }
+}
+// n is 0..255 (a byte of a string)
+fn int_byte(n: int64) -> uint8 {
+    case n of {
+        0 -> 0;
+        1 -> 1;
+        2 -> 2;
+        3 -> 3;
+        4 -> 4;
+        5 -> 5;
+        6 -> 6;
+        7 -> 7;
+        8 -> 8;
+        9 -> 9;
+        10 -> 10;
+        11 -> 11;
+        12 -> 12;
+        13 -> 13;
+        14 -> 14;
+        15 -> 15;
+        16 -> 16;
+        17 -> 17;
+        18 -> 18;
+        19 -> 19;
+        20 -> 20;
+        21 -> 21;
+        22 -> 22;
+        23 -> 23;
+        24 -> 24;
+        25 -> 25;
+        26 -> 26;
+        27 -> 27;
+        28 -> 28;
+        29 -> 29;
+        30 -> 30;
+        31 -> 31;
+        32 -> 32;
+        33 -> 33;
+        34 -> 34;
+        35 -> 35;
+        36 -> 36;
+        37 -> 37;
+        38 -> 38;
+        39 -> 39;
+        40 -> 40;
+        41 -> 41;
+        42 -> 42;
+        43 -> 43;
+        44 -> 44;
+        45 -> 45;
+        46 -> 46;
+        47 -> 47;
+        48 -> 48;
+        49 -> 49;
+        50 -> 50;
+        51 -> 51;
+        52 -> 52;
+        53 -> 53;
+        54 -> 54;
+        55 -> 55;
+        56 -> 56;
+        57 -> 57;
+        58 -> 58;
+        59 -> 59;
+        60 -> 60;
+        61 -> 61;
+        62 -> 62;
+        63 -> 63;
+        64 -> 64;
+        65 -> 65;
+        66 -> 66;
+        67 -> 67;
+        68 -> 68;
+        69 -> 69;
+        70 -> 70;
+        71 -> 71;
+        72 -> 72;
+        73 -> 73;
+        74 -> 74;
+        75 -> 75;
+        76 -> 76;
+        77 -> 77;
+        78 -> 78;
+        79 -> 79;
+        80 -> 80;
+        81 -> 81;
+        82 -> 82;
+        83 -> 83;
+        84 -> 84;
+        85 -> 85;
+        86 -> 86;
+        87 -> 87;
+        88 -> 88;
+        89 -> 89;
+        90 -> 90;
+        91 -> 91;
+        92 -> 92;
+        93 -> 93;
+        94 -> 94;
+        95 -> 95;
+        96 -> 96;
+        97 -> 97;
+        98 -> 98;
+        99 -> 99;
+        100 -> 100;
+        101 -> 101;
+        102 -> 102;
+        103 -> 103;
+        104 -> 104;
+        105 -> 105;
+        106 -> 106;
+        107 -> 107;
+        108 -> 108;
+        109 -> 109;
+        110 -> 110;
+        111 -> 111;
+        112 -> 112;
+        113 -> 113;
+        114 -> 114;
+        115 -> 115;
+        116 -> 116;
+        117 -> 117;
+        118 -> 118;
+        119 -> 119;
+        120 -> 120;
+        121 -> 121;
+        122 -> 122;
+        123 -> 123;
+        124 -> 124;
+        125 -> 125;
+        126 -> 126;
+        127 -> 127;
+        128 -> 128;
+        129 -> 129;
+        130 -> 130;
+        131 -> 131;
+        132 -> 132;
+        133 -> 133;
+        134 -> 134;
+        135 -> 135;
+        136 -> 136;
+        137 -> 137;
+        138 -> 138;
+        139 -> 139;
+        140 -> 140;
+        141 -> 141;
+        142 -> 142;
+        143 -> 143;
+        144 -> 144;
+        145 -> 145;
+        146 -> 146;
+        147 -> 147;
+        148 -> 148;
+        149 -> 149;
+        150 -> 150;
+        151 -> 151;
+        152 -> 152;
+        153 -> 153;
+        154 -> 154;
+        155 -> 155;
+        156 -> 156;
+        157 -> 157;
+        158 -> 158;
+        159 -> 159;
+        160 -> 160;
+        161 -> 161;
+        162 -> 162;
+        163 -> 163;
+        164 -> 164;
+        165 -> 165;
+        166 -> 166;
+        167 -> 167;
+        168 -> 168;
+        169 -> 169;
+        170 -> 170;
+        171 -> 171;
+        172 -> 172;
+        173 -> 173;
+        174 -> 174;
+        175 -> 175;
+        176 -> 176;
+        177 -> 177;
+        178 -> 178;
+        179 -> 179;
+        180 -> 180;
+        181 -> 181;
+        182 -> 182;
+        183 -> 183;
+        184 -> 184;
+        185 -> 185;
+        186 -> 186;
+        187 -> 187;
+        188 -> 188;
+        189 -> 189;
+        190 -> 190;
+        191 -> 191;
+        192 -> 192;
+        193 -> 193;
+        194 -> 194;
+        195 -> 195;
+        196 -> 196;
+        197 -> 197;
+        198 -> 198;
+        199 -> 199;
+        200 -> 200;
+        201 -> 201;
+        202 -> 202;
+        203 -> 203;
+        204 -> 204;
+        205 -> 205;
+        206 -> 206;
+        207 -> 207;
+        208 -> 208;
+        209 -> 209;
+        210 -> 210;
+        211 -> 211;
+        212 -> 212;
+        213 -> 213;
+        214 -> 214;
+        215 -> 215;
+        216 -> 216;
+        217 -> 217;
+        218 -> 218;
+        219 -> 219;
+        220 -> 220;
+        221 -> 221;
+        222 -> 222;
+        223 -> 223;
+        224 -> 224;
+        225 -> 225;
+        226 -> 226;
+        227 -> 227;
+        228 -> 228;
+        229 -> 229;
+        230 -> 230;
+        231 -> 231;
+        232 -> 232;
+        233 -> 233;
+        234 -> 234;
+        235 -> 235;
+        236 -> 236;
+        237 -> 237;
+        238 -> 238;
+        239 -> 239;
+        240 -> 240;
+        241 -> 241;
+        242 -> 242;
+        243 -> 243;
+        244 -> 244;
+        245 -> 245;
+        246 -> 246;
+        247 -> 247;
+        248 -> 248;
+        249 -> 249;
+        250 -> 250;
+        251 -> 251;
+        252 -> 252;
+        253 -> 253;
+        254 -> 254;
+        _: int64 -> 255
+    }
+}

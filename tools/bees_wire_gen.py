@@ -16,9 +16,39 @@ type is the text of Silica's own type syntax, restricted to:
     { f: T, g: T, ... }             record, one or more fields
     List[T]  or  List[T, mem(normal)]
 
+and, on the node path only (a manifest with node lines: bees_msgs, the language's derived codec; C1,
+development-plan/spikes/C1-codec-term-coverage.md section 2.1):
+
+    :name                           an atom literal type, only as a tuple's first component or as a sum variant
+    (:tag, T, ...)                  a tagged tuple, one or more components after the tag ((:tag) alone is refused: the
+                                    pinned compiler's derived codec does not carry it; write the atom :tag)
+    A | B | ...                     a sum: each variant an atom literal, a tagged tuple whose tag no other variant has, or
+                                    (at most one) a record; a sum with a tagged tuple variant does not START with an atom
+                                    literal (the pinned compiler's derived decoder does not compile that order, E2005)
+    ref?(L, normal, rec)            an optional reference to the enclosing tuple (a recursive tuple); only as a tuple's
+                                    component. A message that holds one has the Silica message type
+                                    { r: region(L, normal), v: T } (silica()), the region its cells live in
+
+    Map[K, V]                       an Erlang map (MAP_EXT); the Silica value is List[(K, V), mem(normal)], pairs in wire order.
+                                    At most 1024 pairs, no key twice (both directions). K holds no Map, Set, buf or optional
+                                    reference; V is any type without an optional reference or a buf
+    Set[T]                          an Erlang set, the sets module's map #{E => []}; the Silica value is List[T, mem(normal)].
+                                    At most 1024 elements, none twice. T as a map's key
+    buf(L, normal, uint8, N)        N bytes of buffer, N a literal 1..65536; the Silica value is
+                                    { b: buf(L, normal, uint8, N), n: int64 }, n the bytes in use, which cross as BINARY_EXT.
+                                    Only below tuples and records (not in a list, a map, a set or a sum). A message that holds
+                                    one carries its region like one that holds an optional reference
+    term                            a dynamic term (bees_term_wire's token list); only as the whole message type
+
+A type that holds a Map, a Set or a buf (and, while SD37_SPLIT is set, a record of more than four fields) is not PLAIN: it is
+converted node by node (split_codec below; C1 design 2.6), each plain part by one derived call. A plain type stays one derived
+encode and one derived decode.
+
+Every atom written in a type is one of the node's compile-time atoms (message_names returns them with the names).
+
 Everything else is a build error that names the message, the field path and the type: actor_ref,
-supervisor_ref, regions and references (region, ref, ref?), buf, function types, sum types (`|`),
-atom literal types (tagged tuples), unit, standard data structures, any unknown name.
+supervisor_ref, regions and references (region, ref, any other ref?), any other buf, function types, a sum with a primitive,
+list or untagged tuple variant, an atom literal type anywhere else, unit, the other standard data structures, any unknown name.
 
 The encoding is ETF, as `term_to_binary/1` of OTP 26+ writes it (a frame is `131` and one term):
 
@@ -88,14 +118,15 @@ UNSUPPORTED = {
     "region": "regions cannot cross the wire",
     "ref": "references cannot cross the wire",
     "ref?": "optional references cannot cross the wire",
-    "buf": "buffers are not supported on the wire yet",
+    "buf": "the one buffer carried is buf(L, normal, uint8, N), N a literal 1..65536",
     "fn": "function types cannot cross the wire",
     "float16": "float16 is not supported (no exact conversion exists without type conversion)",
     "unit": "the unit type cannot be written in a Silica signature (E2006), so no message can have it",
     "lifetime": "lifetimes cannot cross the wire",
     "timer_ref": "timer references cannot cross the wire",
-    "Map": "standard data structures are not supported on the wire yet",
-    "Set": "standard data structures are not supported on the wire yet",
+    "Map": "a map is written Map[K, V]",
+    "Set": "a set is written Set[T]",
+    "term": "a dynamic term is only a whole message type (`local name cast term`); a typed message cannot hold one",
     "Tree": "standard data structures are not supported on the wire yet",
     "Heap": "standard data structures are not supported on the wire yet",
     "Queue": "standard data structures are not supported on the wire yet",
@@ -104,6 +135,19 @@ UNSUPPORTED = {
 
 # The language's rejection reasons, in the code order bees_wire.silica uses (1..16); the atoms are declared in
 # src/inter_nodal/bees_wire.atoms.
+# C1 (design 2.3 to 2.7): the limits of the kinds with no derived form
+MAX_ENTRIES = 1024      # pairs of a Map, elements of a Set (src/inter_nodal/bees_codec_kinds.silica max_entries; ruling Q5)
+MAX_BUF = 65536         # the largest N of buf(L, normal, uint8, N)
+# SD-37 (the pinned compiler's derived decoder of a record of more than four fields has more than 8 parameters and does not
+# compile): while this is True such a record is not plain, so it is converted field by field (split_codec) and works on the
+# pin. Removing the workaround is deleting this constant (is_plain reads it with globals().get): the record is then one
+# derived encode and one derived decode again.
+SD37_SPLIT = True
+SD37_FIELDS = 4
+# the most parts of a tuple or record converted part by part: the decode chain passes the parts decoded so far as
+# parameters, and a function has at most 8 (frame, positions, perhaps the region)
+SPLIT_PARTS = 6
+
 REASONS = ["bad_version", "truncated", "trailing_bytes", "bad_tag", "too_large", "too_deep", "too_long",
            "out_of_range", "bad_utf8", "unknown_atom", "bad_variant", "missing_field", "duplicate_field",
            "unknown_field", "foreign_actor", "unsupported"]
@@ -150,20 +194,68 @@ class Parser:
         raise WireError(f"{self.where}: message {self.msg}: field '{path}' has type '{ty}', which is not "
                         f"supported on the wire: {why}")
 
-    def parse_type(self, path):
-        """-> ('prim', name) | ('tuple', [t]) | ('record', [(f, t)]) | ('list', t)"""
+    def parse_type(self, path, first=False, in_tuple=False):
+        """-> ('prim', name) | ('tuple', [t]) | ('record', [(f, t)]) | ('list', t)
+              | ('sum', [variant]) | ('atomlit', name) (a tuple's first component, a sum variant) | ('slot',) (a tuple's component).
+        A tagged tuple is a ('tuple', ..) whose first component is an ('atomlit', ..)."""
+        ty = self.parse_one(path, in_tuple)
+        if self.peek() != "|":
+            if ty[0] == "atomlit" and not first:
+                self.fail(path, ":" + ty[1], "an atom literal type is only a tuple's first component or a sum variant "
+                          "(atom literal types elsewhere are not supported; use `atom`)")
+            return ty
+        variants = [ty]
+        while self.peek() == "|":
+            self.take("|")
+            variants.append(self.parse_one(path, False))
+        whole = canon(variants[0]) + " | ..."
+        tags, atoms, records = {}, set(), 0
+        for v in variants:
+            if v[0] == "atomlit":
+                if v[1] in atoms:
+                    self.fail(path, whole, f"the variant :{v[1]} is listed twice")
+                atoms.add(v[1])
+            elif is_tagged(v):
+                tag = v[1][0][1]
+                if tag in tags:
+                    self.fail(path, whole, f"the variants {canon(tags[tag])} and {canon(v)} have one tag and cannot be told "
+                              "apart on the wire (E2404)")
+                tags[tag] = v
+            elif v[0] == "record":
+                records += 1
+                if records > 1:
+                    self.fail(path, whole, "a sum has at most one record variant (two maps cannot be told apart on the wire)")
+            else:
+                inner = ", ".join(silica_value(t) for t in v[1]) if v[0] == "tuple" else silica_value(v)
+                self.fail(path, whole, f"the variant '{canon(v)}' is not an atom literal, a tagged tuple or a record "
+                          f"(sum types of primitives, lists and untagged tuples are not supported); tag it: (:i, {inner})")
+        if variants[0][0] == "atomlit" and tags:
+            # Silica defect on the pin (observed 999909): the derived decoder of a sum whose FIRST variant is an atom literal and
+            # which has a tagged tuple variant does not type-check (E2005 in the derived text); any other order compiles
+            self.fail(path, whole, "a sum that starts with an atom literal cannot have a tagged tuple variant (the compiler's "
+                      "derived decoder does not compile it, E2005); write a tagged tuple first: "
+                      + " | ".join(silica_value(v) for v in sorted(variants, key=lambda v: v[0] == "atomlit")))
+        return ("sum", variants)
+
+    def parse_one(self, path, in_tuple):
         tok = self.take()
         if tok in PRIMS:
             ty = ("prim", tok)
         elif tok == "(":
             comps = []
             while True:
-                comps.append(self.parse_type(f"{path}.{len(comps)}" if path != "<value>" else str(len(comps))))
+                comps.append(self.parse_type(f"{path}.{len(comps)}" if path != "<value>" else str(len(comps)),
+                                             first=not comps, in_tuple=True))
                 if self.peek() == ",":
                     self.take(",")
                     continue
                 break
             self.take(")")
+            if len(comps) < 2 and comps[0][0] == "atomlit":
+                self.fail(path, "(" + canon(comps[0]) + ")", "a tagged tuple has one or more components after its tag (the "
+                          "compiler's derived codec does not carry a one-component tuple: E2005, or a fault when it encodes); "
+                          "write the atom literal "
+                          + canon(comps[0]))
             if len(comps) < 2:
                 self.fail(path, "(" + canon(comps[0]) + ")", "a tuple has two or more components")
             ty = ("tuple", comps)
@@ -197,18 +289,190 @@ class Parser:
                     self.take()
             self.take("]")
             ty = ("list", elem)
-        elif tok.startswith(":"):
-            self.fail(path, ":" + (self.peek() or ""), "atom literal types (tagged tuples) are not supported; "
-                      "use `atom`")
+        elif tok == "Map" and self.peek() == "[":
+            self.take("[")
+            key = self.parse_type(path + "{key}")
+            self.take(",")
+            value = self.parse_type(path + "{}")
+            self.take("]")
+            ty = ("map", key, value)
+            self.key_check(path + "{key}", key, "a map's key")
+        elif tok == "Set" and self.peek() == "[":
+            self.take("[")
+            elem = self.parse_type(path + "{}")
+            self.take("]")
+            ty = ("set", elem)
+            self.key_check(path + "{}", elem, "a set's element")
+        elif tok == "buf":
+            form = self.t[self.i:self.i + 9]
+            if len(form) != 9 or form[:7] != ["(", "L", ",", "normal", ",", "uint8", ","] or form[8] != ")" \
+                    or not form[7].isdigit() or not (1 <= int(form[7]) <= MAX_BUF) or str(int(form[7])) != form[7]:
+                self.fail(path, tok, UNSUPPORTED[tok])
+            self.i += 9
+            ty = ("buf", int(form[7]))
+        elif tok == ":":
+            name = self.peek() or ""
+            if not IDENT.fullmatch(name):
+                self.fail(path, ":" + name, "an atom literal type is :name, an identifier")
+            self.take()
+            ty = ("atomlit", name)
+        elif tok == "ref?":
+            if self.t[self.i:self.i + 7] != ["(", "L", ",", "normal", ",", "rec", ")"]:
+                self.fail(path, tok, UNSUPPORTED[tok] + " (the one form carried is ref?(L, normal, rec), a component of a "
+                          "recursive tuple)")
+            self.i += 7
+            if not in_tuple or self.peek() == "|":
+                self.fail(path, "ref?(L, normal, rec)", "an optional reference is only a component of a tuple (the enclosing "
+                          "tuple is then recursive)")
+            ty = ("slot",)
         elif tok in UNSUPPORTED:
             self.fail(path, tok, UNSUPPORTED[tok])
         elif IDENT.fullmatch(tok):
             self.fail(path, tok, "unknown type name")
         else:
             self.fail(path, tok, "not a type")
-        if self.peek() == "|":
-            self.fail(path, canon(ty) + " | ...", "sum types are not supported")
         return ty
+
+
+def _key_check(self, path, ty, what):
+    """A map's key and a set's element are compared for duplicates by their encoding: no Map, Set, buf or optional reference."""
+    if has_special(ty) or has_slot(ty):
+        self.fail(path, canon(ty), f"{what} holds no Map, Set, buf or optional reference (it is compared for duplicates)")
+
+
+Parser.key_check = _key_check
+
+
+def is_tagged(ty):
+    """A tagged tuple: (:tag, T, ...)."""
+    return ty[0] == "tuple" and ty[1][0][0] == "atomlit"
+
+
+def parts_of(ty):
+    """The types directly inside a type."""
+    kind = ty[0]
+    if kind in ("tuple", "sum"):
+        return list(ty[1])
+    if kind == "record":
+        return [t for _, t in ty[1]]
+    if kind in ("list", "set"):
+        return [ty[1]]
+    if kind == "map":
+        return [ty[1], ty[2]]
+    return []
+
+
+def has_slot(ty):
+    """True when the type holds a recursive tuple (an optional reference): its message carries a region."""
+    return ty[0] == "slot" or any(has_slot(t) for t in parts_of(ty))
+
+
+def has_node_kinds(ty):
+    """True when the type uses a kind only the node path carries (atom literal, sum, optional reference, Map, Set, buf, term)."""
+    return ty[0] in ("atomlit", "sum", "slot", "map", "set", "buf", "term") or any(has_node_kinds(t) for t in parts_of(ty))
+
+
+def has_special(ty):
+    """True when the type holds a kind with no derived form: a Map, a Set or a buf (C1 design 2.3 to 2.5)."""
+    return ty[0] in ("map", "set", "buf") or any(has_special(t) for t in parts_of(ty))
+
+
+def has_buf(ty):
+    """True when the type holds a buf: its message carries a region and its decode takes one."""
+    return ty[0] == "buf" or any(has_buf(t) for t in parts_of(ty))
+
+
+def has_region(ty):
+    """True when the message of this type is { r: region(L, normal), v: T } (an optional reference or a buf; design 2.2)."""
+    return has_slot(ty) or has_buf(ty)
+
+
+def is_wide(ty):
+    """A record the pinned compiler's derived decoder does not compile (SD-37)."""
+    return ty[0] == "record" and len(ty[1]) > SD37_FIELDS
+
+
+def has_wide(ty):
+    return is_wide(ty) or any(has_wide(t) for t in parts_of(ty))
+
+
+def is_plain(ty):
+    """A plain type is one derived encode and one derived decode (C1 design 2.6): no Map, Set or buf below it and, while
+    SD37_SPLIT is set, no record of more than four fields. A dynamic term is neither (bees_term_wire converts it)."""
+    if ty[0] == "term" or has_special(ty):
+        return False
+    return not (globals().get("SD37_SPLIT", False) and has_wide(ty))
+
+
+def special_path(ty, path="<value>"):
+    """(field path, type) of the first Map, Set, buf or term in a type, None when there is none (paths as the parser names them)."""
+    kind = ty[0]
+    if kind in ("map", "set", "buf", "term"):
+        return path, ty
+    if kind == "tuple":
+        subs = [(f"{path}.{i}" if path != "<value>" else str(i), t) for i, t in enumerate(ty[1])]
+    elif kind == "record":
+        subs = [(f if path == "<value>" else f"{path}.{f}", t) for f, t in ty[1]]
+    elif kind == "list":
+        subs = [(path + "[]", ty[1])]
+    elif kind == "sum":
+        subs = [(path, t) for t in ty[1]]
+    else:
+        subs = []
+    for p, t in subs:
+        hit = special_path(t, p)
+        if hit:
+            return hit
+    return None
+
+
+def check_split(ty, fail, path="<value>", under=None):
+    """What the node-by-node conversion of a type that is not plain carries (design 2.6); fail(path, type text, why) raises.
+    under: the kind of the nearest list, map, set or sum above."""
+    kind = ty[0]
+    if is_plain(ty):
+        return
+    if kind == "buf":
+        if under:
+            fail(path, canon(ty), f"a buf is carried below tuples and records only, not in a {under} (its region is the "
+                 "message's; a list of buffers is not built)")
+        return
+    if has_slot(ty):
+        fail(path, canon(ty), "a type with an optional reference holds no Map, Set or buf"
+             + (" and no record of more than four fields (SD-37)" if has_wide(ty) and not has_special(ty) else "")
+             + " (the recursive tuple is converted by one derived call)")
+    if kind == "sum":
+        if has_special(ty):
+            fail(path, canon(ty), "a sum with a variant that holds a Map, a Set or a buf is not carried (the choice of the "
+                 "variant is the derived decoder's; put the sum inside the map, or tag a message per variant)")
+        fail(path, canon(ty), "a sum with a variant that holds a record of more than four fields is not carried on the pinned "
+             "compiler (SD-37)")
+    if kind in ("tuple", "record") and len(ty[1]) > SPLIT_PARTS + (0 if has_buf(ty) else 1):
+        fail(path, canon(ty), f"a {kind} that holds a Map, a Set or a buf"
+             + (" or is a record of more than four fields (SD-37)" if kind == "record" else "")
+             + f" has at most {SPLIT_PARTS + (0 if has_buf(ty) else 1)} parts ({SPLIT_PARTS} with a buf)")
+    if kind == "tuple":
+        for i, t in enumerate(ty[1]):
+            check_split(t, fail, f"{path}.{i}" if path != "<value>" else str(i), under)
+    elif kind == "record":
+        for f, t in ty[1]:
+            if len(f) > 255:
+                fail(path, canon(ty), f"field name {f[:20]}... is longer than 255 bytes")
+            check_split(t, fail, f if path == "<value>" else f"{path}.{f}", under)
+    elif kind == "list":
+        check_split(ty[1], fail, path + "[]", "list")
+    elif kind == "map":
+        check_split(ty[1], fail, path + "{key}", "map")
+        check_split(ty[2], fail, path + "{}", "map")
+    elif kind == "set":
+        check_split(ty[1], fail, path + "{}", "set")
+
+
+def type_atoms(ty):
+    """The atom literals written in a type, in order of appearance (with repeats)."""
+    if ty[0] == "atomlit":
+        return [ty[1]]
+    return [a for t in parts_of(ty) for a in type_atoms(t)]
 
 
 def canon(ty):
@@ -219,29 +483,83 @@ def canon(ty):
         return "(" + ",".join(canon(t) for t in ty[1]) + ")"
     if kind == "record":
         return "{" + ",".join(f"{f}:{canon(t)}" for f, t in ty[1]) + "}"
+    if kind == "atomlit":
+        return ":" + ty[1]
+    if kind == "sum":
+        return "|".join(canon(t) for t in ty[1])
+    if kind == "slot":
+        return "ref?(L,normal,rec)"
+    if kind == "map":
+        return "Map[" + canon(ty[1]) + "," + canon(ty[2]) + "]"
+    if kind == "set":
+        return "Set[" + canon(ty[1]) + "]"
+    if kind == "buf":
+        return f"buf(L,normal,uint8,{ty[1]})"
+    if kind == "term":
+        return "term"
     return "List[" + canon(ty[1]) + "]"
 
 
-def silica(ty):
+def silica_value(ty):
+    """The Silica type of the value itself (for a message with a region: the type of its `v` field)."""
     kind = ty[0]
     if kind == "prim":
         return ty[1]
     if kind == "tuple":
-        return "(" + ", ".join(silica(t) for t in ty[1]) + ")"
+        return "(" + ", ".join(silica_value(t) for t in ty[1]) + ")"
     if kind == "record":
-        return "{ " + ", ".join(f"{f}: {silica(t)}" for f, t in ty[1]) + " }"
-    return "List[" + silica(ty[1]) + ", mem(normal)]"
+        return "{ " + ", ".join(f"{f}: {silica_value(t)}" for f, t in ty[1]) + " }"
+    if kind == "atomlit":
+        return ":" + ty[1]
+    if kind == "sum":
+        return " | ".join(silica_value(t) for t in ty[1])
+    if kind == "slot":
+        return "ref?(L, normal, rec)"
+    if kind == "map":
+        return "List[(" + silica_value(ty[1]) + ", " + silica_value(ty[2]) + "), mem(normal)]"
+    if kind == "buf":
+        return f"{{ b: buf(L, normal, uint8, {ty[1]}), n: int64 }}"
+    if kind == "term":
+        return TERM_TOKENS
+    return "List[" + silica_value(ty[1]) + ", mem(normal)]"
+
+
+REGION = "region(L, normal)"
+# a dynamic term on the Silica side: bees_term_wire's tokens in prefix order (design 3.2)
+TERM_TOKENS = "List[(int64, int64, float64, string), mem(normal)]"
+
+
+def silica(ty):
+    """The Silica MESSAGE type: the value's type, or, when the value holds an optional reference, the record of the region its
+    cells live in and the value, { r: region(L, normal), v: T } (C1 design 2.2: the region travels with the value); the same
+    record when the value holds a buf (the region the buffer is in)."""
+    if has_region(ty):
+        return "{ r: " + REGION + ", v: " + silica_value(ty) + " }"
+    return silica_value(ty)
+
+
+RECURSION_DEPTH = 64
 
 
 def depth_of(ty):
-    """Nesting of composites (a primitive is 0)."""
+    """Nesting of composites (a primitive, an atom literal and an empty slot are 0; a sum nests as its deepest variant)."""
     kind = ty[0]
-    if kind == "prim":
+    if kind in ("prim", "atomlit", "slot", "buf", "term"):
         return 0
-    if kind == "list":
+    if kind in ("list", "set"):
         return 1 + depth_of(ty[1])
+    if kind == "map":
+        return 1 + max(depth_of(ty[1]), depth_of(ty[2]))
+    if kind == "sum":
+        return max(depth_of(t) for t in ty[1])
     parts = [t for t in ty[1]] if kind == "tuple" else [t for _, t in ty[1]]
     return 1 + max(depth_of(t) for t in parts)
+
+
+def max_depth(ty):
+    """The max_depth literal of a decode of this type: the type's own nesting plus one; for a recursive type the nesting plus
+    64 (BEAM has no depth limit; C1 design 2.7, owner question Q6)."""
+    return depth_of(ty) + (RECURSION_DEPTH if has_slot(ty) else 1)
 
 
 def min_size(ty):
@@ -249,8 +567,16 @@ def min_size(ty):
     kind = ty[0]
     if kind == "prim":
         return PRIM_MIN[ty[1]]
-    if kind == "list":
+    if kind in ("list", "term"):
         return 1
+    if kind in ("map", "set", "buf"):
+        return 5
+    if kind == "atomlit":
+        return 2 + len(ty[1])
+    if kind == "slot":
+        return 6
+    if kind == "sum":
+        return min(min_size(t) for t in ty[1])
     if kind == "tuple":
         return (2 if len(ty[1]) <= 255 else 5) + sum(min_size(t) for t in ty[1])
     return 5 + sum(2 + len(f) + min_size(t) for f, t in ty[1])
@@ -306,11 +632,25 @@ def parse_wire(path):
                 raise WireError(f"{where}: '{name}' is not a usable message name")
             toks = tokenize(text, where)
             p = Parser(toks, where, name)
+            if toks == ["term"]:
+                msgs.append((name, ("term",), where))
+                continue
             ty = p.parse_type("<value>")
             if p.peek() is not None:
                 raise WireError(f"{where}: message {name}: unexpected '{p.peek()}' after the type")
             msgs.append((name, ty, where))
     return msgs
+
+
+def on_node_path(paths):
+    """True when a manifest has a node, peer, remote, local, creation, timing or redial line: its messages are converted by
+    the language's derived codec (bees_msgs), not by the hand codec (the same test as bees_dist_gen.has_dist)."""
+    for p in paths:
+        with open(p) as fh:
+            for line in fh:
+                if line.split("#", 1)[0].split()[:1] in [[k] for k in DIST_LINES]:
+                    return True
+    return False
 
 
 def collect(paths, warn=True):
@@ -324,7 +664,22 @@ def collect(paths, warn=True):
         seen[name] = where
     if len(msgs) > MAX_KINDS:
         raise WireError(f"{len(msgs)} messages ({MAX_KINDS} at most)")
+    node_path = on_node_path(paths)
     for name, ty, where in msgs:
+        if not node_path and special_path(ty):
+            path, sub = special_path(ty)
+            raise WireError(f"{where}: message {name}: field '{path}' has type '{canon(sub)}', which is not supported on the "
+                            "wire: a Map, a Set, a buf and a dynamic term are carried only on the node path (bees_msgs); the "
+                            "hand codec bees_wire_msgs of a manifest with no node line does not carry them")
+        if node_path:
+            def fail(path, text, why, where=where, name=name):
+                raise WireError(f"{where}: message {name}: field '{path}' has type '{text}', which is not supported on the "
+                                f"wire: {why}")
+            check_split(ty, fail)
+        if not node_path and has_node_kinds(ty):
+            raise WireError(f"{where}: message {name}: type '{canon(ty)}' (an atom literal type, a sum or an optional "
+                            "reference) is carried only on the node path (bees_msgs, the language's derived codec); the "
+                            "hand codec bees_wire_msgs of a manifest with no node line does not carry it")
         if warn and depth_of(ty) > MAX_DEPTH:
             print(f"bees_config: {where}: warning: message {name} nests {depth_of(ty)} levels, above the wire "
                   f"limit of {MAX_DEPTH}; every frame of it will be rejected as too_deep", file=sys.stderr)
@@ -925,7 +1280,341 @@ def generate_wire(out_dir, paths):
     return msgs
 
 
+# ---------------------------------------------------------------- C1: the node-by-node codec of a type that is not plain
+
+KK = "bees_codec_kinds@"
+SC = "bees_etf_scan@"
+STRS = "List[string, mem(normal)]"
+INTS = "List[int64, mem(normal)]"
+
+
+class Split:
+    """The functions of bees_msgs for message types that are not plain (C1 design 2.6). One pair per node of the type, named by
+    the node's number k (one per distinct type text):
+        ke_<k>(v: T[, r: region(L, normal)]) -> string       a whole frame (131 first); "" when the value cannot be sent
+        kd_<k>(frame: string[, r: region(L, normal)]) -> (:ok, T) | (:rejected, atom)     of a frame that holds exactly one T
+    A plain node is ONE derived encode and ONE derived decode. A composite node cuts each part out with the position scanner
+    (bees_etf_scan, through bees_codec_kinds), hands it to the part's kd_ and puts the results together; outbound it writes the
+    header and appends each part's term. frame_max, limits_arg(type, frame_max) and result_type(silica type) are
+    bees_dist_gen's (the derived parts carry the same literal limits as a whole plain message)."""
+
+    def __init__(self, frame_max, limits_arg, result_type):
+        self.frame_max, self.limits_arg, self.rt = frame_max, limits_arg, result_type
+        self.idx, self.lines = {}, []
+
+    def node(self, ty):
+        key = canon(ty)
+        if key not in self.idx:
+            self.idx[key] = len(self.idx)
+            kind = "plain" if is_plain(ty) else ty[0]
+            self.lines += [f"// node {self.idx[key]}: {canon(ty)}" + (" (plain: the derived codec)" if kind == "plain" else "")]
+            getattr(self, "n_" + kind)(self.idx[key], ty)
+        return self.idx[key]
+
+    @staticmethod
+    def rp(ty):
+        return f", r: {REGION}" if has_buf(ty) else ""
+
+    @staticmethod
+    def ra(ty):
+        return ", r" if has_buf(ty) else ""
+
+    def rej(self, code):
+        return f"(:rejected, {SC}code_reason({code}))"
+
+    def n_plain(self, k, ty):
+        st = silica_value(ty)
+        rt = self.rt(st)
+        self.lines += [f"fn ke_{k}(v: {st}) -> string {{",
+                       "    sequence proc[mem(normal), transport]",
+                       "        s: string <- encode((:etf), v)",
+                       "    produces pure s end", "}",
+                       f"fn kd_{k}(frame: string) -> {rt} {{",
+                       "    sequence proc[mem(normal), transport]",
+                       f"        x: {rt} <- decode((:etf), frame{self.limits_arg(ty, self.frame_max)})",
+                       "    produces pure x end", "}"]
+
+    def chain(self, k, ty, parts, build):
+        """The decode chain of a tuple or record: kd_<k>_<j> decodes part j and hands the parts so far to the next.
+        parts: [(position index in ps, type)]; build(names) -> the value's text."""
+        st, rt = silica_value(ty), self.rt(silica_value(ty))
+        rp, ra = self.rp(ty), self.ra(ty)
+        for j, (pi, t) in enumerate(parts):
+            c = self.node(t)
+            pt = silica_value(t)
+            got = "".join(f", a{i}: {silica_value(u)}" for i, (_, u) in enumerate(parts[:j]))
+            names = [f"a{i}" for i in range(j)] + ["a"]
+            nxt = (f"kd_{k}_{j + 1}(frame, ps{ra}, {', '.join(names)})" if j + 1 < len(parts) else f"(:ok, {build(names)})")
+            self.lines += [f"fn kd_{k}_{j}(frame: string, ps: {INTS}{rp}{got}) -> {rt} {{",
+                           "    sequence",
+                           f"        f: string <- {KK}part(frame, {KK}nth(ps, {pi}));",
+                           f"        x: {self.rt(pt)} <- kd_{c}(f{self.ra(t)})",
+                           f"    produces pure case x of {{ (:ok, a: {pt}) -> {nxt}; (:rejected, w: atom) -> (:rejected, w) }} end",
+                           "}"]
+
+    def n_tuple(self, k, ty):
+        st, rt = silica_value(ty), self.rt(silica_value(ty))
+        comps = ty[1]
+        tag = comps[0][1] if is_tagged(ty) else ""
+        vals = [(i, t) for i, t in enumerate(comps) if not (tag and i == 0)]
+        pat = ", ".join(([":" + tag] if tag else []) + [f"a{i}: {silica_value(t)}" for i, t in vals])
+        body = [f"                s0: string <- {KK}tuple_head({len(comps)});"]
+        n = 0
+        if tag:
+            body += [f"                t0: string <- {KK}atom_term(\"{tag}\");", f"                s1: string <- {KK}app(s0, t0);"]
+            n = 1
+        for i, t in vals:
+            c = self.node(t)
+            body += [f"                p{i}: string <- ke_{c}(a{i}{self.ra(t)});", f"                s{n + 1}: string <- {KK}app(s{n}, p{i});"]
+            n += 1
+        body[-1] = body[-1].rstrip(";")
+        self.lines += [f"fn ke_{k}(v: {st}{self.rp(ty)}) -> string {{", "    case v of {", f"        ({pat}) -> {{", "            sequence"] + body + \
+                      [f"            produces pure s{n} end", "        }", "    }", "}",
+                       f"fn kd_{k}(frame: string{self.rp(ty)}) -> {rt} {{",
+                       "    sequence",
+                       f"        ps: {INTS} <- {KK}tuple_parts(frame, {len(comps)}, \"{tag}\");",
+                       f"        c: int64 <- {KK}nth(ps, 0)",
+                       f"    produces pure case c < 0 of {{ true -> {self.rej('c')}; false -> kd_{k}_0(frame, ps{self.ra(ty)}) }} end",
+                       "}"]
+        self.chain(k, ty, [(i + 1, t) for i, t in vals],
+                   lambda names: "(" + ", ".join(([":" + tag] if tag else []) + names) + ")")
+
+    def n_record(self, k, ty):
+        st, rt = silica_value(ty), self.rt(silica_value(ty))
+        fields = ty[1]
+        body = [f"        s0: string <- {KK}map_head({len(fields)});"]
+        n = 0
+        # the derived encoder writes a record's keys in the byte order of their names
+        for f, t in sorted(fields, key=lambda ft: ft[0].encode()):
+            c = self.node(t)
+            body += [f"        k{n}: string <- {KK}atom_term(\"{f}\");", f"        s{n + 1}: string <- {KK}app(s{n}, k{n});",
+                     f"        p{n}: string <- ke_{c}(v.{f}{self.ra(t)});", f"        s{n + 2}: string <- {KK}app(s{n + 1}, p{n});"]
+            n += 2
+        body[-1] = body[-1].rstrip(";")
+        names = ", ".join(f'"{f}"' for f, _ in fields)
+        self.lines += [f"fn ke_{k}(v: {st}{self.rp(ty)}) -> string {{", "    sequence"] + body + [f"    produces pure s{n} end", "}",
+                       f"fn kd_{k}(frame: string{self.rp(ty)}) -> {rt} {{",
+                       "    sequence proc[mem(normal)]",
+                       f"        ns: {STRS} <- [{names}];",
+                       f"        ps: {INTS} <- {KK}record_parts(frame, ns);",
+                       f"        c: int64 <- {KK}nth(ps, 0)",
+                       f"    produces pure case c < 0 of {{ true -> {self.rej('c')}; false -> kd_{k}_0(frame, ps{self.ra(ty)}) }} end",
+                       "}"]
+        self.chain(k, ty, [(i + 1, t) for i, (_, t) in enumerate(fields)],
+                   lambda names: "{ " + ", ".join(f"{f}: {a}" for (f, _), a in zip(fields, names)) + " }")
+
+    def list_fns(self, k, lt, et):
+        """kn_<k>() the empty list, kp_<k>(h, t) prepend, kr_<k>(xs, acc) reverse, of a list type."""
+        self.lines += [f"fn kn_{k}() -> {lt} {{", "    sequence proc[mem(normal)]", f"        e: {lt} <- []", "    produces pure e end", "}",
+                       f"fn kp_{k}(h: {et}, t: {lt}) -> {lt} {{", "    sequence proc[mem(normal)]",
+                       f"        l: {lt} <- prepend[{et}, mem(normal)](h, t)", "    produces pure l end", "}",
+                       f"fn kr_{k}(xs: {lt}, acc: {lt}) -> {lt} {{", "    case xs of {", f"        []: {lt} -> acc;",
+                       f"        [h: {et}, t: {lt}] -> kr_{k}(t, kp_{k}(h, acc))", "    }", "}",
+                       f"fn ko_{k}(acc: {lt}) -> {self.rt(lt)} {{", "    sequence",
+                       f"        out: {lt} <- kr_{k}(acc, kn_{k}())", "    produces pure (:ok, out) end", "}"]
+
+    def n_list(self, k, ty):
+        lt, et = silica_value(ty), silica_value(ty[1])
+        rt = self.rt(lt)
+        e = self.node(ty[1])
+        self.list_fns(k, lt, et)
+        self.lines += [f"fn ke_{k}(v: {lt}) -> string {{ ke_{k}_l(v, 0, {KK}no_strs()) }}",
+                       f"fn ke_{k}_l(xs: {lt}, n: int64, acc: {STRS}) -> string {{", "    case xs of {",
+                       f"        []: {lt} -> {KK}list_frame(n, acc);",
+                       f"        [h: {et}, t: {lt}] -> {{", "            sequence",
+                       f"                p: string <- ke_{e}(h);",
+                       f"                l: {STRS} <- {KK}push_elem(acc, p)",
+                       f"            produces pure case length_bytes(p) == 0 of {{ true -> \"\"; false -> ke_{k}_l(t, n + 1, l) }} end",
+                       "        }", "    }", "}",
+                       f"fn kd_{k}(frame: string) -> {rt} {{", "    sequence",
+                       f"        c: int64 <- {KK}list_open(frame);",
+                       f"        e: {lt} <- kn_{k}()",
+                       f"    produces pure case c < 0 of {{ true -> {self.rej('c')}; false -> kd_{k}_l(frame, {SC}list_first(frame, 1), c, e) }} end",
+                       "}",
+                       f"fn kd_{k}_l(frame: string, pos: int64, left: int64, acc: {lt}) -> {rt} {{", "    case left == 0 of {",
+                       f"        true -> case {KK}list_close(frame, pos) < 0 of {{ true -> {self.rej(KK + 'list_close(frame, pos)')}; false -> ko_{k}(acc) }};",
+                       f"        false -> kd_{k}_e(frame, pos, {SC}skip(frame, pos), left, acc)", "    }", "}",
+                       f"fn kd_{k}_e(frame: string, pos: int64, stop: int64, left: int64, acc: {lt}) -> {rt} {{", "    case stop < 0 of {",
+                       f"        true -> {self.rej('stop')};", "        false -> {", "            sequence",
+                       f"                f: string <- {SC}slice_term(frame, pos, stop);",
+                       f"                x: {self.rt(et)} <- kd_{e}(f)",
+                       f"            produces pure case x of {{ (:ok, a: {et}) -> kd_{k}_l(frame, stop, left - 1, kp_{k}(a, acc)); (:rejected, w: atom) -> (:rejected, w) }} end",
+                       "        }", "    }", "}"]
+
+    def n_map(self, k, ty):
+        self.entries(k, ty, ty[1], ty[2])
+
+    def n_set(self, k, ty):
+        self.entries(k, ty, ty[1], None)
+
+    def entries(self, k, ty, kty, vty):
+        """A Map (vty a type) or a Set (vty None): MAP_EXT, at most MAX_ENTRIES pairs, no key twice in either direction (keys
+        are compared by the bytes the derived encoder writes for the decoded key: equal values give equal bytes)."""
+        lt, kt = silica_value(ty), silica_value(kty)
+        et = f"({kt}, {silica_value(vty)})" if vty else kt
+        rt = self.rt(lt)
+        kn = self.node(kty)
+        vn = self.node(vty) if vty else None
+        self.list_fns(k, lt, et)
+        self.lines += [f"fn ke_{k}(v: {lt}) -> string {{ ke_{k}_l(v, 0, {KK}no_strs(), {KK}no_strs()) }}",
+                       f"fn ke_{k}_l(xs: {lt}, n: int64, keys: {STRS}, acc: {STRS}) -> string {{", "    case xs of {",
+                       f"        []: {lt} -> {KK}map_frame(n, acc);",
+                       f"        [h: {et}, t: {lt}] -> ke_{k}_p(h, t, n, keys, acc)", "    }", "}"]
+        if vty:
+            self.lines += [f"fn ke_{k}_p(h: {et}, t: {lt}, n: int64, keys: {STRS}, acc: {STRS}) -> string {{", "    case h of {",
+                           f"        (k: {kt}, val: {silica_value(vty)}) -> {{", "            sequence",
+                           f"                kf: string <- ke_{kn}(k);",
+                           f"                vf: string <- ke_{vn}(val);",
+                           f"                ok: boolean <- {KK}pair_ok(n, keys, kf, vf);",
+                           f"                ks: {STRS} <- {KK}push(keys, kf);",
+                           f"                l: {STRS} <- {KK}push_pair(acc, kf, vf)",
+                           f"            produces pure case ok of {{ true -> ke_{k}_l(t, n + 1, ks, l); false -> \"\" }} end",
+                           "        }", "    }", "}"]
+        else:
+            self.lines += [f"fn ke_{k}_p(h: {et}, t: {lt}, n: int64, keys: {STRS}, acc: {STRS}) -> string {{", "    sequence",
+                           f"        kf: string <- ke_{kn}(h);",
+                           f"        ok: boolean <- {KK}pair_ok(n, keys, kf, kf);",
+                           f"        ks: {STRS} <- {KK}push(keys, kf);",
+                           f"        l: {STRS} <- {KK}push_member(acc, kf)",
+                           f"    produces pure case ok of {{ true -> ke_{k}_l(t, n + 1, ks, l); false -> \"\" }} end", "}"]
+        end = "pair_end" if vty else "nil_end"
+        self.lines += [f"fn kd_{k}(frame: string) -> {rt} {{", "    sequence",
+                       f"        c: int64 <- {KK}map_open(frame);",
+                       f"        e: {lt} <- kn_{k}()",
+                       f"    produces pure case c < 0 of {{ true -> {self.rej('c')}; false -> kd_{k}_l(frame, 6, c, {KK}no_strs(), e) }} end",
+                       "}",
+                       f"fn kd_{k}_l(frame: string, pos: int64, left: int64, keys: {STRS}, acc: {lt}) -> {rt} {{", "    case left == 0 of {",
+                       f"        true -> case {KK}at_end(frame, pos) < 0 of {{ true -> {self.rej(KK + 'at_end(frame, pos)')}; false -> ko_{k}(acc) }};",
+                       f"        false -> kd_{k}_k(frame, pos, {KK}{end}(frame, pos), left, keys, acc)", "    }", "}",
+                       f"fn kd_{k}_k(frame: string, pos: int64, stop: int64, left: int64, keys: {STRS}, acc: {lt}) -> {rt} {{",
+                       "    case stop < 0 of {", f"        true -> {self.rej('stop')};", "        false -> {", "            sequence",
+                       f"                f: string <- {KK}part(frame, pos);",
+                       f"                x: {self.rt(kt)} <- kd_{kn}(f)",
+                       f"            produces pure case x of {{ (:ok, k: {kt}) -> kd_{k}_v(frame, pos, stop, left, keys, acc, k); (:rejected, w: atom) -> (:rejected, w) }} end",
+                       "        }", "    }", "}",
+                       f"fn kd_{k}_v(frame: string, pos: int64, stop: int64, left: int64, keys: {STRS}, acc: {lt}, k: {kt}) -> {rt} {{",
+                       "    sequence",
+                       f"        kc: string <- ke_{kn}(k);",
+                       f"        dup: boolean <- {KK}seen(keys, kc);",
+                       f"        ks: {STRS} <- {KK}push(keys, kc);"]
+        if vty:
+            vt = silica_value(vty)
+            self.lines += [f"        vpos: int64 <- {SC}skip(frame, pos);",
+                           f"        f: string <- {KK}part(frame, vpos);",
+                           f"        x: {self.rt(vt)} <- kd_{vn}(f)",
+                           f"    produces pure case dup of {{ true -> {self.rej('0 - 13')}; false -> case x of {{ (:ok, val: {vt}) -> kd_{k}_a(frame, stop, left, ks, acc, k, val); (:rejected, w: atom) -> (:rejected, w) }} }} end",
+                           "}",
+                           f"fn kd_{k}_a(frame: string, stop: int64, left: int64, ks: {STRS}, acc: {lt}, k: {kt}, val: {vt}) -> {rt} {{",
+                           "    sequence",
+                           f"        pr: {et} <- (k, val);",
+                           f"        l: {lt} <- kp_{k}(pr, acc)",
+                           f"    produces pure kd_{k}_l(frame, stop, left - 1, ks, l) end", "}"]
+        else:
+            self.lines += [f"        l: {lt} <- kp_{k}(k, acc)",
+                           f"    produces pure case dup of {{ true -> {self.rej('0 - 13')}; false -> kd_{k}_l(frame, stop, left - 1, ks, l) }} end",
+                           "}"]
+
+    def n_buf(self, k, ty):
+        n = ty[1]
+        st, bt = silica_value(ty), f"buf(L, normal, uint8, {n})"
+        rt, srt = self.rt(st), self.rt("string")
+        self.lines += [f"fn ke_{k}(v: {st}, r: {REGION}) -> string {{", f"    case v.n < 0 or v.n > {n} of {{ true -> \"\"; false -> ke_{k}_b(v.b, r, v.n) }}", "}",
+                       f"fn ke_{k}_b(b: {bt}, r: {REGION}, n: int64) -> string {{", "    sequence proc[mem(normal), transport]",
+                       f"        xs: {INTS} <- ke_{k}_r(b, r, n - 1, {KK}no_ints());",
+                       "        s: string <- bytes_of(xs);",
+                       "        f: string <- encode((:etf), s)", "    produces pure f end", "}",
+                       f"fn ke_{k}_r(b: {bt}, r: {REGION}, i: int64, acc: {INTS}) -> {INTS} {{", "    case i < 0 of {", "        true -> acc;",
+                       "        false -> {", "            sequence proc[mem(normal)]",
+                       "                x: uint8 <- read_buf(b, i);",
+                       f"                y: int64 <- {KK}byte_int(x);",
+                       f"                l: {INTS} <- prepend[int64, mem(normal)](y, acc)",
+                       f"            produces pure ke_{k}_r(b, r, i - 1, l) end", "        }", "    }", "}",
+                       f"fn kd_{k}(frame: string, r: {REGION}) -> {rt} {{", "    sequence proc[mem(normal), transport]",
+                       f"        x: {srt} <- decode((:etf), frame, {{ max_bytes: {self.frame_max}, max_depth: 1, max_length: {n} }})",
+                       f"    produces pure case x of {{ (:ok, s: string) -> kd_{k}_b(s, r); (:rejected, w: atom) -> (:rejected, w) }} end", "}",
+                       f"fn kd_{k}_b(s: string, r: {REGION}) -> {rt} {{", "    sequence proc[mem(normal)]",
+                       f"        b: {bt} <- alloc_buf(r, {n});",
+                       "        n: int64 <- length_bytes(s);",
+                       f"        _: atom <- kd_{k}_w(b, r, s, 0, n)",
+                       "    produces pure (:ok, { b: b, n: n }) end", "}",
+                       f"fn kd_{k}_w(b: {bt}, r: {REGION}, s: string, i: int64, n: int64) -> atom {{", "    case i >= n of {", "        true -> :ok;",
+                       "        false -> {", "            sequence proc[mem(normal), transport]",
+                       "                c: int64 <- byte_at(s, i);",
+                       f"                y: uint8 <- {KK}int_byte(c);",
+                       "                _: atom <- write_buf(b, i, y)",
+                       f"            produces pure kd_{k}_w(b, r, s, i + 1, n) end", "        }", "    }", "}"]
+
+    def message(self, name, ty):
+        """enc_<name>, dec_<name>, check_<name> of a message whose type is not plain."""
+        st, vt = silica(ty), silica_value(ty)
+        rt = self.rt(vt)
+        self.lines += [f"// ---- message {name}: {canon(ty)}"]
+        k = self.node(ty)
+        reg = has_buf(ty)
+        self.lines += [f"fn enc_{name}(msg: {st}) -> string {{ ke_{k}({'msg.v, msg.r' if reg else 'msg'}) }}",
+                       f"fn dec_{name}(frame: string{self.rp(ty)}) -> {rt} {{",
+                       f"    case {KK}frame_check(frame, {self.frame_max}) < 0 of {{",
+                       f"        true -> {self.rej(KK + f'frame_check(frame, {self.frame_max})')};",
+                       f"        false -> kd_{k}(frame{self.ra(ty)})", "    }", "}"]
+        if reg:
+            self.lines += [f"fn check_{name}(frame: string) -> atom {{", "    sequence proc[mem(normal)]",
+                           "        L: lifetime <- fresh_lifetime();",
+                           f"        r: {REGION} <- alloc_region(normal);",
+                           f"        x: {rt} <- dec_{name}(frame, r);",
+                           f"        why: atom <- case x of {{ (:ok, _v: {vt}) -> :ok; (:rejected, w: atom) -> w }}",
+                           "    produces pure why end", "}", ""]
+        else:
+            self.lines += [f"fn check_{name}(frame: string) -> atom {{", "    sequence",
+                           f"        r: {rt} <- dec_{name}(frame);",
+                           f"        why: atom <- case r of {{ (:ok, _v: {vt}) -> :ok; (:rejected, w: atom) -> w }}",
+                           "    produces pure why end", "}", ""]
+
+
+def term_msg(name, result_type):
+    """C1 design 3.5: a dynamic term message is bees_term_wire's token list; its codec is that unit's."""
+    rt = result_type(TERM_TOKENS)
+    return [f"// ---- message {name}: a dynamic term (bees_term_wire)",
+            f"fn enc_{name}(msg: {TERM_TOKENS}) -> string {{ bees_term_wire@encode(msg) }}",
+            f"fn dec_{name}(frame: string) -> {rt} {{ bees_term_wire@decode(frame) }}",
+            f"fn check_{name}(frame: string) -> atom {{", "    sequence",
+            f"        r: {rt} <- dec_{name}(frame);",
+            f"        why: atom <- case r of {{ (:ok, _v: {TERM_TOKENS}) -> :ok; (:rejected, w: atom) -> w }}",
+            "    produces pure why end", "}", ""]
+
+
+def split_uses(msgs):
+    """The `use` lines bees_msgs needs beyond wire_etf and bees_atoms: none for a manifest of plain types."""
+    uses = []
+    if any(t[0] != "term" and not is_plain(t) for _, t in msgs):
+        uses += ["use bees_etf_scan;", "use bees_codec_kinds;"]
+    if any(t[0] == "term" for _, t in msgs):
+        uses += ["use bees_term_wire;"]
+    return uses
+
+
+def split_msgs(msgs, frame_max, limits_arg, result_type):
+    """The text of every message of msgs [(name, type)] that is not plain (a dynamic term, or a type converted node by node)."""
+    sp = Split(frame_max, limits_arg, result_type)
+    for name, ty in msgs:
+        if ty[0] == "term":
+            sp.lines += term_msg(name, result_type)
+        elif not is_plain(ty):
+            sp.message(name, ty)
+    return sp.lines
+
+
 def message_names(paths):
     """The message names of the manifests (each is also an atom, the target name; bees_config adds them to
-    bees_atoms)."""
-    return [n for n, _ in collect(paths, warn=False)]
+    bees_atoms), followed by every atom literal written in a message type (a tag or an atom variant: the manifest is the
+    compile-time statement that the node needs it), each once."""
+    msgs = collect(paths, warn=False)
+    names = [n for n, _ in msgs]
+    for a in type_atom_names(msgs):
+        if a not in names:
+            names.append(a)
+    return names
+
+
+def type_atom_names(msgs):
+    """Every atom literal written in the types of msgs [(name, type)], sorted, each once."""
+    return sorted({a for _, t in msgs for a in type_atoms(t)})

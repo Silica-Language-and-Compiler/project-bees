@@ -1,0 +1,19 @@
+// ---- BEAM-mode TLS (N2T, spikes/N2T-beam-tls.md): pasted by tools/bees_edge_gen.py into a BEAM-mode node program built WITH
+// `--use dangerous_beam_tls` (a {transport, tls} node). beam_node_edge.part calls these where it makes a link carrier or opens
+// the listener: the (:tcp) carrier is wrapped in the BEAM TLS link, which speaks the carrier contract upward, so tx, conn, lsn,
+// epm and the redial actor use it as they use a carrier. EPMD carriers are never wrapped (EPMD is plaintext, as for stock Erlang).
+// The state literals are the behaviours' state types written out (SD-31).
+// a dialed link to peer `peer` (the engine checks the server's certificate against the host part of that peer's node name)
+fn beam_tls_link(c: dangerous_actor_ref, peer: int64) -> dangerous_actor_ref {
+    sequence proc[concurrency]
+        l: dangerous_actor_ref <- spawn_dangerous({ owner: actor_ref_of_word(0), car: c, w: c, h: 0 - 1, role: 0, phase: 0, credit: 0, car_out: false, peer: peer, told: false }, dangerous_beam_tls@btls, stack_policy(0, :keep_last_message), state_policy(:keep_state_area))
+    produces pure l end
+}
+// the node's one listener: a plain listener actor (dangerous_beam_tls@btlsl) owns the listening carrier c and gives every accepted
+// connection its own TLS link (role 2) before the owner (dangerous_beam_net@lsn) sees it
+fn beam_tls_listen(c: dangerous_actor_ref, owner: actor_ref, address: string) -> boolean {
+    sequence proc[concurrency]
+        ll: actor_ref <- spawn({ owner: actor_ref_of_word(0), car: c }, dangerous_beam_tls@btlsl, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        ok: boolean <- cast(ll, (:open, owner, address) impl ActorMessage {})
+    produces pure ok end
+}

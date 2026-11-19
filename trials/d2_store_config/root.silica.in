@@ -1,0 +1,51 @@
+// D2: an application root that reads its configuration through the (:store) carrier with BEES's reader units and prints
+// what it was given: the sanitized summary of an accepted configuration, or the reason of a refused one. A TEMPLATE: the
+// leaf's Makefile writes dangerous_d2_beam.silica and dangerous_d2_trust.silica from it (tools/bees_pack_gen.py root), which
+// spells the configuration type of the mode (Silica has no type alias; src/config/bees_cfg_@MODE@.shapes).
+use bees_reporter;
+use carrier;
+use wireframe;
+use wire_etf;
+use storelog;
+use dangerous_store;
+use dangerous_store_backing_carrier;
+use bees_cfg_@MODE@;
+use dangerous_bees_cfg_@MODE@_store;
+module dangerous_d2_@MODE@;
+
+carried_on config: (:store) (:backing, "node_@MODE@.sildat", 65536, :stop);
+
+fn refused(e: @ERR@) -> atom {
+    sequence proc[device_io]
+        _: atom <- print("configuration refused: record ");
+        _: atom <- print_int64(e.record);
+        _: atom <- print(" schema ");
+        _: atom <- print_int64(e.schema);
+        _: atom <- print(": ");
+        _: atom <- println(e.text);
+        o: atom <- println("done")
+    produces pure o end
+}
+fn accepted(c: @CFG@) -> atom {
+    sequence proc[device_io]
+        _: atom <- println("configuration accepted");
+        _: atom <- bees_cfg_@MODE@@show(c);
+        o: atom <- println("done")
+    produces pure o end
+}
+fn app(msg: (:ok, @CFG@) | (:error, @ERR@), state: int64) -> (:no_reply, int64) {
+    case msg of {
+        (:ok, c: @CFG@) -> { _: atom <- accepted(c); (:no_reply, 1) };
+        (:error, e: @ERR@) -> { _: atom <- refused(e); (:no_reply, 2) }
+    }
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- bees_reporter@start();
+        me: actor_ref <- spawn(0, app, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        car: dangerous_actor_ref <- spawn_dangerous_carrier(config, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        rd: actor_ref <- spawn({ acc: bees_cfg_@MODE@@fresh(), car: car, rx: wireframe@fresh(:storage), to: me, why: "" }, dangerous_bees_cfg_@MODE@_store@reader, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: boolean <- cast(car, (:open, rd, "") impl ActorMessage {});
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

@@ -1,0 +1,39 @@
+// F1-3 (fuzzer finding, development-plan/spikes/F1-fuzzer.md): calls to a hostile server (hostile_server.py), one after
+// another. The server answers calls 1 to 12 and 14 to 17 with answers a correct client refuses, each followed at once by more
+// bytes, and calls 13 and 18 rightly. Every call must end with exactly one outcome, the right answers must be accepted, and no
+// actor failure report may appear (before the fix the client's connection actor could end with actor_not_found). Used on a B1
+// node (tcli) and on a session node (mcli); written for both, so it needs nothing of the session units.
+fn label(step: int64) -> string {
+    concat(concat("call demo:add([", bees_trust_frame@int_text(step)), ", 1])")
+}
+fn step_line(r: { req: int64, what: atom, value: string }) -> atom {
+    say(concat(concat(concat("step ", bees_trust_frame@int_text(r.req)), concat(" ", label(r.req))), concat(": ", outcome(r))))
+}
+fn start(step: int64, me: actor_ref) -> atom {
+    case step <= 18 of {
+        true -> trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_add(), 2, ints2(step, 1), me, step);
+        false -> say("hostile done")
+    }
+}
+fn next(step: int64, me: actor_ref) -> atom {
+    wake(me, 150, step + 1)
+}
+fn driver(r: { req: int64, what: atom, value: string }, n: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        _: atom <- case r.value == "go" of {
+            true -> start(r.req, me);
+            false -> { sequence _: atom <- step_line(r) produces pure next(r.req, me) end }
+        }
+    produces pure (:no_reply, n + 1) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        b: int64 <- trust_boot();
+        _: atom <- start_reporter();
+        _: atom <- trust_start();
+        d: actor_ref <- spawn(0, driver, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: atom <- start(1, d);
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

@@ -1,0 +1,35 @@
+[node] configuration read from the store
+beam.auth.auth = "none"
+beam.auth.cookie = (none)
+beam.auth.redial.initial_ms = 0
+beam.auth.redial.max_ms = 0
+beam.auth.redial.on = false
+beam.auth.transport = "tcp"
+beam.link[].address = "listen:23400"
+beam.link[].host = "127.0.0.1"
+beam.link[].how.by_epmd = false
+beam.link[].how.dials = false
+beam.link[].how.port = 23400
+beam.link[].how.resolve = false
+beam.link[].name = "b@localhost"
+beam.net.epmd.mode = "none"
+beam.net.epmd.port = 4369
+beam.net.listen_address = "127.0.0.1"
+beam.net.listen_port = 23400
+beam.net.listener = "listen:23400"
+node.creation = 1
+node.name = "a@localhost"
+beam.time.frame_max = 4096
+beam.time.io_ms = 60000
+beam.time.open_ms = 10000
+beam.time.tick_ms = 15000
+[node] a@localhost
+[node] listening: listen:23400
+[node] a peer is connected
+[node] frame accepted, bytes 10, configured cap 4096
+[node] frame refused under the configured cap: :too_large
+[node] link down: :closed
+done
+exit=0
+peer: sent a frame of 10 bytes; the answer is the node's name: a@localhost
+peer: announced a frame of 5000 bytes; the node closed the link

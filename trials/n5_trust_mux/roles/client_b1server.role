@@ -1,0 +1,47 @@
+// a session client against a B1 server (node b: no trust.session; N3's actors): the client offers a session in its first
+// frame, the server ignores the offer, serves the pipelined request and closes; the client saw no ok, so it never writes a
+// second request on that connection: every request is the first, and only, request of its own connection.
+fn label(step: int64) -> string {
+    case step of {
+        1 -> "call demo:add([1, 2]), hello path, with the session offer";
+        2 -> "call demo:add([40, 2]), token fast path, with the session offer";
+        3 -> "cast demo:note([7])";
+        4 -> "call demo:echo([<<\"hi\">>])";
+        5 -> "call demo:add([5, 1])";
+        6 -> "call demo:add([6, 1])";
+        _: int64 -> "?"
+    }
+}
+fn start(step: int64, me: actor_ref) -> atom {
+    case step of {
+        1 -> trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_add(), 2, ints2(1, 2), me, 1);
+        2 -> trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_add(), 2, ints2(40, 2), me, 2);
+        3 -> trpc_cast(server(), bees_atoms@a_demo(), bees_atoms@a_note(), 1, ints1(7), me, 3);
+        4 -> trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_echo(), 1, strs1("hi"), me, 4);
+        5 -> trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_add(), 2, ints2(5, 1), me, 5);
+        6 -> trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_add(), 2, ints2(6, 1), me, 6);
+        _: int64 -> say("b1server done")
+    }
+}
+fn next(step: int64, me: actor_ref) -> atom {
+    wake(me, 300, step + 1)
+}
+fn driver(r: { req: int64, what: atom, value: string }, n: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        _: atom <- case r.value == "go" of {
+            true -> start(r.req, me);
+            false -> { sequence _: atom <- step_line(r) produces pure next(r.req, me) end }
+        }
+    produces pure (:no_reply, n + 1) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        b: int64 <- trust_boot();
+        _: atom <- start_reporter();
+        _: atom <- trust_start();
+        d: actor_ref <- spawn(0, driver, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: atom <- start(1, d);
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

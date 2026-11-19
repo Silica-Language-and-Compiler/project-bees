@@ -1,0 +1,10 @@
+# C1 codec trial, dynamic terms as messages (development-plan/spikes/C1-codec-term-coverage.md 3.5): an in-memory node manifest
+# (no link is opened; the peer port is only data). `term` as the whole message type: the Silica message is bees_term_wire's
+# token list, List[(int64, int64, float64, string), mem(normal)], and bees_msgs@enc_<name> / dec_<name> are that unit's encode
+# and decode. bees.config sets beam.frame_size_max to 65536.
+node   b@127.0.0.1
+peer   a@127.0.0.1 127.0.0.1 24300 dial
+local  any   cast term
+remote out   @ a@127.0.0.1 cast term
+# a typed message beside them: one derived encode and decode, as in every other manifest
+remote ping  @ a@127.0.0.1 cast (int64, string)

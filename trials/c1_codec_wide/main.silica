@@ -1,0 +1,259 @@
+// C1 codec trial, records of more than four fields (development-plan/spikes/C1-codec-term-coverage.md section 2.6; SD-37). The
+// pinned compiler's derived DECODER of a record of more than four fields does not compile; while SD37_SPLIT is set in
+// tools/bees_wire_gen.py such a record is converted field by field (each field one derived call). Printed: a six-field record
+// encoded by bees_msgs@enc_wide6, its bytes compared with what the language's derived encode writes for the same value (the
+// derived ENCODER of a wide record compiles on the pin) and decoded; erl's bytes for the same map (its key order is its
+// atom table's: decoded, not compared); a wide record inside a tagged tuple, a list and a map; the refusals.
+use bees_atoms;
+use bees_msgs;
+use bees_reporter;
+
+fn say(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+fn hexd(v: int64) -> string { substring("0123456789abcdef", v, v + 1) }
+fn at(s: string, i: int64) -> int64 {
+    sequence proc[transport]
+        b: int64 <- byte_at(s, i)
+    produces pure b end
+}
+fn hex_of(s: string, i: int64, n: int64) -> string {
+    case i >= n of {
+        true -> "";
+        false -> concat(concat(hexd(at(s, i) / 16), hexd(at(s, i) % 16)), hex_of(s, i + 1, n))
+    }
+}
+fn hex(s: string) -> string { hex_of(s, 0, length_bytes(s)) }
+fn hv(c: int64) -> int64 { case c >= 97 of { true -> c - 87; false -> c - 48 } }
+fn unhex_acc(s: string, i: int64, acc: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    case i < 0 of {
+        true -> acc;
+        false -> {
+            sequence proc[mem(normal)]
+                b: int64 <- hv(at(s, i)) * 16 + hv(at(s, i + 1));
+                l: List[int64, mem(normal)] <- prepend[int64, mem(normal)](b, acc)
+            produces pure unhex_acc(s, i - 2, l) end
+        }
+    }
+}
+fn unhex(s: string) -> string {
+    sequence proc[mem(normal), transport]
+        e: List[int64, mem(normal)] <- [];
+        xs: List[int64, mem(normal)] <- unhex_acc(s, length_bytes(s) - 2, e);
+        out: string <- bytes_of(xs)
+    produces pure out end
+}
+fn mk(s: string, n: int64) -> string {
+    case length_bytes(s) >= n of {
+        true -> substring(s, 0, n);
+        false -> mk(concat(s, s), n)
+    }
+}
+fn pos_text(n: int64) -> string {
+    case n < 10 of {
+        true -> substring("0123456789", n, n + 1);
+        false -> concat(pos_text(n / 10), substring("0123456789", n % 10, n % 10 + 1))
+    }
+}
+fn int_text(n: int64) -> string {
+    case n < 0 of {
+        true -> case n < -9223372036854775807 of { true -> "-9223372036854775808"; false -> concat("-", pos_text(0 - n)) };
+        false -> pos_text(n)
+    }
+}
+fn str_text(s: string) -> string {
+    case length_bytes(s) > 16 of {
+        true -> concat(concat("a string of ", int_text(length_bytes(s))), " bytes");
+        false -> concat(concat("\"", s), "\"")
+    }
+}
+fn verdict(a: atom) -> string { case a == :ok of { true -> "ok"; false -> bees_atoms@spelling(a) } }
+fn why(w: atom) -> string { concat("rejected ", bees_atoms@spelling(w)) }
+fn same(f: string, erl: string) -> string {
+    case hex(f) == erl of { true -> "  = erl"; false -> "  DIFFERS from erl" }
+}
+// a long frame is shown by its length and its first bytes
+fn shown(f: string) -> string {
+    case length_bytes(f) > 64 of {
+        true -> concat(concat(concat(hex_of(f, 0, 24), "... ("), int_text(length_bytes(f))), " bytes)");
+        false -> hex(f)
+    }
+}
+
+// ---- the chain (atom, int64, ref?(L, normal, rec))
+fn cat3(a: string, b: string, c: string) -> string { concat(concat(a, b), c) }
+fn cat4(a: string, b: string, c: string, d: string) -> string { concat(concat(concat(a, b), c), d) }
+// one case: the bytes BEES wrote, compared with erl's when cmp is 1 (BEES writes the list's order, erl its own: where they can
+// differ the fixture is only decoded), what BEES's bytes decode to, what erl's bytes decode to
+fn report(label: string, f: string, erl: string, cmp: int64, own: string, theirs: string) -> atom {
+    sequence
+        _: atom <- say(cat4(label, " ", shown(f), case cmp of { 1 -> same(f, erl); _: int64 -> "  (erl's bytes are decoded, not compared)" }));
+        _: atom <- say(concat("  decoded: ", own))
+    produces pure say(concat("  erl's bytes decoded: ", theirs)) end
+}
+fn sent(f: string) -> string {
+    case length_bytes(f) == 0 of { true -> "not sent (no frame)"; false -> cat3("a frame of ", int_text(length_bytes(f)), " bytes") }
+}
+fn ints_bytes(xs: List[int64, mem(normal)]) -> string {
+    sequence proc[mem(normal), transport]
+        out: string <- bytes_of(xs)
+    produces pure out end
+}
+
+fn derived6(v: { a: int64, b: string, c: boolean, d: float64, e: atom, f: List[int64, mem(normal)] }) -> string {
+    sequence proc[mem(normal), transport]
+        s: string <- encode((:etf), v)
+    produces pure s end
+}
+fn t_ints(l: List[int64, mem(normal)], sep: string) -> string {
+    case l of {
+        []: List[int64, mem(normal)] -> "";
+        [h: int64, t: List[int64, mem(normal)]] -> cat3(sep, int_text(h), t_ints(t, ","))
+    }
+}
+// (a float64 compared with a literal in place faults on the pin: the literal is bound first)
+fn d_text(d: float64) -> string {
+    sequence
+        want: float64 <- 4.5
+    produces pure case d == want of { true -> "4.5"; false -> "another float" } end
+}
+fn r_wide6(x: (:ok, { a: int64, b: string, c: boolean, d: float64, e: atom, f: List[int64, mem(normal)] }) | (:rejected, atom)) -> string {
+    case x of {
+        (:ok, v: { a: int64, b: string, c: boolean, d: float64, e: atom, f: List[int64, mem(normal)] }) -> concat(concat(cat4("ok { a: ", int_text(v.a), ", b: ", v.b), cat4(", c: ", case v.c of { true -> "true"; false -> "false" }, ", d: ", d_text(v.d))), concat(cat4(", e: ", bees_atoms@spelling(v.e), ", f: [", t_ints(v.f, "")), "] }"));
+        (:rejected, w: atom) -> why(w)
+    }
+}
+fn x_wide6(label: string, h: string) -> atom {
+    sequence
+        f: string <- unhex(h)
+    produces pure say(cat3(label, ": ", r_wide6(bees_msgs@dec_wide6(f)))) end
+}
+fn t_five(v: { a: int64, b: int64, c: int64, d: int64, e: int64 }) -> string {
+    concat(cat4("{", int_text(v.a), ",", int_text(v.b)), concat(cat4(",", int_text(v.c), ",", int_text(v.d)), cat3(",", int_text(v.e), "}")))
+}
+fn r_inw(x: (:ok, (:w, { p: int64, q: int64, r: int64, s: int64, t: int64 }, string)) | (:rejected, atom)) -> string {
+    case x of {
+        (:ok, v: (:w, { p: int64, q: int64, r: int64, s: int64, t: int64 }, string)) -> case v of {
+            (:w, k: { p: int64, q: int64, r: int64, s: int64, t: int64 }, z: string) -> concat(cat4("ok (w, { p: ", int_text(k.p), ", q: ", int_text(k.q)), concat(cat4(", r: ", int_text(k.r), ", s: ", int_text(k.s)), cat4(", t: ", int_text(k.t), " }, ", concat(z, ")"))))
+        };
+        (:rejected, w: atom) -> why(w)
+    }
+}
+fn t_rows(l: List[{ a: int64, b: int64, c: int64, d: int64, e: int64 }, mem(normal)], sep: string) -> string {
+    case l of {
+        []: List[{ a: int64, b: int64, c: int64, d: int64, e: int64 }, mem(normal)] -> "";
+        [h: { a: int64, b: int64, c: int64, d: int64, e: int64 }, t: List[{ a: int64, b: int64, c: int64, d: int64, e: int64 }, mem(normal)]] -> cat3(sep, t_five(h), t_rows(t, ", "))
+    }
+}
+fn r_rows(x: (:ok, List[{ a: int64, b: int64, c: int64, d: int64, e: int64 }, mem(normal)]) | (:rejected, atom)) -> string {
+    case x of { (:ok, l: List[{ a: int64, b: int64, c: int64, d: int64, e: int64 }, mem(normal)]) -> cat3("ok [", t_rows(l, ""), "]"); (:rejected, w: atom) -> why(w) }
+}
+fn t_wm(l: List[(int64, { a: int64, b: int64, c: int64, d: int64, e: int64 }), mem(normal)], sep: string) -> string {
+    case l of {
+        []: List[(int64, { a: int64, b: int64, c: int64, d: int64, e: int64 }), mem(normal)] -> "";
+        [h: (int64, { a: int64, b: int64, c: int64, d: int64, e: int64 }), t: List[(int64, { a: int64, b: int64, c: int64, d: int64, e: int64 }), mem(normal)]] -> case h of {
+            (k: int64, v: { a: int64, b: int64, c: int64, d: int64, e: int64 }) -> cat4(sep, int_text(k), "=>", concat(t_five(v), t_wm(t, ", ")))
+        }
+    }
+}
+fn r_wm(x: (:ok, List[(int64, { a: int64, b: int64, c: int64, d: int64, e: int64 }), mem(normal)]) | (:rejected, atom)) -> string {
+    case x of { (:ok, l: List[(int64, { a: int64, b: int64, c: int64, d: int64, e: int64 }), mem(normal)]) -> cat3("ok #{", t_wm(l, ""), "}"); (:rejected, w: atom) -> why(w) }
+}
+fn r_four(x: (:ok, { a: int64, b: int64, c: int64, d: int64 }) | (:rejected, atom)) -> string {
+    case x of { (:ok, v: { a: int64, b: int64, c: int64, d: int64 }) -> cat4("ok ", int_text(v.a + v.b + v.c + v.d), "", ""); (:rejected, w: atom) -> why(w) }
+}
+fn x_inw(label: string, h: string) -> atom {
+    sequence
+        f: string <- unhex(h)
+    produces pure say(cat3(label, ": ", r_inw(bees_msgs@dec_inw(f)))) end
+}
+fn x_rows(label: string, h: string) -> atom {
+    sequence
+        f: string <- unhex(h)
+    produces pure say(cat3(label, ": ", r_rows(bees_msgs@dec_rows(f)))) end
+}
+fn values() -> atom {
+    sequence proc[mem(normal)]
+        _: atom <- say("-- { a: int64, b: string, c: boolean, d: float64, e: atom, f: List[int64] }: six fields, decoded field by field");
+        d: float64 <- 4.5;
+        fl: List[int64, mem(normal)] <- [1000, 2000];
+        v: { a: int64, b: string, c: boolean, d: float64, e: atom, f: List[int64, mem(normal)] } <- { a: 1, b: "two", c: true, d: d, e: bees_atoms@a_wide6(), f: fl };
+        f: string <- bees_msgs@enc_wide6(v);
+        g: string <- derived6(v);
+        _: atom <- say(cat3("#{a=>1,b=>two,c=>true,d=>4.5,e=>wide6,f=>[1000,2000]} ", hex(f), case hex(f) == hex(g) of { true -> "  = the derived encoder's bytes"; false -> "  DIFFERS from the derived encoder" }));
+        _: atom <- say(concat("  decoded: ", r_wide6(bees_msgs@dec_wide6(f))));
+        _: atom <- x_wide6("  erl's bytes (keys in erl's order: c, f, b, a, d, e) decoded", "8374000000067701637704747275657701666c0000000262000003e862000007d06a7701626d0000000374776f770161610177016446401200000000000077016577057769646536");
+        _: atom <- say("-- (:w, { p: int64, q: int64, r: int64, s: int64, t: int64 }, string): a wide record in a tagged tuple");
+        iv: (:w, { p: int64, q: int64, r: int64, s: int64, t: int64 }, string) <- (:w, { p: 1, q: 2, r: 3, s: 4, t: 5 }, "z");
+        fi: string <- bees_msgs@enc_inw(iv);
+        _: atom <- say(concat("{w,#{p=>1,q=>2,r=>3,s=>4,t=>5},z} ", hex(fi)));
+        _: atom <- say(concat("  decoded: ", r_inw(bees_msgs@dec_inw(fi))));
+        _: atom <- x_inw("  erl's bytes (keys in erl's order) decoded", "8368037701777400000005770170610177017161027701736104770172610377017461056d000000017a");
+        _: atom <- say("-- List[{ a: int64, b: int64, c: int64, d: int64, e: int64 }]: a list of wide records");
+        rows: List[{ a: int64, b: int64, c: int64, d: int64, e: int64 }, mem(normal)] <- [{ a: 1, b: 2, c: 3, d: 4, e: 5 }, { a: 6, b: 7, c: 8, d: 9, e: 10 }];
+        fr: string <- bees_msgs@enc_rows(rows);
+        _: atom <- say(concat("[#{a=>1,..,e=>5},#{a=>6,..,e=>10}] ", hex(fr)));
+        _: atom <- say(concat("  decoded: ", r_rows(bees_msgs@dec_rows(fr))));
+        _: atom <- x_rows("  erl's bytes (keys in erl's order) decoded", "836c0000000274000000057701636103770162610277016161017701646104770165610574000000057701636108770162610777016161067701646109770165610a6a");
+        _: atom <- say("-- Map[int64, { a: int64, b: int64, c: int64, d: int64, e: int64 }]: wide records as the values of a map");
+        wm: List[(int64, { a: int64, b: int64, c: int64, d: int64, e: int64 }), mem(normal)] <- [(1, { a: 1, b: 2, c: 3, d: 4, e: 5 })];
+        fw: string <- bees_msgs@enc_wm(wm);
+        _: atom <- say(concat("#{1=>#{a=>1,..,e=>5}} ", hex(fw)));
+        _: atom <- say(concat("  decoded: ", r_wm(bees_msgs@dec_wm(fw))));
+        ew: string <- unhex("8374000000016101740000000577016361037701616101770162610277016461047701656105");
+        _: atom <- say(concat("  erl's bytes (keys in erl's order) decoded: ", r_wm(bees_msgs@dec_wm(ew))));
+        _: atom <- say("-- { a: int64, b: int64, c: int64, d: int64 }: four fields, plain (one derived encode and decode)");
+        ff: string <- bees_msgs@enc_four({ a: 1, b: 2, c: 3, d: 4 });
+        _: atom <- say(cat4(hex(ff), "  decoded, the fields add up to: ", r_four(bees_msgs@dec_four(ff)), ""))
+    produces pure :ok end
+}
+fn refusals() -> atom {
+    sequence
+        _: atom <- say("-- refusals, decoded as the six-field record");
+        _: atom <- x_wide6("the field f missing (five pairs)", "8374000000057701637704747275657701626d0000000374776f770161610177016446401200000000000077016577057769646536");
+        _: atom <- x_wide6("the field a twice", "837400000006770161610177016161027701637704747275657701626d0000000374776f77016446401200000000000077016577057769646536");
+        _: atom <- x_wide6("an unknown field g in place of f", "8374000000067701637704747275657701676a7701626d0000000374776f770161610177016446401200000000000077016577057769646536");
+        _: atom <- x_wide6("seven pairs", "8374000000077701637704747275657701666a7701626d0000000374776f7701616101770164464012000000000000770165770577696465367701676101");
+        _: atom <- x_wide6("the field a is a string", "8374000000067701637704747275657701666a7701626d0000000374776f7701616d0000000077016446401200000000000077016577057769646536");
+        _: atom <- x_wide6("the field e is an atom the program does not hold", "8374000000067701637704747275657701666a7701626d0000000374776f770161610177016446401200000000000077016577047a7a7178");
+        _: atom <- x_wide6("the field d is an integer", "8374000000067701637704747275657701666a7701626d0000000374776f7701616101770164610577016577057769646536");
+        _: atom <- x_wide6("truncated inside the field f", "8374000000067701637704747275657701666c0000000262000003e8");
+        _: atom <- x_wide6("a trailing byte", "8374000000067701637704747275657701666a7701626d0000000374776f77016161017701644640120000000000007701657705776964653600");
+        _: atom <- x_wide6("a tuple, not a map", "83680261016102");
+        _: atom <- x_wide6("empty frame", "");
+        _: atom <- x_rows("rows, the second record lacks a field", "836c00000002740000000577016361037701626102770161610177016461047701656105740000000477016361087701626107770161610677016461096a")
+    produces pure :ok end
+}
+fn count(i: int64, n: int64, frame: string, want: atom, hits: int64) -> int64 {
+    case i >= n of {
+        true -> hits;
+        false -> {
+            sequence
+                a: atom <- bees_msgs@validate_named(frame, bees_atoms@a_wide6());
+                h: int64 <- case a == want of { true -> hits + 1; false -> hits }
+            produces pure count(i + 1, n, frame, want, h) end
+        }
+    }
+}
+fn memory() -> atom {
+    sequence
+        _: atom <- say("-- 5000 decodes in a row of each (validate_named)");
+        bad: string <- unhex("8374000000057701637704747275657701626d0000000374776f770161610177016446401200000000000077016577057769646536");
+        n1: int64 <- count(0, 5000, bad, :missing_field, 0);
+        _: atom <- say(concat("a field missing, refused missing_field: ", int_text(n1)));
+        good: string <- unhex("8374000000067701637704747275657701666c0000000262000003e862000007d06a7701626d0000000374776f770161610177016446401200000000000077016577057769646536");
+        n2: int64 <- count(0, 5000, good, :ok, 0);
+        _: atom <- say(concat("the six-field record, accepted: ", int_text(n2)))
+    produces pure :ok end
+}
+
+fn main() -> int64 {
+    sequence
+        _: atom <- bees_reporter@start();
+        _: atom <- values();
+        _: atom <- refusals();
+        _: atom <- memory()
+    produces pure 0 end
+}

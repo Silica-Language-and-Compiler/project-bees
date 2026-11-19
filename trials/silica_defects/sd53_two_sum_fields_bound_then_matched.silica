@@ -1,0 +1,17 @@
+// SD-53 (expected: "argument some", "bound asome"): a record with two sum-typed fields; each field bound to a name of the
+// sequence, then the second matched: no arm matches (case_clause). Passed on as an argument (name(rc.v)) the field works.
+fn name(v: (:some, int64) | :none) -> string { case v of { (:some, _k: int64) -> "some"; :none -> "none" } }
+fn kname(k: :a | :b) -> string { case k of { :a -> "a"; :b -> "b" } }
+fn bound(rc: { k: :a | :b, v: (:some, int64) | :none }) -> string {
+    sequence
+        k: :a | :b <- rc.k;
+        v: (:some, int64) | :none <- rc.v
+    produces pure concat(kname(k), name(v)) end
+}
+fn main() -> int64 {
+    sequence proc[device_io]
+        rc: { k: :a | :b, v: (:some, int64) | :none } <- { k: :a, v: (:some, 5) };
+        _: atom <- println(concat("argument ", name(rc.v)));
+        _: atom <- println(concat("bound ", bound(rc)))
+    produces pure 0 end
+}

@@ -1,0 +1,1032 @@
+// BEES dynamic term codec (C1, development-plan/spikes/C1-codec-term-coverage.md section 3): any Erlang External Term
+// Format term to and from a flat Silica value, its tokens in prefix order.
+//
+//   one token: (kind, n, f, s) = (int64, int64, float64, string)      a term: List[token, mem(normal)]
+//
+//   kind  token                                              followed by          ETF read             ETF written
+//    1    integer n (fits int64)                                                  97, 98, 110/111      smallest of 97, 98, 110
+//    2    big integer: n = 0 (positive) or 1 (negative),                          110, 111 beyond      110 up to 255 bytes, else 111
+//         s = magnitude, little-endian, no leading zero byte                      int64
+//    3    float f                                                                 70                   70
+//    4    atom: s = its name in UTF-8                                             119, 118, 115, 100   119, or 118 above 255 bytes
+//    5    binary s                                                                109                  109
+//    6    bit string: s = bytes, n = bits used in the last byte (1..7)            77                   77
+//    7    tuple of arity n                                   n terms              104, 105             104, or 105 above 255
+//    8    list of n elements, n >= 1                         n terms and a tail   108                  108; 107 when every element is
+//                                                                                                      an integer 0..255, the tail is
+//                                                                                                      nil and n <= 65535
+//    9    nil                                                                     106, 107 of length 0 106
+//   10    byte list: s = the bytes (the proper list of them)                      107                  107 (108 above 65535 bytes)
+//   11    map of n pairs                                     2n terms             116                  116, pairs in token order
+//   12 pid, 13 reference, 14 port, 15 fun: s = the term's own ETF bytes, tag      88 103; 90 114 101;  s, unchanged
+//         included (carried, never interpreted: only the extent is checked)       120 89 102; 112 113
+//
+// Atoms are text: no atom is created or looked up here (section 3.3). Positions come from bees_etf_scan; every integer
+// that fits int64 and every float is converted by the language's derived decode((:etf), ...) on a slice, and written by the
+// derived encode (through bees_etf_scan@leaf_int, leaf_float, int_term, float_term); BEES writes only tags and lengths.
+//
+// decode is one pass with an explicit stack of pending counts (a List[int64]), so neither a long list nor deep nesting
+// uses call stack. Limits (literals, D47's form): frame bytes max_frame(), nesting max_nesting() (:too_deep), tokens
+// max_tokens() (:too_long), pairs per map max_pairs() (:too_long), atom names 255 characters (:too_long, :bad_utf8). Every
+// count is checked against the bytes that remain, and against the tokens that remain, before a token is made.
+// Two forms are made one on the way in, so that a term has one token form except for byte lists: BIT_BINARY_EXT with 8
+// bits in its last byte is a binary (kind 5) and its unused bits are cleared; STRING_EXT of length 0 is nil (kind 9).
+// A duplicate map key is refused in both directions (:duplicate_field, "" from encode). Keys are compared in a canonical
+// form: the bytes this unit's encoder writes for the key (a byte list is written the same from kind 10 and from kind 8;
+// 1 and 1.0 differ), with the pairs of every map inside the key ordered by their own canonical bytes, so two keys that
+// are maps with the same pairs in a different order are equal. The tokens returned keep the wire order.
+module bees_term_wire;
+use bees_etf_scan;
+
+export max_frame/0;
+export max_nesting/0;
+export max_tokens/0;
+export max_pairs/0;
+export max_atom_chars/0;
+export decode/1;
+export decode_within/3;
+export encode/1;
+export term_size/1;
+export term_end/2;
+export rest_after/1;
+export kind_of/1;
+export n_of/1;
+export f_of/1;
+export s_of/1;
+export t_int/1;
+export t_big/2;
+export t_float/1;
+export t_atom/1;
+export t_bin/1;
+export t_bits/2;
+export t_tuple/1;
+export t_list/1;
+export t_nil/0;
+export t_bytes/1;
+export t_map/1;
+export t_pid/1;
+export t_ref/1;
+export t_port/1;
+export t_fun/1;
+
+// ---- limits ----
+fn max_frame() -> int64 { 4294967295 }
+fn max_nesting() -> int64 { 64 }
+fn max_tokens() -> int64 { 65536 }
+fn max_pairs() -> int64 { 1024 }
+fn max_atom_chars() -> int64 { 255 }
+
+// ---- tokens ----
+fn kind_of(t: (int64, int64, float64, string)) -> int64 { case t of { (k: int64, _n: int64, _f: float64, _s: string) -> k } }
+fn n_of(t: (int64, int64, float64, string)) -> int64 { case t of { (_k: int64, n: int64, _f: float64, _s: string) -> n } }
+fn f_of(t: (int64, int64, float64, string)) -> float64 { case t of { (_k: int64, _n: int64, f: float64, _s: string) -> f } }
+fn s_of(t: (int64, int64, float64, string)) -> string { case t of { (_k: int64, _n: int64, _f: float64, s: string) -> s } }
+fn t_int(n: int64) -> (int64, int64, float64, string) { (1, n, 0.0, "") }
+fn t_big(sign: int64, magnitude: string) -> (int64, int64, float64, string) { (2, sign, 0.0, magnitude) }
+fn t_float(f: float64) -> (int64, int64, float64, string) { (3, 0, f, "") }
+fn t_atom(name: string) -> (int64, int64, float64, string) { (4, 0, 0.0, name) }
+fn t_bin(s: string) -> (int64, int64, float64, string) { (5, 0, 0.0, s) }
+fn t_bits(s: string, bits: int64) -> (int64, int64, float64, string) { (6, bits, 0.0, s) }
+fn t_tuple(arity: int64) -> (int64, int64, float64, string) { (7, arity, 0.0, "") }
+fn t_list(n: int64) -> (int64, int64, float64, string) { (8, n, 0.0, "") }
+fn t_nil() -> (int64, int64, float64, string) { (9, 0, 0.0, "") }
+fn t_bytes(s: string) -> (int64, int64, float64, string) { (10, 0, 0.0, s) }
+fn t_map(pairs: int64) -> (int64, int64, float64, string) { (11, pairs, 0.0, "") }
+fn t_pid(s: string) -> (int64, int64, float64, string) { (12, 0, 0.0, s) }
+fn t_ref(s: string) -> (int64, int64, float64, string) { (13, 0, 0.0, s) }
+fn t_port(s: string) -> (int64, int64, float64, string) { (14, 0, 0.0, s) }
+fn t_fun(s: string) -> (int64, int64, float64, string) { (15, 0, 0.0, s) }
+
+// ---- bytes ----
+fn at(s: string, i: int64) -> int64 {
+    sequence proc[transport]
+        b: int64 <- byte_at(s, i)
+    produces pure b end
+}
+fn cut(s: string, start: int64, stop: int64) -> string {
+    sequence proc[mem(normal), transport]
+        out: string <- byte_slice(s, start, stop)
+    produces pure out end
+}
+fn b1(a: int64) -> string {
+    sequence proc[mem(normal), transport]
+        xs: List[int64, mem(normal)] <- [a];
+        s: string <- bytes_of(xs)
+    produces pure s end
+}
+fn b2(a: int64, b: int64) -> string {
+    sequence proc[mem(normal), transport]
+        xs: List[int64, mem(normal)] <- [a, b];
+        s: string <- bytes_of(xs)
+    produces pure s end
+}
+fn b3(a: int64, b: int64, c: int64) -> string {
+    sequence proc[mem(normal), transport]
+        xs: List[int64, mem(normal)] <- [a, b, c];
+        s: string <- bytes_of(xs)
+    produces pure s end
+}
+// a tag and a 4-byte big-endian number
+fn tag32(tag: int64, n: int64) -> string {
+    sequence proc[mem(normal), transport]
+        xs: List[int64, mem(normal)] <- [tag, (n / 16777216) % 256, (n / 65536) % 256, (n / 256) % 256, n % 256];
+        s: string <- bytes_of(xs)
+    produces pure s end
+}
+// a tag, a 4-byte big-endian number and one more byte
+fn tag32b(tag: int64, n: int64, last: int64) -> string {
+    sequence proc[mem(normal), transport]
+        xs: List[int64, mem(normal)] <- [tag, (n / 16777216) % 256, (n / 65536) % 256, (n / 256) % 256, n % 256, last];
+        s: string <- bytes_of(xs)
+    produces pure s end
+}
+fn cat2(a: string, b: string) -> string {
+    sequence proc[mem(normal), transport]
+        parts: List[string, mem(normal)] <- [a, b];
+        s: string <- join_bytes(parts)
+    produces pure s end
+}
+fn no_toks() -> List[(int64, int64, float64, string), mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[(int64, int64, float64, string), mem(normal)] <- []
+    produces pure e end
+}
+fn no_strs() -> List[string, mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[string, mem(normal)] <- []
+    produces pure e end
+}
+fn no_ints() -> List[int64, mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[int64, mem(normal)] <- []
+    produces pure e end
+}
+fn one_int(a: int64) -> List[int64, mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[int64, mem(normal)] <- [a]
+    produces pure e end
+}
+fn rev_toks(xs: List[(int64, int64, float64, string), mem(normal)], acc: List[(int64, int64, float64, string), mem(normal)]) -> List[(int64, int64, float64, string), mem(normal)] {
+    case xs of {
+        []: List[(int64, int64, float64, string), mem(normal)] -> acc;
+        [h: (int64, int64, float64, string), t: List[(int64, int64, float64, string), mem(normal)]] -> {
+            sequence proc[mem(normal)]
+                l: List[(int64, int64, float64, string), mem(normal)] <- prepend[(int64, int64, float64, string), mem(normal)](h, acc)
+            produces pure rev_toks(t, l) end
+        }
+    }
+}
+fn rev_strs(xs: List[string, mem(normal)], acc: List[string, mem(normal)]) -> List[string, mem(normal)] {
+    case xs of {
+        []: List[string, mem(normal)] -> acc;
+        [h: string, t: List[string, mem(normal)]] -> {
+            sequence proc[mem(normal)]
+                l: List[string, mem(normal)] <- prepend[string, mem(normal)](h, acc)
+            produces pure rev_strs(t, l) end
+        }
+    }
+}
+fn rev_ints(xs: List[int64, mem(normal)], acc: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    case xs of {
+        []: List[int64, mem(normal)] -> acc;
+        [h: int64, t: List[int64, mem(normal)]] -> {
+            sequence proc[mem(normal)]
+                l: List[int64, mem(normal)] <- prepend[int64, mem(normal)](h, acc)
+            produces pure rev_ints(t, l) end
+        }
+    }
+}
+// the fragments, collected newest first, as one string (one join)
+fn joined(parts: List[string, mem(normal)]) -> string {
+    sequence proc[mem(normal), transport]
+        fwd: List[string, mem(normal)] <- rev_strs(parts, no_strs());
+        s: string <- join_bytes(fwd)
+    produces pure s end
+}
+fn lesser(a: int64, b: int64) -> int64 { case a < b of { true -> a; false -> b } }
+fn pow2(n: int64) -> int64 { case n <= 0 of { true -> 1; false -> 2 * pow2(n - 1) } }
+
+// ---- leaves ----
+// (the derived decode and encode are called in bees_etf_scan: a unit that exports its own `decode` and `encode` cannot name
+// the builtins, E2020)
+// the frame 131 110 k sign magnitude: a SMALL_BIG_EXT of k significant bytes, for the derived decode
+fn small_big(k: int64, sign: int64, magnitude: string) -> string {
+    sequence proc[mem(normal), transport]
+        xs: List[int64, mem(normal)] <- [131, 110, k, sign];
+        head: string <- bytes_of(xs);
+        parts: List[string, mem(normal)] <- [head, magnitude];
+        out: string <- join_bytes(parts)
+    produces pure out end
+}
+// s with the unused low bits of its last byte cleared (`bits` are used, 1..7; s is not empty)
+fn masked(s: string, bits: int64) -> string {
+    n: int64 <- length_bytes(s);
+    last: int64 <- at(s, n - 1);
+    quantum: int64 <- pow2(8 - bits);
+    case last % quantum == 0 of {
+        true -> s;
+        false -> cat2(cut(s, 0, n - 1), b1(last - last % quantum))
+    }
+}
+
+// ---- decode: one token at a position ----
+// stop: the position after the token's own bytes, or a negative code; kids: the number of terms that follow as its
+// children (-1 for a leaf)
+fn bad(code: int64) -> { stop: int64, kids: int64, tok: (int64, int64, float64, string) } { { stop: code, kids: 0 - 1, tok: (0, 0, 0.0, "") } }
+fn leaf(stop: int64, tok: (int64, int64, float64, string)) -> { stop: int64, kids: int64, tok: (int64, int64, float64, string) } { { stop: stop, kids: 0 - 1, tok: tok } }
+fn tok_at(s: string, len: int64, pos: int64) -> { stop: int64, kids: int64, tok: (int64, int64, float64, string) } {
+    case pos >= len of {
+        true -> bad(0 - 2);
+        false -> tok_tag(s, len, pos, at(s, pos))
+    }
+}
+fn tok_tag(s: string, len: int64, pos: int64, tag: int64) -> { stop: int64, kids: int64, tok: (int64, int64, float64, string) } {
+    case tag of {
+        97 -> int_tok(s, pos, pos + 2, len);
+        98 -> int_tok(s, pos, pos + 5, len);
+        110 -> big_tok(s, len, pos, 1);
+        111 -> big_tok(s, len, pos, 4);
+        70 -> float_tok(s, pos, pos + 9, len);
+        119 -> atom_tok(s, pos);
+        118 -> atom_tok(s, pos);
+        115 -> atom_tok(s, pos);
+        100 -> atom_tok(s, pos);
+        109 -> bin_tok(s, len, pos);
+        77 -> bits_tok(s, len, pos);
+        107 -> str_tok(s, len, pos);
+        106 -> leaf(pos + 1, (9, 0, 0.0, ""));
+        104 -> case pos + 2 > len of { true -> bad(0 - 2); false -> holder(len, pos + 2, 7, at(s, pos + 1), at(s, pos + 1)) };
+        105 -> case pos + 5 > len of { true -> bad(0 - 2); false -> holder(len, pos + 5, 7, bees_etf_scan@rd32(s, pos + 1), bees_etf_scan@rd32(s, pos + 1)) };
+        108 -> case pos + 5 > len of { true -> bad(0 - 2); false -> list_tok(len, pos + 5, bees_etf_scan@rd32(s, pos + 1)) };
+        116 -> case pos + 5 > len of { true -> bad(0 - 2); false -> map_tok(len, pos + 5, bees_etf_scan@rd32(s, pos + 1)) };
+        88 -> carried(s, pos, 12);
+        103 -> carried(s, pos, 12);
+        90 -> carried(s, pos, 13);
+        114 -> carried(s, pos, 13);
+        101 -> carried(s, pos, 13);
+        120 -> carried(s, pos, 14);
+        89 -> carried(s, pos, 14);
+        102 -> carried(s, pos, 14);
+        112 -> carried(s, pos, 15);
+        113 -> carried(s, pos, 15);
+        _: int64 -> other_tag(bees_etf_scan@skip_within(s, pos, 0))
+    }
+}
+// a tag this unit makes no token for: the scanner's reason (unsupported or bad_tag)
+fn other_tag(code: int64) -> { stop: int64, kids: int64, tok: (int64, int64, float64, string) } {
+    case code < 0 of { true -> bad(code); false -> bad(0 - 4) }
+}
+// a container of `kids` terms whose first is at p: the count is checked against the bytes that remain
+fn holder(len: int64, p: int64, kind: int64, n: int64, kids: int64) -> { stop: int64, kids: int64, tok: (int64, int64, float64, string) } {
+    case kids > len - p of {
+        true -> bad(0 - 2);
+        false -> { stop: p, kids: kids, tok: (kind, n, 0.0, "") }
+    }
+}
+// LIST_EXT: n elements and a tail. n = 0 (a tail alone) is never written by term_to_binary and is refused.
+fn list_tok(len: int64, p: int64, n: int64) -> { stop: int64, kids: int64, tok: (int64, int64, float64, string) } {
+    case n < 1 of {
+        true -> bad(0 - 4);
+        false -> holder(len, p, 8, n, n + 1)
+    }
+}
+fn map_tok(len: int64, p: int64, n: int64) -> { stop: int64, kids: int64, tok: (int64, int64, float64, string) } {
+    case n > max_pairs() of {
+        true -> bad(0 - 7);
+        false -> holder(len, p, 11, n, 2 * n)
+    }
+}
+fn int_tok(s: string, pos: int64, stop: int64, len: int64) -> { stop: int64, kids: int64, tok: (int64, int64, float64, string) } {
+    case stop > len of {
+        true -> bad(0 - 2);
+        false -> {
+            r: { ok: boolean, v: int64 } <- bees_etf_scan@leaf_int(bees_etf_scan@slice_term(s, pos, stop));
+            case r.ok of {
+                true -> leaf(stop, (1, r.v, 0.0, ""));
+                false -> bad(0 - 8)
+            }
+        }
+    }
+}
+fn float_tok(s: string, pos: int64, stop: int64, len: int64) -> { stop: int64, kids: int64, tok: (int64, int64, float64, string) } {
+    case stop > len of {
+        true -> bad(0 - 2);
+        false -> {
+            r: { ok: boolean, v: float64 } <- bees_etf_scan@leaf_float(bees_etf_scan@slice_term(s, pos, stop));
+            case r.ok of {
+                true -> leaf(stop, (3, 0, r.v, ""));
+                false -> bad(0 - 4)
+            }
+        }
+    }
+}
+// SMALL_BIG_EXT (w = 1) and LARGE_BIG_EXT (w = 4): tag, count of w bytes, sign, magnitude little-endian
+fn big_tok(s: string, len: int64, pos: int64, w: int64) -> { stop: int64, kids: int64, tok: (int64, int64, float64, string) } {
+    case pos + 2 + w > len of {
+        true -> bad(0 - 2);
+        false -> {
+            n: int64 <- case w == 1 of { true -> at(s, pos + 1); false -> bees_etf_scan@rd32(s, pos + 1) };
+            sign: int64 <- at(s, pos + 1 + w);
+            start: int64 <- pos + 2 + w;
+            case start + n > len of {
+                true -> bad(0 - 2);
+                false -> case sign > 1 of {
+                    true -> bad(0 - 8);
+                    false -> big_value(s, start, start + n, sign, significant(s, start, start + n))
+                }
+            }
+        }
+    }
+}
+// the number of magnitude bytes without the zero bytes at the high end
+fn significant(s: string, start: int64, stop: int64) -> int64 {
+    case stop <= start of {
+        true -> 0;
+        false -> case at(s, stop - 1) == 0 of {
+            true -> significant(s, start, stop - 1);
+            false -> stop - start
+        }
+    }
+}
+fn big_value(s: string, start: int64, stop: int64, sign: int64, k: int64) -> { stop: int64, kids: int64, tok: (int64, int64, float64, string) } {
+    case k == 0 of {
+        true -> leaf(stop, (1, 0, 0.0, ""));
+        false -> {
+            mag: string <- cut(s, start, start + k);
+            case k > 8 of {
+                true -> leaf(stop, (2, sign, 0.0, mag));
+                false -> {
+                    r: { ok: boolean, v: int64 } <- bees_etf_scan@leaf_int(small_big(k, sign, mag));
+                    case r.ok of {
+                        true -> leaf(stop, (1, r.v, 0.0, ""));
+                        false -> leaf(stop, (2, sign, 0.0, mag))
+                    }
+                }
+            }
+        }
+    }
+}
+fn atom_tok(s: string, pos: int64) -> { stop: int64, kids: int64, tok: (int64, int64, float64, string) } {
+    c: int64 <- bees_etf_scan@atom_check(s, pos);
+    case c < 0 of {
+        true -> bad(c);
+        false -> {
+            name: string <- bees_etf_scan@atom_text(s, pos);
+            leaf(bees_etf_scan@atom_end(s, pos), (4, 0, 0.0, name))
+        }
+    }
+}
+fn bin_tok(s: string, len: int64, pos: int64) -> { stop: int64, kids: int64, tok: (int64, int64, float64, string) } {
+    case pos + 5 > len of {
+        true -> bad(0 - 2);
+        false -> {
+            stop: int64 <- pos + 5 + bees_etf_scan@rd32(s, pos + 1);
+            case stop > len of {
+                true -> bad(0 - 2);
+                false -> {
+                    v: string <- cut(s, pos + 5, stop);
+                    leaf(stop, (5, 0, 0.0, v))
+                }
+            }
+        }
+    }
+}
+// BIT_BINARY_EXT: length, bits used in the last byte, bytes. bits outside 1..8 or no byte at all: out_of_range.
+fn bits_tok(s: string, len: int64, pos: int64) -> { stop: int64, kids: int64, tok: (int64, int64, float64, string) } {
+    case pos + 6 > len of {
+        true -> bad(0 - 2);
+        false -> {
+            n: int64 <- bees_etf_scan@rd32(s, pos + 1);
+            bits: int64 <- at(s, pos + 5);
+            stop: int64 <- pos + 6 + n;
+            case stop > len of {
+                true -> bad(0 - 2);
+                false -> case bits < 1 or bits > 8 or n < 1 of {
+                    true -> bad(0 - 8);
+                    false -> {
+                        raw: string <- cut(s, pos + 6, stop);
+                        case bits == 8 of {
+                            true -> leaf(stop, (5, 0, 0.0, raw));
+                            false -> {
+                                v: string <- masked(raw, bits);
+                                leaf(stop, (6, bits, 0.0, v))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+fn str_tok(s: string, len: int64, pos: int64) -> { stop: int64, kids: int64, tok: (int64, int64, float64, string) } {
+    case pos + 3 > len of {
+        true -> bad(0 - 2);
+        false -> {
+            stop: int64 <- pos + 3 + bees_etf_scan@rd16(s, pos + 1);
+            case stop > len of {
+                true -> bad(0 - 2);
+                false -> case stop == pos + 3 of {
+                    true -> leaf(stop, (9, 0, 0.0, ""));
+                    false -> {
+                        v: string <- cut(s, pos + 3, stop);
+                        leaf(stop, (10, 0, 0.0, v))
+                    }
+                }
+            }
+        }
+    }
+}
+// a pid, reference, port or fun: its own bytes, the extent from the scanner
+fn carried(s: string, pos: int64, kind: int64) -> { stop: int64, kids: int64, tok: (int64, int64, float64, string) } {
+    stop: int64 <- bees_etf_scan@skip_within(s, pos, 0);
+    case stop < 0 of {
+        true -> bad(stop);
+        false -> {
+            v: string <- cut(s, pos, stop);
+            leaf(stop, (kind, 0, 0.0, v))
+        }
+    }
+}
+
+// ---- decode: the pass ----
+fn stopped(code: int64) -> { code: int64, toks: List[(int64, int64, float64, string), mem(normal)] } { { code: code, toks: no_toks() } }
+// c: the number of terms still to read at the innermost open level; stack: the same for each level around it, innermost
+// first (one cell per open container, none per token); depth: the number of open containers; acc: the tokens made so
+// far, newest first
+fn run(s: string, lim: { d: int64, t: int64, len: int64 }, pos: int64, c: int64, stack: List[int64, mem(normal)], depth: int64, ntok: int64, acc: List[(int64, int64, float64, string), mem(normal)]) -> { code: int64, toks: List[(int64, int64, float64, string), mem(normal)] } {
+    case c == 0 of {
+        true -> case stack of {
+            []: List[int64, mem(normal)] -> case pos == lim.len of {
+                true -> { code: 0, toks: acc };
+                false -> stopped(0 - 3)
+            };
+            [up: int64, rest: List[int64, mem(normal)]] -> run(s, lim, pos, up, rest, depth - 1, ntok, acc)
+        };
+        false -> case ntok >= lim.t of {
+            true -> stopped(0 - 7);
+            false -> {
+                r: { stop: int64, kids: int64, tok: (int64, int64, float64, string) } <- tok_at(s, lim.len, pos);
+                case r.stop < 0 of {
+                    true -> stopped(r.stop);
+                    false -> case r.kids < 0 of {
+                        true -> {
+                            sequence proc[mem(normal)]
+                                acc2: List[(int64, int64, float64, string), mem(normal)] <- prepend[(int64, int64, float64, string), mem(normal)](r.tok, acc)
+                            produces pure run(s, lim, r.stop, c - 1, stack, depth, ntok + 1, acc2) end
+                        };
+                        false -> case depth + 1 > lim.d of {
+                            true -> stopped(0 - 6);
+                            false -> case ntok + 1 + r.kids > lim.t of {
+                                true -> stopped(0 - 7);
+                                false -> {
+                                    sequence proc[mem(normal)]
+                                        acc2: List[(int64, int64, float64, string), mem(normal)] <- prepend[(int64, int64, float64, string), mem(normal)](r.tok, acc);
+                                        st: List[int64, mem(normal)] <- prepend[int64, mem(normal)](c - 1, stack)
+                                    produces pure run(s, lim, r.stop, r.kids, st, depth + 1, ntok + 1, acc2) end
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+// The tokens of the term in `frame` (131 first), or the reason it is refused.
+fn decode(frame: string) -> (:ok, List[(int64, int64, float64, string), mem(normal)]) | (:rejected, atom) {
+    decode_within(frame, max_nesting(), max_tokens())
+}
+// the same under tighter limits (limits above the unit's ceilings are lowered to them)
+fn decode_within(frame: string, depth_max: int64, tokens_max: int64) -> (:ok, List[(int64, int64, float64, string), mem(normal)]) | (:rejected, atom) {
+    len: int64 <- length_bytes(frame);
+    case len > max_frame() of {
+        true -> (:rejected, :too_large);
+        false -> case len < 1 of {
+            true -> (:rejected, :truncated);
+            false -> case at(frame, 0) == 131 of {
+                false -> (:rejected, :bad_version);
+                true -> {
+                    lim: { d: int64, t: int64, len: int64 } <- { d: lesser(depth_max, max_nesting()), t: lesser(tokens_max, max_tokens()), len: len };
+                    r: { code: int64, toks: List[(int64, int64, float64, string), mem(normal)] } <- run(frame, lim, 1, 1, no_ints(), 0, 0, no_toks());
+                    case r.code < 0 of {
+                        true -> (:rejected, bees_etf_scan@code_reason(r.code));
+                        false -> {
+                            toks: List[(int64, int64, float64, string), mem(normal)] <- rev_toks(r.toks, no_toks());
+                            case maps_ok(toks) of {
+                                true -> (:ok, toks);
+                                false -> (:rejected, :duplicate_field)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ---- token runs ----
+fn kids_of(t: (int64, int64, float64, string)) -> int64 {
+    case kind_of(t) of {
+        7 -> n_of(t);
+        8 -> n_of(t) + 1;
+        11 -> 2 * n_of(t);
+        _: int64 -> 0
+    }
+}
+// walks `pending` terms; count: tokens walked so far
+fn walk(toks: List[(int64, int64, float64, string), mem(normal)], pending: int64, count: int64) -> { n: int64, rest: List[(int64, int64, float64, string), mem(normal)] } {
+    case pending == 0 of {
+        true -> { n: count, rest: toks };
+        false -> case toks of {
+            []: List[(int64, int64, float64, string), mem(normal)] -> { n: 0 - 1, rest: toks };
+            [h: (int64, int64, float64, string), t: List[(int64, int64, float64, string), mem(normal)]] -> case kids_of(h) < 0 of {
+                true -> { n: 0 - 1, rest: t };
+                false -> walk(t, pending - 1 + kids_of(h), count + 1)
+            }
+        }
+    }
+}
+// the number of tokens of the first term of the list, -1 when the list does not start with a whole term
+fn term_size(toks: List[(int64, int64, float64, string), mem(normal)]) -> int64 {
+    r: { n: int64, rest: List[(int64, int64, float64, string), mem(normal)] } <- walk(toks, 1, 0);
+    r.n
+}
+// the tokens after the first term (the empty list when there is no whole term)
+fn rest_after(toks: List[(int64, int64, float64, string), mem(normal)]) -> List[(int64, int64, float64, string), mem(normal)] {
+    r: { n: int64, rest: List[(int64, int64, float64, string), mem(normal)] } <- walk(toks, 1, 0);
+    case r.n < 0 of { true -> no_toks(); false -> r.rest }
+}
+fn drop(toks: List[(int64, int64, float64, string), mem(normal)], i: int64) -> List[(int64, int64, float64, string), mem(normal)] {
+    case i <= 0 of {
+        true -> toks;
+        false -> case toks of {
+            []: List[(int64, int64, float64, string), mem(normal)] -> toks;
+            [_h: (int64, int64, float64, string), t: List[(int64, int64, float64, string), mem(normal)]] -> drop(t, i - 1)
+        }
+    }
+}
+// the index just after the term that starts at token i (the first token is 0), -1 when there is no whole term there
+fn term_end(toks: List[(int64, int64, float64, string), mem(normal)], i: int64) -> int64 {
+    case i < 0 of {
+        true -> 0 - 1;
+        false -> {
+            n: int64 <- term_size(drop(toks, i));
+            case n < 0 of { true -> 0 - 1; false -> i + n }
+        }
+    }
+}
+
+// ---- map keys ----
+// every map of the list with two or more pairs has distinct keys
+fn maps_ok(toks: List[(int64, int64, float64, string), mem(normal)]) -> boolean {
+    case toks of {
+        []: List[(int64, int64, float64, string), mem(normal)] -> true;
+        [h: (int64, int64, float64, string), t: List[(int64, int64, float64, string), mem(normal)]] -> case kind_of(h) == 11 and n_of(h) >= 2 of {
+            false -> maps_ok(t);
+            true -> case keys_distinct(t, n_of(h)) of {
+                false -> false;
+                true -> maps_ok(t)
+            }
+        }
+    }
+}
+// toks: what follows a map token of n pairs. Each key in its canonical form (canon_one), compared pair by pair:
+// quadratic, n is at most max_pairs().
+fn keys_distinct(toks: List[(int64, int64, float64, string), mem(normal)], n: int64) -> boolean {
+    r: { ok: boolean, keys: List[string, mem(normal)] } <- keys_of(toks, n, no_strs());
+    case r.ok of {
+        false -> false;
+        true -> distinct(r.keys)
+    }
+}
+fn keys_of(toks: List[(int64, int64, float64, string), mem(normal)], n: int64, acc: List[string, mem(normal)]) -> { ok: boolean, keys: List[string, mem(normal)] } {
+    case n <= 0 of {
+        true -> { ok: true, keys: acc };
+        false -> {
+            k: { ok: boolean, out: string, rest: List[(int64, int64, float64, string), mem(normal)] } <- canon_one(toks, 0);
+            case k.ok of {
+                false -> { ok: false, keys: acc };
+                true -> {
+                    v: { n: int64, rest: List[(int64, int64, float64, string), mem(normal)] } <- walk(k.rest, 1, 0);
+                    case v.n < 0 of {
+                        true -> { ok: false, keys: acc };
+                        false -> {
+                            sequence proc[mem(normal)]
+                                l: List[string, mem(normal)] <- prepend[string, mem(normal)](k.out, acc)
+                            produces pure keys_of(v.rest, n - 1, l) end
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+fn distinct(keys: List[string, mem(normal)]) -> boolean {
+    case keys of {
+        []: List[string, mem(normal)] -> true;
+        [h: string, t: List[string, mem(normal)]] -> case among(h, t) of {
+            true -> false;
+            false -> distinct(t)
+        }
+    }
+}
+fn among(k: string, keys: List[string, mem(normal)]) -> boolean {
+    case keys of {
+        []: List[string, mem(normal)] -> false;
+        [h: string, t: List[string, mem(normal)]] -> case h == k of {
+            true -> true;
+            false -> among(k, t)
+        }
+    }
+}
+
+// ---- the canonical form of a term, for comparison only ----
+// The bytes this unit's encoder writes for the first term of toks, except that the pairs of every map inside it, at any
+// nesting, are ordered by the bytes of each pair's own canonical form (key then value; bees_etf_scan@bytes_less). Equal
+// terms have equal canonical forms whatever the wire order of their maps. Maps inside are not checked for duplicate
+// keys here (the pass that called reaches them itself). Recursion follows nesting only, at most max_nesting() levels.
+fn canon_no(t: List[(int64, int64, float64, string), mem(normal)]) -> { ok: boolean, out: string, rest: List[(int64, int64, float64, string), mem(normal)] } { { ok: false, out: "", rest: t } }
+fn canon_one(toks: List[(int64, int64, float64, string), mem(normal)], depth: int64) -> { ok: boolean, out: string, rest: List[(int64, int64, float64, string), mem(normal)] } {
+    case toks of {
+        []: List[(int64, int64, float64, string), mem(normal)] -> canon_no(toks);
+        [h: (int64, int64, float64, string), t: List[(int64, int64, float64, string), mem(normal)]] -> case kind_of(h) == 11 of {
+            true -> canon_map(n_of(h), t, depth);
+            false -> {
+                r: { ok: boolean, kids: int64, head: string, body: string, rest: List[(int64, int64, float64, string), mem(normal)] } <- enc_tok(h, t, false);
+                case r.ok of {
+                    false -> canon_no(toks);
+                    true -> case r.kids < 0 of {
+                        true -> {
+                            o: string <- cat2(r.head, r.body);
+                            { ok: true, out: o, rest: r.rest }
+                        };
+                        false -> canon_holder(r.head, r.kids, r.rest, depth)
+                    }
+                }
+            }
+        }
+    }
+}
+fn one_str(s: string) -> List[string, mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[string, mem(normal)] <- [s]
+    produces pure e end
+}
+// a tuple or a list: its header and its `kids` terms in order
+fn canon_holder(head: string, kids: int64, toks: List[(int64, int64, float64, string), mem(normal)], depth: int64) -> { ok: boolean, out: string, rest: List[(int64, int64, float64, string), mem(normal)] } {
+    case depth + 1 > max_nesting() of {
+        true -> canon_no(toks);
+        false -> {
+            r: { ok: boolean, rest: List[(int64, int64, float64, string), mem(normal)], parts: List[string, mem(normal)] } <- canon_seq(toks, kids, depth + 1, one_str(head));
+            case r.ok of {
+                false -> canon_no(toks);
+                true -> {
+                    o: string <- joined(r.parts);
+                    { ok: true, out: o, rest: r.rest }
+                }
+            }
+        }
+    }
+}
+fn canon_seq(toks: List[(int64, int64, float64, string), mem(normal)], count: int64, depth: int64, parts: List[string, mem(normal)]) -> { ok: boolean, rest: List[(int64, int64, float64, string), mem(normal)], parts: List[string, mem(normal)] } {
+    case count <= 0 of {
+        true -> { ok: true, rest: toks, parts: parts };
+        false -> {
+            r: { ok: boolean, out: string, rest: List[(int64, int64, float64, string), mem(normal)] } <- canon_one(toks, depth);
+            case r.ok of {
+                false -> enc_stop(toks, parts);
+                true -> {
+                    sequence proc[mem(normal)]
+                        l: List[string, mem(normal)] <- prepend[string, mem(normal)](r.out, parts)
+                    produces pure canon_seq(r.rest, count - 1, depth, l) end
+                }
+            }
+        }
+    }
+}
+// a map: its header and its pairs in the order of their canonical bytes
+fn canon_map(n: int64, toks: List[(int64, int64, float64, string), mem(normal)], depth: int64) -> { ok: boolean, out: string, rest: List[(int64, int64, float64, string), mem(normal)] } {
+    case n < 0 or n > max_pairs() or depth + 1 > max_nesting() of {
+        true -> canon_no(toks);
+        false -> {
+            r: { ok: boolean, rest: List[(int64, int64, float64, string), mem(normal)], parts: List[string, mem(normal)] } <- canon_pairs(toks, n, depth + 1, no_strs());
+            case r.ok of {
+                false -> canon_no(toks);
+                true -> {
+                    o: string <- headed(tag32(116, n), r.parts);
+                    { ok: true, out: o, rest: r.rest }
+                }
+            }
+        }
+    }
+}
+fn headed(head: string, parts: List[string, mem(normal)]) -> string {
+    sequence proc[mem(normal), transport]
+        all: List[string, mem(normal)] <- prepend[string, mem(normal)](head, parts);
+        s: string <- join_bytes(all)
+    produces pure s end
+}
+// sorted: the pairs read so far, smallest first
+fn canon_pairs(toks: List[(int64, int64, float64, string), mem(normal)], n: int64, depth: int64, sorted: List[string, mem(normal)]) -> { ok: boolean, rest: List[(int64, int64, float64, string), mem(normal)], parts: List[string, mem(normal)] } {
+    case n <= 0 of {
+        true -> { ok: true, rest: toks, parts: sorted };
+        false -> {
+            k: { ok: boolean, out: string, rest: List[(int64, int64, float64, string), mem(normal)] } <- canon_one(toks, depth);
+            case k.ok of {
+                false -> enc_stop(toks, sorted);
+                true -> {
+                    v: { ok: boolean, out: string, rest: List[(int64, int64, float64, string), mem(normal)] } <- canon_one(k.rest, depth);
+                    case v.ok of {
+                        false -> enc_stop(toks, sorted);
+                        true -> {
+                            pair: string <- cat2(k.out, v.out);
+                            next: List[string, mem(normal)] <- placed(pair, sorted, no_strs());
+                            canon_pairs(v.rest, n - 1, depth, next)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+// x put into its place in a sorted list (before: the smaller ones passed so far, newest first); no call stack per element
+fn placed(x: string, sorted: List[string, mem(normal)], before: List[string, mem(normal)]) -> List[string, mem(normal)] {
+    case sorted of {
+        []: List[string, mem(normal)] -> rev_strs(before, one_str(x));
+        [h: string, t: List[string, mem(normal)]] -> case bees_etf_scan@bytes_less(h, x) of {
+            true -> {
+                sequence proc[mem(normal)]
+                    b: List[string, mem(normal)] <- prepend[string, mem(normal)](h, before)
+                produces pure placed(x, t, b) end
+            };
+            false -> {
+                sequence proc[mem(normal)]
+                    l: List[string, mem(normal)] <- prepend[string, mem(normal)](x, sorted)
+                produces pure rev_strs(before, l) end
+            }
+        }
+    }
+}
+
+// ---- encode: one token ----
+// kids: the terms that follow as children (-1 for a leaf); head and body: the bytes to write (body may be empty; a long
+// binary is placed, not copied); rest: the tokens after what this step used
+fn no(t: List[(int64, int64, float64, string), mem(normal)]) -> { ok: boolean, kids: int64, head: string, body: string, rest: List[(int64, int64, float64, string), mem(normal)] } {
+    { ok: false, kids: 0 - 1, head: "", body: "", rest: t }
+}
+fn put(head: string, body: string, t: List[(int64, int64, float64, string), mem(normal)]) -> { ok: boolean, kids: int64, head: string, body: string, rest: List[(int64, int64, float64, string), mem(normal)] } {
+    { ok: true, kids: 0 - 1, head: head, body: body, rest: t }
+}
+fn open(head: string, kids: int64, t: List[(int64, int64, float64, string), mem(normal)]) -> { ok: boolean, kids: int64, head: string, body: string, rest: List[(int64, int64, float64, string), mem(normal)] } {
+    { ok: true, kids: kids, head: head, body: "", rest: t }
+}
+fn enc_tok(h: (int64, int64, float64, string), t: List[(int64, int64, float64, string), mem(normal)], check: boolean) -> { ok: boolean, kids: int64, head: string, body: string, rest: List[(int64, int64, float64, string), mem(normal)] } {
+    case kind_of(h) of {
+        1 -> put(bees_etf_scan@int_term(n_of(h)), "", t);
+        2 -> enc_big(n_of(h), s_of(h), t);
+        3 -> put(bees_etf_scan@float_term(f_of(h)), "", t);
+        4 -> enc_atom(s_of(h), t);
+        5 -> put(tag32(109, length_bytes(s_of(h))), s_of(h), t);
+        6 -> enc_bits(n_of(h), s_of(h), t);
+        7 -> enc_tuple(n_of(h), t);
+        8 -> enc_list(n_of(h), t);
+        9 -> put(b1(106), "", t);
+        10 -> enc_bytes(s_of(h), t);
+        11 -> enc_map(n_of(h), t, check);
+        12 -> enc_carried(12, s_of(h), t);
+        13 -> enc_carried(13, s_of(h), t);
+        14 -> enc_carried(14, s_of(h), t);
+        15 -> enc_carried(15, s_of(h), t);
+        _: int64 -> no(t)
+    }
+}
+fn enc_big(sign: int64, mag: string, t: List[(int64, int64, float64, string), mem(normal)]) -> { ok: boolean, kids: int64, head: string, body: string, rest: List[(int64, int64, float64, string), mem(normal)] } {
+    k: int64 <- length_bytes(mag);
+    case sign < 0 or sign > 1 or k < 1 of {
+        true -> no(t);
+        false -> case at(mag, k - 1) == 0 of {
+            true -> no(t);
+            false -> case k > 255 of {
+                true -> put(tag32b(111, k, sign), mag, t);
+                false -> case k > 8 of {
+                    true -> put(b3(110, k, sign), mag, t);
+                    false -> {
+                        r: { ok: boolean, v: int64 } <- bees_etf_scan@leaf_int(small_big(k, sign, mag));
+                        case r.ok of {
+                            true -> put(bees_etf_scan@int_term(r.v), "", t);
+                            false -> put(b3(110, k, sign), mag, t)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+fn enc_atom(name: string, t: List[(int64, int64, float64, string), mem(normal)]) -> { ok: boolean, kids: int64, head: string, body: string, rest: List[(int64, int64, float64, string), mem(normal)] } {
+    k: int64 <- length_bytes(name);
+    case k > 4 * max_atom_chars() of {
+        true -> no(t);
+        false -> {
+            chars: int64 <- bees_etf_scan@utf8_chars(name);
+            case chars < 0 or chars > max_atom_chars() of {
+                true -> no(t);
+                false -> case k <= 255 of {
+                    true -> put(b2(119, k), name, t);
+                    false -> put(b3(118, k / 256, k % 256), name, t)
+                }
+            }
+        }
+    }
+}
+fn enc_bits(bits: int64, s: string, t: List[(int64, int64, float64, string), mem(normal)]) -> { ok: boolean, kids: int64, head: string, body: string, rest: List[(int64, int64, float64, string), mem(normal)] } {
+    k: int64 <- length_bytes(s);
+    case bits < 1 or bits > 8 or k < 1 of {
+        true -> no(t);
+        false -> case bits == 8 of {
+            true -> put(tag32(109, k), s, t);
+            false -> {
+                v: string <- masked(s, bits);
+                put(tag32b(77, k, bits), v, t)
+            }
+        }
+    }
+}
+fn enc_tuple(n: int64, t: List[(int64, int64, float64, string), mem(normal)]) -> { ok: boolean, kids: int64, head: string, body: string, rest: List[(int64, int64, float64, string), mem(normal)] } {
+    case n < 0 or n > 4294967295 of {
+        true -> no(t);
+        false -> case n <= 255 of {
+            true -> open(b2(104, n), n, t);
+            false -> open(tag32(105, n), n, t)
+        }
+    }
+}
+// the n tokens at the head of toks are integers 0..255 and a nil follows them: their bytes (newest first) and the tokens
+// after the nil
+fn byte_run(toks: List[(int64, int64, float64, string), mem(normal)], n: int64, acc: List[int64, mem(normal)]) -> { ok: boolean, xs: List[int64, mem(normal)], rest: List[(int64, int64, float64, string), mem(normal)] } {
+    case toks of {
+        []: List[(int64, int64, float64, string), mem(normal)] -> { ok: false, xs: acc, rest: toks };
+        [h: (int64, int64, float64, string), t: List[(int64, int64, float64, string), mem(normal)]] -> case n == 0 of {
+            true -> { ok: kind_of(h) == 9, xs: acc, rest: t };
+            false -> case kind_of(h) == 1 and n_of(h) >= 0 and n_of(h) <= 255 of {
+                false -> { ok: false, xs: acc, rest: toks };
+                true -> {
+                    sequence proc[mem(normal)]
+                        l: List[int64, mem(normal)] <- prepend[int64, mem(normal)](n_of(h), acc)
+                    produces pure byte_run(t, n - 1, l) end
+                }
+            }
+        }
+    }
+}
+fn bytes_fwd(xs: List[int64, mem(normal)]) -> string {
+    sequence proc[mem(normal), transport]
+        fwd: List[int64, mem(normal)] <- rev_ints(xs, no_ints());
+        s: string <- bytes_of(fwd)
+    produces pure s end
+}
+fn enc_list(n: int64, t: List[(int64, int64, float64, string), mem(normal)]) -> { ok: boolean, kids: int64, head: string, body: string, rest: List[(int64, int64, float64, string), mem(normal)] } {
+    case n < 1 or n > 4294967295 of {
+        true -> no(t);
+        false -> case n > 65535 of {
+            true -> open(tag32(108, n), n + 1, t);
+            false -> {
+                r: { ok: boolean, xs: List[int64, mem(normal)], rest: List[(int64, int64, float64, string), mem(normal)] } <- byte_run(t, n, no_ints());
+                case r.ok of {
+                    true -> put(b3(107, n / 256, n % 256), bytes_fwd(r.xs), r.rest);
+                    false -> open(tag32(108, n), n + 1, t)
+                }
+            }
+        }
+    }
+}
+// the bytes of s as SMALL_INTEGER_EXT terms and a closing NIL (a byte list too long for STRING_EXT)
+fn small_ints(s: string, i: int64, acc: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    case i < 0 of {
+        true -> acc;
+        false -> {
+            sequence proc[mem(normal)]
+                l1: List[int64, mem(normal)] <- prepend[int64, mem(normal)](at(s, i), acc);
+                l2: List[int64, mem(normal)] <- prepend[int64, mem(normal)](97, l1)
+            produces pure small_ints(s, i - 1, l2) end
+        }
+    }
+}
+fn spelled(s: string) -> string {
+    sequence proc[mem(normal), transport]
+        xs: List[int64, mem(normal)] <- small_ints(s, length_bytes(s) - 1, one_int(106));
+        out: string <- bytes_of(xs)
+    produces pure out end
+}
+fn enc_bytes(s: string, t: List[(int64, int64, float64, string), mem(normal)]) -> { ok: boolean, kids: int64, head: string, body: string, rest: List[(int64, int64, float64, string), mem(normal)] } {
+    k: int64 <- length_bytes(s);
+    case k == 0 of {
+        true -> put(b1(106), "", t);
+        false -> case k <= 65535 of {
+            true -> put(b3(107, k / 256, k % 256), s, t);
+            false -> put(tag32(108, k), spelled(s), t)
+        }
+    }
+}
+fn enc_map(n: int64, t: List[(int64, int64, float64, string), mem(normal)], check: boolean) -> { ok: boolean, kids: int64, head: string, body: string, rest: List[(int64, int64, float64, string), mem(normal)] } {
+    case n < 0 or n > max_pairs() of {
+        true -> no(t);
+        false -> case check and n >= 2 of {
+            false -> open(tag32(116, n), 2 * n, t);
+            true -> case keys_distinct(t, n) of {
+                false -> no(t);
+                true -> open(tag32(116, n), 2 * n, t)
+            }
+        }
+    }
+}
+fn family(kind: int64, tag: int64) -> boolean {
+    case kind of {
+        12 -> tag == 88 or tag == 103;
+        13 -> tag == 90 or tag == 114 or tag == 101;
+        14 -> tag == 120 or tag == 89 or tag == 102;
+        15 -> tag == 112 or tag == 113;
+        _: int64 -> false
+    }
+}
+// a carried term is written as it is, when it is one whole term of its family
+fn enc_carried(kind: int64, s: string, t: List[(int64, int64, float64, string), mem(normal)]) -> { ok: boolean, kids: int64, head: string, body: string, rest: List[(int64, int64, float64, string), mem(normal)] } {
+    k: int64 <- length_bytes(s);
+    case k < 1 of {
+        true -> no(t);
+        false -> case family(kind, at(s, 0)) of {
+            false -> no(t);
+            true -> case bees_etf_scan@skip_within(s, 0, 0) == k of {
+                true -> put(s, "", t);
+                false -> no(t)
+            }
+        }
+    }
+}
+
+// ---- encode: the pass ----
+fn add_part(parts: List[string, mem(normal)], s: string) -> List[string, mem(normal)] {
+    case length_bytes(s) == 0 of {
+        true -> parts;
+        false -> {
+            sequence proc[mem(normal)]
+                l: List[string, mem(normal)] <- prepend[string, mem(normal)](s, parts)
+            produces pure l end
+        }
+    }
+}
+fn enc_stop(toks: List[(int64, int64, float64, string), mem(normal)], parts: List[string, mem(normal)]) -> { ok: boolean, rest: List[(int64, int64, float64, string), mem(normal)], parts: List[string, mem(normal)] } {
+    { ok: false, rest: toks, parts: parts }
+}
+// c, stack and depth as in the decoder's pass; parts: the fragments written so far, newest first; check: refuse a map with
+// a duplicate key. Ends when the terms asked for are written; rest is what follows them.
+fn enc_run(toks: List[(int64, int64, float64, string), mem(normal)], c: int64, stack: List[int64, mem(normal)], depth: int64, parts: List[string, mem(normal)], check: boolean) -> { ok: boolean, rest: List[(int64, int64, float64, string), mem(normal)], parts: List[string, mem(normal)] } {
+    case c == 0 of {
+        true -> case stack of {
+            []: List[int64, mem(normal)] -> { ok: true, rest: toks, parts: parts };
+            [up: int64, rest: List[int64, mem(normal)]] -> enc_run(toks, up, rest, depth - 1, parts, check)
+        };
+        false -> case toks of {
+            []: List[(int64, int64, float64, string), mem(normal)] -> enc_stop(toks, parts);
+            [h: (int64, int64, float64, string), t: List[(int64, int64, float64, string), mem(normal)]] -> {
+                r: { ok: boolean, kids: int64, head: string, body: string, rest: List[(int64, int64, float64, string), mem(normal)] } <- enc_tok(h, t, check);
+                case r.ok of {
+                    false -> enc_stop(toks, parts);
+                    true -> case r.kids < 0 of {
+                        true -> {
+                            sequence proc[mem(normal)]
+                                p1: List[string, mem(normal)] <- prepend[string, mem(normal)](r.head, parts);
+                                p2: List[string, mem(normal)] <- add_part(p1, r.body)
+                            produces pure enc_run(r.rest, c - 1, stack, depth, p2, check) end
+                        };
+                        false -> case depth + 1 > max_nesting() of {
+                            true -> enc_stop(toks, parts);
+                            false -> {
+                                sequence proc[mem(normal)]
+                                    p1: List[string, mem(normal)] <- prepend[string, mem(normal)](r.head, parts);
+                                    st: List[int64, mem(normal)] <- prepend[int64, mem(normal)](c - 1, stack)
+                                produces pure enc_run(r.rest, r.kids, st, depth + 1, p1, check) end
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+fn is_empty(toks: List[(int64, int64, float64, string), mem(normal)]) -> boolean {
+    case toks of {
+        []: List[(int64, int64, float64, string), mem(normal)] -> true;
+        [_h: (int64, int64, float64, string), _t: List[(int64, int64, float64, string), mem(normal)]] -> false
+    }
+}
+// The ETF frame (131 first) of the term the tokens spell, byte for byte what term_to_binary writes for it (map pairs in
+// token order). "" when the list is not exactly one well-formed term: a count that does not match, an unknown kind, a
+// big integer with a leading zero byte or a sign other than 0 and 1, bits outside 1..8, an atom name that is not UTF-8 or
+// is longer than 255 characters, a map of more than max_pairs() pairs or with a duplicate key, a carried term that is not
+// one whole term of its family, nesting deeper than max_nesting().
+fn encode(toks: List[(int64, int64, float64, string), mem(normal)]) -> string {
+    sequence proc[mem(normal)]
+        first: List[string, mem(normal)] <- [b1(131)];
+        r: { ok: boolean, rest: List[(int64, int64, float64, string), mem(normal)], parts: List[string, mem(normal)] } <- enc_run(toks, 1, no_ints(), 0, first, true)
+    produces pure case r.ok and is_empty(r.rest) of { true -> joined(r.parts); false -> "" } end
+}

@@ -1,0 +1,122 @@
+-- a sum of atom literals: :red | :green | :blue
+red 837703726564  = erl
+  decoded: ok red
+  erl's bytes decoded: ok red
+green 837705677265656e  = erl
+  decoded: ok green
+  erl's bytes decoded: ok green
+blue 837704626c7565  = erl
+  decoded: ok blue
+  erl's bytes decoded: ok blue
+-- tagged tuples and an atom: (:i, int64) | (:s, string) | (:f, float64) | (:u, uint64) | (:n, int64) | :none
+{i,7} 8368027701696107  = erl
+  decoded: ok (i, 7)
+  erl's bytes decoded: ok (i, 7)
+{i,-1} 83680277016962ffffffff  = erl
+  decoded: ok (i, -1)
+  erl's bytes decoded: ok (i, -1)
+{i,2147483648} 8368027701696e040000000080  = erl
+  decoded: ok (i, 2147483648)
+  erl's bytes decoded: ok (i, 2147483648)
+{u,18446744073709551615} 8368027701756e0800ffffffffffffffff  = erl
+  decoded: ok (u, 18446744073709551615)
+  erl's bytes decoded: ok (u, 18446744073709551615)
+{n,-9223372036854775808} 83680277016e6e08010000000000000080  = erl
+  decoded: ok (n, -9223372036854775808)
+  erl's bytes decoded: ok (n, -9223372036854775808)
+{s,<<"hi">>} 8368027701736d000000026869  = erl
+  decoded: ok (s, "hi")
+  erl's bytes decoded: ok (s, "hi")
+{s,<<>>} 8368027701736d00000000  = erl
+  decoded: ok (s, "")
+  erl's bytes decoded: ok (s, "")
+{f,1.5} 836802770166463ff8000000000000  = erl
+  decoded: ok (f, 1.5)
+  erl's bytes decoded: ok (f, 1.5)
+none 8377046e6f6e65  = erl
+  decoded: ok none
+  erl's bytes decoded: ok none
+-- a tag and an atom of one name: (:ping, string) | :ping
+ping 83770470696e67  = erl
+  decoded: ok ping
+  erl's bytes decoded: ok ping
+{ping,<<"x">>} 836802770470696e676d0000000178  = erl
+  decoded: ok (ping, "x")
+  erl's bytes decoded: ok (ping, "x")
+-- a record variant: (:pt, int64, int64) | { x: int64, y: string } | :nil
+{pt,3,-4} 83680377027074610362fffffffc  = erl
+  decoded: ok (pt, 3, -4)
+  erl's bytes decoded: ok (pt, 3, -4)
+#{x=>1,y=><<"a">>} 83740000000277017861017701796d0000000161  (a map: erl's bytes are decoded, not compared)
+  decoded: ok { x: 1, y: "a" }
+  erl's bytes decoded: ok { x: 1, y: "a" }
+nil 8377036e696c  = erl
+  decoded: ok nil
+  erl's bytes decoded: ok nil
+-- a sum in a record field and as a list element: { id: int64, st: :on | :off, items: List[(:i, int64) | (:s, string) | :gap] }
+#{id=>9,st=>on,items=>[{i,1},{s,<<"z">>},gap]} 83740000000377026964610977056974656d736c000000036802770169610168027701736d000000017a77036761706a7702737477026f6e  (a map: erl's bytes are decoded, not compared)
+  decoded: ok { id: 9, st: on, items: [(i, 1), (s, "z"), gap] }
+  erl's bytes decoded: ok { id: 9, st: on, items: [(i, 1), (s, "z"), gap] }
+#{id=>0,st=>off,items=>[]} 83740000000377026964610077056974656d736a7702737477036f6666  (a map: erl's bytes are decoded, not compared)
+  decoded: ok { id: 0, st: off, items: [] }
+  erl's bytes decoded: ok { id: 0, st: off, items: [] }
+-- a sum inside a tagged tuple: (:wrap, { k: :a | :b, v: (:some, int64) | :none })
+{wrap,#{k=>a,v=>{some,5}}} 836802770477726170740000000277016b77016177017668027704736f6d656105  (a map: erl's bytes are decoded, not compared)
+  decoded: ok (wrap, { k: a, v: (some, 5) })
+  erl's bytes decoded: ok (wrap, { k: a, v: (some, 5) })
+{wrap,#{k=>b,v=>none}} 836802770477726170740000000277016b77016277017677046e6f6e65  (a map: erl's bytes are decoded, not compared)
+  decoded: ok (wrap, { k: b, v: none })
+  erl's bytes decoded: ok (wrap, { k: b, v: none })
+-- refusals, decoded as (:i, int64) | (:s, string) | (:f, float64) | (:u, uint64) | (:n, int64) | :none
+the whole frame {s,<<"hello">>}: ok (s, "hello")
+empty frame: rejected truncated
+truncated after the version byte: rejected bad_variant
+truncated after the tuple tag: rejected truncated
+truncated after the arity: rejected truncated
+truncated inside the tag atom: rejected truncated
+truncated after the tag atom: rejected truncated
+truncated inside the binary's length: rejected truncated
+truncated inside the binary: rejected truncated
+version byte 130: rejected bad_version
+trailing byte after {s,<<"hello">>}: rejected trailing_bytes
+trailing byte after none: rejected trailing_bytes
+wrong tag, a known atom: {red,7}: rejected bad_variant
+wrong tag, an atom the program does not hold: {zzqx,7}: rejected bad_variant
+an atom the program does not hold: zzqx: rejected bad_variant
+another known atom: red: rejected bad_variant
+another known atom, old ATOM_EXT: red: rejected bad_variant
+wrong arity: {i,1,2}: rejected bad_tag
+wrong arity: {s}: rejected bad_tag
+wrong arity: {}: rejected truncated
+wrong payload type: {i,<<"x">>}: rejected bad_tag
+payload out of range: {i,2^63}: rejected out_of_range
+deeper than the type: {i,{i,{i,7}}}: rejected bad_tag
+an integer: 7: rejected bad_variant
+a float: 1.5: rejected bad_variant
+a list: [none]: rejected bad_variant
+a map: #{}: rejected bad_variant
+a binary whose length says 4294967295: {s,<<...>>}: rejected too_long
+-- refusals in the other types
+colour, a known atom that is not a variant: none: rejected bad_variant
+colour, a tuple: {red,1}: rejected bad_variant
+colour, truncated atom: rejected truncated
+shape, a map with a missing field: #{x=>1}: rejected missing_field
+shape, a map with an unknown field: #{x=>1,y=><<>>,z=>1}: rejected unknown_field
+shape, wrong arity: {pt,3}: rejected bad_tag
+item, a list element that is no variant: [{i,1},red]: rejected bad_variant
+item, st is not a variant: st=>gap: rejected bad_variant
+item, a list whose count says 4294967295: rejected too_long
+item, a list deeper than the type: [[gap]]: rejected bad_variant
+wrap, v is a variant of another sum: v=>gap: rejected bad_variant
+wrap, the tag alone: {wrap}: rejected bad_tag
+-- limits (frame cap 1024)
+{s, 1013 bytes}, a frame of 1024: ok (s, a string of 1013 bytes)
+{s, 1014 bytes}, a frame of 1025: rejected too_large
+{s, 100000 bytes}, a frame of 100011: rejected too_large
+item with 100 elements, a frame of 733: ok { id: 1, st: on, items: [100 elements] }
+item with 200 elements, a frame of 1433: rejected too_large
+-- validate_named
+{i,7} as val: ok
+{i,7} as colour: bad_variant
+{i,7} as red (not a message name): unknown_atom
+exit=0

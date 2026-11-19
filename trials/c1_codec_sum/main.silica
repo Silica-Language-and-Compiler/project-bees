@@ -1,0 +1,420 @@
+// C1 codec trial, sum types (development-plan/spikes/C1-codec-term-coverage.md sections 2, 2.1, 2.7), with no network. Every
+// value is encoded with the generated bees_msgs@enc_<name> (the language's derived encode in a produces-pure block); the bytes
+// are printed and compared HERE with the bytes stock Erlang (OTP 28, term_to_binary) writes for the same term (the fixtures
+// below, printed by tools/bees_codec_fixtures.erl); the frame is decoded with bees_msgs@dec_<name> and so are erl's bytes. A
+// term with a map (a record) is not compared byte for byte: erl's key order is not fixed; its bytes are decoded instead.
+// Then the refusals, each printing the language's rejection atom. The frame cap is bees.config's beam.frame_size_max (1024).
+use bees_atoms;
+use bees_msgs;
+
+fn say(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+fn hexd(v: int64) -> string { substring("0123456789abcdef", v, v + 1) }
+fn at(s: string, i: int64) -> int64 {
+    sequence proc[transport]
+        b: int64 <- byte_at(s, i)
+    produces pure b end
+}
+fn hex_of(s: string, i: int64, n: int64) -> string {
+    case i >= n of {
+        true -> "";
+        false -> concat(concat(hexd(at(s, i) / 16), hexd(at(s, i) % 16)), hex_of(s, i + 1, n))
+    }
+}
+fn hex(s: string) -> string { hex_of(s, 0, length_bytes(s)) }
+fn hv(c: int64) -> int64 { case c >= 97 of { true -> c - 87; false -> c - 48 } }
+fn unhex_acc(s: string, i: int64, acc: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    case i < 0 of {
+        true -> acc;
+        false -> {
+            sequence proc[mem(normal)]
+                b: int64 <- hv(at(s, i)) * 16 + hv(at(s, i + 1));
+                l: List[int64, mem(normal)] <- prepend[int64, mem(normal)](b, acc)
+            produces pure unhex_acc(s, i - 2, l) end
+        }
+    }
+}
+fn unhex(s: string) -> string {
+    sequence proc[mem(normal), transport]
+        e: List[int64, mem(normal)] <- [];
+        xs: List[int64, mem(normal)] <- unhex_acc(s, length_bytes(s) - 2, e);
+        out: string <- bytes_of(xs)
+    produces pure out end
+}
+fn mk(s: string, n: int64) -> string {
+    case length_bytes(s) >= n of {
+        true -> substring(s, 0, n);
+        false -> mk(concat(s, s), n)
+    }
+}
+fn pos_text(n: int64) -> string {
+    case n < 10 of {
+        true -> substring("0123456789", n, n + 1);
+        false -> concat(pos_text(n / 10), substring("0123456789", n % 10, n % 10 + 1))
+    }
+}
+fn int_text(n: int64) -> string {
+    case n < 0 of {
+        true -> case n < -9223372036854775807 of { true -> "-9223372036854775808"; false -> concat("-", pos_text(0 - n)) };
+        false -> pos_text(n)
+    }
+}
+fn str_text(s: string) -> string {
+    case length_bytes(s) > 16 of {
+        true -> concat(concat("a string of ", int_text(length_bytes(s))), " bytes");
+        false -> concat(concat("\"", s), "\"")
+    }
+}
+fn verdict(a: atom) -> string { case a == :ok of { true -> "ok"; false -> bees_atoms@spelling(a) } }
+fn why(w: atom) -> string { concat("rejected ", bees_atoms@spelling(w)) }
+// " = erl" when the bytes are the fixture's, byte for byte
+fn same(f: string, erl: string) -> string {
+    case hex(f) == erl of { true -> "  = erl"; false -> "  DIFFERS from erl" }
+}
+
+fn t_colour(v: :red | :green | :blue) -> string { case v of { :red -> "red"; :green -> "green"; :blue -> "blue" } }
+fn r_colour(r: (:ok, :red | :green | :blue) | (:rejected, atom)) -> string {
+    case r of { (:ok, v: :red | :green | :blue) -> concat("ok ", t_colour(v)); (:rejected, w: atom) -> why(w) }
+}
+fn go_colour(label: string, v: :red | :green | :blue, erl: string) -> atom {
+    sequence
+        f: string <- bees_msgs@enc_colour(v);
+        _: atom <- say(concat(concat(concat(label, " "), hex(f)), same(f, erl)));
+        r: (:ok, :red | :green | :blue) | (:rejected, atom) <- bees_msgs@dec_colour(f);
+        _: atom <- say(concat("  decoded: ", r_colour(r)));
+        fe: string <- unhex(erl);
+        e: (:ok, :red | :green | :blue) | (:rejected, atom) <- bees_msgs@dec_colour(fe);
+        _: atom <- say(concat("  erl's bytes decoded: ", r_colour(e)))
+    produces pure :ok end
+}
+fn x_colour(label: string, h: string) -> atom {
+    sequence
+        f: string <- unhex(h);
+        r: (:ok, :red | :green | :blue) | (:rejected, atom) <- bees_msgs@dec_colour(f)
+    produces pure say(concat(concat(label, ": "), r_colour(r))) end
+}
+
+fn f_text(x: float64) -> string {
+    case x == 1.5 of { true -> "1.5"; false -> "another float" }
+}
+fn u_text(u: uint64) -> string {
+    case u == 18446744073709551615 of { true -> "18446744073709551615"; false -> "another uint64" }
+}
+fn t_val(v: (:i, int64) | (:s, string) | (:f, float64) | (:u, uint64) | (:n, int64) | :none) -> string {
+    case v of {
+        (:i, k: int64) -> concat(concat("(i, ", int_text(k)), ")");
+        (:s, s: string) -> concat(concat("(s, ", str_text(s)), ")");
+        (:f, x: float64) -> concat(concat("(f, ", f_text(x)), ")");
+        (:u, u: uint64) -> concat(concat("(u, ", u_text(u)), ")");
+        (:n, k: int64) -> concat(concat("(n, ", int_text(k)), ")");
+        :none -> "none"
+    }
+}
+fn r_val(r: (:ok, (:i, int64) | (:s, string) | (:f, float64) | (:u, uint64) | (:n, int64) | :none) | (:rejected, atom)) -> string {
+    case r of { (:ok, v: (:i, int64) | (:s, string) | (:f, float64) | (:u, uint64) | (:n, int64) | :none) -> concat("ok ", t_val(v)); (:rejected, w: atom) -> why(w) }
+}
+fn go_val(label: string, v: (:i, int64) | (:s, string) | (:f, float64) | (:u, uint64) | (:n, int64) | :none, erl: string) -> atom {
+    sequence
+        f: string <- bees_msgs@enc_val(v);
+        _: atom <- say(concat(concat(concat(label, " "), hex(f)), same(f, erl)));
+        r: (:ok, (:i, int64) | (:s, string) | (:f, float64) | (:u, uint64) | (:n, int64) | :none) | (:rejected, atom) <- bees_msgs@dec_val(f);
+        _: atom <- say(concat("  decoded: ", r_val(r)));
+        fe: string <- unhex(erl);
+        e: (:ok, (:i, int64) | (:s, string) | (:f, float64) | (:u, uint64) | (:n, int64) | :none) | (:rejected, atom) <- bees_msgs@dec_val(fe);
+        _: atom <- say(concat("  erl's bytes decoded: ", r_val(e)))
+    produces pure :ok end
+}
+// a refusal case: the frame is given in hex
+fn x_val(label: string, h: string) -> atom {
+    sequence
+        f: string <- unhex(h);
+        r: (:ok, (:i, int64) | (:s, string) | (:f, float64) | (:u, uint64) | (:n, int64) | :none) | (:rejected, atom) <- bees_msgs@dec_val(f)
+    produces pure say(concat(concat(label, ": "), r_val(r))) end
+}
+
+fn t_ping(v: (:ping, string) | :ping) -> string {
+    case v of { (:ping, s: string) -> concat(concat("(ping, ", str_text(s)), ")"); :ping -> "ping" }
+}
+fn r_ping(r: (:ok, (:ping, string) | :ping) | (:rejected, atom)) -> string {
+    case r of { (:ok, v: (:ping, string) | :ping) -> concat("ok ", t_ping(v)); (:rejected, w: atom) -> why(w) }
+}
+fn go_ping(label: string, v: (:ping, string) | :ping, erl: string) -> atom {
+    sequence
+        f: string <- bees_msgs@enc_ping(v);
+        _: atom <- say(concat(concat(concat(label, " "), hex(f)), same(f, erl)));
+        r: (:ok, (:ping, string) | :ping) | (:rejected, atom) <- bees_msgs@dec_ping(f);
+        _: atom <- say(concat("  decoded: ", r_ping(r)));
+        fe: string <- unhex(erl);
+        e: (:ok, (:ping, string) | :ping) | (:rejected, atom) <- bees_msgs@dec_ping(fe);
+        _: atom <- say(concat("  erl's bytes decoded: ", r_ping(e)))
+    produces pure :ok end
+}
+
+fn t_xy(x: int64, y: string) -> string { concat(concat(concat(concat("{ x: ", int_text(x)), ", y: "), str_text(y)), " }") }
+fn t_shape(v: (:pt, int64, int64) | { x: int64, y: string } | :nil) -> string {
+    case v of {
+        (:pt, p: int64, q: int64) -> concat(concat(concat(concat("(pt, ", int_text(p)), ", "), int_text(q)), ")");
+        { x: wx, y: wy } -> t_xy(wx, wy);
+        :nil -> "nil"
+    }
+}
+fn r_shape(r: (:ok, (:pt, int64, int64) | { x: int64, y: string } | :nil) | (:rejected, atom)) -> string {
+    case r of { (:ok, v: (:pt, int64, int64) | { x: int64, y: string } | :nil) -> concat("ok ", t_shape(v)); (:rejected, w: atom) -> why(w) }
+}
+// has_map: the term holds a map, so erl's bytes are decoded and not compared
+fn go_shape(label: string, v: (:pt, int64, int64) | { x: int64, y: string } | :nil, erl: string, has_map: boolean) -> atom {
+    sequence
+        f: string <- bees_msgs@enc_shape(v);
+        note: string <- case has_map of { true -> "  (a map: erl's bytes are decoded, not compared)"; false -> same(f, erl) };
+        _: atom <- say(concat(concat(concat(label, " "), hex(f)), note));
+        r: (:ok, (:pt, int64, int64) | { x: int64, y: string } | :nil) | (:rejected, atom) <- bees_msgs@dec_shape(f);
+        _: atom <- say(concat("  decoded: ", r_shape(r)));
+        fe: string <- unhex(erl);
+        e: (:ok, (:pt, int64, int64) | { x: int64, y: string } | :nil) | (:rejected, atom) <- bees_msgs@dec_shape(fe);
+        _: atom <- say(concat("  erl's bytes decoded: ", r_shape(e)))
+    produces pure :ok end
+}
+fn x_shape(label: string, h: string) -> atom {
+    sequence
+        f: string <- unhex(h);
+        r: (:ok, (:pt, int64, int64) | { x: int64, y: string } | :nil) | (:rejected, atom) <- bees_msgs@dec_shape(f)
+    produces pure say(concat(concat(label, ": "), r_shape(r))) end
+}
+
+fn t_el(v: (:i, int64) | (:s, string) | :gap) -> string {
+    case v of {
+        (:i, k: int64) -> concat(concat("(i, ", int_text(k)), ")");
+        (:s, s: string) -> concat(concat("(s, ", str_text(s)), ")");
+        :gap -> "gap"
+    }
+}
+// the elements, walked with the list pattern (list_at of a sum element faults on the pin: see the C1 note)
+fn t_els(xs: List[(:i, int64) | (:s, string) | :gap, mem(normal)], first: boolean) -> string {
+    case xs of {
+        []: List[(:i, int64) | (:s, string) | :gap, mem(normal)] -> "";
+        [h: (:i, int64) | (:s, string) | :gap, t: List[(:i, int64) | (:s, string) | :gap, mem(normal)]] -> {
+            sequence
+                sep: string <- case first of { true -> ""; false -> ", " };
+                rest: string <- t_els(t, false)
+            produces pure concat(concat(sep, t_el(h)), rest) end
+        }
+    }
+}
+fn t_st(v: :on | :off) -> string { case v of { :on -> "on"; :off -> "off" } }
+fn t_item(v: { id: int64, st: :on | :off, items: List[(:i, int64) | (:s, string) | :gap, mem(normal)] }) -> string {
+    sequence proc[mem(normal)]
+        n: int64 <- length[(:i, int64) | (:s, string) | :gap, mem(normal)](v.items);
+        els: string <- case n > 8 of { true -> concat(int_text(n), " elements"); false -> t_els(v.items, true) };
+        st: :on | :off <- v.st
+    produces pure concat(concat(concat(concat(concat(concat("{ id: ", int_text(v.id)), ", st: "), t_st(st)), ", items: ["), els), "] }") end
+}
+fn r_item(r: (:ok, { id: int64, st: :on | :off, items: List[(:i, int64) | (:s, string) | :gap, mem(normal)] }) | (:rejected, atom)) -> string {
+    case r of { (:ok, v: { id: int64, st: :on | :off, items: List[(:i, int64) | (:s, string) | :gap, mem(normal)] }) -> concat("ok ", t_item(v)); (:rejected, w: atom) -> why(w) }
+}
+fn go_item(label: string, v: { id: int64, st: :on | :off, items: List[(:i, int64) | (:s, string) | :gap, mem(normal)] }, erl: string) -> atom {
+    sequence
+        f: string <- bees_msgs@enc_item(v);
+        _: atom <- say(concat(concat(concat(label, " "), hex(f)), "  (a map: erl's bytes are decoded, not compared)"));
+        r: (:ok, { id: int64, st: :on | :off, items: List[(:i, int64) | (:s, string) | :gap, mem(normal)] }) | (:rejected, atom) <- bees_msgs@dec_item(f);
+        _: atom <- say(concat("  decoded: ", r_item(r)));
+        fe: string <- unhex(erl);
+        e: (:ok, { id: int64, st: :on | :off, items: List[(:i, int64) | (:s, string) | :gap, mem(normal)] }) | (:rejected, atom) <- bees_msgs@dec_item(fe);
+        _: atom <- say(concat("  erl's bytes decoded: ", r_item(e)))
+    produces pure :ok end
+}
+fn x_item(label: string, h: string) -> atom {
+    sequence
+        f: string <- unhex(h);
+        r: (:ok, { id: int64, st: :on | :off, items: List[(:i, int64) | (:s, string) | :gap, mem(normal)] }) | (:rejected, atom) <- bees_msgs@dec_item(f)
+    produces pure say(concat(concat(label, ": "), r_item(r))) end
+}
+fn many(n: int64, acc: List[(:i, int64) | (:s, string) | :gap, mem(normal)]) -> List[(:i, int64) | (:s, string) | :gap, mem(normal)] {
+    case n <= 0 of {
+        true -> acc;
+        false -> {
+            sequence proc[mem(normal)]
+                e: (:i, int64) | (:s, string) | :gap <- (:i, n);
+                l: List[(:i, int64) | (:s, string) | :gap, mem(normal)] <- prepend[(:i, int64) | (:s, string) | :gap, mem(normal)](e, acc)
+            produces pure many(n - 1, l) end
+        }
+    }
+}
+
+fn t_k(v: :a | :b) -> string { case v of { :a -> "a"; :b -> "b" } }
+fn t_v(v: (:some, int64) | :none) -> string {
+    case v of { (:some, k: int64) -> concat(concat("(some, ", int_text(k)), ")"); :none -> "none" }
+}
+fn t_kv(k: :a | :b, v: (:some, int64) | :none) -> string {
+    concat(concat(concat(concat("(wrap, { k: ", t_k(k)), ", v: "), t_v(v)), " })")
+}
+// the fields are passed on as arguments: binding a field whose type is a sum with a tuple variant to a name of the sequence
+// (v: (:some, int64) | :none <- rc.v) and then matching it faults on the pin (see the C1 note)
+fn t_wrapr(rc: { k: :a | :b, v: (:some, int64) | :none }) -> string { t_kv(rc.k, rc.v) }
+fn t_wrap(v: (:wrap, { k: :a | :b, v: (:some, int64) | :none })) -> string {
+    case v of { (:wrap, rc: { k: :a | :b, v: (:some, int64) | :none }) -> t_wrapr(rc) }
+}
+fn r_wrap(r: (:ok, (:wrap, { k: :a | :b, v: (:some, int64) | :none })) | (:rejected, atom)) -> string {
+    case r of { (:ok, v: (:wrap, { k: :a | :b, v: (:some, int64) | :none })) -> concat("ok ", t_wrap(v)); (:rejected, w: atom) -> why(w) }
+}
+fn go_wrap(label: string, v: (:wrap, { k: :a | :b, v: (:some, int64) | :none }), erl: string) -> atom {
+    sequence
+        f: string <- bees_msgs@enc_wrap(v);
+        _: atom <- say(concat(concat(concat(label, " "), hex(f)), "  (a map: erl's bytes are decoded, not compared)"));
+        r: (:ok, (:wrap, { k: :a | :b, v: (:some, int64) | :none })) | (:rejected, atom) <- bees_msgs@dec_wrap(f);
+        _: atom <- say(concat("  decoded: ", r_wrap(r)));
+        fe: string <- unhex(erl);
+        e: (:ok, (:wrap, { k: :a | :b, v: (:some, int64) | :none })) | (:rejected, atom) <- bees_msgs@dec_wrap(fe);
+        _: atom <- say(concat("  erl's bytes decoded: ", r_wrap(e)))
+    produces pure :ok end
+}
+fn x_wrap(label: string, h: string) -> atom {
+    sequence
+        f: string <- unhex(h);
+        r: (:ok, (:wrap, { k: :a | :b, v: (:some, int64) | :none })) | (:rejected, atom) <- bees_msgs@dec_wrap(f)
+    produces pure say(concat(concat(label, ": "), r_wrap(r))) end
+}
+
+
+fn values() -> atom {
+    sequence proc[mem(normal)]
+        _: atom <- say("-- a sum of atom literals: :red | :green | :blue");
+        _: atom <- go_colour("red", :red, "837703726564");
+        _: atom <- go_colour("green", :green, "837705677265656e");
+        _: atom <- go_colour("blue", :blue, "837704626c7565");
+        _: atom <- say("-- tagged tuples and an atom: (:i, int64) | (:s, string) | (:f, float64) | (:u, uint64) | (:n, int64) | :none");
+        _: atom <- go_val("{i,7}", (:i, 7), "8368027701696107");
+        _: atom <- go_val("{i,-1}", (:i, -1), "83680277016962ffffffff");
+        _: atom <- go_val("{i,2147483648}", (:i, 2147483648), "8368027701696e040000000080");
+        _: atom <- go_val("{u,18446744073709551615}", (:u, 18446744073709551615), "8368027701756e0800ffffffffffffffff");
+        _: atom <- go_val("{n,-9223372036854775808}", (:n, -9223372036854775807 - 1), "83680277016e6e08010000000000000080");
+        _: atom <- go_val("{s,<<\"hi\">>}", (:s, "hi"), "8368027701736d000000026869");
+        _: atom <- go_val("{s,<<>>}", (:s, ""), "8368027701736d00000000");
+        // the float is bound first: a float literal written inside a tuple literal that is passed as a sum-typed argument is
+        // compiled as a float32 on the pin (the bytes were 46 00000001 3fc00000; see the C1 note)
+        x15: float64 <- 1.5;
+        vf: (:i, int64) | (:s, string) | (:f, float64) | (:u, uint64) | (:n, int64) | :none <- (:f, x15);
+        _: atom <- go_val("{f,1.5}", vf, "836802770166463ff8000000000000");
+        _: atom <- go_val("none", :none, "8377046e6f6e65");
+        _: atom <- say("-- a tag and an atom of one name: (:ping, string) | :ping");
+        _: atom <- go_ping("ping", :ping, "83770470696e67");
+        _: atom <- go_ping("{ping,<<\"x\">>}", (:ping, "x"), "836802770470696e676d0000000178");
+        _: atom <- say("-- a record variant: (:pt, int64, int64) | { x: int64, y: string } | :nil");
+        _: atom <- go_shape("{pt,3,-4}", (:pt, 3, -4), "83680377027074610362fffffffc", false);
+        _: atom <- go_shape("#{x=>1,y=><<\"a\">>}", { x: 1, y: "a" }, "8374000000027701796d00000001617701786101", true);
+        _: atom <- go_shape("nil", :nil, "8377036e696c", false);
+        _: atom <- say("-- a sum in a record field and as a list element: { id: int64, st: :on | :off, items: List[(:i, int64) | (:s, string) | :gap] }");
+        l3: List[(:i, int64) | (:s, string) | :gap, mem(normal)] <- [(:i, 1), (:s, "z"), :gap];
+        _: atom <- go_item("#{id=>9,st=>on,items=>[{i,1},{s,<<\"z\">>},gap]}", { id: 9, st: :on, items: l3 }, "83740000000377026964610977056974656d736c000000036802770169610168027701736d000000017a77036761706a7702737477026f6e");
+        l0: List[(:i, int64) | (:s, string) | :gap, mem(normal)] <- [];
+        _: atom <- go_item("#{id=>0,st=>off,items=>[]}", { id: 0, st: :off, items: l0 }, "83740000000377026964610077056974656d736a7702737477036f6666");
+        _: atom <- say("-- a sum inside a tagged tuple: (:wrap, { k: :a | :b, v: (:some, int64) | :none })");
+        _: atom <- go_wrap("{wrap,#{k=>a,v=>{some,5}}}", (:wrap, { k: :a, v: (:some, 5) }), "836802770477726170740000000277017668027704736f6d65610577016b770161");
+        _: atom <- go_wrap("{wrap,#{k=>b,v=>none}}", (:wrap, { k: :b, v: :none }), "836802770477726170740000000277017677046e6f6e6577016b770162")
+    produces pure :ok end
+}
+
+fn refusals() -> atom {
+    sequence
+        _: atom <- say("-- refusals, decoded as (:i, int64) | (:s, string) | (:f, float64) | (:u, uint64) | (:n, int64) | :none");
+        _: atom <- x_val("the whole frame {s,<<\"hello\">>}", "8368027701736d0000000568656c6c6f");
+        _: atom <- x_val("empty frame", "");
+        _: atom <- x_val("truncated after the version byte", "83");
+        _: atom <- x_val("truncated after the tuple tag", "8368");
+        _: atom <- x_val("truncated after the arity", "836802");
+        _: atom <- x_val("truncated inside the tag atom", "83680277");
+        _: atom <- x_val("truncated after the tag atom", "836802770173");
+        _: atom <- x_val("truncated inside the binary's length", "8368027701736d0000");
+        _: atom <- x_val("truncated inside the binary", "8368027701736d0000000568656c6c");
+        _: atom <- x_val("version byte 130", "8268027701736d0000000568656c6c6f");
+        _: atom <- x_val("trailing byte after {s,<<\"hello\">>}", "8368027701736d0000000568656c6c6f00");
+        _: atom <- x_val("trailing byte after none", "8377046e6f6e6500");
+        _: atom <- x_val("wrong tag, a known atom: {red,7}", "83680277037265646107");
+        _: atom <- x_val("wrong tag, an atom the program does not hold: {zzqx,7}", "83680277047a7a71786107");
+        _: atom <- x_val("an atom the program does not hold: zzqx", "8377047a7a7178");
+        _: atom <- x_val("another known atom: red", "837703726564");
+        _: atom <- x_val("another known atom, old ATOM_EXT: red", "83640003726564");
+        _: atom <- x_val("wrong arity: {i,1,2}", "83680377016961016102");
+        _: atom <- x_val("wrong arity: {s}", "836801770173");
+        _: atom <- x_val("wrong arity: {}", "836800");
+        _: atom <- x_val("wrong payload type: {i,<<\"x\">>}", "8368027701696d0000000178");
+        _: atom <- x_val("payload out of range: {i,2^63}", "8368027701696e08000000000000000080");
+        _: atom <- x_val("deeper than the type: {i,{i,{i,7}}}", "836802770169680277016968027701696107");
+        _: atom <- x_val("an integer: 7", "836107");
+        _: atom <- x_val("a float: 1.5", "83463ff8000000000000");
+        _: atom <- x_val("a list: [none]", "836c0000000177046e6f6e656a");
+        _: atom <- x_val("a map: #{}", "837400000000");
+        _: atom <- x_val("a binary whose length says 4294967295: {s,<<...>>}", "8368027701736dffffffff6869");
+        _: atom <- say("-- refusals in the other types");
+        _: atom <- x_colour("colour, a known atom that is not a variant: none", "8377046e6f6e65");
+        _: atom <- x_colour("colour, a tuple: {red,1}", "83680277037265646101");
+        _: atom <- x_colour("colour, truncated atom", "8377037265");
+        _: atom <- x_shape("shape, a map with a missing field: #{x=>1}", "8374000000017701786101");
+        _: atom <- x_shape("shape, a map with an unknown field: #{x=>1,y=><<>>,z=>1}", "83740000000377017861017701796d0000000077017a6101");
+        _: atom <- x_shape("shape, wrong arity: {pt,3}", "836802770270746103");
+        _: atom <- x_item("item, a list element that is no variant: [{i,1},red]", "83740000000377026964610977056974656d736c000000026802770169610177037265646a7702737477026f6e");
+        _: atom <- x_item("item, st is not a variant: st=>gap", "83740000000377026964610977056974656d736a770273747703676170");
+        _: atom <- x_item("item, a list whose count says 4294967295", "83740000000377026964610977056974656d736cffffffff68027701696101");
+        _: atom <- x_item("item, a list deeper than the type: [[gap]]", "83740000000377026964610977056974656d736c000000016c0000000177036761706a6a7702737477026f6e");
+        _: atom <- x_wrap("wrap, v is a variant of another sum: v=>gap", "8368027704777261707400000002770176770367617077016b770161");
+        _: atom <- x_wrap("wrap, the tag alone: {wrap}", "836801770477726170")
+    produces pure :ok end
+}
+
+// the limits: max_bytes and max_length are the frame cap (1024). {s,<<...>>} is 11 bytes and the string.
+fn limits() -> atom {
+    sequence proc[mem(normal)]
+        _: atom <- say("-- limits (frame cap 1024)");
+        s1: string <- mk("y", 1013);
+        v1: (:i, int64) | (:s, string) | (:f, float64) | (:u, uint64) | (:n, int64) | :none <- (:s, s1);
+        f1: string <- bees_msgs@enc_val(v1);
+        r1: (:ok, (:i, int64) | (:s, string) | (:f, float64) | (:u, uint64) | (:n, int64) | :none) | (:rejected, atom) <- bees_msgs@dec_val(f1);
+        _: atom <- say(concat(concat(concat("{s, 1013 bytes}, a frame of ", int_text(length_bytes(f1))), ": "), r_val(r1)));
+        s2: string <- mk("y", 1014);
+        v2: (:i, int64) | (:s, string) | (:f, float64) | (:u, uint64) | (:n, int64) | :none <- (:s, s2);
+        f2: string <- bees_msgs@enc_val(v2);
+        r2: (:ok, (:i, int64) | (:s, string) | (:f, float64) | (:u, uint64) | (:n, int64) | :none) | (:rejected, atom) <- bees_msgs@dec_val(f2);
+        _: atom <- say(concat(concat(concat("{s, 1014 bytes}, a frame of ", int_text(length_bytes(f2))), ": "), r_val(r2)));
+        s3: string <- mk("y", 100000);
+        v3: (:i, int64) | (:s, string) | (:f, float64) | (:u, uint64) | (:n, int64) | :none <- (:s, s3);
+        f3: string <- bees_msgs@enc_val(v3);
+        r3: (:ok, (:i, int64) | (:s, string) | (:f, float64) | (:u, uint64) | (:n, int64) | :none) | (:rejected, atom) <- bees_msgs@dec_val(f3);
+        _: atom <- say(concat(concat(concat("{s, 100000 bytes}, a frame of ", int_text(length_bytes(f3))), ": "), r_val(r3)));
+        e0: List[(:i, int64) | (:s, string) | :gap, mem(normal)] <- [];
+        l100: List[(:i, int64) | (:s, string) | :gap, mem(normal)] <- many(100, e0);
+        v4: { id: int64, st: :on | :off, items: List[(:i, int64) | (:s, string) | :gap, mem(normal)] } <- { id: 1, st: :on, items: l100 };
+        f4: string <- bees_msgs@enc_item(v4);
+        r4: (:ok, { id: int64, st: :on | :off, items: List[(:i, int64) | (:s, string) | :gap, mem(normal)] }) | (:rejected, atom) <- bees_msgs@dec_item(f4);
+        _: atom <- say(concat(concat(concat("item with 100 elements, a frame of ", int_text(length_bytes(f4))), ": "), r_item(r4)));
+        l200: List[(:i, int64) | (:s, string) | :gap, mem(normal)] <- many(200, e0);
+        v5: { id: int64, st: :on | :off, items: List[(:i, int64) | (:s, string) | :gap, mem(normal)] } <- { id: 1, st: :on, items: l200 };
+        f5: string <- bees_msgs@enc_item(v5);
+        r5: (:ok, { id: int64, st: :on | :off, items: List[(:i, int64) | (:s, string) | :gap, mem(normal)] }) | (:rejected, atom) <- bees_msgs@dec_item(f5);
+        _: atom <- say(concat(concat(concat("item with 200 elements, a frame of ", int_text(length_bytes(f5))), ": "), r_item(r5)))
+    produces pure :ok end
+}
+
+// validate_named is the connection actor's check of a payload against its target name's type
+fn named() -> atom {
+    sequence
+        _: atom <- say("-- validate_named");
+        good: string <- unhex("8368027701696107");
+        a1: atom <- bees_msgs@validate_named(good, bees_atoms@a_val());
+        _: atom <- say(concat("{i,7} as val: ", verdict(a1)));
+        a2: atom <- bees_msgs@validate_named(good, bees_atoms@a_colour());
+        _: atom <- say(concat("{i,7} as colour: ", verdict(a2)));
+        a3: atom <- bees_msgs@validate_named(good, bees_atoms@a_red());
+        _: atom <- say(concat("{i,7} as red (not a message name): ", verdict(a3)))
+    produces pure :ok end
+}
+
+fn main() -> int64 {
+    sequence
+        _: atom <- values();
+        _: atom <- refusals();
+        _: atom <- limits();
+        _: atom <- named()
+    produces pure 0 end
+}

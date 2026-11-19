@@ -1,0 +1,36 @@
+[bees] mode=beam node=hub@localhost transport=tls tls_verify=verify_peer auth=cookie creation=1 epmd=none epmd_port=4369 net_tick io_ms=60000 tick_ms=15000 links=3 ea@localhost:listen,ec@localhost:listen,d@localhost:listen frame_size_max=4294967295
+[bees] BEAM mode: Erlang cookie authentication inside TLS 1.3 (transport tls, verify_peer against cacertfile, 127.0.0.1); key exchange X25519MLKEM768 or classical X25519; certificates Ed25519, ECDSA P-256 or RSA (PSS, 2048 bits or more); a downgrade from TRUST
+case 1: accepted: an Ed25519 certificate of the trial CA, TLS 1.3, the hybrid group
+[bees audit] tls: established TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384, both certificates verified, as server 0
+[bees audit] link down, proxies ended; reason timeout 0
+case 2: accepted: classical X25519 only (what a stock OTP 28 node offers)
+[bees audit] tls: established TLSv1.3 X25519 TLS_AES_256_GCM_SHA384, both certificates verified, as server 0
+[bees audit] link down, proxies ended; reason timeout 0
+case 3: accepted: an ALPN protocol is offered and none is selected (the distribution uses none)
+[bees audit] tls: established TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384, both certificates verified, as server 0
+[bees audit] link down, proxies ended; reason timeout 0
+case 4: accepted: an RSA 2048 certificate signed by the trial CA (N2T Q4)
+[bees audit] tls: established TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384, both certificates verified, as server 0
+[bees audit] link down, proxies ended; reason timeout 0
+case 5: accepted: an RSA 2048 certificate signed with RSA-PSS by an RSA authority the node trusts
+[bees audit] tls: established TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384, both certificates verified, as server 0
+[bees audit] link down, proxies ended; reason timeout 0
+case 6: refused: an RSA 1024 certificate (below 2048 bits)
+[bees audit] tls: tls_verify_failed the peer certificate does not verify against cacertfile (another CA, expired, invalid, or not the dialed host's name), as server 0
+[bees audit] link down, proxies ended; reason fault 0
+case 7: refused: no client certificate
+[bees audit] tls: tls_verify_failed the peer presented no certificate, as server 0
+[bees audit] link down, proxies ended; reason fault 0
+case 8: refused: a certificate of another CA
+[bees audit] tls: tls_verify_failed the peer certificate does not verify against cacertfile (another CA, expired, invalid, or not the dialed host's name), as server 0
+[bees audit] link down, proxies ended; reason fault 0
+case 9: refused: an expired certificate
+[bees audit] tls: tls_verify_failed the peer certificate does not verify against cacertfile (another CA, expired, invalid, or not the dialed host's name), as server 0
+[bees audit] link down, proxies ended; reason fault 0
+case 10: refused: TLS 1.2 only (the default of a stock OTP 28 node without {versions, ['tlsv1.3']})
+[bees audit] tls: tls_handshake_failed the TLS 1.3 handshake failed (not TLS, an alert, or a version, group, suite or signature outside the BEAM profile), as server 0
+[bees audit] link down, proxies ended; reason fault 0
+case 11: refused: a key exchange group outside the profile (secp256r1 only)
+[bees audit] tls: tls_handshake_failed the TLS 1.3 handshake failed (not TLS, an alert, or a version, group, suite or signature outside the BEAM profile), as server 0
+[bees audit] link down, proxies ended; reason fault 0
+exit=0

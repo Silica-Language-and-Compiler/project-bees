@@ -145,3 +145,21 @@ tempus-selftest: tls-flags
 clean: clean-tempus
 clean-tempus:
 	rm -f $(TEMPUS_ARCHIVE) $(TEMPUS_OBJS) $(BUILD)/bees_tempus_selftest
+
+# The hosted (:store) carrier's Fifi wrappers (D46, spikes/N0d-store-config.md): Silica's compiler/stdlib/net/silica_store.c built
+# into libsilica_store.a, the way the socket wrappers are above; its sidecar (silica_store_wrapper.meta) is reached through the
+# same link dangerous_exposure_source/sockets. Built on request (`make -C native store`) by the leaves that read their
+# configuration through the store carrier; not part of `all`. Several leaves may ask at once under the parallel runner, so the
+# archive is built in a private directory and moved into place in one step.
+STORE_SRC := $(SILICA_ROOT)/compiler/stdlib/net/silica_store.c
+STORE_ARCHIVE := $(LIB)/libsilica_store.a
+.PHONY: store clean-store
+store: $(STORE_ARCHIVE) $(SOCKETS_LINK)
+$(STORE_ARCHIVE): $(STORE_SRC)
+	@mkdir -p $(BUILD) $(LIB)
+	@t="$(BUILD)/store.$$$$"; mkdir -p "$$t" && $(CC) $(CFLAGS) -c $< -o "$$t/silica_store.o" && ar rcs "$$t/libsilica_store.a" "$$t/silica_store.o" \
+		&& mv -f "$$t/libsilica_store.a" "$@" && rm -rf "$$t"
+	@echo "[native] $(STORE_ARCHIVE) (the language's storage wrappers, from $(STORE_SRC))"
+clean: clean-store
+clean-store:
+	rm -f $(STORE_ARCHIVE)

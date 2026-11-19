@@ -1,0 +1,44 @@
+// ---- BEES TEMPUS bridge (T6; development-plan/tempus-design.md section 17): pasted by tools/bees_tempus_gen.py (bridge)
+// into the dangerous_ root unit of a bridge program, after the TRUST node edge (src/shim/bees_trust_node.part, through
+// tools/bees_trust_gen.py) and the TEMPUS node part. A bridge is the TRUST node as built and the TEMPUS node in one
+// program, with two identities and two keys (17.2): the TRUST side is configured as every TRUST node is (bees.config,
+// tools/bees_config_trust.py) and started with trust_boot and trust_start; the TEMPUS side is given its values here.
+//
+// tempus_bridge_start(app, idn, net, sz, tst, lim) -> the table actor, or the application itself when lim is refused
+//   app, idn, net, sz, tst   as tempus_node_start (src/tempus/bees_tempus_node.part); idn.typ must be 2 (bridge)
+//   lim   { slim, size, rate, ivl, pin, tin, cms }: the score limit, the per-peer table's size, the requests per peer
+//         per interval and the interval in ms, the requests in flight per peer and in total, the call timeout in ms.
+//         The bridge application's values, no defaults (ruling OQ-25); each above its literal ceiling refuses the start
+//         (bees_tempus_bridge@lim_why): one boot line, the application told (:bees, 84, why, ...), no node started.
+// The application gets, besides what a node tells its application (80, 81), every admitted call or cast of an edge:
+//   (:bees, 90, args span, "m:f/arity", slot, 1 call or 2 cast, rq)
+// and answers each exactly once: bees_tempus_bridge@rq_result(rq, value span), bees_tempus_bridge@rq_fail(rq, why),
+// bees_tempus_bridge@rq_run(rq) (BEES runs the program's MFA table function in a per-request worker), or
+// tempus_bridge_onward(rq, addr, m, f, arity, args): one TRUST call of the application's choosing (plain TRUST, under the
+// bridge's TRUST certificate); its result becomes the edge's result, any failure the edge's close. Nothing an edge sends
+// goes to a TRUST node unless the application's code builds that call.
+fn tempus_bridge_start(app: actor_ref, idn: $NI$, net: $NN$, sz: $NZ$, tst: $NT$, lim: $BL$) -> actor_ref {
+    why: string <- bees_tempus_bridge@lim_why(lim);
+    case length_bytes(why) > 0 or idn.typ != 2 of {
+        true -> {
+            w: string <- case length_bytes(why) > 0 of { true -> why; false -> "the TEMPUS identity's type is not bridge" };
+            sequence proc[concurrency]
+                _: atom <- tn_say(concat("bridge: boot refused: ", w));
+                _: boolean <- cast(app, (:bees, 84, w, "", 0, 0, app) impl ActorMessage {})
+            produces pure app end
+        };
+        false -> {
+            sequence proc[concurrency]
+                e: $BTL$ <- bees_tempus_bridge@pe_none();
+                b: actor_ref <- spawn({ app: app, lim: lim, tab: e, tot: 0 }, bees_tempus_bridge@tbr, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+                n: actor_ref <- tempus_node_start(b, idn, net, sz, tst)
+            produces pure b end
+        }
+    }
+}
+fn tempus_bridge_onward(rq: actor_ref, addr: string, m: atom, f: atom, arity: int64, args: string) -> atom {
+    sequence proc[concurrency]
+        h: actor_ref <- spawn(rq, bees_tempus_bridge@tonw, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        r: atom <- trpc_call(addr, m, f, arity, args, h, 0)
+    produces pure r end
+}

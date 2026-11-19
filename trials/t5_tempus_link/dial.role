@@ -1,0 +1,67 @@
+// T5 link trial, a DIALER: it dials its listener once per step, one step after the other's outcome, each time with the
+// values step_of(k) names (whose advert, which token, which whitelist, which current kid, which signer), sends one
+// `sample` request, and prints what its connection told it. The entry's own role file gives port(), steps(), step_of/1,
+// certfile() and keyfile(): the ONE credential of the process (the engine keeps one per profile and role).
+fn outcome(op: int64, s1: string) -> string {
+    case op of {
+        60 -> concat("a reply, frame kind ", num(bees_tempus_frame@kind(s1)));
+        61 -> concat("the connection failed: ", s1);
+        62 -> concat("key_rotated, the peer's current kid is ", s1);
+        65 -> "admitted and closed";
+        _: int64 -> "?"
+    }
+}
+fn run_step(st: { e: dangerous_actor_ref, r: dangerous_actor_ref, sig: actor_ref, sig2: actor_ref, step: int64 }, me: actor_ref, k: int64) -> int64 {
+    case k > steps() of {
+        true -> { sequence _: atom <- say("done") produces pure k end };
+        false -> {
+            p: { i: int64, v: int64, wl: string, kid: string, alt: boolean, what: string } <- step_of(k);
+            c: $CFG$ <- mk_cfg(me, case p.alt of { true -> st.sig2; false -> st.sig }, st.e, st.r, p.i, p.v, p.wl, p.kid);
+            sp: string <- tempus_spec(certfile(), keyfile());
+            rq: string <- bees_tempus_frame@enc_sample(1, 1);
+            sequence
+                _: atom <- say(concat(concat("step ", num(k)), concat(": ", p.what)));
+                _: boolean <- tempus_dial(c, concat("127.0.0.1:", port()), rq, k, sp, "2000", 2000)
+            produces pure k end
+        }
+    }
+}
+fn d_bees(st: { e: dangerous_actor_ref, r: dangerous_actor_ref, sig: actor_ref, sig2: actor_ref, step: int64 }, me: actor_ref, op: int64, s1: string, cid: int64) -> int64 {
+    case op == 0 of {
+        true -> run_step(st, me, 1);
+        false -> case op == 60 or op == 61 or op == 62 or op == 65 of {
+            false -> st.step;
+            true -> {
+                sequence
+                    _: atom <- say(concat(concat("step ", num(cid)), concat(" outcome: ", outcome(op, s1))))
+                produces pure run_step(st, me, cid + 1) end
+            }
+        }
+    }
+}
+fn ddrv(msg: $NM$, st: { e: dangerous_actor_ref, r: dangerous_actor_ref, sig: actor_ref, sig2: actor_ref, step: int64 }) -> (:no_reply, { e: dangerous_actor_ref, r: dangerous_actor_ref, sig: actor_ref, sig2: actor_ref, step: int64 }) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        nxt: int64 <- case msg of {
+            (:accepted, _l: dangerous_actor_ref, _i: string) -> st.step;
+            (:link_up, _info: string) -> st.step;
+            (:rx, _s: string) -> st.step;
+            (:tx_credit, _n: int64) -> st.step;
+            (:tx_failed, _w: atom) -> st.step;
+            (:link_down, _w2: atom) -> st.step;
+            (:bees, op: int64, s1: string, _s2: string, cid: int64, _m: int64, _who: actor_ref) -> d_bees(st, me, op, s1, cid)
+        }
+    produces pure (:no_reply, { e: st.e, r: st.r, sig: st.sig, sig2: st.sig2, step: nxt }) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- bees_reporter@start();
+        e: dangerous_actor_ref <- spawn_dangerous(0, dangerous_bees_tempus_edge@ted, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        r: dangerous_actor_ref <- spawn_dangerous(0, dangerous_bees_trust_edge@trnd, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        sg: actor_ref <- tempus_signer(e, hx(tempus_ids@seed_hex(me_id())));
+        sg2: actor_ref <- tempus_signer(e, hx(tempus_ids@seed_hex(1)));
+        d: actor_ref <- spawn({ e: e, r: r, sig: sg, sig2: sg2, step: 0 }, ddrv, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: boolean <- cast(d, (:bees, 0, "", "", 0, 0, d) impl ActorMessage {});
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

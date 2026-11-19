@@ -1,0 +1,3 @@
+configuration refused: record 0 schema 0: (store): the log does not start at record 0 (a damaged first block)
+done
+exit=0

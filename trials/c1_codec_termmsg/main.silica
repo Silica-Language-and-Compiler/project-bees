@@ -1,0 +1,270 @@
+// C1 codec trial, dynamic terms as messages (development-plan/spikes/C1-codec-term-coverage.md sections 3.2, 3.5). A manifest
+// line `local any cast term` / `remote out @ peer cast term` makes the message bees_term_wire's token list; the generated
+// bees_msgs@enc_<name> and dec_<name> are bees_term_wire@encode and @decode. Printed: terms written as tokens, encoded by
+// bees_msgs@enc_out, their bytes compared HERE with the bytes stock Erlang (OTP 28, term_to_binary) writes (fixtures printed by
+// tools/bees_codec_fixtures2.erl), decoded by bees_msgs@dec_any and shown token by token; erl's bytes decoded and encoded again;
+// the refusals in both directions; many refused and accepted decodes in a row (bees_msgs@validate_named); and last the
+// deliverer path: bees_peers@start_deliverer decodes a payload and casts the tokens to the registered name `any`.
+// (trials/c1_codec_term covers bees_term_wire itself; this trial covers the manifest kind.)
+use bees_atoms;
+use bees_msgs;
+use bees_peers;
+use bees_reporter;
+use bees_term_wire;
+
+fn say(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+fn hexd(v: int64) -> string { substring("0123456789abcdef", v, v + 1) }
+fn at(s: string, i: int64) -> int64 {
+    sequence proc[transport]
+        b: int64 <- byte_at(s, i)
+    produces pure b end
+}
+fn hex_of(s: string, i: int64, n: int64) -> string {
+    case i >= n of {
+        true -> "";
+        false -> concat(concat(hexd(at(s, i) / 16), hexd(at(s, i) % 16)), hex_of(s, i + 1, n))
+    }
+}
+fn hex(s: string) -> string { hex_of(s, 0, length_bytes(s)) }
+fn hv(c: int64) -> int64 { case c >= 97 of { true -> c - 87; false -> c - 48 } }
+fn unhex_acc(s: string, i: int64, acc: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    case i < 0 of {
+        true -> acc;
+        false -> {
+            sequence proc[mem(normal)]
+                b: int64 <- hv(at(s, i)) * 16 + hv(at(s, i + 1));
+                l: List[int64, mem(normal)] <- prepend[int64, mem(normal)](b, acc)
+            produces pure unhex_acc(s, i - 2, l) end
+        }
+    }
+}
+fn unhex(s: string) -> string {
+    sequence proc[mem(normal), transport]
+        e: List[int64, mem(normal)] <- [];
+        xs: List[int64, mem(normal)] <- unhex_acc(s, length_bytes(s) - 2, e);
+        out: string <- bytes_of(xs)
+    produces pure out end
+}
+fn mk(s: string, n: int64) -> string {
+    case length_bytes(s) >= n of {
+        true -> substring(s, 0, n);
+        false -> mk(concat(s, s), n)
+    }
+}
+fn pos_text(n: int64) -> string {
+    case n < 10 of {
+        true -> substring("0123456789", n, n + 1);
+        false -> concat(pos_text(n / 10), substring("0123456789", n % 10, n % 10 + 1))
+    }
+}
+fn int_text(n: int64) -> string {
+    case n < 0 of {
+        true -> case n < -9223372036854775807 of { true -> "-9223372036854775808"; false -> concat("-", pos_text(0 - n)) };
+        false -> pos_text(n)
+    }
+}
+fn str_text(s: string) -> string {
+    case length_bytes(s) > 16 of {
+        true -> concat(concat("a string of ", int_text(length_bytes(s))), " bytes");
+        false -> concat(concat("\"", s), "\"")
+    }
+}
+fn verdict(a: atom) -> string { case a == :ok of { true -> "ok"; false -> bees_atoms@spelling(a) } }
+fn why(w: atom) -> string { concat("rejected ", bees_atoms@spelling(w)) }
+fn same(f: string, erl: string) -> string {
+    case hex(f) == erl of { true -> "  = erl"; false -> "  DIFFERS from erl" }
+}
+// a long frame is shown by its length and its first bytes
+fn shown(f: string) -> string {
+    case length_bytes(f) > 64 of {
+        true -> concat(concat(concat(hex_of(f, 0, 24), "... ("), int_text(length_bytes(f))), " bytes)");
+        false -> hex(f)
+    }
+}
+
+// ---- the chain (atom, int64, ref?(L, normal, rec))
+fn cat3(a: string, b: string, c: string) -> string { concat(concat(a, b), c) }
+fn cat4(a: string, b: string, c: string, d: string) -> string { concat(concat(concat(a, b), c), d) }
+// one case: the bytes BEES wrote, compared with erl's when cmp is 1 (BEES writes the list's order, erl its own: where they can
+// differ the fixture is only decoded), what BEES's bytes decode to, what erl's bytes decode to
+fn report(label: string, f: string, erl: string, cmp: int64, own: string, theirs: string) -> atom {
+    sequence
+        _: atom <- say(cat4(label, " ", shown(f), case cmp of { 1 -> same(f, erl); _: int64 -> "  (erl's bytes are decoded, not compared)" }));
+        _: atom <- say(concat("  decoded: ", own))
+    produces pure say(concat("  erl's bytes decoded: ", theirs)) end
+}
+fn sent(f: string) -> string {
+    case length_bytes(f) == 0 of { true -> "not sent (no frame)"; false -> cat3("a frame of ", int_text(length_bytes(f)), " bytes") }
+}
+fn ints_bytes(xs: List[int64, mem(normal)]) -> string {
+    sequence proc[mem(normal), transport]
+        out: string <- bytes_of(xs)
+    produces pure out end
+}
+
+// one token as text: i<n> integer, I<sign>:<hex> big integer, f float, a:<name> atom, b:<hex> binary, t<n> tuple, l<n> list
+// (n elements and a tail), nil, s:<hex> byte list, m<n> map
+fn tok(t: (int64, int64, float64, string)) -> string {
+    case bees_term_wire@kind_of(t) of {
+        1 -> concat("i", int_text(bees_term_wire@n_of(t)));
+        2 -> cat4("I", int_text(bees_term_wire@n_of(t)), ":", hex(bees_term_wire@s_of(t)));
+        3 -> "f";
+        4 -> concat("a:", bees_term_wire@s_of(t));
+        5 -> concat("b:", hex(bees_term_wire@s_of(t)));
+        7 -> concat("t", int_text(bees_term_wire@n_of(t)));
+        8 -> concat("l", int_text(bees_term_wire@n_of(t)));
+        9 -> "nil";
+        10 -> concat("s:", hex(bees_term_wire@s_of(t)));
+        11 -> concat("m", int_text(bees_term_wire@n_of(t)));
+        _: int64 -> concat("k", int_text(bees_term_wire@kind_of(t)))
+    }
+}
+fn toks_text(l: List[(int64, int64, float64, string), mem(normal)], sep: string) -> string {
+    case l of {
+        []: List[(int64, int64, float64, string), mem(normal)] -> "";
+        [h: (int64, int64, float64, string), t: List[(int64, int64, float64, string), mem(normal)]] -> cat3(sep, tok(h), toks_text(t, " "))
+    }
+}
+fn r_any(x: (:ok, List[(int64, int64, float64, string), mem(normal)]) | (:rejected, atom)) -> string {
+    case x of { (:ok, l: List[(int64, int64, float64, string), mem(normal)]) -> concat("ok ", toks_text(l, "")); (:rejected, w: atom) -> why(w) }
+}
+// erl's bytes decoded by dec_any and encoded again by enc_out: the same bytes?
+fn again(x: (:ok, List[(int64, int64, float64, string), mem(normal)]) | (:rejected, atom), erl: string) -> string {
+    case x of {
+        (:ok, l: List[(int64, int64, float64, string), mem(normal)]) -> case hex(bees_msgs@enc_out(l)) == erl of { true -> "the same bytes"; false -> "OTHER bytes" };
+        (:rejected, w: atom) -> why(w)
+    }
+}
+fn c_term(label: string, v: List[(int64, int64, float64, string), mem(normal)], erl: string) -> atom {
+    sequence
+        f: string <- bees_msgs@enc_out(v);
+        own: string <- r_any(bees_msgs@dec_any(f));
+        fe: string <- unhex(erl);
+        theirs: string <- r_any(bees_msgs@dec_any(fe))
+    produces pure report(label, f, erl, 1, own, theirs) end
+}
+fn e_term(label: string, erl: string) -> atom {
+    sequence
+        fe: string <- unhex(erl);
+        _: atom <- say(cat3(label, ": ", r_any(bees_msgs@dec_any(fe))))
+    produces pure say(concat("  encoded again: ", again(bees_msgs@dec_any(fe), erl))) end
+}
+fn x_term(label: string, h: string) -> atom {
+    sequence
+        f: string <- unhex(h)
+    produces pure say(cat3(label, ": ", r_any(bees_msgs@dec_any(f)))) end
+}
+fn values() -> atom {
+    sequence proc[mem(normal)]
+        _: atom <- say("-- term: the message is the token list; enc_out and dec_any are bees_term_wire's");
+        x: float64 <- 1.5;
+        t1: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_tuple(5), bees_term_wire@t_atom("hello"), bees_term_wire@t_int(42), bees_term_wire@t_bin("bin"), bees_term_wire@t_bytes("\x01\x02\x03"), bees_term_wire@t_float(x)];
+        _: atom <- c_term("{hello,42,<<bin>>,[1,2,3],1.5}", t1, "836805770568656c6c6f612a6d0000000362696e6b0003010203463ff8000000000000");
+        t2: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_map(2), bees_term_wire@t_int(1), bees_term_wire@t_atom("a"), bees_term_wire@t_int(2), bees_term_wire@t_list(2), bees_term_wire@t_atom("x"), bees_term_wire@t_tuple(2), bees_term_wire@t_atom("y"), bees_term_wire@t_int(-7), bees_term_wire@t_nil()];
+        _: atom <- c_term("#{1=>a,2=>[x,{y,-7}]}", t2, "837400000002610177016161026c00000002770178680277017962fffffff96a");
+        _: atom <- e_term("erl's {123456789012345678901234567890,[a|b]} (a big integer, an improper list)", "8368026e0d00d20a3f4eeee073c3f60fe98e016c00000001770161770162");
+        _: atom <- e_term("erl's {zzqx_not_held,1} (an atom the program does not hold: its text is carried)", "836802770d7a7a71785f6e6f745f68656c646101");
+        _: atom <- say("-- the typed message of the same manifest, (int64, string): one derived encode");
+        _: atom <- say(hex(bees_msgs@enc_ping((7, "x"))))
+    produces pure :ok end
+}
+fn refusals() -> atom {
+    sequence proc[mem(normal)]
+        _: atom <- say("-- refusals");
+        _: atom <- x_term("empty frame", "");
+        _: atom <- x_term("no version byte", "6105");
+        _: atom <- x_term("truncated inside a tuple", "8368026105");
+        _: atom <- x_term("a trailing byte", "83610500");
+        _: atom <- x_term("a byte that is no tag", "8301");
+        _: atom <- x_term("FLOAT_EXT (the old float)", "8363312e3530303030303030303030303030303030303030652b303000000000");
+        _: atom <- x_term("a compressed term", "8350000000026105");
+        _: atom <- x_term("a map with the key 5 twice (61 05 and 6e 01 00 05)", "83740000000261056a6e0100056a");
+        _: atom <- x_term("a map that says 1025 pairs", "8374000004016101");
+        _: atom <- x_term("a list that says 4294967295 elements", "836cffffffff61016a");
+        _: atom <- x_term("70 lists inside one another", deep(70));
+        bad: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_tuple(3), bees_term_wire@t_int(1)];
+        _: atom <- say(concat("encode, a tuple of 3 with one element (not a whole term): ", sent(bees_msgs@enc_out(bad))));
+        two: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_int(1), bees_term_wire@t_int(2)];
+        _: atom <- say(concat("encode, two terms: ", sent(bees_msgs@enc_out(two))));
+        none: List[(int64, int64, float64, string), mem(normal)] <- [];
+        _: atom <- say(concat("encode, no token: ", sent(bees_msgs@enc_out(none))))
+    produces pure :ok end
+}
+// [[[...[]...]]] n lists deep, as hex
+fn deep_body(n: int64, inner: string) -> string {
+    case n <= 0 of { true -> inner; false -> deep_body(n - 1, cat3("6c00000001", inner, "6a")) }
+}
+fn deep(n: int64) -> string { concat("83", deep_body(n, "6a")) }
+
+fn count(i: int64, n: int64, frame: string, want: atom, hits: int64) -> int64 {
+    case i >= n of {
+        true -> hits;
+        false -> {
+            sequence
+                a: atom <- bees_msgs@validate_named(frame, bees_atoms@a_any());
+                h: int64 <- case a == want of { true -> hits + 1; false -> hits }
+            produces pure count(i + 1, n, frame, want, h) end
+        }
+    }
+}
+fn memory() -> atom {
+    sequence
+        _: atom <- say("-- 5000 decodes in a row of each (validate_named)");
+        huge: string <- unhex("836cffffffff61016a");
+        n1: int64 <- count(0, 5000, huge, :truncated, 0);
+        _: atom <- say(concat("a list that says 4294967295 elements, refused truncated: ", int_text(n1)));
+        dp: string <- unhex(deep(70));
+        n2: int64 <- count(0, 5000, dp, :too_deep, 0);
+        _: atom <- say(concat("70 lists inside one another, refused too_deep: ", int_text(n2)));
+        good: string <- unhex("836805770568656c6c6f612a6d0000000362696e6b0003010203463ff8000000000000");
+        n3: int64 <- count(0, 5000, good, :ok, 0);
+        _: atom <- say(concat("{hello,42,<<bin>>,[1,2,3],1.5}, accepted: ", int_text(n3)))
+    produces pure :ok end
+}
+
+// ---- the deliverer path. The actor registered as `any` receives the tokens; each message starts the next delivery, so the
+// order of the lines does not depend on scheduling. A refused payload is dropped by its deliverer: nothing arrives for it.
+fn deliver(h: string) -> atom {
+    sequence proc[concurrency]
+        f: string <- unhex(h);
+        d: actor_ref <- bees_peers@start_deliverer(bees_peers@local_index(bees_atoms@a_any()));
+        _: boolean <- cast(d, f impl ActorMessage {})
+    produces pure :ok end
+}
+fn next(step: int64) -> atom {
+    case step of {
+        0 -> deliver("837400000002610177016161026c00000002770178680277017962fffffff96a");
+        1 -> {
+            sequence
+                _: atom <- say("actor any: now a truncated payload (refused), one with a map key twice (refused), then {zzqx_not_held,1}");
+                _: atom <- deliver("8368026105");
+                _: atom <- deliver("83740000000261056a6e0100056a")
+            produces pure deliver("836802770d7a7a71785f6e6f745f68656c646101") end
+        };
+        _: int64 -> say("actor any: done")
+    }
+}
+fn rx(msg: List[(int64, int64, float64, string), mem(normal)], st: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- say(cat4("actor any, message ", int_text(st), ": ", toks_text(msg, "")));
+        _: atom <- next(st)
+    produces pure (:no_reply, st + 1) end
+}
+
+fn main() -> int64 {
+    sequence proc[concurrency, device_io, mem(normal)]
+        _: atom <- bees_reporter@start();
+        _: atom <- values();
+        _: atom <- refusals();
+        _: atom <- memory();
+        _: atom <- say("-- the deliverer path: bees_peers@start_deliverer decodes the payload and casts the tokens to the name any");
+        _: actor_ref <- spawn_registered(0, rx, bees_atoms@a_any(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        m: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_tuple(2), bees_term_wire@t_atom("sent_by_this_program"), bees_term_wire@t_int(1)];
+        _: boolean <- cast_registered(bees_atoms@a_any(), m impl ActorMessage {});
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

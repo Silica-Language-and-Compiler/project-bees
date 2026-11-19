@@ -1,0 +1,53 @@
+// cancel by close (acceptance criterion 4), and trpc_close (owner's ruling on N5 Q13):
+//   1  a raw peer opens a session, sends a call that is busy for 1500 ms and closes 300 ms after connecting: the server sees a
+//      client close with one request in work: client_cancel, the result is dropped, no suspicion. (The worker itself runs to
+//      its end: Silica has no preemption.) Bytes back before it closed: token_issue and ok. Then 1700 ms pass, so that the
+//      abandoned worker has ended (nothing is written for it).
+//   2  a call (opens a session)
+//   3  a call that is busy for 1500 ms; 300 ms later the program calls trpc_close: the session's connection is closed and the
+//      waiting call is answered closed at once; the server sees the same client close. Then 1700 ms pass again.
+//   4  a call after that: a new connection, served
+//   5  the metrics
+fn label(step: int64) -> string {
+    case step of {
+        1 -> "raw: a session, a call in work, the peer closes after 300 ms";
+        2 -> "call demo:add([1, 2]) (opens a session)";
+        3 -> "call demo:slow([1500]), then trpc_close after 300 ms";
+        4 -> "call demo:add([40, 2]) (a new connection)";
+        5 -> "cast demo:stats([])";
+        _: int64 -> "?"
+    }
+}
+fn start(step: int64, me: actor_ref) -> atom {
+    case step of {
+        1 -> sraw_open(1, cat3(bees_trust_conf@self_fp(), offer_hello(), call_frame("c1", bees_atoms@a_slow(), 1, ints1(1500))), me, true);
+        2 -> trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_add(), 2, ints2(1, 2), me, 2);
+        3 -> { sequence _: atom <- trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_slow(), 1, ints1(1500), me, 3) produces pure wake(me, 300, 20) end };
+        20 -> trpc_close(server());
+        4 -> trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_add(), 2, ints2(40, 2), me, 4);
+        5 -> stats_cast(me, 5);
+        _: int64 -> say("cancel done")
+    }
+}
+fn next(step: int64, me: actor_ref) -> atom {
+    case step of { 1 -> wake(me, 1700, 2); 2 -> start(3, me); 3 -> wake(me, 1700, 4); 5 -> wake(me, 500, 6); _: int64 -> wake(me, 200, step + 1) }
+}
+fn driver(r: { req: int64, what: atom, value: string }, n: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        _: atom <- case r.value == "go" of {
+            true -> start(r.req, me);
+            false -> { sequence _: atom <- step_line(r) produces pure next(r.req, me) end }
+        }
+    produces pure (:no_reply, n + 1) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        b: int64 <- trust_boot();
+        _: atom <- start_reporter();
+        _: atom <- trust_start();
+        d: actor_ref <- spawn(0, driver, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: atom <- start(1, d);
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

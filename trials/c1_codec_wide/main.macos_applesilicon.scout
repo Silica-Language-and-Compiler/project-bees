@@ -1,0 +1,35 @@
+-- { a: int64, b: string, c: boolean, d: float64, e: atom, f: List[int64] }: six fields, decoded field by field
+#{a=>1,b=>two,c=>true,d=>4.5,e=>wide6,f=>[1000,2000]} 83740000000677016161017701626d0000000374776f770163770474727565770164464012000000000000770165770577696465367701666c0000000262000003e862000007d06a  = the derived encoder's bytes
+  decoded: ok { a: 1, b: two, c: true, d: 4.5, e: wide6, f: [1000,2000] }
+  erl's bytes (keys in erl's order: c, f, b, a, d, e) decoded: ok { a: 1, b: two, c: true, d: 4.5, e: wide6, f: [1000,2000] }
+-- (:w, { p: int64, q: int64, r: int64, s: int64, t: int64 }, string): a wide record in a tagged tuple
+{w,#{p=>1,q=>2,r=>3,s=>4,t=>5},z} 8368037701777400000005770170610177017161027701726103770173610477017461056d000000017a
+  decoded: ok (w, { p: 1, q: 2, r: 3, s: 4, t: 5 }, z)
+  erl's bytes (keys in erl's order) decoded: ok (w, { p: 1, q: 2, r: 3, s: 4, t: 5 }, z)
+-- List[{ a: int64, b: int64, c: int64, d: int64, e: int64 }]: a list of wide records
+[#{a=>1,..,e=>5},#{a=>6,..,e=>10}] 836c0000000274000000057701616101770162610277016361037701646104770165610574000000057701616106770162610777016361087701646109770165610a6a
+  decoded: ok [{1,2,3,4,5}, {6,7,8,9,10}]
+  erl's bytes (keys in erl's order) decoded: ok [{1,2,3,4,5}, {6,7,8,9,10}]
+-- Map[int64, { a: int64, b: int64, c: int64, d: int64, e: int64 }]: wide records as the values of a map
+#{1=>#{a=>1,..,e=>5}} 8374000000016101740000000577016161017701626102770163610377016461047701656105
+  decoded: ok #{1=>{1,2,3,4,5}}
+  erl's bytes (keys in erl's order) decoded: ok #{1=>{1,2,3,4,5}}
+-- { a: int64, b: int64, c: int64, d: int64 }: four fields, plain (one derived encode and decode)
+8374000000047701616101770162610277016361037701646104  decoded, the fields add up to: ok 10
+-- refusals, decoded as the six-field record
+the field f missing (five pairs): rejected missing_field
+the field a twice: rejected duplicate_field
+an unknown field g in place of f: rejected unknown_field
+seven pairs: rejected unknown_field
+the field a is a string: rejected bad_tag
+the field e is an atom the program does not hold: rejected unknown_atom
+the field d is an integer: rejected bad_tag
+truncated inside the field f: rejected truncated
+a trailing byte: rejected trailing_bytes
+a tuple, not a map: rejected bad_tag
+empty frame: rejected truncated
+rows, the second record lacks a field: rejected missing_field
+-- 5000 decodes in a row of each (validate_named)
+a field missing, refused missing_field: 5000
+the six-field record, accepted: 5000
+exit=0

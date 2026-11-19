@@ -1,0 +1,78 @@
+// Where does a large dynamic term fail? A list of n one-tuples {k} (2n+2 tokens): each step printed before the next.
+use bees_etf_scan;
+use bees_term_wire;
+fn packed(xs: List[int64, mem(normal)]) -> string {
+    sequence proc[mem(normal), transport]
+        out: string <- bytes_of(xs)
+    produces pure out end
+}
+fn push2(acc: List[int64, mem(normal)], a: int64, b: int64) -> List[int64, mem(normal)] {
+    sequence proc[mem(normal)]
+        l1: List[int64, mem(normal)] <- prepend[int64, mem(normal)](b, acc);
+        l2: List[int64, mem(normal)] <- prepend[int64, mem(normal)](a, l1)
+    produces pure l2 end
+}
+fn head4(acc: List[int64, mem(normal)], tag: int64, n: int64) -> List[int64, mem(normal)] {
+    sequence proc[mem(normal)]
+        l1: List[int64, mem(normal)] <- push2(acc, (n / 256) % 256, n % 256);
+        l2: List[int64, mem(normal)] <- push2(l1, (n / 16777216) % 256, (n / 65536) % 256);
+        l3: List[int64, mem(normal)] <- prepend[int64, mem(normal)](tag, l2)
+    produces pure l3 end
+}
+fn one(b: int64) -> List[int64, mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[int64, mem(normal)] <- [b]
+    produces pure e end
+}
+fn framed(acc: List[int64, mem(normal)]) -> string {
+    sequence proc[mem(normal)]
+        l: List[int64, mem(normal)] <- prepend[int64, mem(normal)](131, acc)
+    produces pure packed(l) end
+}
+fn tuples_acc(acc: List[int64, mem(normal)], i: int64) -> List[int64, mem(normal)] {
+    case i < 0 of { true -> acc; false -> tuples_acc(push2(push2(acc, 97, i % 256), 104, 1), i - 1) }
+}
+fn tuple_list(n: int64) -> string { framed(head4(tuples_acc(one(106), n - 1), 108, n)) }
+fn count(toks: List[(int64, int64, float64, string), mem(normal)], n: int64) -> int64 {
+    case toks of {
+        []: List[(int64, int64, float64, string), mem(normal)] -> n;
+        [_h: (int64, int64, float64, string), t: List[(int64, int64, float64, string), mem(normal)]] -> count(t, n + 1)
+    }
+}
+fn say(n: int64, what: string, v: int64) -> atom {
+    sequence proc[device_io]
+        _: atom <- print_int64(n);
+        _: atom <- print(concat(concat(" ", what), " "));
+        _: atom <- print_int64(v);
+        _: atom <- println("")
+    produces pure :ok end
+}
+fn after_decode(n: int64, frame: string, r: (:ok, List[(int64, int64, float64, string), mem(normal)]) | (:rejected, atom)) -> atom {
+    case r of {
+        (:ok, toks: List[(int64, int64, float64, string), mem(normal)]) -> {
+            sequence
+                _: atom <- say(n, "decoded, tokens", count(toks, 0));
+                again: string <- bees_term_wire@encode(toks);
+                _: atom <- say(n, "encoded, bytes", length_bytes(again));
+                _: atom <- say(n, "scanner ends at", bees_etf_scan@skip(frame, 1))
+            produces pure :ok end
+        };
+        (:rejected, _a: atom) -> say(n, "rejected", 0)
+    }
+}
+fn one_size(n: int64) -> atom {
+    sequence
+        frame: string <- tuple_list(n);
+        _: atom <- say(n, "frame built, bytes", length_bytes(frame));
+        r: (:ok, List[(int64, int64, float64, string), mem(normal)]) | (:rejected, atom) <- bees_term_wire@decode(frame)
+    produces pure after_decode(n, frame, r) end
+}
+fn main() -> int64 {
+    sequence
+        _: atom <- one_size(1000);
+        _: atom <- one_size(5000);
+        _: atom <- one_size(10000);
+        _: atom <- one_size(20000);
+        _: atom <- one_size(30000)
+    produces pure 0 end
+}

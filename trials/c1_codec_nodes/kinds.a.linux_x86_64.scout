@@ -1,0 +1,26 @@
+[bees] TEST ONLY: no authentication, no encryption on this transport (127.0.0.1); TRUST's TLS is not built yet
+[bees audit] handshake complete with b@127.0.0.1 0
+a: sending
+a: echo val 0: (i, 7)
+a: echo val 1: (s, "hi")
+a: echo val 2: (f, 1.5)
+a: echo val 3: (pt, 3, -4)
+a: echo val 4: { x: 1, y: rec }
+a: echo val 5: none
+a: echo chain 0: ok, cells=3 sum=6 values: 3 2 1
+a: echo im 0: #{3=>c, 1=>a, 2=>b}
+a: a map with the key 1 twice (the encoder refuses it: not sent), then #{9=>after}
+a: echo im 1: #{9=>after}
+a: echo ints 0: set [3,1,2]
+a: a set with the element 5 twice (not sent), then the set [4]
+a: echo ints 1: set [4]
+a: echo pkt 0: { id: 7, data: <<deadbeef>> n=4, note: n }
+a: a buffer of 16 with the count 17, and one with the count -1 (not sent), then one with the count 2
+a: echo pkt 1: { id: 10, data: <<dead>> n=2, note: after }
+a: echo wide 0: { a: 1, b: two, c: true, d: 4.5, e: wide, f: [1000,2000] }
+a: echo any 0: t14 i7 i-1234567890123 I0:0000000000000000000001 f:2.5 a:hello a:zzqx_not_held b:62696e bits3:a0 t2 a:a i1 s:010203 l2 a:x a:y nil l1 a:a a:b m1 i1 a:one nil
+a: a token list that is a tuple of 2 with one element, and an empty one (not sent), then {after,1}
+a: echo any 1: t2 a:after i1
+a: echo val 6: (s, "bye")
+a: done
+exit=0

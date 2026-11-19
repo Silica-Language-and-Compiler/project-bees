@@ -1,0 +1,92 @@
+stock: ping beesl@localhost -> pong
+stock: phase 1: BEES sends each kind to a registered process here; each is printed, compared and sent back
+stock: val got {i,7}
+stock:   the term expected at val (=:=): true
+stock:   term_to_binary 8368027701696107
+stock: val got {s,<<"hi">>}
+stock:   the term expected at val (=:=): true
+stock:   term_to_binary 8368027701736d000000026869
+stock: val got {f,1.5}
+stock:   the term expected at val (=:=): true
+stock:   term_to_binary 836802770166463ff8000000000000
+stock: val got {pt,3,-4}
+stock:   the term expected at val (=:=): true
+stock:   term_to_binary 83680377027074610362fffffffc
+stock: val got #{x => 1,y => <<"rec">>}
+stock:   the term expected at val (=:=): true
+stock: val got none
+stock:   the term expected at val (=:=): true
+stock:   term_to_binary 8377046e6f6e65
+stock: chain got {ok,3,{ok,2,{ok,1,none}}}
+stock:   the term expected at chain (=:=): true
+stock:   term_to_binary 83680377026f6b6103680377026f6b6102680377026f6b610177046e6f6e65
+stock: im got #{1 => <<"a">>,2 => <<"b">>,3 => <<"c">>}
+stock:   the term expected at im (=:=): true
+stock:   term_to_binary 83740000000361016d000000016161026d000000016261036d0000000163
+stock: im got #{9 => <<"after">>}
+stock:   the term expected at im (=:=): true
+stock:   term_to_binary 83740000000161096d000000056166746572
+stock: ints got #{1 => [],2 => [],3 => []}
+stock:   the term expected at ints (=:=): true
+stock:   sets:is_set true, sets:to_list sorted [1,2,3]
+stock:   term_to_binary 83740000000361016a61026a61036a
+stock: ints got #{4 => []}
+stock:   the term expected at ints (=:=): true
+stock:   sets:is_set true, sets:to_list sorted [4]
+stock:   term_to_binary 83740000000161046a
+stock: pkt got #{data => <<222,173,190,239>>,id => 7,note => <<110>>}
+stock:   the term expected at pkt (=:=): true
+stock: pkt got #{data => <<222,173>>,id => 10,note => <<97,102,116,101,114>>}
+stock:   the term expected at pkt (=:=): true
+stock: wide got #{a => 1,b => <<"two">>,c => true,d => 4.5,e => wide,f => [1000,2000]}
+stock:   the term expected at wide (=:=): true
+stock: any got {7,-1234567890123,1208925819614629174706176,2.5,hello,zzqx_not_held,<<"bin">>,<<5:3>>,{a,1},[1,2,3],[x,y],[a|b],#{1 => one},[]}
+stock:   the term expected at any (=:=): true
+stock:   term_to_binary 83680e61076e0601cb04fb711f016e0b000000000000000000000001464004000000000000770568656c6c6f770d7a7a71785f6e6f745f68656c646d0000000362696e4d0000000103a0680277016161016b00030102036c000000027701787701796a6c000000017701617701627400000001610177036f6e656a
+stock: any got {'after',1}
+stock:   the term expected at any (=:=): true
+stock:   term_to_binary 836802770561667465726101
+stock: val got {s,<<"bye">>}
+stock:   the term expected at val (=:=): true
+stock:   term_to_binary 8368027701736d00000003627965
+stock: BEES acknowledged step 100
+stock: phase 2: terms that do not fit a typed name of BEES, each followed by one that does
+stock: sent {rval, BEES} ! {zz,1}, a tag the sum does not have (does not fit: BEES drops it)
+stock: sent {rval, BEES} ! {i,<<"x">>}, a binary where the variant holds an integer (does not fit: BEES drops it)
+stock: sent {rval, BEES} ! {pt,1}, a known tag with another arity (does not fit: BEES drops it)
+stock: sent {rval, BEES} ! nope, an atom that is no variant (does not fit: BEES drops it)
+stock: sent {rval, BEES} ! {i,42}
+stock: BEES acknowledged step 1
+stock: sent {rchain, BEES} ! a chain of 66 cells, deeper than the limit (does not fit: BEES drops it)
+stock: sent {rchain, BEES} ! {ok,2,{ok,1,nil}}, an atom other than none in the empty slot (does not fit: BEES drops it)
+stock: sent {rchain, BEES} ! a chain of 65 cells
+stock: BEES acknowledged step 2
+stock: sent {rim, BEES} ! #{1 => 2}, an integer where the value is a binary (does not fit: BEES drops it)
+stock: sent {rim, BEES} ! #{a => <<"x">>}, an atom where the key is an integer (does not fit: BEES drops it)
+stock: sent {rim, BEES} ! [{1,<<"a">>}], a list of pairs (does not fit: BEES drops it)
+stock: sent {rim, BEES} ! #{5 => <<"five">>, 6 => <<"six">>}
+stock: BEES acknowledged step 3
+stock: sent {rints, BEES} ! [1,2,3], a list where the set's map is expected (does not fit: BEES drops it)
+stock: sent {rints, BEES} ! #{1 => x}, a map whose value is not [] (does not fit: BEES drops it)
+stock: sent {rints, BEES} ! ordsets:from_list([300,100,200]), a sorted list (does not fit: BEES drops it)
+stock: sent {rints, BEES} ! sets:from_list([5,6], [{version,1}]), the record form (sets:from_list/1 before OTP 28) (does not fit: BEES drops it)
+stock: sent {rints, BEES} ! sets:from_list([7,8,9], [{version,2}])
+stock: BEES acknowledged step 4
+stock: sent {rpkt, BEES} ! data of 17 bytes for a buffer of 16 (does not fit: BEES drops it)
+stock: sent {rpkt, BEES} ! data that is an integer (does not fit: BEES drops it)
+stock: sent {rpkt, BEES} ! data of 16 bytes
+stock: BEES acknowledged step 5
+stock: sent {rwide, BEES} ! the record without its field f (does not fit: BEES drops it)
+stock: sent {rwide, BEES} ! the record with a seventh field (does not fit: BEES drops it)
+stock: sent {rwide, BEES} ! the record whose atom field e holds stock, an atom BEES does not have (a typed atom is one of the node's own) (does not fit: BEES drops it)
+stock: sent {rwide, BEES} ! #{a => 2, b => <<"erl">>, c => false, d => 2.5, e => val, f => [1,2,300]}
+stock: BEES acknowledged step 6
+stock: phase 3: arbitrary terms to the name whose type is term; BEES sends each back
+stock: term 0, {self(), make_ref(), a port, fun erlang:node/0, a local fun, atom_bees_never_saw_qqzx}: the echo =:= the original: true
+stock: term 1, [1, -1, 2.5, 123456789012345678901234567890, {<<"bin">>, <<1:1>>}, #{k => [a|b]}, "str", [], [x]]: the echo =:= the original: true
+stock: term 2, self(): the echo =:= the original: true
+stock: term 3, make_ref(): the echo =:= the original: true
+stock: term 4, #{a pid => [a reference, a reference], fun lists:map/2 => a port}: the echo =:= the original: true
+stock: nodes() lists BEES: true
+stock: done
+exit=0

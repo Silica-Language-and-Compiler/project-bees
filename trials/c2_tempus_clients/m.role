@@ -1,0 +1,5 @@
+// C2 clients trial: node M, the test node the Silica client drives; its sentinel is the Silica client dangerous_cs.
+fn port() -> string { "23901" }
+fn sents() -> string { "127.0.0.1:23905" }
+fn test() -> boolean { true }
+fn tick_ms() -> uint64 { 1000 }

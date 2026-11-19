@@ -1,0 +1,75 @@
+// T5 link trial, a LISTENER: the sentinel identity (identity 2, its certificate, a tempus_sentinel token); its tempus
+// whitelist holds the bridge's certificate. It plays the node actor: every admitted request is answered with an empty
+// sample_reply. One line per request; "done" when expect() connections have closed. The entry's own role file gives
+// port() and expect().
+fn no_entries() -> $L$ { bees_tempus_view@none() }
+fn l_cfg(st: { e: dangerous_actor_ref, r: dangerous_actor_ref, sig: actor_ref, n: int64, closed: int64 }, me: actor_ref) -> $CFG$ {
+    mk_cfg(me, st.sig, st.e, st.r, 2, 3, tempus_ids@fp_hex(3), tempus_ids@kid())
+}
+fn l_request(body: string, cid: int64, m: int64, who: actor_ref) -> int64 {
+    e: $L$ <- no_entries();
+    reply: string <- bees_tempus_frame@enc_entries(8, 1, e);
+    line: string <- concat(concat("request: frame kind ", num(bees_tempus_frame@kind(body))), concat(concat(" from an admitted ", typ_name(m % 4)), concat(concat(", whitelist entry ", num(m / 4 - 1)), concat(" a", num(cid)))));
+    sequence proc[concurrency]
+        _: atom <- say(line);
+        _: boolean <- cast(who, (:bees, 20, reply, "", 0) impl ActorMessage {})
+    produces pure 0 end
+}
+fn l_closed(n: int64) -> int64 {
+    case n == expect() of {
+        true -> { sequence _: atom <- say("done") produces pure 1 end };
+        false -> 1
+    }
+}
+fn l_bees(st: { e: dangerous_actor_ref, r: dangerous_actor_ref, sig: actor_ref, n: int64, closed: int64 }, op: int64, s1: string, cid: int64, m: int64, who: actor_ref) -> int64 {
+    case op of {
+        63 -> l_request(s1, cid, m, who);
+        64 -> l_closed(st.closed + 1);
+        _: int64 -> 0
+    }
+}
+fn l_accept(st: { e: dangerous_actor_ref, r: dangerous_actor_ref, sig: actor_ref, n: int64, closed: int64 }, me: actor_ref, l: dangerous_actor_ref) -> int64 {
+    c: $CFG$ <- l_cfg(st, me);
+    sequence
+        _: boolean <- tempus_accept(c, l, st.n + 1)
+    produces pure 1 end
+}
+fn l_up(info: string) -> int64 {
+    sequence
+        _: atom <- say(concat("listening on 127.0.0.1:", substring(info, 5, length_bytes(info))))
+    produces pure 0 end
+}
+fn ldrv(msg: $NM$, st: { e: dangerous_actor_ref, r: dangerous_actor_ref, sig: actor_ref, n: int64, closed: int64 }) -> (:no_reply, { e: dangerous_actor_ref, r: dangerous_actor_ref, sig: actor_ref, n: int64, closed: int64 }) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        acc: int64 <- case msg of {
+            (:accepted, l: dangerous_actor_ref, _i: string) -> l_accept(st, me, l);
+            (:link_up, info: string) -> l_up(info);
+            (:rx, _s: string) -> 0;
+            (:tx_credit, _n: int64) -> 0;
+            (:tx_failed, _w: atom) -> 0;
+            (:link_down, _w2: atom) -> 0;
+            (:bees, _op: int64, _s1: string, _s2: string, _cid: int64, _m: int64, _who: actor_ref) -> 0
+        };
+        cl: int64 <- case msg of {
+            (:accepted, _l: dangerous_actor_ref, _i: string) -> 0;
+            (:link_up, _info: string) -> 0;
+            (:rx, _s: string) -> 0;
+            (:tx_credit, _n: int64) -> 0;
+            (:tx_failed, _w: atom) -> 0;
+            (:link_down, _w2: atom) -> 0;
+            (:bees, op: int64, s1: string, _s2: string, cid: int64, m: int64, who: actor_ref) -> l_bees(st, op, s1, cid, m, who)
+        }
+    produces pure (:no_reply, { e: st.e, r: st.r, sig: st.sig, n: st.n + acc, closed: st.closed + cl }) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- bees_reporter@start();
+        e: dangerous_actor_ref <- spawn_dangerous(0, dangerous_bees_tempus_edge@ted, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        r: dangerous_actor_ref <- spawn_dangerous(0, dangerous_bees_trust_edge@trnd, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        sg: actor_ref <- tempus_signer(e, hx(tempus_ids@seed_hex(2)));
+        d: actor_ref <- spawn({ e: e, r: r, sig: sg, n: 0, closed: 0 }, ldrv, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: boolean <- tempus_listen(d, concat("listen:", port()), tempus_spec(tempus_ids@certfile(2), tempus_ids@keyfile(2)), 2000);
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

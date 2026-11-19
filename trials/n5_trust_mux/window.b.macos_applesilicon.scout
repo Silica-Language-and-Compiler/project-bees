@@ -1,0 +1,19 @@
+[trust] TEST ONLY: plaintext transport, peer identity is a test-supplied stand-in for the certificate fingerprint
+[trust] mode trust, listen 127.0.0.1:23001, whitelist 0 entries, pinned servers 3, frame_size_max 4096, args_len_max 4096, term_depth_max 32, call_timeout_ms 1500, first_frame_timeout_ms 2000, suspicion_limit 3, token_bytes 48, token_ttl_sec 300, sessions (B2): max_inflight 4, max_calls 8, max_age_ms 60000, idle_ms 2000, drain_ms 1000
+[trust] TRUST standalone: no whitelist file configured, no inbound connections accepted
+step 1 call demo:add([n, 1]): {ok, int 2}
+step 2 call demo:add([n, 1]): {ok, int 3}
+step 3 call demo:add([n, 1]): {ok, int 4}
+step 4 call demo:add([n, 1]): {ok, int 5}
+step 5 call demo:add([5, 1]) (the fifth call: max_calls): {ok, int 6}
+step 6 call demo:add([6, 1]) (a new session; then idle): {ok, int 7}
+step 7 call demo:add([n, 1]): {ok, int 8}
+step 8 call demo:add([n, 1]): {ok, int 9}
+step 9 call demo:add([n, 1]): {ok, int 10}
+step 10 call demo:add([n, 1]): {ok, int 11}
+step 11 call demo:add([11, 1]) (after max_age_ms: a new session): {ok, int 12}
+step 12 raw: a second connection while a session is open (session_slots_max 1): {error, closed}, bytes received 0
+step 13 call demo:add([13, 1]) (the slot is free again): {ok, int 14}
+step 14 cast demo:stats([]): {ok, cast}
+window done
+exit=0

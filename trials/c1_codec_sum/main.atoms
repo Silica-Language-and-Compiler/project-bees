@@ -1,0 +1,20 @@
+# the tags and atom variants main.silica writes in its types, values and patterns (all are message-type atoms of sum.wire,
+# so all are in bees_atoms)
+red
+green
+blue
+i
+s
+f
+u
+n
+ping
+pt
+nil
+on
+off
+gap
+wrap
+a
+b
+some

@@ -1,0 +1,35 @@
+step 1: an edge with a good token
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d1
+[tempus audit] admitted peer=9e1113ab416dc197 tempus_sentinel, tempus whitelist entry 0 d1
+step 1 outcome: a reply, frame kind 8
+step 2: another peer's advert under this node's certificate (a relay in the middle)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d2
+[tempus audit] closed_by_peer peer=(any) stage (any) d2
+step 2 outcome: the connection failed: closed_by_peer
+step 3: a tempus_bridge token under a certificate the listener's whitelist does not hold
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d3
+[tempus audit] closed_by_peer peer=(any) stage (any) d3
+step 3 outcome: the connection failed: closed_by_peer
+step 4: a token under the old kid
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d4
+[tempus audit] key_rotated peer=9e1113ab416dc197 the peer says this node's token is under another kid than its current one d4
+step 4 outcome: key_rotated, the peer's current kid is k1
+step 5: an expired token
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d5
+[tempus audit] closed_by_peer peer=(any) stage (any) d5
+step 5 outcome: the connection failed: closed_by_peer
+step 6: a proof of possession signed with another key
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d6
+[tempus audit] admitted peer=9e1113ab416dc197 tempus_sentinel, tempus whitelist entry 0 d6
+[tempus audit] closed_by_peer peer=(any) stage (any) d6
+step 6 outcome: the connection failed: closed_by_peer
+step 7: this node's whitelist is empty: the listener's sentinel token is not acceptable
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d7
+[tempus audit] whitelist_reject peer=9e1113ab416dc197 a tempus_bridge or tempus_sentinel token under a certificate that is not in the tempus whitelist d7
+step 7 outcome: the connection failed: whitelist_reject
+step 8: this node's current kid is k9: the listener's token is under another kid
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d8
+[tempus audit] key_rotated peer=9e1113ab416dc197 the peer's token is under another kid; it was told the current one d8
+step 8 outcome: the connection failed: key_rotated_sent
+done
+exit=0

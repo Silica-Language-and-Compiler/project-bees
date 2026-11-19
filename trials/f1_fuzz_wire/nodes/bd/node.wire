@@ -1,0 +1,6 @@
+# F1 node bd: dials the fuzz driver, which plays the node stock@localhost and its EPMD; a proxy for its inbox; serves outbox.
+# The manifest's port is a placeholder that bees.config overrides (port epmd).
+node   bd@localhost
+peer   stock@localhost 127.0.0.1 23501 dial
+remote inbox @ stock@localhost cast { op: atom, n: int64 }
+local  outbox cast { op: atom, n: int64 }

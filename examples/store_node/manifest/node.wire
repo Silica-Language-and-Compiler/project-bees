@@ -1,0 +1,4 @@
+# examples/store_node: the manifest (names and types). The packer reads it with bees.config. It is kept in its own directory
+# because tools/trial.mk treats a .wire file in the leaf as the input of the build-time generators, which this example does not use.
+node   a@localhost
+peer   b@localhost 127.0.0.1 23400 listen

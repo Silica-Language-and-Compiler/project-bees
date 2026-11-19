@@ -1,0 +1,10 @@
+step 1: a bridge with a tempus_bridge token and a whitelisted certificate
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d1
+[tempus audit] admitted peer=9e1113ab416dc197 tempus_sentinel, tempus whitelist entry 0 d1
+step 1 outcome: a reply, frame kind 8
+step 2: a whitelisted certificate with a tempus_edge token
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d2
+[tempus audit] closed_by_peer peer=(any) stage (any) d2
+step 2 outcome: the connection failed: closed_by_peer
+done
+exit=0

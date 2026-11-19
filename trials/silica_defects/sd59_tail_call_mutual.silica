@@ -1,0 +1,12 @@
+// SD-59 (expected: "mutual 3000000", exit 0): two functions that call each other in tail position (returning a scalar) are
+// compiled with real calls: the stack grows by a frame per step and faults. Self tail calls of scalar functions are jumps
+// (sd59_tail_call_record_return prints its "scalar" line).
+fn ping(i: int64, acc: int64) -> int64 { case i <= 0 of { true -> acc; false -> pong(i - 1, acc + 1) } }
+fn pong(i: int64, acc: int64) -> int64 { case i <= 0 of { true -> acc; false -> ping(i - 1, acc + 1) } }
+fn main() -> int64 {
+    sequence proc[device_io]
+        _: atom <- print("mutual ");
+        _: atom <- print_int64(ping(3000000, 0));
+        _: atom <- println("")
+    produces pure 0 end
+}

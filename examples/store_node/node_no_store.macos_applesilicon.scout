@@ -1,0 +1,4 @@
+[node] configuration refused: record 0 kind 0: (store): no configuration (the store holds no readable record: it is empty, or damaged at its start)
+[node] no node was started
+done
+exit=0

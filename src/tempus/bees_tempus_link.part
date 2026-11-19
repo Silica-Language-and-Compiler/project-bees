@@ -1,0 +1,49 @@
+// ---- BEES TEMPUS link edge (T5): pasted by tools/bees_tempus_gen.py into the dangerous_ root unit of a program that speaks
+// tempus/1, after the carrier edge (src/shim/bees_tcp_edge.part, carrier_new). The spawns of the TLS link, the send actor,
+// the connection actor and the signer are here, and every first message to them is cast from here, because a call to a
+// dangerous_ unit's function is allowed only inside an FFI worker (E4042) and the carrier's spawn site stays in the root
+// unit (SD-17). Nothing here reads a file or holds a default: every value is an argument (the application passes values).
+//
+// tempus_spec(certfile, keyfile)        the engine's credential text for a TEMPUS identity: no CA (the certificate is
+//                                       self-signed over the node's identity key, ruling OQ-2)
+// tempus_listen(owner, listen, spec, hs_ms)
+//                                       a listening link on `listen` ("listen:PORT", 127.0.0.1, or "listen:any:PORT");
+//                                       owner gets (:link_up, "port:N") and, per connection, (:accepted, link, _), which it
+//                                       hands to tempus_accept
+// tempus_accept(cfg, link, cid)         the connection actor of an accepted link (dangerous_bees_tempus_conn@tcon, role 2)
+// tempus_dial(cfg, addr, req, cid, spec, dial, hs_ms)
+//                                       one connection to "a.b.c.d:port" (role 0); req is the one request's frame body,
+//                                       or "" to close after admission; dial is the connect budget in ms, as text
+// tempus_signer(edge, seed)             the node's signer actor, the only holder of the private seed
+// cfg is the record dangerous_bees_tempus_conn's head describes; cfg.node is told the outcome.
+fn tempus_spec(certfile: string, keyfile: string) -> string {
+    z: string <- bees_trust_frame@b1(0);
+    bees_trust_frame@cat2(bees_trust_frame@cat2(certfile, z), bees_trust_frame@cat2(keyfile, bees_trust_frame@cat2(z, z)))
+}
+fn tempus_listen(owner: actor_ref, listen: string, spec: string, hs_ms: uint64) -> boolean {
+    sequence proc[concurrency]
+        c: dangerous_actor_ref <- carrier_new();
+        ll: actor_ref <- spawn({ owner: actor_ref_of_word(0), car: c, spec: spec, dial: "", hs_ms: hs_ms }, dangerous_bees_tempus_tls@tlnkl, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        ok: boolean <- cast(ll, (:open, owner, listen) impl ActorMessage {})
+    produces pure ok end
+}
+fn tempus_signer(e: dangerous_actor_ref, seed: string) -> actor_ref {
+    sequence proc[concurrency]
+        s: actor_ref <- spawn({ edge: e, seed: seed }, dangerous_bees_tempus_conn@tsig, stack_policy(0, :keep_last_message), state_policy(:keep_state_area))
+    produces pure s end
+}
+fn tempus_conn(cfg: $CFG$, l: dangerous_actor_ref, role: int64, cid: int64, req: string, addr: string) -> boolean {
+    sequence proc[concurrency]
+        t: actor_ref <- spawn({ c: l, n: 0 }, dangerous_bees_tempus_conn@ttx, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        k: actor_ref <- spawn({ c: l, tx: t, role: role, cid: cid, req: req, cfg: cfg, v: { asm: t, phase: 0, live: false, down: false, pend: 0, ckey: "", cfp: "", pd: "", nonce: "", k: 0, body: "" } }, dangerous_bees_tempus_conn@tcon, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        ok: boolean <- cast(l, (:open, k, addr) impl ActorMessage {})
+    produces pure ok end
+}
+fn tempus_accept(cfg: $CFG$, l: dangerous_actor_ref, cid: int64) -> boolean { tempus_conn(cfg, l, 2, cid, "", "") }
+fn tempus_dial(cfg: $CFG$, addr: string, req: string, cid: int64, spec: string, dial: string, hs_ms: uint64) -> boolean {
+    sequence proc[concurrency]
+        c: dangerous_actor_ref <- carrier_new();
+        l: dangerous_actor_ref <- spawn_dangerous({ owner: actor_ref_of_word(0), car: c, w: c, h: 0 - 1, role: 0, phase: 0, credit: 0, car_out: false, sent: 0, told: false, spec: spec, dial: dial, hs_ms: hs_ms }, dangerous_bees_tempus_tls@tlnk, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        ok: boolean <- tempus_conn(cfg, l, 0, cid, req, addr)
+    produces pure ok end
+}

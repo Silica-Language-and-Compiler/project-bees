@@ -1,0 +1,12 @@
+// SD-50 (expected: compiles, exit code 1): a sum whose FIRST variant is an atom literal and which has a tagged tuple variant:
+// the derived decoder does not type-check (E2005 in the derived text). (:pong, int64) | :ping, the same variants in the other
+// order, compiles and runs, so tools/bees_wire_gen.py asks for a tagged tuple first.
+use wire_etf;
+fn main() -> int64 {
+    sequence proc[mem(normal), transport]
+        v: :ping | (:pong, int64) <- (:pong, 1);
+        frame: string <- encode((:etf), v);
+        r: (:ok, :ping | (:pong, int64)) | (:rejected, atom) <- decode((:etf), frame);
+        n: int64 <- case r of { (:ok, _w: :ping | (:pong, int64)) -> 1; (:rejected, _y: atom) -> 0 }
+    produces pure n end
+}

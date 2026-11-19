@@ -1,0 +1,72 @@
+// raw session peers (N5): a peer that speaks the wire itself. It owns a carrier to the server, writes its script (raw bytes: the
+// stand-in fingerprint and frames) once connected, counts what comes back, and tells the driver when the connection ends.
+// With cut it closes the connection itself 300 ms after it connected (a client close in the middle of a session).
+fn offer_hello() -> string { f4(bees_trust_mux_frame@enc_hello_offer()) }
+fn offer_token(tok: string) -> string { f4(bees_trust_mux_frame@enc_token_present_offer(tok)) }
+fn call_frame(rid: string, f: atom, arity: int64, args: string) -> string { f4(bees_trust_frame@enc_request(bees_atoms@a_call(), rid, bees_atoms@a_demo(), f, arity, args)) }
+fn cast_frame(rid: string, f: atom, arity: int64, args: string) -> string { f4(bees_trust_frame@enc_request(bees_atoms@a_cast(), rid, bees_atoms@a_demo(), f, arity, args)) }
+fn cat3(a: string, b: string, c: string) -> string { cat(a, cat(b, c)) }
+fn doubled(s: string, k: int64) -> string { case k <= 0 of { true -> s; false -> doubled(cat(s, s), k - 1) } }
+fn sraw_tell(st: { c: dangerous_actor_ref, tx: actor_ref, driver: actor_ref, step: int64, got: int64, done: boolean, cut: boolean, out: string }) -> boolean {
+    sequence proc[concurrency]
+        m: { req: int64, what: atom, value: string } <- { req: st.step, what: bees_atoms@a_closed(), value: bees_trust_frame@int_text(st.got) };
+        ok: boolean <- cast(st.driver, m impl ActorMessage {})
+    produces pure ok end
+}
+fn sraw_cut(me: actor_ref) -> boolean {
+    sequence proc[concurrency]
+        t: timer_ref <- send_after(300, me, (:bees, 1, "", "", 0) impl ActorMessage {})
+    produces pure true end
+}
+// what a message does: a count of bytes received (> 0), -1 the connection ended, -2 this peer closed it, 0 nothing
+fn sraw_event(msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | (:bees, int64, string, string, int64), st: { c: dangerous_actor_ref, tx: actor_ref, driver: actor_ref, step: int64, got: int64, done: boolean, cut: boolean, out: string }, me: actor_ref) -> int64 {
+    case msg of {
+        (:link_up, _i: string) -> {
+            sequence
+                _: boolean <- trust_raw_send(st.tx, st.out);
+                _: boolean <- raw_credit(st.c);
+                _: boolean <- case st.cut of { true -> sraw_cut(me); false -> true }
+            produces pure 0 end
+        };
+        (:rx, seg: string) -> { sequence _: boolean <- raw_credit(st.c) produces pure length_bytes(seg) end };
+        (:tx_credit, _n: int64) -> 0;
+        (:tx_failed, _w: atom) -> 0;
+        // the link is down: the send actor is ended here unless this peer closed the connection (then the close ended it)
+        (:link_down, _w2: atom) -> {
+            sequence
+                _: boolean <- sraw_tell(st);
+                _: boolean <- case st.done of { true -> true; false -> trust_raw_end(st.tx) }
+            produces pure 0 - 1 end
+        };
+        // 1: this peer's own timer (cut); 11: over TLS, an audit line of the link under this peer (it may not print itself)
+        (:bees, k: int64, ev: string, what: string, _n2: int64) -> case k == 11 of {
+            true -> { sequence _: atom <- bees_trust_frame@audit(ev, "-", what, st.step) produces pure 0 end };
+            false -> case st.done or k != 1 of {
+                true -> 0;
+                false -> { sequence _: boolean <- trust_raw_close(st.tx) produces pure 0 - 2 end }
+            }
+        }
+    }
+}
+fn sraw(msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | (:bees, int64, string, string, int64), st: { c: dangerous_actor_ref, tx: actor_ref, driver: actor_ref, step: int64, got: int64, done: boolean, cut: boolean, out: string }) -> (:no_reply, { c: dangerous_actor_ref, tx: actor_ref, driver: actor_ref, step: int64, got: int64, done: boolean, cut: boolean, out: string }) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        n: int64 <- sraw_event(msg, st, me)
+    produces pure (:no_reply, { c: st.c, tx: st.tx, driver: st.driver, step: st.step, got: case n > 0 of { true -> st.got + n; false -> st.got }, done: st.done or n < 0, cut: st.cut, out: st.out }) end
+}
+fn sraw_open(step: int64, out: string, driver: actor_ref, cut: boolean) -> atom {
+    sequence proc[concurrency]
+        // the link is the carrier itself under plaintext_test_only and a TLS link over it otherwise (the node's link part)
+        c: dangerous_actor_ref <- trust_link(carrier_new());
+        t: actor_ref <- trust_raw_writer(c);
+        r: actor_ref <- spawn({ c: c, tx: t, driver: driver, step: step, got: 0, done: false, cut: cut, out: out }, sraw, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        da: string <- trust_dial_address(server());
+        _: boolean <- cast(c, (:open, r, da) impl ActorMessage {})
+    produces pure :ok end
+}
+// the driver of a scenario whose steps follow one another: `start(step, me)` begins a step, every outcome comes back as one
+// message { req, what, value } and is printed as one line, `next(step, me)` begins the following one
+fn step_line(r: { req: int64, what: atom, value: string }) -> atom {
+    say(concat(concat(concat("step ", bees_trust_frame@int_text(r.req)), concat(" ", label(r.req))), concat(": ", outcome(r))))
+}
+fn stats_cast(me: actor_ref, step: int64) -> atom { trpc_cast(server(), bees_atoms@a_demo(), bees_atoms@a_stats(), 0, no_args(), me, step) }

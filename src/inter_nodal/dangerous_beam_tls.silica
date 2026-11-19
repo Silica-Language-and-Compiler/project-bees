@@ -1,0 +1,557 @@
+// BEES BEAM mode over TLS (N2T, development-plan/spikes/N2T-beam-tls.md): the TLS link between the language's (:tcp) carrier and
+// the BEAM-mode connection actors (dangerous_beam_net@conn, tx, lsn, epm), so that a BEES node interoperates with a stock Erlang
+// node started with `erl -proto_dist inet_tls` and BEES-to-BEES BEAM links can be encrypted. A FORK of TRUST's link
+// (src/trust/dangerous_bees_tls.silica, which has the reasons for every rule kept here: two FFI workers per connection because a
+// worker has ONE tainted cast, the listener kept apart, one receive credit at the carrier, no heap value in a state) WITHOUT
+// TRUST's rules: no ALPN, no pin, no fingerprint handed up, no whitelist. Nothing of TRUST is used (D36): the values come from
+// beam_conf (tools/bees_config_beam.py), the engine is native/tls/silica_bees_tls.c with its profile 16 (BEAM distribution).
+//
+// Upward the link speaks the carrier contract message for message, so the N2 actors use it as they use a carrier:
+//   btls   the LINK. role 0, (:open, owner, "host:port:open_ms"): a dialed link; the open text goes to the carrier unchanged
+//          (from conn's starter, the resolver edge or epm), and once the carrier is up the handshake runs as the CLIENT, with the
+//          host part of the peer's node name as SNI and checked against the server's certificate (beam_conf@tls_client_spec_of).
+//          role 2, (:open, owner, _): an accepted connection; the handshake as the SERVER, which requires a client certificate.
+//          (:link_up, _) and (:tx_credit, 8) reach the owner only after the handshake passed; then (:rx, plaintext) on the owner's
+//          (:credit, n), and the owner's (:tx, ...) and :close go to the writer.
+//   btlsw  the WRITER: writes plaintext into the engine, pulls ciphertext and casts it to the carrier, one write in flight.
+//   btlsl  the LISTENER: owns the listening carrier, forwards (:link_up, "port:N") and, for every (:accepted, conn, _), starts a
+//          role-2 link on conn and tells its owner (dangerous_beam_net@lsn) (:accepted, link, "peer:accepted").
+// What a finished handshake must show is judged HERE on the engine's facts: both certificates presented and verified against
+// cacertfile (the engine's context refuses anything else during the handshake), no ALPN (stock Erlang uses none), and the group
+// X25519MLKEM768 or classical X25519 (ruled 2026-11-18, spike section 7 Q2: stock OTP 28 has no hybrid group). A refusal is one
+// audit line and (:link_down, fault) to the owner, and the peer gets no distribution byte. The audit lines are written by the
+// owner (an FFI worker may not print, E2103): (:bees, 12, event, what, :ok), a message of dangerous_beam_net@conn. The handshake
+// is bounded by beam_conf@open_ms (:timeout).
+module dangerous_beam_tls;
+use beam_conf;
+use dangerous_bees_tls_native;
+
+export btls/2;
+export btlsw/2;
+export btlsl/2;
+
+fn starts(s: string, p: string) -> boolean {
+    length_bytes(s) >= length_bytes(p) and substring(s, 0, length_bytes(p)) == p
+}
+
+fn pure_int(r: (:ok, int64) | (:rejected, atom)) -> int64 {
+    case r of {
+        (:ok, v: int64) -> v;
+        (:rejected, _why: atom) -> 0 - 1
+    }
+}
+
+fn none_res() -> { tag: int64, value: int64, error_code: int64 } {
+    { tag: 2, value: 0 - 1, error_code: 0 }
+}
+
+fn m_kind(msg: (:open, actor_ref, string) | (:tx, string, actor_ref) | (:credit, int64) | :close | (:link_up, string) | (:accepted, dangerous_actor_ref, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | :poll | :timeout) -> atom {
+    case msg of {
+        (:open, _o: actor_ref, _a: string) -> :open;
+        (:tx, _s: string, _f: actor_ref) -> :tx;
+        (:credit, _n: int64) -> :credit;
+        :close -> :close;
+        (:link_up, _i: string) -> :link_up;
+        (:accepted, _c: dangerous_actor_ref, _i2: string) -> :accepted;
+        (:rx, _r: string) -> :rx;
+        (:tx_credit, _k: int64) -> :tx_credit;
+        (:tx_failed, _w: atom) -> :tx_failed;
+        (:link_down, _w2: atom) -> :link_down;
+        :poll -> :poll;
+        :timeout -> :timeout
+    }
+}
+
+fn m_text(msg: (:open, actor_ref, string) | (:tx, string, actor_ref) | (:credit, int64) | :close | (:link_up, string) | (:accepted, dangerous_actor_ref, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | :poll | :timeout) -> string {
+    case msg of {
+        (:open, _o: actor_ref, a: string) -> a;
+        (:tx, s: string, _f: actor_ref) -> s;
+        (:credit, _n: int64) -> "";
+        :close -> "";
+        (:link_up, i: string) -> i;
+        (:accepted, _c: dangerous_actor_ref, i2: string) -> i2;
+        (:rx, r: string) -> r;
+        (:tx_credit, _k: int64) -> "";
+        (:tx_failed, _w: atom) -> "";
+        (:link_down, _w2: atom) -> "";
+        :poll -> "";
+        :timeout -> ""
+    }
+}
+
+fn m_count(msg: (:open, actor_ref, string) | (:tx, string, actor_ref) | (:credit, int64) | :close | (:link_up, string) | (:accepted, dangerous_actor_ref, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | :poll | :timeout) -> int64 {
+    case msg of {
+        (:open, _o: actor_ref, _a: string) -> 0;
+        (:tx, _s: string, _f: actor_ref) -> 0;
+        (:credit, n: int64) -> n;
+        :close -> 0;
+        (:link_up, _i: string) -> 0;
+        (:accepted, _c: dangerous_actor_ref, _i2: string) -> 0;
+        (:rx, _r: string) -> 0;
+        (:tx_credit, _k: int64) -> 0;
+        (:tx_failed, _w: atom) -> 0;
+        (:link_down, _w2: atom) -> 0;
+        :poll -> 0;
+        :timeout -> 0
+    }
+}
+
+fn m_txc(msg: (:open, actor_ref, string) | (:tx, string, actor_ref) | (:credit, int64) | :close | (:link_up, string) | (:accepted, dangerous_actor_ref, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | :poll | :timeout) -> int64 {
+    case msg of {
+        (:open, _o: actor_ref, _a: string) -> 0;
+        (:tx, _s: string, _f: actor_ref) -> 0;
+        (:credit, _n: int64) -> 0;
+        :close -> 0;
+        (:link_up, _i: string) -> 0;
+        (:accepted, _c: dangerous_actor_ref, _i2: string) -> 0;
+        (:rx, _r: string) -> 0;
+        (:tx_credit, k: int64) -> k;
+        (:tx_failed, _w: atom) -> 0;
+        (:link_down, _w2: atom) -> 0;
+        :poll -> 0;
+        :timeout -> 0
+    }
+}
+
+fn m_owner(msg: (:open, actor_ref, string) | (:tx, string, actor_ref) | (:credit, int64) | :close | (:link_up, string) | (:accepted, dangerous_actor_ref, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | :poll | :timeout, fallback: actor_ref) -> actor_ref {
+    case msg of {
+        (:open, o: actor_ref, _a: string) -> o;
+        (:tx, _s: string, _f: actor_ref) -> fallback;
+        (:credit, _n: int64) -> fallback;
+        :close -> fallback;
+        (:link_up, _i: string) -> fallback;
+        (:accepted, _c: dangerous_actor_ref, _i2: string) -> fallback;
+        (:rx, _r: string) -> fallback;
+        (:tx_credit, _k: int64) -> fallback;
+        (:tx_failed, _w: atom) -> fallback;
+        (:link_down, _w2: atom) -> fallback;
+        :poll -> fallback;
+        :timeout -> fallback
+    }
+}
+
+fn m_why(msg: (:open, actor_ref, string) | (:tx, string, actor_ref) | (:credit, int64) | :close | (:link_up, string) | (:accepted, dangerous_actor_ref, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | :poll | :timeout) -> atom {
+    case msg of {
+        (:open, _o: actor_ref, _a: string) -> :closed;
+        (:tx, _s: string, _f: actor_ref) -> :closed;
+        (:credit, _n: int64) -> :closed;
+        :close -> :closed;
+        (:link_up, _i: string) -> :closed;
+        (:accepted, _c: dangerous_actor_ref, _i2: string) -> :closed;
+        (:rx, _r: string) -> :closed;
+        (:tx_credit, _k: int64) -> :closed;
+        (:tx_failed, _w: atom) -> :closed;
+        (:link_down, w2: atom) -> w2;
+        :poll -> :closed;
+        :timeout -> :closed
+    }
+}
+
+// the audit event and text of a refusal (codes: the engine's, silica_bees_tls_wrapper.h; 8 and 9 are this link's)
+fn refusal_event(code: int64) -> string {
+    case code of {
+        2 -> "tls_verify_failed";
+        3 -> "tls_verify_failed";
+        4 -> "tls_alpn_unexpected";
+        6 -> "tls_identity_error";
+        8 -> "tls_group_refused";
+        9 -> "tls_engine_refused";
+        _: int64 -> "tls_handshake_failed"
+    }
+}
+fn refusal_text(code: int64) -> string {
+    case code of {
+        1 -> "the TLS 1.3 handshake failed (not TLS, an alert, or a version, group, suite or signature outside the BEAM profile)";
+        2 -> "the peer certificate does not verify against cacertfile (another CA, expired, invalid, or not the dialed host's name)";
+        3 -> "the peer presented no certificate";
+        4 -> "the peer negotiated an ALPN protocol (the Erlang distribution uses none)";
+        6 -> "this node's certfile, keyfile or cacertfile could not be loaded";
+        7 -> "the engine could not allocate the connection";
+        8 -> "the connection negotiated a key exchange outside the BEAM profile (X25519MLKEM768 or X25519)";
+        9 -> "the OpenSSL found at run time is older than 4.1.0, the minimum";
+        _: int64 -> "engine error"
+    }
+}
+// the names of what the engine reports (bees_tls_facts; see dangerous_bees_tls): the group (X25519MLKEM768 is 0x10011EC =
+// 16781804, x25519 is NID 1034) and the suite's IANA id
+fn group_text(g: int64) -> string { case g of { 16781804 -> "X25519MLKEM768"; 1034 -> "X25519"; _: int64 -> "other-group" } }
+fn suite_text(s: int64) -> string { case s of { 4866 -> "TLS_AES_256_GCM_SHA384"; 4867 -> "TLS_CHACHA20_POLY1305_SHA256"; _: int64 -> "other-suite" } }
+fn role_text(r: int64) -> string { case r == 2 of { true -> "server"; false -> "client" } }
+// ruled 2026-11-18 (spike section 7 Q2): the hybrid group, or classical X25519 (what a stock OTP 28 node negotiates) from any verified peer
+fn group_allowed(group: int64) -> boolean { group == 16781804 or group == 1034 }
+// what a finished handshake must show, on the engine's facts (bit 0: no ALPN was selected, the BEAM profile's rule; bit 1: the peer
+// presented a certificate; then the chain's verify result): 0 accepted, or the refusal code
+fn post_handshake_code(facts: int64) -> int64 {
+    case facts % 2 == 0 of {
+        true -> 4;
+        false -> case (facts / 2) % 2 == 0 of {
+            true -> 3;
+            false -> case (facts / 4) % 256 != 0 of {
+                true -> 2;
+                false -> case group_allowed(facts / 67108864) of { true -> 0; false -> 8 }
+            }
+        }
+    }
+}
+fn established_text(role: int64, facts: int64) -> string {
+    concat(concat(concat("TLSv1.3 ", group_text(facts / 67108864)), concat(" ", suite_text((facts / 1024) % 65536))),
+        concat(", both certificates verified, as ", role_text(role)))
+}
+fn tell_audit(owner: actor_ref, event: string, what: string) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(owner, (:bees, 12, concat("tls: ", event), what, :ok) impl ActorMessage {})
+    produces pure ok end
+}
+
+// ======================================================================== btls, the link
+// The state holds no heap value (SD-35): the owner, the carrier, the writer (the carrier stands in until it is spawned; never
+// cast to before), the engine's handle, the role (0 dialed, 2 accepted), the phase (0 fresh, 1 waiting for the carrier,
+// 2 handshake, 3 up, 4 closing), the owner's receive credit, whether the carrier holds a credit of the link's, the dialed peer's
+// index (bees_peers@peer_index; -1 for an accepted connection), and whether the owner was told the link is down.
+fn btls(msg: (:open, actor_ref, string) | (:tx, string, actor_ref) | (:credit, int64) | :close | (:link_up, string) | (:accepted, dangerous_actor_ref, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | :poll | :timeout, st: { owner: actor_ref, car: dangerous_actor_ref, w: dangerous_actor_ref, h: int64, role: int64, phase: int64, credit: int64, car_out: boolean, peer: int64, told: boolean }) -> (:no_reply, { owner: actor_ref, car: dangerous_actor_ref, w: dangerous_actor_ref, h: int64, role: int64, phase: int64, credit: int64, car_out: boolean, peer: int64, told: boolean }) {
+    sequence proc[external_danger, concurrency, transport]
+        me: actor_ref <- self();
+        kind: atom <- m_kind(msg);
+        text: string <- m_text(msg);
+        owner: actor_ref <- m_owner(msg, st.owner);
+        // ---- :open from the owner: the writer is started and the carrier opened (dialed) or adopted (accepted) for this link
+        fresh: boolean <- kind == :open and st.phase == 0;
+        w: dangerous_actor_ref <- case fresh of {
+            true -> {
+                sequence proc[concurrency]
+                    nw: dangerous_actor_ref <- spawn_dangerous({ car: st.car, h: 0 - 1, inflight: false, closing: false, aborting: false, closed: false }, btlsw, stack_policy(0, :keep_last_message), state_policy(:keep_state_area))
+                produces pure nw end
+            };
+            false -> st.w
+        };
+        has_w: boolean <- st.phase != 0 or fresh;
+        _: boolean <- case fresh of {
+            true -> cast(st.car, (:open, me, text) impl ActorMessage {});
+            false -> true
+        };
+        // ---- the carrier is up: the handshake starts (a client's ClientHello is ready for the writer at once)
+        car_up: boolean <- kind == :link_up and st.phase == 1;
+        // the OpenSSL minimum-version rule (contract/what-is-required-to-use.md: 4.1.0, 0x40100000 = 1074790400)
+        res_ver: { tag: int64, value: int64, error_code: int64 } <- case car_up of {
+            true -> dangerous_bees_tls_native@openssl_version();
+            false -> none_res()
+        };
+        ver_raw: int64 <- res_ver.value;
+        ver: int64 <- pure_int(recreate(ver_raw));
+        engine_ok: boolean <- ver >= 1074790400;
+        // the engine's profile 16: BEAM distribution (no ALPN; a CA is required; a client checks the server's name)
+        res_open: { tag: int64, value: int64, error_code: int64 } <- case car_up and engine_ok of {
+            true -> dangerous_bees_tls_native@open_conn_profile(case st.role == 2 of { true -> 2; false -> 1 }, 16, case st.role == 2 of { true -> beam_conf@tls_server_spec(); false -> beam_conf@tls_client_spec_of(st.peer) });
+            false -> none_res()
+        };
+        open_tag_raw: int64 <- res_open.tag;
+        open_h_raw: int64 <- res_open.value;
+        open_code_raw: int64 <- res_open.error_code;
+        open_tag: int64 <- pure_int(recreate(open_tag_raw));
+        open_h: int64 <- pure_int(recreate(open_h_raw));
+        open_code: int64 <- pure_int(recreate(open_code_raw));
+        opened: boolean <- car_up and engine_ok and open_tag == 0;
+        open_failed: boolean <- car_up and opened == false;
+        h: int64 <- case opened of { true -> open_h; false -> st.h };
+        // ---- ciphertext from the carrier
+        got_rx: boolean <- kind == :rx;
+        do_feed: boolean <- got_rx and (st.phase == 2 or st.phase == 3);
+        res_feed: { tag: int64, value: int64, error_code: int64 } <- case do_feed of {
+            true -> dangerous_bees_tls_native@feed(h, text);
+            false -> none_res()
+        };
+        feed_tag_raw: int64 <- res_feed.tag;
+        feed_bits_raw: int64 <- res_feed.value;
+        feed_code_raw: int64 <- res_feed.error_code;
+        feed_tag: int64 <- pure_int(recreate(feed_tag_raw));
+        bits: int64 <- pure_int(recreate(feed_bits_raw));
+        feed_code: int64 <- pure_int(recreate(feed_code_raw));
+        hs_failed: boolean <- do_feed and st.phase == 2 and feed_tag != 0;
+        hs_finished: boolean <- do_feed and st.phase == 2 and feed_tag == 0 and bits % 4 == 1;
+        hs_more: boolean <- do_feed and st.phase == 2 and feed_tag == 0 and bits % 4 == 0;
+        cipher_ready: boolean <- do_feed and feed_tag == 0 and (bits / 4) % 2 == 1;
+        // ---- the handshake finished: this link judges what it shows (the engine only reports it)
+        res_facts: { tag: int64, value: int64, error_code: int64 } <- case hs_finished of {
+            true -> dangerous_bees_tls_native@facts(h);
+            false -> none_res()
+        };
+        facts_raw: int64 <- res_facts.value;
+        facts: int64 <- pure_int(recreate(facts_raw));
+        post_code: int64 <- case hs_finished of { true -> post_handshake_code(facts); false -> 0 };
+        post_refused: boolean <- hs_finished and post_code != 0;
+        hs_done_now: boolean <- hs_finished and post_code == 0;
+        // a client that refuses its server does not send its Finished: the server never completes the handshake
+        _: { tag: int64, value: int64, error_code: int64 } <- case post_refused of {
+            true -> dangerous_bees_tls_native@discard(h);
+            false -> none_res()
+        };
+        // ---- plaintext for the owner: on its credit, on :poll, and after ciphertext arrived (phase 3)
+        credit1: int64 <- st.credit + m_count(msg);
+        do_read: boolean <- st.phase == 3 and credit1 > 0 and (kind == :credit or kind == :poll or do_feed);
+        res_read: { tag: int64, value: int64, error_code: int64 } <- case do_read of {
+            true -> dangerous_bees_tls_native@read_plain(h, 0);
+            false -> none_res()
+        };
+        read_tag_raw: int64 <- res_read.tag;
+        read_tag: int64 <- pure_int(recreate(read_tag_raw));
+        got_plain: boolean <- do_read and read_tag == 0;
+        need_cipher: boolean <- do_read and read_tag == 2;
+        peer_ended: boolean <- do_read and (read_tag == 1 or read_tag == 3);
+        // ---- the one take of this worker and its one tainted cast: plaintext to the owner
+        bytes_in: string <- case got_plain of {
+            true -> dangerous_bees_tls_native@take(h);
+            false -> ""
+        };
+        _: boolean <- case got_plain of {
+            true -> cast(owner, (:rx, bytes_in) impl ActorMessage {});
+            false -> true
+        };
+        // ---- the writer: the handle and a flush when the engine has ciphertext; the owner's plaintext and close; the
+        // carrier's write acknowledgements
+        expired: boolean <- kind == :timeout and st.phase == 2;
+        refused: boolean <- open_failed or hs_failed or post_refused;
+        give_up: boolean <- refused or expired or peer_ended;
+        car_gone: boolean <- kind == :link_down;
+        _: boolean <- case opened or (cipher_ready and give_up == false) of {
+            true -> cast(w, (:credit, h) impl ActorMessage {});
+            false -> true
+        };
+        _: boolean <- case kind == :tx and st.phase == 3 of {
+            true -> cast(w, (:tx, text, me) impl ActorMessage {});
+            false -> true
+        };
+        // the carrier's (:tx_credit, 1) acknowledges one write; its (:tx_credit, 8) at :link_up is a grant, not an acknowledgement
+        _: boolean <- case kind == :tx_credit and m_txc(msg) == 1 and has_w of {
+            true -> cast(w, (:tx_credit, 1) impl ActorMessage {});
+            false -> true
+        };
+        owner_close: boolean <- kind == :close and (st.phase == 1 or st.phase == 2 or st.phase == 3);
+        _: boolean <- case owner_close of {
+            true -> cast(w, :close impl ActorMessage {});
+            false -> true
+        };
+        _: boolean <- case give_up of {
+            true -> cast(w, :reset impl ActorMessage {});
+            false -> true
+        };
+        // ---- audit lines, written by the owner (E2103)
+        code: int64 <- case open_failed of { true -> case engine_ok of { true -> open_code; false -> 9 }; false -> case hs_failed of { true -> feed_code; false -> post_code } };
+        alerted: boolean <- peer_ended and read_tag == 1;
+        _: boolean <- case st.told of {
+            true -> true;
+            false -> case refused of {
+                true -> tell_audit(owner, refusal_event(code), concat(concat(refusal_text(code), ", as "), role_text(st.role)));
+                false -> case expired of {
+                    true -> tell_audit(owner, "timeout", concat("stage tls_handshake, as ", role_text(st.role)));
+                    false -> case hs_done_now of {
+                        true -> tell_audit(owner, "established", established_text(st.role, facts));
+                        false -> case alerted of {
+                            true -> tell_audit(owner, "alert_or_record_error", concat("after the handshake (in TLS 1.3 a server's refusal of this node's certificate arrives here), as ", role_text(st.role)));
+                            false -> case car_gone and st.phase == 2 of {
+                                true -> tell_audit(owner, "closed_by_peer", concat("stage tls_handshake, as ", role_text(st.role)));
+                                false -> true
+                            }
+                        }
+                    }
+                }
+            }
+        };
+        down_why: atom <- case peer_ended and read_tag == 3 of { true -> :closed; false -> :fault };
+        _: boolean <- case give_up and st.told == false of {
+            true -> cast(owner, (:link_down, down_why) impl ActorMessage {});
+            false -> true
+        };
+        // ---- the handshake passed: the owner sees the link come up, as from a carrier
+        _: boolean <- case hs_done_now of {
+            true -> {
+                sequence proc[concurrency]
+                    a: boolean <- cast(owner, (:link_up, case st.role == 2 of { true -> "peer:accepted"; false -> "tls:beam" }) impl ActorMessage {});
+                    b: boolean <- cast(owner, (:tx_credit, 8) impl ActorMessage {})
+                produces pure a and b end
+            };
+            false -> true
+        };
+        // ---- receive credit at the carrier: at most one, and only when ciphertext is needed
+        car_holds: boolean <- st.car_out and got_rx == false;
+        want_cipher: boolean <- opened or hs_more or need_cipher;
+        grant: boolean <- want_cipher and car_holds == false and give_up == false and owner_close == false;
+        _: boolean <- case grant of {
+            true -> cast(st.car, (:credit, 1) impl ActorMessage {});
+            false -> true
+        };
+        // ---- the handshake is bounded (beam.open_timeout_ms); more plaintext may be waiting after a delivery
+        _: boolean <- case opened of {
+            true -> {
+                sequence proc[concurrency]
+                    _: timer_ref <- send_after(to_uint64(beam_conf@open_ms()), me, :timeout impl ActorMessage {})
+                produces pure true end
+            };
+            false -> true
+        };
+        credit2: int64 <- case got_plain of { true -> credit1 - 1; false -> credit1 };
+        _: boolean <- case got_plain and credit2 > 0 of {
+            true -> cast(me, :poll impl ActorMessage {});
+            false -> true
+        };
+        // ---- the carrier said :link_down and has ended with it: the owner is told unless it was, the writer frees the engine's
+        // state and ends, and so does the link
+        _: boolean <- case car_gone and st.told == false and st.phase != 0 of {
+            true -> cast(owner, (:link_down, m_why(msg)) impl ActorMessage {});
+            false -> true
+        };
+        _: boolean <- case car_gone and has_w of {
+            true -> cast(w, (:link_down, m_why(msg)) impl ActorMessage {});
+            false -> true
+        };
+        // F1-1: a :close before the :open (the EPMD lookup of this link failed: dangerous_beam_net@epm_fail_link): the carrier was
+        // never opened and only this link holds it, so it is removed (it ends :normal) and the link ends, with no word to anyone
+        abandon: boolean <- kind == :close and st.phase == 0;
+        _: boolean <- case abandon of { true -> drop_car(st.car); false -> true };
+        _: atom <- case car_gone or abandon of { true -> stop_self(:normal); false -> :ok };
+        phase_next: int64 <- case fresh of {
+            true -> 1;
+            false -> case opened of {
+                true -> 2;
+                false -> case give_up or owner_close or open_failed of {
+                    true -> 4;
+                    false -> case hs_done_now of { true -> 3; false -> st.phase }
+                }
+            }
+        };
+        // every field is bound before the record, so the compiler can prove the state's release (W2300 otherwise, SD-35)
+        credit_next: int64 <- case phase_next == 3 of { true -> credit2; false -> 0 };
+        car_out_next: boolean <- grant or car_holds;
+        told_next: boolean <- st.told or give_up or (car_gone and st.phase != 0);
+        car_next: dangerous_actor_ref <- st.car;
+        role_next: int64 <- st.role;
+        peer_next: int64 <- st.peer
+    produces
+        pure (:no_reply, { owner: owner, car: car_next, w: w, h: h, role: role_next, phase: phase_next,
+            credit: credit_next, car_out: car_out_next, peer: peer_next, told: told_next })
+    end
+}
+
+fn drop_car(c: dangerous_actor_ref) -> boolean {
+    sequence proc[concurrency]
+        r: (int64, affinity_error) <- remove_actor(c)
+    produces pure true end
+}
+
+// ======================================================================== btlsw, the writer
+fn w_kind(msg: (:tx, string, actor_ref) | (:credit, int64) | :close | (:tx_credit, int64) | (:link_down, atom) | :reset) -> atom {
+    case msg of {
+        (:tx, _s: string, _f: actor_ref) -> :tx;
+        (:credit, _h: int64) -> :credit;
+        :close -> :close;
+        (:tx_credit, _n: int64) -> :tx_credit;
+        (:link_down, _w: atom) -> :link_down;
+        :reset -> :reset
+    }
+}
+fn w_text(msg: (:tx, string, actor_ref) | (:credit, int64) | :close | (:tx_credit, int64) | (:link_down, atom) | :reset) -> string {
+    case msg of {
+        (:tx, s: string, _f: actor_ref) -> s;
+        (:credit, _h: int64) -> "";
+        :close -> "";
+        (:tx_credit, _n: int64) -> "";
+        (:link_down, _w: atom) -> "";
+        :reset -> ""
+    }
+}
+fn w_handle(msg: (:tx, string, actor_ref) | (:credit, int64) | :close | (:tx_credit, int64) | (:link_down, atom) | :reset, fallback: int64) -> int64 {
+    case msg of {
+        (:tx, _s: string, _f: actor_ref) -> fallback;
+        (:credit, h: int64) -> h;
+        :close -> fallback;
+        (:tx_credit, _n: int64) -> fallback;
+        (:link_down, _w: atom) -> fallback;
+        :reset -> fallback
+    }
+}
+// Messages, all from its link: (:credit, h) the engine's handle, and a flush; (:tx, plaintext, _) to write; (:tx_credit, _) the
+// carrier wrote the last (:tx, ...); :close, close_notify and then the carrier's :close; :reset, the handshake was given up: what
+// the engine holds (an alert) and then the carrier's :close; (:link_down, _) the carrier has gone: free the engine's state, end.
+// The state: the carrier, the handle, a (:tx, ...) in flight, a close or a reset asked for, the carrier closed.
+fn btlsw(msg: (:tx, string, actor_ref) | (:credit, int64) | :close | (:tx_credit, int64) | (:link_down, atom) | :reset, st: { car: dangerous_actor_ref, h: int64, inflight: boolean, closing: boolean, aborting: boolean, closed: boolean }) -> (:no_reply, { car: dangerous_actor_ref, h: int64, inflight: boolean, closing: boolean, aborting: boolean, closed: boolean }) {
+    sequence proc[external_danger, concurrency, transport]
+        me: actor_ref <- self();
+        kind: atom <- w_kind(msg);
+        h: int64 <- w_handle(msg, st.h);
+        gone: boolean <- kind == :link_down;
+        inflight: boolean <- st.inflight and kind != :tx_credit;
+        closing: boolean <- st.closing or kind == :close;
+        aborting: boolean <- st.aborting or kind == :reset;
+        live: boolean <- h >= 0 and st.closed == false and gone == false;
+        res_write: { tag: int64, value: int64, error_code: int64 } <- case kind == :tx and live and closing == false and aborting == false of {
+            true -> dangerous_bees_tls_native@write_plain(h, w_text(msg));
+            false -> none_res()
+        };
+        can_send: boolean <- inflight == false and st.closed == false and gone == false;
+        notify: boolean <- can_send and closing and aborting == false and h >= 0;
+        res_out: { tag: int64, value: int64, error_code: int64 } <- case notify of {
+            true -> dangerous_bees_tls_native@close_conn(h);
+            false -> case can_send and h >= 0 of {
+                true -> dangerous_bees_tls_native@pull(h);
+                false -> none_res()
+            }
+        };
+        n_raw: int64 <- res_out.value;
+        n: int64 <- pure_int(recreate(n_raw));
+        go_out: boolean <- (notify or (can_send and h >= 0)) and n > 0;
+        cipher: string <- case go_out of {
+            true -> dangerous_bees_tls_native@take(h);
+            false -> ""
+        };
+        // the one tainted cast of this worker: ciphertext to the carrier, one write in flight at a time
+        _: boolean <- case go_out of {
+            true -> cast(st.car, (:tx, cipher, me) impl ActorMessage {});
+            false -> true
+        };
+        // nothing more to send: a close or a reset closes the carrier now
+        close_now: boolean <- (closing or aborting) and can_send and go_out == false;
+        _: boolean <- case close_now of {
+            true -> cast(st.car, :close impl ActorMessage {});
+            false -> true
+        };
+        _: { tag: int64, value: int64, error_code: int64 } <- case gone and st.h >= 0 of {
+            true -> dangerous_bees_tls_native@free_conn(st.h);
+            false -> none_res()
+        };
+        _: atom <- case gone of { true -> stop_self(:normal); false -> :ok }
+    produces
+        pure (:no_reply, { car: st.car, h: case notify or gone of { true -> 0 - 1; false -> h }, inflight: inflight or go_out,
+            closing: closing, aborting: aborting, closed: st.closed or close_now })
+    end
+}
+
+// ======================================================================== btlsl, the listener
+fn l_act(msg: (:open, actor_ref, string) | :close | (:link_up, string) | (:accepted, dangerous_actor_ref, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom), st: { owner: actor_ref, car: dangerous_actor_ref }, me: actor_ref) -> actor_ref {
+    case msg of {
+        (:open, o: actor_ref, a: string) -> {
+            sequence proc[concurrency]
+                _: boolean <- cast(st.car, (:open, me, a) impl ActorMessage {})
+            produces pure o end
+        };
+        :close -> { sequence proc[concurrency] _: boolean <- cast(st.car, :close impl ActorMessage {}) produces pure st.owner end };
+        (:link_up, i: string) -> { sequence proc[concurrency] _: boolean <- cast(st.owner, (:link_up, i) impl ActorMessage {}) produces pure st.owner end };
+        (:accepted, c: dangerous_actor_ref, _i2: string) -> {
+            sequence proc[concurrency]
+                l: dangerous_actor_ref <- spawn_dangerous({ owner: actor_ref_of_word(0), car: c, w: c, h: 0 - 1, role: 2, phase: 0, credit: 0, car_out: false, peer: 0 - 1, told: false }, btls, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+                _: boolean <- cast(st.owner, (:accepted, l, "peer:accepted") impl ActorMessage {})
+            produces pure st.owner end
+        };
+        (:rx, _r: string) -> st.owner;
+        (:tx_credit, _k: int64) -> st.owner;
+        (:tx_failed, _w: atom) -> st.owner;
+        (:link_down, w2: atom) -> { sequence proc[concurrency] _: boolean <- cast(st.owner, (:link_down, w2) impl ActorMessage {}) produces pure st.owner end }
+    }
+}
+// The listening link: (:open, owner, "listen:...") from the node opens its carrier; the carrier's (:link_up, "port:N") and
+// (:link_down, _) go to the owner; every accepted connection gets its own link (role 2). The state is the owner and the carrier.
+fn btlsl(msg: (:open, actor_ref, string) | :close | (:link_up, string) | (:accepted, dangerous_actor_ref, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom), st: { owner: actor_ref, car: dangerous_actor_ref }) -> (:no_reply, { owner: actor_ref, car: dangerous_actor_ref }) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        owner: actor_ref <- l_act(msg, st, me);
+        car: dangerous_actor_ref <- st.car
+    produces pure (:no_reply, { owner: owner, car: car }) end
+}

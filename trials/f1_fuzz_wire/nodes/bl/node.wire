@@ -1,0 +1,5 @@
+# F1 node bl: listens for the fuzz driver, which plays the node stock@localhost; serves inbox; a proxy for the peer's outbox
+node   bl@localhost
+peer   stock@localhost 127.0.0.1 23500 listen
+remote outbox @ stock@localhost cast { op: atom, n: int64 }
+local  inbox cast { op: atom, n: int64 }

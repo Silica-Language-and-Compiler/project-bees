@@ -1,0 +1,364 @@
+// BEES TEMPUS (T6): the bridge's TEMPUS side of an edge's call or cast (development-plan/tempus-design.md sections 7 and
+// 17). A bridge is a node that runs TRUST and TEMPUS (role bridge, token typ tempus_bridge). The node part
+// (src/tempus/bees_tempus_node.part) hands every admitted call or cast to its application actor, which on a bridge is
+// the table actor here (tbr), started by tempus_bridge_start (src/tempus/bees_tempus_bridge.part); tbr passes the node's
+// other messages on to the bridge application.
+//
+// BEES forwards nothing by itself. An admitted request runs nothing until the bridge application answers it: the
+// application is handed the request (op 90) and answers it with rq_result (a value it computed, or one that came back
+// from a TRUST call it made, tempus_bridge_onward), rq_fail, or rq_run (BEES runs the program's MFA table function for it in a
+// per-request worker, bees_trust_work@twork, as a TRUST node does).
+//
+// tbr, one per bridge: the per-peer table (17.5) and the checks of 17.4 step 1, in this order, each refusal closing the
+// connection with no reply and writing one audit line:
+//   the peer's score above the score limit (refused, no change)       the whole TEMPUS side's in-flight bound (no change)
+//   the peer's in-flight bound (+1)        the peer's rate bound in its interval (+1)       the frame (TRUST's request
+//   frame: bees_trust_frame@parse_req, +1)  the forbidden guard (bees_trust_guard, +1)        the per-type permission
+//   spec, none by default, or the peer's tempus whitelist entry's spec (generated unit bees_tempus_spec, +1)
+//   the function in the program (bees_trust_mfa@slot_of, +1)            its arguments' types (check_args, +1)
+// The score follows TRUST's rule (dangerous_bees_trust: +1 on a refusal, a failure or a timeout, -1 on success, floor 0;
+// refused above the limit). An entry lives until its token expires (pruned at each request, by the node's clock); when
+// the table is full the entry whose token expires first is dropped, audited.
+// Its message type is the node's (:bees, op, s1, s2, n, m, who):
+//   from the node: 80, 81 (passed on to the application); 82 a request (s1: the frame body, s2: the peer's descriptor,
+//     n: the accepted connection's number, m: the node's clock in seconds * 65536 + 4 * (whitelist index + 1) + type,
+//     who: the connection actor, which waits for exactly one answer)
+//   from a request actor: 93 its outcome (s1: the peer id, s2: the reply body, "" to close with no reply; n: 0 success,
+//     1 the function failed, 2 timeout; m: the connection's number; who: the connection actor)
+//
+// trq, one per admitted request. Its message type is the worker's (:bees, op, s1, s2, n):
+//   1 result (s1: the value's ETF span)    2 fail (s1: why)    3 run (BEES runs the MFA function)    4 the call timeout
+//   9 the worker's answer (s1: the value span or the reason, s2: req_id, n: 0 ok)
+// It tells tbr once (93), and ends when the application's answer (and, after run, the worker's) has come: nothing is
+// then on its way to it (a cast to an ended actor stops its sender on the pinned compiler, SD-43). A cast is closed
+// with no reply when its outcome is known, so that the bridge's lines about it come before the close.
+// The application is told (:bees, 90, args span, "m:f/arity", slot, 1 call or 2 cast, the request actor) and answers
+// every request exactly once.
+module bees_tempus_bridge;
+use bees_atoms;
+use bees_trust_frame;
+use bees_trust_guard;
+use bees_trust_mfa;
+use bees_trust_work;
+use bees_tempus_frame;
+use bees_tempus_spec;
+
+export tbr/2;
+export trq/2;
+export tonw/2;
+export lim_why/1;
+export pe_none/0;
+export rq_result/2;
+export rq_fail/2;
+export rq_run/1;
+
+fn say(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+fn num(n: int64) -> string { bees_trust_frame@int_text(n) }
+fn hex16(id: string) -> string { bees_trust_frame@cut(bees_trust_frame@hex(id), 0, 16) }
+fn audit(id: string, event: string, what: string, cid: int64) -> atom {
+    h: string <- hex16(id);
+    say(concat(concat(concat("[tempus audit] ", event), concat(" peer=", h)), concat(concat(" ", what), concat(" a", num(cid)))))
+}
+fn mfa_text(m: atom, f: atom, a: int64) -> string {
+    concat(concat(bees_atoms@spelling(m), ":"), concat(bees_atoms@spelling(f), concat("/", num(a))))
+}
+
+// ---- the limits the bridge application passes (17.5, ruling OQ-25): no defaults; each at or below a literal ceiling
+// slim the score limit; size the table's entries (ceiling 4096); rate requests per peer per interval (ceiling 1000000);
+// ivl the interval in ms (1 to 3600000); pin in flight per peer (ceiling 64); tin in flight in total (ceiling 64);
+// cms the call timeout in ms (1 to 3600000)
+fn lim_why(l: { slim: int64, size: int64, rate: int64, ivl: int64, pin: int64, tin: int64, cms: int64 }) -> string {
+    case l.slim < 0 of { true -> "score_limit is below 0"; false ->
+    case l.size < 1 or l.size > 4096 of { true -> "table_size is not 1 to 4096"; false ->
+    case l.rate < 1 or l.rate > 1000000 of { true -> "rate is not 1 to 1000000"; false ->
+    case l.ivl < 1 or l.ivl > 3600000 of { true -> "rate_interval_ms is not 1 to 3600000"; false ->
+    case l.pin < 1 or l.pin > 64 of { true -> "inflight_per_peer is not 1 to 64"; false ->
+    case l.tin < 1 or l.tin > 64 of { true -> "inflight_total is not 1 to 64"; false ->
+    case l.cms < 1 or l.cms > 3600000 of { true -> "call_timeout_ms is not 1 to 3600000"; false -> "" } } } } } } }
+}
+
+// ---- the table
+fn pe_none() -> List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)] <- empty[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)]()
+    produces pure e end
+}
+fn pe_cons(p: { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, q: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)]) -> List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)] {
+    sequence proc[mem(normal)]
+        r: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)] <- prepend[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)](p, q)
+    produces pure r end
+}
+fn pe_blank() -> { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 } { { id: "", exp: 0, sc: 0, w0: 0, wn: 0, inf: 0 } }
+fn pe_len(q: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)]) -> int64 {
+    case q of {
+        []: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)] -> 0;
+        [_h: { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, t: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)]] -> 1 + pe_len(t)
+    }
+}
+fn pe_find(q: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], id: string) -> { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 } {
+    case q of {
+        []: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)] -> pe_blank();
+        [h: { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, t: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)]] -> case h.id == id of { true -> h; false -> pe_find(t, id) }
+    }
+}
+// the table with the entry of p.id replaced by p, or p added at the end when there is none
+fn pe_put(q: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], p: { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }) -> List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)] {
+    case q of {
+        []: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)] -> { e: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)] <- pe_none(); pe_cons(p, e) };
+        [h: { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, t: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)]] -> case h.id == p.id of {
+            true -> pe_cons(p, t);
+            false -> { r: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)] <- pe_put(t, p); pe_cons(h, r) }
+        }
+    }
+}
+fn pe_drop(q: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], id: string) -> List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)] {
+    case q of {
+        []: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)] -> q;
+        [h: { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, t: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)]] -> case h.id == id of {
+            true -> t;
+            false -> { r: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)] <- pe_drop(t, id); pe_cons(h, r) }
+        }
+    }
+}
+// the entry whose token expires first (the first of equals)
+fn pe_soonest(q: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], best: { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }) -> { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 } {
+    case q of {
+        []: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)] -> best;
+        [h: { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, t: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)]] -> pe_soonest(t, case length_bytes(best.id) == 0 or h.exp < best.exp of { true -> h; false -> best })
+    }
+}
+// the entries whose token has expired (now >= exp) leave, one audit line each
+fn pe_prune(q: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], now: int64, cid: int64) -> List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)] {
+    case q of {
+        []: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)] -> q;
+        [h: { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, t: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)]] -> {
+            r: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)] <- pe_prune(t, now, cid);
+            case now >= h.exp and h.inf == 0 of {
+                true -> { sequence _: atom <- audit(h.id, "bridge_forgot", "its token has expired", cid) produces pure r end };
+                false -> pe_cons(h, r)
+            }
+        }
+    }
+}
+
+// ---- tbr
+fn bs_tab(s: { app: actor_ref, lim: { slim: int64, size: int64, rate: int64, ivl: int64, pin: int64, tin: int64, cms: int64 }, tab: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], tot: int64 }, tab: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], tot: int64) -> { app: actor_ref, lim: { slim: int64, size: int64, rate: int64, ivl: int64, pin: int64, tin: int64, cms: int64 }, tab: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], tot: int64 } {
+    { app: s.app, lim: s.lim, tab: tab, tot: tot }
+}
+fn answer(who: actor_ref, body: string) -> boolean {
+    sequence proc[concurrency]
+        k: int64 <- case length_bytes(body) > 0 of { true -> 20; false -> 21 };
+        ok: boolean <- cast(who, (:bees, k, body, "", 0) impl ActorMessage {})
+    produces pure ok end
+}
+fn pe_score(p: { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, sc: int64) -> { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 } {
+    { id: p.id, exp: p.exp, sc: sc, w0: p.w0, wn: p.wn, inf: p.inf }
+}
+// a refusal: one audit line, the score raised by up (0 or 1), the connection closed with no reply
+fn refuse(s: { app: actor_ref, lim: { slim: int64, size: int64, rate: int64, ivl: int64, pin: int64, tin: int64, cms: int64 }, tab: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], tot: int64 }, p: { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, event: string, what: string, up: int64, cid: int64, who: actor_ref) -> { app: actor_ref, lim: { slim: int64, size: int64, rate: int64, ivl: int64, pin: int64, tin: int64, cms: int64 }, tab: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], tot: int64 } {
+    p2: { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 } <- pe_score(p, p.sc + up);
+    sequence
+        _: atom <- audit(p.id, event, what, cid);
+        _: atom <- case up > 0 of { true -> audit(p.id, "bridge_score", concat(concat("raised to ", num(p2.sc)), concat(" by ", event)), cid); false -> :ok };
+        _: boolean <- answer(who, "")
+    produces pure bs_tab(s, pe_put(s.tab, p2), s.tot) end
+}
+fn now_ms() -> int64 {
+    sequence proc[concurrency]
+        m: int64 <- monotonic_time()
+    produces pure m / 1000000 end
+}
+// the request's entry: found, or new (the table full: the entry whose token expires first is dropped)
+fn entry_of(s: { app: actor_ref, lim: { slim: int64, size: int64, rate: int64, ivl: int64, pin: int64, tin: int64, cms: int64 }, tab: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], tot: int64 }, id: string, exp: int64, ms: int64, cid: int64) -> { app: actor_ref, lim: { slim: int64, size: int64, rate: int64, ivl: int64, pin: int64, tin: int64, cms: int64 }, tab: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], tot: int64 } {
+    p: { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 } <- pe_find(s.tab, id);
+    case length_bytes(p.id) > 0 of {
+        true -> bs_tab(s, pe_put(s.tab, { id: p.id, exp: case exp > p.exp of { true -> exp; false -> p.exp }, sc: p.sc, w0: p.w0, wn: p.wn, inf: p.inf }), s.tot);
+        false -> {
+            n: { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 } <- { id: id, exp: exp, sc: 0, w0: ms, wn: 0, inf: 0 };
+            case pe_len(s.tab) >= s.lim.size of {
+                false -> bs_tab(s, pe_put(s.tab, n), s.tot);
+                true -> {
+                    o: { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 } <- pe_soonest(s.tab, pe_blank());
+                    sequence
+                        _: atom <- audit(o.id, "bridge_table_full", "dropped: its token expires first", cid)
+                    produces pure bs_tab(s, pe_put(pe_drop(s.tab, o.id), n), s.tot) end
+                }
+            }
+        }
+    }
+}
+fn request(s: { app: actor_ref, lim: { slim: int64, size: int64, rate: int64, ivl: int64, pin: int64, tin: int64, cms: int64 }, tab: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], tot: int64 }, body: string, pd: string, cid: int64, m: int64, who: actor_ref) -> { app: actor_ref, lim: { slim: int64, size: int64, rate: int64, ivl: int64, pin: int64, tin: int64, cms: int64 }, tab: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], tot: int64 } {
+    dd: { ok: boolean, d: { addr: string, id: string, pub: string, token: string } } <- bees_tempus_frame@desc_of(pd);
+    d: { addr: string, id: string, pub: string, token: string } <- dd.d;
+    t: { ok: boolean, why: string, kid: string, sub: string, typ: int64, nbf: int64, exp: int64, payload: string, sig: string } <- bees_tempus_frame@tok(d.token);
+    now: int64 <- m / 65536;
+    ms: int64 <- now_ms();
+    s1: { app: actor_ref, lim: { slim: int64, size: int64, rate: int64, ivl: int64, pin: int64, tin: int64, cms: int64 }, tab: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], tot: int64 } <- bs_tab(s, pe_prune(s.tab, now, cid), s.tot);
+    s2: { app: actor_ref, lim: { slim: int64, size: int64, rate: int64, ivl: int64, pin: int64, tin: int64, cms: int64 }, tab: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], tot: int64 } <- entry_of(s1, d.id, t.exp, ms, cid);
+    p: { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 } <- pe_find(s2.tab, d.id);
+    case p.sc > s2.lim.slim of {
+        true -> refuse(s2, p, "bridge_refused", concat(concat("score ", num(p.sc)), concat(" is above the limit ", num(s2.lim.slim))), 0, cid, who);
+        false -> case s2.tot >= s2.lim.tin of {
+            true -> refuse(s2, p, "bridge_busy", "the bridge's requests in flight are at their bound", 0, cid, who);
+            false -> case p.inf >= s2.lim.pin of {
+                true -> refuse(s2, p, "bridge_inflight", "the peer's requests in flight are at their bound", 1, cid, who);
+                false -> rated(s2, p, body, cid, m % 65536, who, ms)
+            }
+        }
+    }
+}
+fn rated(s: { app: actor_ref, lim: { slim: int64, size: int64, rate: int64, ivl: int64, pin: int64, tin: int64, cms: int64 }, tab: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], tot: int64 }, p0: { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, body: string, cid: int64, wm: int64, who: actor_ref, ms: int64) -> { app: actor_ref, lim: { slim: int64, size: int64, rate: int64, ivl: int64, pin: int64, tin: int64, cms: int64 }, tab: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], tot: int64 } {
+    fresh: boolean <- ms - p0.w0 >= s.lim.ivl;
+    p: { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 } <- { id: p0.id, exp: p0.exp, sc: p0.sc, w0: case fresh of { true -> ms; false -> p0.w0 }, wn: case fresh of { true -> 0; false -> p0.wn }, inf: p0.inf };
+    case p.wn >= s.lim.rate of {
+        true -> refuse(s, p, "bridge_rate", concat(concat("more than ", num(s.lim.rate)), concat(" requests in ", concat(num(s.lim.ivl), " ms"))), 1, cid, who);
+        false -> {
+            p1: { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 } <- { id: p.id, exp: p.exp, sc: p.sc, w0: p.w0, wn: p.wn + 1, inf: p.inf };
+            r: { code: int64, what: string, kind: int64, req_id: string, m: atom, f: atom, a: int64, args: string } <- bees_trust_frame@parse_req(body, 32, 131072);
+            checked(s, p1, r, cid, wm, who)
+        }
+    }
+}
+fn checked(s: { app: actor_ref, lim: { slim: int64, size: int64, rate: int64, ivl: int64, pin: int64, tin: int64, cms: int64 }, tab: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], tot: int64 }, p: { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, r: { code: int64, what: string, kind: int64, req_id: string, m: atom, f: atom, a: int64, args: string }, cid: int64, wm: int64, who: actor_ref) -> { app: actor_ref, lim: { slim: int64, size: int64, rate: int64, ivl: int64, pin: int64, tin: int64, cms: int64 }, tab: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], tot: int64 } {
+    case r.code != 0 of {
+        true -> refuse(s, p, "protocol_error", r.what, 1, cid, who);
+        false -> case bees_trust_guard@forbidden(r.m, r.f) of {
+            true -> refuse(s, p, "forbidden_mfa", mfa_text(r.m, r.f, r.a), 1, cid, who);
+            false -> case bees_tempus_spec@permitted(wm, r.m, r.f, r.a) of {
+                false -> refuse(s, p, "permission_denied", mfa_text(r.m, r.f, r.a), 1, cid, who);
+                true -> slotted(s, p, r, cid, who, bees_trust_mfa@slot_of(r.m, r.f, r.a))
+            }
+        }
+    }
+}
+fn slotted(s: { app: actor_ref, lim: { slim: int64, size: int64, rate: int64, ivl: int64, pin: int64, tin: int64, cms: int64 }, tab: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], tot: int64 }, p: { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, r: { code: int64, what: string, kind: int64, req_id: string, m: atom, f: atom, a: int64, args: string }, cid: int64, who: actor_ref, slot: int64) -> { app: actor_ref, lim: { slim: int64, size: int64, rate: int64, ivl: int64, pin: int64, tin: int64, cms: int64 }, tab: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], tot: int64 } {
+    case slot < 0 of {
+        true -> refuse(s, p, "permission_denied", concat(mfa_text(r.m, r.f, r.a), " is not in the program"), 1, cid, who);
+        false -> {
+            why: atom <- bees_trust_mfa@check_args(slot, r.args);
+            case why == :ok of {
+                false -> refuse(s, p, "protocol_error", concat(concat(mfa_text(r.m, r.f, r.a), ": args refused "), bees_atoms@spelling(why)), 1, cid, who);
+                true -> admit(s, p, r, cid, who, slot)
+            }
+        }
+    }
+}
+fn admit(s: { app: actor_ref, lim: { slim: int64, size: int64, rate: int64, ivl: int64, pin: int64, tin: int64, cms: int64 }, tab: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], tot: int64 }, p: { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, r: { code: int64, what: string, kind: int64, req_id: string, m: atom, f: atom, a: int64, args: string }, cid: int64, who: actor_ref, slot: int64) -> { app: actor_ref, lim: { slim: int64, size: int64, rate: int64, ivl: int64, pin: int64, tin: int64, cms: int64 }, tab: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], tot: int64 } {
+    me: actor_ref <- self_ref();
+    mt: string <- mfa_text(r.m, r.f, r.a);
+    p1: { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 } <- { id: p.id, exp: p.exp, sc: p.sc, w0: p.w0, wn: p.wn, inf: p.inf + 1 };
+    sequence proc[concurrency]
+        _: atom <- audit(p.id, "bridge_admitted", concat(case r.kind == 1 of { true -> "call "; false -> "cast " }, mt), cid);
+        q: actor_ref <- spawn({ b: me, app: s.app, who: who, id: p.id, rid: r.req_id, kind: r.kind, slot: slot, args: r.args, cid: cid, told: false, ran: false }, trq, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        t: timer_ref <- send_after(to_uint64(s.lim.cms), q, (:bees, 4, "", "", 0) impl ActorMessage {});
+        _: boolean <- cast(s.app, (:bees, 90, r.args, mt, slot, r.kind, q) impl ActorMessage {})
+    produces pure bs_tab(s, pe_put(s.tab, p1), s.tot + 1) end
+}
+fn self_ref() -> actor_ref {
+    sequence proc[concurrency]
+        me: actor_ref <- self()
+    produces pure me end
+}
+// a request's outcome (93): the counts, the score, the answer to the connection
+fn outcome(s: { app: actor_ref, lim: { slim: int64, size: int64, rate: int64, ivl: int64, pin: int64, tin: int64, cms: int64 }, tab: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], tot: int64 }, id: string, body: string, how: int64, cid: int64, who: actor_ref) -> { app: actor_ref, lim: { slim: int64, size: int64, rate: int64, ivl: int64, pin: int64, tin: int64, cms: int64 }, tab: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], tot: int64 } {
+    p: { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 } <- pe_find(s.tab, id);
+    sc: int64 <- case how == 0 of { true -> case p.sc > 0 of { true -> p.sc - 1; false -> 0 }; false -> p.sc + 1 };
+    ev: string <- case how of { 0 -> "bridge_done"; 1 -> "user_code_error"; _: int64 -> "timeout" };
+    what: string <- case how of { 0 -> case length_bytes(body) > 0 of { true -> "answered"; false -> "the cast ran" }; 1 -> "the function failed"; _: int64 -> "the call took longer than call_timeout_ms" };
+    p1: { id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 } <- { id: p.id, exp: p.exp, sc: sc, w0: p.w0, wn: p.wn, inf: case p.inf > 0 of { true -> p.inf - 1; false -> 0 } };
+    sequence
+        _: atom <- audit(id, ev, what, cid);
+        _: atom <- case sc != p.sc of { true -> audit(id, "bridge_score", concat(case how == 0 of { true -> "lowered to "; false -> "raised to " }, num(sc)), cid); false -> :ok };
+        _: boolean <- answer(who, body)
+    produces pure bs_tab(s, case length_bytes(p.id) > 0 of { true -> pe_put(s.tab, p1); false -> s.tab }, case s.tot > 0 of { true -> s.tot - 1; false -> 0 }) end
+}
+fn pass_on(app: actor_ref, op: int64, s1: string, s2: string, who: actor_ref) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(app, (:bees, op, s1, s2, 0, 0, who) impl ActorMessage {})
+    produces pure ok end
+}
+fn tbr(msg: (:bees, int64, string, string, int64, int64, actor_ref), s: { app: actor_ref, lim: { slim: int64, size: int64, rate: int64, ivl: int64, pin: int64, tin: int64, cms: int64 }, tab: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], tot: int64 }) -> (:no_reply, { app: actor_ref, lim: { slim: int64, size: int64, rate: int64, ivl: int64, pin: int64, tin: int64, cms: int64 }, tab: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], tot: int64 }) {
+    case msg of {
+        (:bees, op: int64, s1: string, s2: string, n: int64, m: int64, who: actor_ref) -> {
+            s3: { app: actor_ref, lim: { slim: int64, size: int64, rate: int64, ivl: int64, pin: int64, tin: int64, cms: int64 }, tab: List[{ id: string, exp: int64, sc: int64, w0: int64, wn: int64, inf: int64 }, mem(normal)], tot: int64 } <- case op of {
+                82 -> request(s, s1, s2, n, m, who);
+                93 -> outcome(s, s1, s2, n, m, who);
+                _: int64 -> { sequence _: boolean <- pass_on(s.app, op, s1, s2, who) produces pure s end }
+            };
+            (:no_reply, s3)
+        }
+    }
+}
+
+// ---- trq
+fn rs_with(r: { b: actor_ref, app: actor_ref, who: actor_ref, id: string, rid: string, kind: int64, slot: int64, args: string, cid: int64, told: boolean, ran: boolean }, told: boolean, ran: boolean) -> { b: actor_ref, app: actor_ref, who: actor_ref, id: string, rid: string, kind: int64, slot: int64, args: string, cid: int64, told: boolean, ran: boolean } {
+    { b: r.b, app: r.app, who: r.who, id: r.id, rid: r.rid, kind: r.kind, slot: r.slot, args: r.args, cid: r.cid, told: told, ran: ran }
+}
+// tbr is told once: how 0 with the value span, 1 failed, 2 timeout
+fn tell(r: { b: actor_ref, app: actor_ref, who: actor_ref, id: string, rid: string, kind: int64, slot: int64, args: string, cid: int64, told: boolean, ran: boolean }, how: int64, value: string) -> boolean {
+    body: string <- case how == 0 and r.kind == 1 of { true -> bees_trust_frame@enc_result(r.rid, value); false -> "" };
+    case r.told of {
+        true -> true;
+        false -> {
+            sequence proc[concurrency]
+                ok: boolean <- cast(r.b, (:bees, 93, r.id, body, how, r.cid, r.who) impl ActorMessage {})
+            produces pure ok end
+        }
+    }
+}
+fn rq_msg(msg: (:bees, int64, string, string, int64)) -> { op: int64, s1: string, n: int64 } {
+    case msg of { (:bees, k: int64, a: string, _b: string, c: int64) -> { op: k, s1: a, n: c } }
+}
+fn trq(msg: (:bees, int64, string, string, int64), r: { b: actor_ref, app: actor_ref, who: actor_ref, id: string, rid: string, kind: int64, slot: int64, args: string, cid: int64, told: boolean, ran: boolean }) -> (:no_reply, { b: actor_ref, app: actor_ref, who: actor_ref, id: string, rid: string, kind: int64, slot: int64, args: string, cid: int64, told: boolean, ran: boolean }) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        q: { op: int64, s1: string, n: int64 } <- rq_msg(msg);
+        op: int64 <- q.op;
+        s1: string <- q.s1;
+        n: int64 <- q.n;
+        r2: { b: actor_ref, app: actor_ref, who: actor_ref, id: string, rid: string, kind: int64, slot: int64, args: string, cid: int64, told: boolean, ran: boolean } <- case op of {
+            1 -> { sequence proc[concurrency] _: boolean <- tell(r, 0, s1); _: atom <- stop_self(:normal) produces pure rs_with(r, true, r.ran) end };
+            2 -> { sequence proc[concurrency] _: boolean <- tell(r, 1, s1); _: atom <- stop_self(:normal) produces pure rs_with(r, true, r.ran) end };
+            3 -> {
+                sequence proc[concurrency]
+                    w: actor_ref <- spawn(0, bees_trust_work@twork, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+                    _: boolean <- cast(w, (r.slot, r.args, r.rid, me) impl ActorMessage {})
+                produces pure rs_with(r, r.told, true) end
+            };
+            4 -> { sequence _: boolean <- tell(r, 2, "") produces pure rs_with(r, true, r.ran) end };
+            9 -> { sequence proc[concurrency] _: boolean <- tell(r, case n == 0 of { true -> 0; false -> 1 }, s1); _: atom <- stop_self(:normal) produces pure rs_with(r, true, r.ran) end };
+            _: int64 -> r
+        }
+    produces pure (:no_reply, r2) end
+}
+
+// ---- what the bridge application calls to answer a request (the request actor is the last field of op 90)
+fn rq_result(rq: actor_ref, value: string) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(rq, (:bees, 1, value, "", 0) impl ActorMessage {})
+    produces pure ok end
+}
+fn rq_fail(rq: actor_ref, why: string) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(rq, (:bees, 2, why, "", 0) impl ActorMessage {})
+    produces pure ok end
+}
+fn rq_run(rq: actor_ref) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(rq, (:bees, 3, "", "", 0) impl ActorMessage {})
+    produces pure ok end
+}
+
+// ---- tonw: one TRUST call the application makes for a request (tempus_bridge_onward in the part): it is the call's
+// reply_to; the reply ({ req, what, value } of trpc) becomes the request's result (what ok) or its failure (any other)
+fn tonw(msg: { req: int64, what: atom, value: string }, rq: actor_ref) -> (:no_reply, actor_ref) {
+    sequence proc[concurrency]
+        why: string <- bees_atoms@spelling(msg.what);
+        _: boolean <- case msg.what == :ok of { true -> rq_result(rq, msg.value); false -> rq_fail(rq, why) };
+        _: atom <- stop_self(:normal)
+    produces pure (:no_reply, rq) end
+}

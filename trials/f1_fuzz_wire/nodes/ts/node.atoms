@@ -1,0 +1,13 @@
+# the node's own atoms: the demo service's MFA names and its failure reason
+demo
+add
+echo
+crash
+note
+secret
+badarith
+# names of forbidden MFAs the fuzzer sends: held, so that the forbidden guard, not the atom policy, is what refuses them
+apply
+erlang
+bees_trust_admin
+reset

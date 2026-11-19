@@ -1,0 +1,5 @@
+// T3 node trial: node B, an edge (identity 1); it joins through the sentinel.
+fn me() -> int64 { 1 }
+fn typ() -> int64 { 1 }
+fn port() -> string { "23802" }
+fn sents() -> string { "127.0.0.1:23800" }

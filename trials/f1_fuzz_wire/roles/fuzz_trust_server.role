@@ -1,0 +1,34 @@
+// ---- F1 (fuzzer) TRUST server under test (nodes ts and tt): the boot check first (R2), then the server. Its failure reporter
+// hides only normal ends and the request worker that failed because the user code returned an error (audited as user_code_error
+// by the connection); every other actor failure report is printed whole behind one marker line, which the fuzz driver
+// (tools/bees_fuzz.py) treats as a finding.
+fn region_dump_limit() -> int64 { 0 }
+fn normal_end(report: string) -> boolean { contains(report, "reason:          :normal") }
+fn expected_end(report: string) -> boolean { contains(report, "twork") }
+fn reporter(report: string, st: int64) -> (:no_reply, int64) {
+    sequence proc[device_io]
+        _: atom <- case normal_end(report) or expected_end(report) of {
+            true -> :ok;
+            false -> println(concat("[fuzz actor failure report]", report))
+        }
+    produces pure (:no_reply, st) end
+}
+fn start_reporter() -> atom {
+    sequence proc[concurrency]
+        r: actor_ref <- spawn(0, reporter, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        ok: atom <- register_failure_reporter(r)
+    produces pure ok end
+}
+fn serve() -> atom {
+    sequence
+        _: atom <- start_reporter();
+        _: atom <- trust_start()
+    produces pure :ok end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        b: int64 <- trust_boot();
+        _: atom <- case b == 0 of { true -> serve(); false -> :ok };
+        rc: int64 <- case b == 0 of { true -> wait_for_exit(); false -> 1 }
+    produces pure rc end
+}

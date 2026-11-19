@@ -1,0 +1,12 @@
+# C1 codec trial, buf (development-plan/spikes/C1-codec-term-coverage.md 2.2, 2.5, 2.6): an in-memory node manifest (no link is
+# opened; the peer port is only data). buf(L, normal, uint8, N) is { b: buf(L, normal, uint8, N), n: int64 } on the Silica
+# side, n the bytes in use, which cross as BINARY_EXT; a message that holds one is { r: region(L, normal), v: T }, the region
+# the buffer is in. bees.config sets beam.frame_size_max to 1024.
+node   b@127.0.0.1
+peer   a@127.0.0.1 127.0.0.1 24200 dial
+# a buffer alone, and a record with a buffer and other fields; local, so that bees_peers has their deliverers
+local  blob  cast buf(L, normal, uint8, 8)
+local  pkt   cast { id: int64, data: buf(L, normal, uint8, 16), note: string }
+# two buffers of different sizes in a tuple, and a buffer in a tagged tuple
+remote pair  @ a@127.0.0.1 cast (buf(L, normal, uint8, 4), string, buf(L, normal, uint8, 8))
+remote tb    @ a@127.0.0.1 cast (:blob, int64, buf(L, normal, uint8, 8))

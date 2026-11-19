@@ -1,0 +1,95 @@
+the client listens, port:24204
+step 1: sample of B1's bridge store (row 30: the application gets a bridge)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d1
+[tempus audit] admitted peer=e4188f0a2cee5a46 tempus_bridge, tempus whitelist entry 0 d1
+step 1 outcome: reply sample_reply tempus_bridge entries: 9200d299@0/3000
+  pick_bridge with draw 7: 127.0.0.1:24202
+step 2: call demo:add(2, 3) at the bridge pick_bridge chose (rows 24, 30)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d2
+[tempus audit] admitted peer=9200d2990c3e9eb7 tempus_bridge, tempus whitelist entry 1 d2
+step 2 outcome: reply result s2 value 5
+step 3: call demo:add(2, 3) at B1 (row 32)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d3
+[tempus audit] admitted peer=e4188f0a2cee5a46 tempus_bridge, tempus whitelist entry 0 d3
+step 3 outcome: reply result s3 value 5
+step 4: call demo:add(2, 3) at B2 (row 32)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d4
+[tempus audit] admitted peer=9200d2990c3e9eb7 tempus_bridge, tempus whitelist entry 1 d4
+step 4 outcome: reply result s4 value 5
+step 5: call demo:onward(20, 22) at B1: B1's application calls demo:add on node T (rows 25, 31)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d5
+[tempus audit] admitted peer=e4188f0a2cee5a46 tempus_bridge, tempus whitelist entry 0 d5
+step 5 outcome: reply result s5 value 42
+step 6: call demo:onward(20, 22) at B2 (row 32)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d6
+[tempus audit] admitted peer=9200d2990c3e9eb7 tempus_bridge, tempus whitelist entry 1 d6
+step 6 outcome: reply result s6 value 42
+step 7: cast demo:note(7) at B1 (row 24: a cast is closed with no reply)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d7
+[tempus audit] admitted peer=e4188f0a2cee5a46 tempus_bridge, tempus whitelist entry 0 d7
+[tempus audit] closed_by_peer peer=(any) stage (any) d7
+step 7 outcome: failed: closed_by_peer
+step 8: call demo:crash(1) at B1 (row 24: the function fails; no error body)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d8
+[tempus audit] admitted peer=e4188f0a2cee5a46 tempus_bridge, tempus whitelist entry 0 d8
+[tempus audit] closed_by_peer peer=(any) stage (any) d8
+step 8 outcome: failed: closed_by_peer
+step 9: call demo:add(2, 3) at B1
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d9
+[tempus audit] admitted peer=e4188f0a2cee5a46 tempus_bridge, tempus whitelist entry 0 d9
+step 9 outcome: reply result s9 value 5
+step 10: call demo:slow(1) at B1 (row 24: the call timeout)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d10
+[tempus audit] admitted peer=e4188f0a2cee5a46 tempus_bridge, tempus whitelist entry 0 d10
+[tempus audit] closed_by_peer peer=(any) stage (any) d10
+step 10 outcome: failed: closed_by_peer
+step 11: call demo:add(2, 3) at B1
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d11
+[tempus audit] admitted peer=e4188f0a2cee5a46 tempus_bridge, tempus whitelist entry 0 d11
+step 11 outcome: reply result s11 value 5
+step 12: call demo:hold(1) at B1, held open (row 35)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d812
+[tempus audit] admitted peer=e4188f0a2cee5a46 tempus_bridge, tempus whitelist entry 0 d812
+step 13: call demo:hold(2) at B1, held open (row 35)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d813
+[tempus audit] admitted peer=e4188f0a2cee5a46 tempus_bridge, tempus whitelist entry 0 d813
+step 14: call demo:add(2, 3) at B1 while two are held: the in-flight bound per peer; then the client waits for the held calls, which the bridge closes at its call timeout (row 35)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d714
+[tempus audit] admitted peer=e4188f0a2cee5a46 tempus_bridge, tempus whitelist entry 0 d714
+[tempus audit] closed_by_peer peer=(any) stage (any) d714
+step 14 outcome: failed: closed_by_peer
+[tempus audit] closed_by_peer peer=(any) stage (any) d812
+held call 12 outcome: failed: closed_by_peer
+[tempus audit] closed_by_peer peer=(any) stage (any) d813
+held call 13 outcome: failed: closed_by_peer
+step 15: call demo:release() at B1: the application answers the held calls (already closed) and this one (row 35)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d15
+[tempus audit] admitted peer=e4188f0a2cee5a46 tempus_bridge, tempus whitelist entry 0 d15
+step 15 outcome: reply result s15 value 2
+step 16: call erlang:apply() at B1: the forbidden guard (rows 24, 34)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d16
+[tempus audit] admitted peer=e4188f0a2cee5a46 tempus_bridge, tempus whitelist entry 0 d16
+[tempus audit] closed_by_peer peer=(any) stage (any) d16
+step 16 outcome: failed: closed_by_peer
+step 17: call demo:secret() at B1: no permission for tempus_edge (rows 24, 34)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d17
+[tempus audit] admitted peer=e4188f0a2cee5a46 tempus_bridge, tempus whitelist entry 0 d17
+[tempus audit] closed_by_peer peer=(any) stage (any) d17
+step 17 outcome: failed: closed_by_peer
+step 18: a malformed request at B1: arity 3 with two arguments (row 34)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d18
+[tempus audit] admitted peer=e4188f0a2cee5a46 tempus_bridge, tempus whitelist entry 0 d18
+[tempus audit] closed_by_peer peer=(any) stage (any) d18
+step 18 outcome: failed: closed_by_peer
+step 19: a malformed request at B1: arity 0 with two arguments; the score passes the limit (row 34)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d19
+[tempus audit] admitted peer=e4188f0a2cee5a46 tempus_bridge, tempus whitelist entry 0 d19
+[tempus audit] closed_by_peer peer=(any) stage (any) d19
+step 19 outcome: failed: closed_by_peer
+step 20: call demo:add(2, 3) at B1: refused, the score is above the limit (row 34)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d20
+[tempus audit] admitted peer=e4188f0a2cee5a46 tempus_bridge, tempus whitelist entry 0 d20
+[tempus audit] closed_by_peer peer=(any) stage (any) d20
+step 20 outcome: failed: closed_by_peer
+done
+exit=0

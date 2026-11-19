@@ -18,6 +18,8 @@ export pull/1;
 export read_plain/2;
 export facts/1;
 export peer_fp/1;
+export open_conn_profile/3;
+export peer_key/1;
 export discard/1;
 export close_conn/1;
 export free_conn/1;
@@ -43,6 +45,9 @@ foreign c_wrapper "bees_tls_facts"
 fn facts_raw(handle: int64) -> { tag: int64, value: int64, error_code: int64 };
 foreign c_wrapper "bees_tls_peer_fp"
 fn peer_fp_raw(handle: int64) -> { tag: int64, value: int64, error_code: int64 };
+
+foreign c_wrapper "bees_tls_peer_key"
+fn peer_key_raw(handle: int64) -> { tag: int64, value: int64, error_code: int64 };
 foreign c_wrapper "bees_tls_discard"
 fn discard_raw(handle: int64) -> { tag: int64, value: int64, error_code: int64 };
 foreign c_wrapper "bees_tls_close"
@@ -63,6 +68,14 @@ fn openssl_version() -> { tag: int64, value: int64, error_code: int64 } {
 // held only by the link and its writer).
 fn open_conn(role: int64, spec: string) -> { tag: int64, value: int64, error_code: int64 } {
     _: { tag: int64, value: int64, error_code: int64 } <- set_args_raw(role, 0);
+    r: { tag: int64, value: int64, error_code: int64 } <- open_raw(spec);
+    r
+}
+
+// TEMPUS (development-plan/tempus-design.md 17.6): as open_conn, with the engine's profile: 0 TRUST (ALPN trust/1, what
+// open_conn gives), 1 TEMPUS (ALPN tempus/1, and its own contexts, so a node that is both holds two credentials)
+fn open_conn_profile(role: int64, profile: int64, spec: string) -> { tag: int64, value: int64, error_code: int64 } {
+    _: { tag: int64, value: int64, error_code: int64 } <- set_args_raw(role, profile);
     r: { tag: int64, value: int64, error_code: int64 } <- open_raw(spec);
     r
 }
@@ -102,6 +115,12 @@ fn facts(h: int64) -> { tag: int64, value: int64, error_code: int64 } {
 // the SHA-512 of the peer certificate's DER into this thread's span (value 64)
 fn peer_fp(h: int64) -> { tag: int64, value: int64, error_code: int64 } {
     r: { tag: int64, value: int64, error_code: int64 } <- peer_fp_raw(h);
+    r
+}
+
+// TEMPUS: the peer certificate's raw Ed25519 public key into this thread's span (value 32); refused for any other key type
+fn peer_key(h: int64) -> { tag: int64, value: int64, error_code: int64 } {
+    r: { tag: int64, value: int64, error_code: int64 } <- peer_key_raw(h);
     r
 }
 

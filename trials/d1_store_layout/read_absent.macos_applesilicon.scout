@@ -1,0 +1,8 @@
+link_up backing
+log oldest=0 next=0 capacity=16384
+tx_credit 8
+rx_end 0
+link_down :closed
+done
+exit=0
+backing: 16384 bytes, 0 records, 0 frames

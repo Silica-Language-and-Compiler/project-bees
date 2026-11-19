@@ -1,0 +1,4 @@
+listening on 127.0.0.1:23702
+[tempus audit] tempus_cert_key peer=- the peer certificate's key is not Ed25519, as server a1
+done
+exit=0

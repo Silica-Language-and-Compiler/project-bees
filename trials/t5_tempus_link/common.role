@@ -1,0 +1,22 @@
+// T5 link trial, shared by the listeners and the dialers: lines, the TEST-ONLY identities (lib/tempus_ids.silica, written
+// by tools/bees_tempus_ids.py) as the values a connection is given, the edges.
+fn say(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+fn hx(s: string) -> string { tempus_ids@unhex(s) }
+fn num(n: int64) -> string { bees_trust_frame@int_text(n) }
+// the advert of identity i with its token variant v (identity i's advert under another identity's certificate is what a
+// relay in the middle would present)
+fn advert_of(i: int64, v: int64, addr: string) -> string {
+    d: $D$ <- bees_tempus_frame@desc(hx(tempus_ids@id_hex(i)), hx(tempus_ids@pub_hex(i)), addr, hx(tempus_ids@tok_hex(i, v)));
+    bees_tempus_frame@enc_advert(d)
+}
+fn mk_cfg(node: actor_ref, sig: actor_ref, e: dangerous_actor_ref, r: dangerous_actor_ref, i: int64, v: int64, wl: string, kid: string) -> $CFG$ {
+    mine: string <- advert_of(i, v, concat("127.0.0.1:", num(23710 + i)));
+    mtok: string <- hx(tempus_ids@tok_hex(i, v));
+    ppub: string <- hx(tempus_ids@producer_pub_hex());
+    { node: node, sig: sig, edge: e, rnd: r, mine: mine, mtok: mtok, kid: kid, ppub: ppub, wl: wl, now: tempus_ids@now(), skew: tempus_ids@skew(), count: 8, ms: 3000 }
+}
+fn typ_name(t: int64) -> string { case t of { 1 -> "tempus_edge"; 2 -> "tempus_bridge"; 3 -> "tempus_sentinel"; _: int64 -> "?" } }

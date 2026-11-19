@@ -1,0 +1,11 @@
+# BEES TRUST mode, sessions (N5, B2): the atoms a node built with trust.session holds in addition to bees_trust.atoms.
+# the goaway frame's keys and reasons (multiplexing design; development-plan/spikes/N5-multiplexing.md section 2)
+reason
+drain_ms
+limit_reached
+shutdown
+deny
+protocol
+# the registered names of a session node's listener and metrics actor
+bees_trust_listener
+bees_trust_metrics

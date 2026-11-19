@@ -1,0 +1,28 @@
+// Is a self call in "produces pure f(...) end" (inside a case arm, after a record binding) a tail call? 10,000,000 steps.
+fn lim() -> { len: int64, t: int64 } { { len: 10, t: 20 } }
+fn step(i: int64) -> { stop: int64, kids: int64 } { { stop: i - 1, kids: 0 - 1 } }
+fn run_a(i: int64, acc: int64) -> int64 { case i <= 0 of { true -> acc; false -> run_a(i - 1, acc + 1) } }
+fn run_b(l: { len: int64, t: int64 }, i: int64, acc: int64) -> int64 {
+    case i <= 0 of {
+        true -> acc;
+        false -> {
+            r: { stop: int64, kids: int64 } <- step(i);
+            case r.kids < 0 of {
+                true -> {
+                    sequence
+                        a2: int64 <- acc + l.len - 9
+                    produces pure run_b(l, r.stop, a2) end
+                };
+                false -> 0
+            }
+        }
+    }
+}
+fn main() -> int64 {
+    sequence proc[device_io]
+        _: atom <- print_int64(run_a(10000000, 0));
+        _: atom <- println(" a");
+        _: atom <- print_int64(run_b(lim(), 10000000, 0));
+        _: atom <- println(" b")
+    produces pure 0 end
+}

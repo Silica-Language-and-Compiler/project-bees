@@ -1,0 +1,3 @@
+tempus: boot refused: tempus_edge: shuffle_length is not 1 to 64 and at most the capacity
+boot: refused, nothing started
+exit=1

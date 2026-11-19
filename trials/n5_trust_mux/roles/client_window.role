@@ -1,0 +1,59 @@
+// window (acceptance criterion 2), against node w: max_calls 5, idle_ms 600, max_age_ms 1500, drain_ms 300, session_slots_max 1.
+//   1 to 5   five calls, one after another, on one session: the fifth reaches max_calls, so the server sends ONE goaway
+//            limit_reached, still answers the fifth call, and closes
+//   6        the next call opens a new session; then 900 ms of silence: the server ends it by idle_ms
+//   7 to 10  a third session, a call every 400 ms (so it is never idle, and four calls are below max_calls): max_age_ms ends
+//            it 1500 ms after it began
+//   11       400 ms after the tenth: a fourth session
+//   12       while that session is open a raw peer connects (and writes nothing): session_slots_max 1 refuses it at once
+//   13       after another 900 ms (the fourth session has idled out) a call is served again
+fn label(step: int64) -> string {
+    case step of {
+        5 -> "call demo:add([5, 1]) (the fifth call: max_calls)";
+        6 -> "call demo:add([6, 1]) (a new session; then idle)";
+        11 -> "call demo:add([11, 1]) (after max_age_ms: a new session)";
+        12 -> "raw: a second connection while a session is open (session_slots_max 1)";
+        13 -> "call demo:add([13, 1]) (the slot is free again)";
+        14 -> "cast demo:stats([])";
+        _: int64 -> "call demo:add([n, 1])"
+    }
+}
+fn start(step: int64, me: actor_ref) -> atom {
+    case step of {
+        12 -> sraw_open(12, "", me, false);
+        14 -> stats_cast(me, 14);
+        15 -> say("window done");
+        _: int64 -> trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_add(), 2, ints2(step, 1), me, step)
+    }
+}
+fn next(step: int64, me: actor_ref) -> atom {
+    case step of {
+        6 -> wake(me, 900, 7);
+        7 -> wake(me, 400, 8);
+        8 -> wake(me, 400, 9);
+        9 -> wake(me, 400, 10);
+        10 -> wake(me, 400, 11);
+        12 -> wake(me, 900, 13);
+        14 -> wake(me, 500, 15);
+        _: int64 -> start(step + 1, me)
+    }
+}
+fn driver(r: { req: int64, what: atom, value: string }, n: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        _: atom <- case r.value == "go" of {
+            true -> start(r.req, me);
+            false -> { sequence _: atom <- step_line(r) produces pure next(r.req, me) end }
+        }
+    produces pure (:no_reply, n + 1) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        b: int64 <- trust_boot();
+        _: atom <- start_reporter();
+        _: atom <- trust_start();
+        d: actor_ref <- spawn(0, driver, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: atom <- start(1, d);
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

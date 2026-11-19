@@ -1,0 +1,269 @@
+the client listens, port:23906
+step 1: sample of the edge store (rows 11 and 14: admitted both ways; row 2: the entry the sentinel answered with)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d1
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d1
+step 1 outcome: reply sample_reply tempus_edge entries: 9200d299@1/2000
+step 2: shuffle as the initiator: itself at age 0 and x2 at age 2 (row 8)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d2
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d2
+step 2 outcome: reply shuffle_reply tempus_edge entries: 9200d299@1/2000
+step 3: sample of the edge store
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d3
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d3
+step 3 outcome: reply sample_reply tempus_edge entries: 1fae2ad7@0/3000 12eb7f44@2/2000 9200d299@1/2000
+step 4: a tick: every age rises, the oldest entry is dialed and nobody listens there (rows 3, 4, 5, 18)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d4
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d4
+step 4 outcome: reply done
+step 5: a tick: the next oldest, the same
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d5
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d5
+step 5 outcome: reply done
+step 6: a tick: the client is the oldest and is dialed; the frame holds the node's own entry at age 0 (rows 4, 5, 6)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d6
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d6
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a1
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession a1
+  request 1 from b19edad2: shuffle tempus_edge entries: b19edad2@0/2000
+  the client answers with x2 at age 4, x3 at age 6 and x4 at age 1
+step 6 outcome: reply done
+step 7: sample of the edge store
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d7
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d7
+step 7 outcome: reply sample_reply tempus_edge entries: 12eb7f44@4/2000 cb133950@1/2000 958cff49@6/2000
+step 8: shuffle as the initiator: itself at age 50, x2 younger than the node holds it, x3 older (row 7)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d8
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d8
+step 8 outcome: reply shuffle_reply tempus_edge entries: 12eb7f44@4/2000 cb133950@1/2000 958cff49@6/2000
+step 9: a tick: the client, the oldest, answers with x1, x4 younger than the node holds it and x3 older (row 7)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d9
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d9
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a2
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession a2
+  request 2 from b19edad2: shuffle tempus_edge entries: b19edad2@0/2000 12eb7f44@2/2000 cb133950@2/2000
+  the client answers with x1 at age 3, x4 at age 0 and x3 at age 70
+step 9 outcome: reply done
+step 10: sample of the edge store
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d10
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d10
+step 10 outcome: reply sample_reply tempus_edge entries: cb133950@0/2000 12eb7f44@2/2000 958cff49@7/2000
+step 11: shuffle as the initiator: itself at age 50, so that it is the oldest entry
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d11
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d11
+step 11 outcome: reply shuffle_reply tempus_edge entries: 12eb7f44@2/2000 9200d299@3/2000 958cff49@7/2000
+step 12: a tick: the client answers with one forged entry among good ones (row 17)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d12
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d12
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a3
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession a3
+  request 3 from b19edad2: shuffle tempus_edge entries: b19edad2@0/2000 cb133950@1/2000 12eb7f44@3/2000
+  the client answers with x1 and with x4 under a token signed with another key
+step 12 outcome: reply done
+step 13: sample of the edge store
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d13
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d13
+step 13 outcome: reply sample_reply tempus_edge entries: 9200d299@4/2000 12eb7f44@3/2000 cb133950@1/2000
+step 14: shuffle as the initiator: itself at age 50, so that it is the oldest entry
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d14
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d14
+step 14 outcome: reply shuffle_reply tempus_edge entries: 12eb7f44@3/2000 cb133950@1/2000 9200d299@4/2000
+step 15: a tick: the client closes with no reply (row 18)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d15
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d15
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a4
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession a4
+  request 4 from b19edad2: shuffle tempus_edge entries: b19edad2@0/2000 9200d299@5/2000 cb133950@2/2000
+  the client closes with no reply
+step 15 outcome: reply done
+step 16: shuffle as the initiator: itself at age 50, so that it is the oldest entry
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d16
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d16
+step 16 outcome: reply shuffle_reply tempus_edge entries: 12eb7f44@4/2000 9200d299@5/2000 cb133950@2/2000
+step 17: a tick: the client stays silent past the node's bound, and a second tick arrives meanwhile (rows 18, 21)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d17
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d17
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a5
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession a5
+  request 5 from b19edad2: shuffle tempus_edge entries: b19edad2@0/2000 9200d299@6/2000 12eb7f44@5/2000
+  the client does not answer, and sends a second tick on another connection
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d905
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d905
+  a second connection meanwhile: reply done
+step 17 outcome: reply done
+  the client closes the held connection with no reply
+step 18: sample of the edge store
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d18
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d18
+step 18 outcome: reply sample_reply tempus_edge entries: 9200d299@6/2000 cb133950@4/2000 12eb7f44@5/2000
+step 19: shuffle as the initiator: itself at age 50, so that it is the oldest entry
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d19
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d19
+step 19 outcome: reply shuffle_reply tempus_edge entries: cb133950@4/2000 9200d299@6/2000 12eb7f44@5/2000
+step 20: a tick: the client answers with a frame that is no reply (row 18)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d20
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d20
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a6
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession a6
+  request 6 from b19edad2: shuffle tempus_edge entries: b19edad2@0/2000 cb133950@5/2000 9200d299@7/2000
+  the client answers with a frame whose t is no kind
+step 20 outcome: reply done
+step 21: row 12: a token signed with another key
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d21
+[tempus audit] closed_by_peer peer=(any) stage (any) d21
+step 21 outcome: failed: closed_by_peer
+step 22: row 12: an expired token
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d22
+[tempus audit] closed_by_peer peer=(any) stage (any) d22
+step 22 outcome: failed: closed_by_peer
+step 23: row 12: a token that is not yet valid
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d23
+[tempus audit] closed_by_peer peer=(any) stage (any) d23
+step 23 outcome: failed: closed_by_peer
+step 24: row 12: a token whose sub is another key
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d24
+[tempus audit] closed_by_peer peer=(any) stage (any) d24
+step 24 outcome: failed: closed_by_peer
+step 25: row 12: a tempus_bridge token under a certificate the whitelist does not hold (typ not allowed)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d25
+[tempus audit] closed_by_peer peer=(any) stage (any) d25
+step 25 outcome: failed: closed_by_peer
+step 26: row 12: an id that is not the hash of the key
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d26
+[tempus audit] closed_by_peer peer=(any) stage (any) d26
+step 26 outcome: failed: closed_by_peer
+step 27: row 12: a proof signed with another key
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d27
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d27
+[tempus audit] closed_by_peer peer=(any) stage (any) d27
+step 27 outcome: failed: closed_by_peer
+step 28: row 13: a token under the old kid
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d28
+[tempus audit] key_rotated peer=b19edad2958934e1 the peer says this node's token is under another kid than its current one d28
+step 28 outcome: key_rotated, the peer's current kid is k1
+step 29: row 19: the first byte is not 131
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d29
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d29
+[tempus audit] closed_by_peer peer=(any) stage (any) d29
+step 29 outcome: failed: closed_by_peer
+step 30: row 19: a truncated frame
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d30
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d30
+[tempus audit] closed_by_peer peer=(any) stage (any) d30
+step 30 outcome: failed: closed_by_peer
+step 31: row 19: a byte after the term
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d31
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d31
+[tempus audit] closed_by_peer peer=(any) stage (any) d31
+step 31 outcome: failed: closed_by_peer
+step 32: row 19: a tuple, not a map
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d32
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d32
+[tempus audit] closed_by_peer peer=(any) stage (any) d32
+step 32 outcome: failed: closed_by_peer
+step 33: row 19: t is no kind
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d33
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d33
+[tempus audit] closed_by_peer peer=(any) stage (any) d33
+step 33 outcome: failed: closed_by_peer
+step 34: row 19: an unknown key
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d34
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d34
+[tempus audit] closed_by_peer peer=(any) stage (any) d34
+step 34 outcome: failed: closed_by_peer
+step 35: row 19: a store that is no peer type
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d35
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d35
+[tempus audit] closed_by_peer peer=(any) stage (any) d35
+step 35 outcome: failed: closed_by_peer
+step 36: row 19: nesting too deep
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d36
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d36
+[tempus audit] closed_by_peer peer=(any) stage (any) d36
+step 36 outcome: failed: closed_by_peer
+step 37: row 19: more entries than the shuffle length
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d37
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d37
+[tempus audit] closed_by_peer peer=(any) stage (any) d37
+step 37 outcome: failed: closed_by_peer
+step 38: row 19: an age above 65535
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d38
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d38
+[tempus audit] closed_by_peer peer=(any) stage (any) d38
+step 38 outcome: failed: closed_by_peer
+step 39: row 19: an id of 63 bytes
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d39
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d39
+[tempus audit] closed_by_peer peer=(any) stage (any) d39
+step 39 outcome: failed: closed_by_peer
+step 40: row 19: a frame of 131073 bytes
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d40
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d40
+[tempus audit] closed_by_peer peer=(any) stage (any) d40
+step 40 outcome: failed: closed_by_peer
+step 41: row 19: a sample that asks for more than the shuffle length
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d41
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d41
+[tempus audit] closed_by_peer peer=(any) stage (any) d41
+step 41 outcome: failed: closed_by_peer
+step 42: row 9: a shuffle of the edge store with an entry whose token says tempus_sentinel
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d42
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d42
+[tempus audit] closed_by_peer peer=(any) stage (any) d42
+step 42 outcome: failed: closed_by_peer
+step 43: row 37: a tick to node O, which is not a test node (its clock runs: the client's token for it ends far away)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d43
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d43
+[tempus audit] closed_by_peer peer=(any) stage (any) d43
+step 43 outcome: failed: closed_by_peer
+step 44: shuffle as the initiator: one entry whose token ends at 1600 (row 16)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d44
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d44
+step 44 outcome: reply shuffle_reply tempus_edge entries: 12eb7f44@6/2000 9200d299@7/2000 cb133950@5/2000
+step 45: the node's clock is set to 1700 s
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d45
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d45
+step 45 outcome: reply done
+step 46: a tick: the entry whose token has ended leaves the view (row 16)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d46
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d46
+step 46 outcome: reply done
+step 47: sample of the edge store
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d47
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d47
+step 47 outcome: reply sample_reply tempus_edge entries: 12eb7f44@7/2000 cb133950@6/2000
+step 48: shuffle as the initiator: itself at age 50, so that it is the oldest entry
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d48
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d48
+step 48 outcome: reply shuffle_reply tempus_edge entries: 12eb7f44@7/2000 cb133950@6/2000
+step 49: a tick while the client holds k9 as the current kid: it answers the node's advert with key_rotated (row 15: the node's application passes a new token)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d49
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d49
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a7
+[tempus audit] key_rotated peer=b19edad2958934e1 the peer's token is under another kid; it was told the current one a7
+step 49 outcome: reply done
+step 50: shuffle as the initiator: itself at age 50, so that it is the oldest entry
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d50
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d50
+step 50 outcome: reply shuffle_reply tempus_edge entries: cb133950@7/2000 12eb7f44@8/2000
+step 51: a tick: the node's own entry carries the new token, which ends at 2500 (row 15)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d51
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d51
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a8
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession a8
+  request 7 from b19edad2: shuffle tempus_edge entries: b19edad2@0/2500 12eb7f44@9/2000 cb133950@8/2000
+  the client answers with no entry
+step 51 outcome: reply done
+step 52: the node's clock is set to 2600 s, past its own token
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d52
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d52
+step 52 outcome: reply done
+step 53: a tick: the node finds its own token expired and stops ticking (row 15)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d53
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d53
+step 53 outcome: reply done
+step 54: sample, with the client's own clock at 2600 s: the client refuses the node's advert (row 15)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d54
+[tempus audit] admission_refused peer=b19edad2958934e1 the token has expired d54
+step 54 outcome: failed: admission_refused
+done
+exit=0

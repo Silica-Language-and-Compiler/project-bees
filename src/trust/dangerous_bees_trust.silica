@@ -759,6 +759,9 @@ fn k_send(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, phase: in
 fn kre(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, phase: int64, live: boolean, replied: boolean, srv: int64, kind: int64, req: int64, reply_to: actor_ref, req_id: string, m: atom, f: atom, a: int64, args: string }, a: actor_ref) -> { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, phase: int64, live: boolean, replied: boolean, srv: int64, kind: int64, req: int64, reply_to: actor_ref, req_id: string, m: atom, f: atom, a: int64, args: string } {
     { asm: a, c: st.c, tx: st.tx, phase: st.phase, live: true, replied: st.replied, srv: st.srv, kind: st.kind, req: st.req, reply_to: st.reply_to, req_id: st.req_id, m: st.m, f: st.f, a: st.a, args: st.args }
 }
+fn kdead(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, phase: int64, live: boolean, replied: boolean, srv: int64, kind: int64, req: int64, reply_to: actor_ref, req_id: string, m: atom, f: atom, a: int64, args: string }) -> { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, phase: int64, live: boolean, replied: boolean, srv: int64, kind: int64, req: int64, reply_to: actor_ref, req_id: string, m: atom, f: atom, a: int64, args: string } {
+    { asm: st.asm, c: st.c, tx: st.tx, phase: st.phase, live: false, replied: st.replied, srv: st.srv, kind: st.kind, req: st.req, reply_to: st.reply_to, req_id: st.req_id, m: st.m, f: st.f, a: st.a, args: st.args }
+}
 fn k_frame(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, phase: int64, live: boolean, replied: boolean, srv: int64, kind: int64, req: int64, reply_to: actor_ref, req_id: string, m: atom, f: atom, a: int64, args: string }, me: actor_ref, r: { code: int64, what: string, kind: int64, a: string, b: string }) -> { asm: actor_ref, phase: int64, live: boolean, replied: boolean } {
     case r.code != 0 of {
         true -> kfail(st, me, bees_atoms@a_protocol_error());
@@ -816,18 +819,23 @@ fn k_up(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, phase: int6
 }
 fn k_bees(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, phase: int64, live: boolean, replied: boolean, srv: int64, kind: int64, req: int64, reply_to: actor_ref, req_id: string, m: atom, f: atom, a: int64, args: string }, me: actor_ref, k: int64, s1: string, s2: string, n: int64) -> { asm: actor_ref, phase: int64, live: boolean, replied: boolean } {
     case k of {
+        // F1-3 (2026-11-18): the next frame's assembler is created HELD and let go only after this frame was accepted. Let go
+        // at once, it could finish or refuse the bytes that followed and end itself before a refusal of THIS frame stopped
+        // it, and a cast to an ended actor ends the sender (a hostile server ended tcli that way: actor_not_found).
         1 -> case st.phase >= 2 and st.phase <= 4 of {
             true -> {
                 sequence
-                    a: actor_ref <- asm_new(me, 0, s2, true);
+                    a: actor_ref <- asm_new(me, 0, s2, false);
                     st2: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, phase: int64, live: boolean, replied: boolean, srv: int64, kind: int64, req: int64, reply_to: actor_ref, req_id: string, m: atom, f: atom, a: int64, args: string } <- kre(st, a);
                     r: { code: int64, what: string, kind: int64, a: string, b: string } <- bees_trust_frame@parse_reply(s1, bees_trust_conf@term_depth_max(), bees_trust_conf@frame_size_max());
-                    out: { asm: actor_ref, phase: int64, live: boolean, replied: boolean } <- k_frame(st2, me, r)
+                    out: { asm: actor_ref, phase: int64, live: boolean, replied: boolean } <- k_frame(st2, me, r);
+                    _: boolean <- case out.live and out.phase < 9 of { true -> asm_go(a); false -> true }
                 produces pure out end
             };
             false -> ks(st.asm, st.phase, false, st.replied)
         };
-        2 -> case st.phase < 9 of { true -> kfail(st, me, bees_atoms@a_protocol_error()); false -> kkeep(st) };
+        // a framing refusal: the assembler that reports it has ended, so it is not told to stop (F1-3)
+        2 -> case st.phase < 9 of { true -> kfail(kdead(st), me, bees_atoms@a_protocol_error()); false -> ks(st.asm, st.phase, false, st.replied) };
         4 -> case st.live and st.phase < 9 of { true -> { sequence _: boolean <- credit(st.c, 1) produces pure kkeep(st) end }; false -> kkeep(st) };
         5 -> k_timer(st, me, n);
         20 -> k_cache(st, me, s1, n);

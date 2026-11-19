@@ -1,0 +1,7 @@
+// an edge node started with its tempus_bridge token (token variant 2)
+fn listen() -> string { "listen:24300" }
+fn test() -> boolean { true }
+fn cap1() -> int64 { 4 }
+fn count1() -> int64 { 3 }
+fn tok() -> int64 { 2 }
+fn ppub() -> string { tempus_ids@unhex(tempus_ids@producer_pub_hex()) }

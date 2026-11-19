@@ -1,0 +1,4 @@
+# written by bees_config generate (tools/bees_dist_gen.py) because the manifest's message types hold atom literals; rebuilt on every build
+lib/bees_msgs.atoms
+lib/bees_peers.atoms
+lib/beam_peers.atoms

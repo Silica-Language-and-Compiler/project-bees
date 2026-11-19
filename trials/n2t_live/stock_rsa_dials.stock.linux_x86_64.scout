@@ -1,0 +1,6 @@
+stock: ping beesl@localhost -> pong
+stock: the link's protocol is tls
+stock: sent {inbox, BEES} ! #{op => hello, n => 1}
+stock: outbox got {Pid, #{op => reply, n => 2}}; node(Pid) is BEES: true
+stock: done
+exit=0

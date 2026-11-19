@@ -153,6 +153,14 @@ FIXED_ATOMS = {
     "bad_version", "truncated", "trailing_bytes", "bad_tag", "too_large", "too_deep", "too_long", "out_of_range",
     "bad_utf8", "unknown_atom", "bad_variant", "missing_field", "duplicate_field", "unknown_field", "foreign_actor",
     "unsupported",
+    # the language's STORE carrier vocabulary (owner ruling 2026-11-18, spikes/N0d-store-config.md: Silica's carrier atoms, not
+    # BEES protocol atoms; only what the store carrier itself defines). Source: transport_serialization_design.md 6.8.1 (the kind
+    # (:store), its links and retention modes), 6.8.2 (the messages and reasons the section adds to 6.2), 6.8.3 (wireframe's
+    # :storage mode) and 6.8.9 ((:tx_failed, :empty)); the same atoms in compiler/stdlib/dangerous_store_backing_carrier.silica
+    # and store_memory_carrier.silica.
+    "store", "memory", "backing", "sd_blocks", "flash_region", "ring", "stop", "trim", "storage",
+    "sync", "read", "read_stop", "log", "synced", "rx_end", "read_failed",
+    "full", "empty", "trimmed", "beyond_tail", "busy", "corrupt", "medium", "in_use", "mismatch",
     # dangerous_bees_net's own actor-protocol tags (never on the wire): (:bees, ...) between its actors, (:car, c) and (:who, r) to its writer
     "bees", "car", "who",
 }

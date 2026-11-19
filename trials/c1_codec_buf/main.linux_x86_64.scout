@@ -1,0 +1,74 @@
+-- buf(L, normal, uint8, 8): { b, n }, the n bytes in use as BINARY_EXT
+<<1,2,3>> 836d00000003010203  = erl
+  decoded: ok <<010203>> n=3
+  erl's bytes decoded: ok <<010203>> n=3
+<<>> 836d00000000  = erl
+  decoded: ok <<>> n=0
+  erl's bytes decoded: ok <<>> n=0
+<<0,255,128,127,1,2,3,4>> (the buffer is full) 836d0000000800ff807f01020304  = erl
+  decoded: ok <<00ff807f01020304>> n=8
+  erl's bytes decoded: ok <<00ff807f01020304>> n=8
+erl's [1,2,3], a list of bytes (STRING_EXT): the derived decoder of a string takes it: ok <<010203>> n=3
+erl's [] (NIL_EXT), the empty list of bytes: ok <<>> n=0
+encode, n = 8 in a buffer of 8: a frame of 14 bytes
+encode, n = 0 in a buffer of 8: a frame of 6 bytes
+encode, n = 9 in a buffer of 8: not sent (no frame)
+encode, n = -1 in a buffer of 8: not sent (no frame)
+-- a record with a buffer and other fields: { id: int64, data: buf(L, normal, uint8, 16), note: string }
+#{id=>7,data=><<de,ad,be,ef>>,note=>n} 8374000000037704646174616d00000004deadbeef77026964610777046e6f74656d000000016e  = erl
+  decoded: ok { id: 7, data: <<deadbeef>> n=4, note: n }
+  erl's bytes decoded: ok { id: 7, data: <<deadbeef>> n=4, note: n }
+encode, data.n = 17 in a buffer of 16: not sent (no frame)
+-- two buffers of different sizes in a tuple: (buf(L, normal, uint8, 4), string, buf(L, normal, uint8, 8))
+{<<1,2>>,<<mid>>,<<3,4,5>>} 8368036d0000000201026d000000036d69646d00000003030405  = erl
+  decoded: ok (<<0102>> n=2, mid, <<030405>> n=3)
+  erl's bytes decoded: ok (<<0102>> n=2, mid, <<030405>> n=3)
+-- a buffer in a tagged tuple: (:blob, int64, buf(L, normal, uint8, 8))
+{blob,5,<<9,8,7>>} 8368037704626c6f6261056d00000003090807  = erl
+  decoded: ok (blob, 5, <<090807>> n=3)
+  erl's bytes decoded: ok (blob, 5, <<090807>> n=3)
+-- refusals, decoded as buf(L, normal, uint8, 8)
+a binary of 9 bytes: rejected too_long
+a list of 9 bytes (STRING_EXT): rejected too_long
+a binary that says 4294967295 bytes: rejected too_long
+empty frame: rejected truncated
+only the version byte: rejected truncated
+no version byte: rejected bad_version
+truncated inside the length: rejected truncated
+truncated inside the bytes: rejected truncated
+an integer: rejected bad_tag
+an atom: rejected bad_tag
+a bit string (BIT_BINARY_EXT): rejected bad_tag
+a list of integers above 255: rejected bad_tag
+a trailing byte: rejected trailing_bytes
+a frame of 2006 bytes, above the cap of 1024: rejected too_large
+-- refusals inside other types
+pkt, data of 17 bytes: rejected too_long
+pkt, data of 16 bytes: ok { id: 7, data: <<0102030405060708090a0b0c0d0e0f10>> n=16, note: n }
+pkt, data is an integer: rejected bad_tag
+pkt, the field data missing: rejected missing_field
+pkt, the field data twice: rejected duplicate_field
+pkt, an unknown field: rejected unknown_field
+pkt, truncated inside data: rejected truncated
+pkt, the keys in another order (note, id, data): ok { id: 7, data: <<deadbeef>> n=4, note: n }
+pair, the first buffer holds 5 bytes (it has 4): rejected too_long
+pair, the third buffer holds 9 bytes (it has 8): rejected too_long
+pair, two elements: rejected bad_tag
+pair, truncated inside the third element: rejected truncated
+tb, another tag: {pkt,5,<<>>}: rejected bad_tag
+tb, the buffer holds 9 bytes: rejected too_long
+tb, a trailing byte: rejected trailing_bytes
+-- 5000 decodes in a row of each as pkt, every one into a scratch region (validate_named)
+data of 17 bytes, refused too_long: 5000
+a frame of 2017 bytes, refused too_large: 5000
+data of 16 bytes, accepted: 5000
+-- the deliverer path: bees_peers@start_deliverer decodes into a fresh region and casts { r, v } to the names blob and pkt
+actor blob, message 0: <<aabb>> n=2
+actor blob, message 1: <<010203>> n=3
+actor blob: now a payload of 9 bytes (refused), an integer (refused), then 8 bytes
+actor blob, message 2: <<00ff807f01020304>> n=8
+actor pkt, message 0: id 7, data <<deadbeef>> n=4, note n
+actor pkt: now a payload whose data is 17 bytes (refused), then one whose data is 16 bytes
+actor pkt, message 1: id 7, data <<0102030405060708090a0b0c0d0e0f10>> n=16, note n
+actor pkt: done
+exit=0

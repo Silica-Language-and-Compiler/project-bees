@@ -1,0 +1,20 @@
+listening on 127.0.0.1:23700
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a1
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession a1
+request: frame kind 7 from an admitted tempus_edge, whitelist entry -1 a1
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a2
+[tempus audit] binding_refused peer=1fae2ad7f75a0ded the advert's pub is not the key of the peer's TLS certificate a2
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a3
+[tempus audit] whitelist_reject peer=b19edad2958934e1 a tempus_bridge or tempus_sentinel token under a certificate that is not in the tempus whitelist a3
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a4
+[tempus audit] key_rotated peer=b19edad2958934e1 the peer's token is under another kid; it was told the current one a4
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a5
+[tempus audit] admission_refused peer=b19edad2958934e1 the token has expired a5
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a6
+[tempus audit] pop_failed peer=b19edad2958934e1 the proof of possession does not verify a6
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a7
+[tempus audit] closed_by_peer peer=(any) stage (any) a7
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a8
+[tempus audit] key_rotated peer=b19edad2958934e1 the peer says this node's token is under another kid than its current one a8
+done
+exit=0

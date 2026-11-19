@@ -1,0 +1,1 @@
+TEST-ONLY stand-in certificate of node a (the server). Not X.509: N3 has no TLS; its SHA-512 is the stand-in fingerprint.

@@ -1,0 +1,47 @@
+// interleave (acceptance criterion 1): one connection carries several requests at once and every caller gets its own answer.
+// Request 1 opens the connection (hello, the session offer, the request pipelined) and comes back after the server's ok.
+// Then four requests are handed over at once, all on that session: a call that is busy for 600 ms, a quick call, a cast and
+// a call with a binary. The server takes two at a time (max_inflight 2), so the answers come back as 3, 4 (the cast, answered
+// locally when written), 5 and last 2: out of order, each matched by its req_id.
+fn label(req: int64) -> string {
+    case req of {
+        1 -> "call demo:add([1, 2]) (opens the session)";
+        2 -> "call demo:slow([600])";
+        3 -> "call demo:add([40, 2])";
+        4 -> "cast demo:note([7])";
+        5 -> "call demo:echo([<<\"hi\">>])";
+        6 -> "cast demo:stats([])";
+        _: int64 -> "?"
+    }
+}
+fn burst(me: actor_ref) -> atom {
+    sequence
+        _: atom <- trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_slow(), 1, ints1(600), me, 2);
+        _: atom <- trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_add(), 2, ints2(40, 2), me, 3);
+        _: atom <- trpc_cast(server(), bees_atoms@a_demo(), bees_atoms@a_note(), 1, ints1(7), me, 4);
+        _: atom <- trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_echo(), 1, strs1("hi"), me, 5)
+    produces pure :ok end
+}
+fn driver(r: { req: int64, what: atom, value: string }, got: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        go: boolean <- r.value == "go";
+        _: atom <- case go of {
+            true -> case r.req == 0 of { true -> stats_cast(me, 6); false -> say("interleave done") };
+            false -> say(concat(concat("answer to request ", bees_trust_frame@int_text(r.req)), concat(concat(" ", label(r.req)), concat(": ", outcome(r)))))
+        };
+        _: atom <- case go == false and r.req == 1 of { true -> burst(me); false -> :ok };
+        _: atom <- case go == false and r.req == 2 of { true -> wake(me, 300, 0); false -> :ok };
+        _: atom <- case go == false and r.req == 6 of { true -> wake(me, 500, 9); false -> :ok }
+    produces pure (:no_reply, got + 1) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        b: int64 <- trust_boot();
+        _: atom <- start_reporter();
+        _: atom <- trust_start();
+        d: actor_ref <- spawn(0, driver, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: atom <- trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_add(), 2, ints2(1, 2), d, 1);
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

@@ -1,0 +1,80 @@
+// the soak (make measure; not a golden): CALLS calls demo:add([i, 1]), WINDOW of them outstanding at a time (each answer starts
+// the next call), every answer checked; prints the count of right answers, the elapsed milliseconds and how many calls took
+// less than 1, 2, 5, 10, 20, 50 ms and 50 ms or more (from trpc_call to its answer). Against a session server the calls
+// travel on sessions; against a server without sessions the same program makes one connection per call (the baseline).
+// The first call is made alone and the other rows start when it is answered: a client that opens several connections before
+// it holds a token gets a token from each hello, each replacing the last on the server, and the stale ones are then refused
+// (token_reject, suspicion): N3's one-token-per-fingerprint rule, not a matter of sessions.
+// A request number is 8 * n + row, so that an answer names the row that holds its start time.
+fn total() -> int64 { 2000 }
+fn window() -> int64 { 1 }
+fn now_ns() -> int64 {
+    sequence proc[concurrency]
+        t: int64 <- monotonic_time()
+    produces pure t end
+}
+fn bucket(ms: int64) -> int64 {
+    case ms < 1 of { true -> 0; false -> case ms < 2 of { true -> 1; false -> case ms < 5 of { true -> 2; false -> case ms < 10 of { true -> 3; false -> case ms < 20 of { true -> 4; false -> case ms < 50 of { true -> 5; false -> 6 } } } } } }
+}
+fn start_of(st: { ok: int64, t0: int64, started: int64, finished: int64, s0: int64, s1: int64, s2: int64, s3: int64, s4: int64, s5: int64, s6: int64, s7: int64, b0: int64, b1: int64, b2: int64, b3: int64, b4: int64, b5: int64, b6: int64 }, row: int64) -> int64 {
+    case row of { 0 -> st.s0; 1 -> st.s1; 2 -> st.s2; 3 -> st.s3; 4 -> st.s4; 5 -> st.s5; 6 -> st.s6; _: int64 -> st.s7 }
+}
+fn it(n: int64) -> string { bees_trust_frame@int_text(n) }
+fn report(st: { ok: int64, t0: int64, started: int64, finished: int64, s0: int64, s1: int64, s2: int64, s3: int64, s4: int64, s5: int64, s6: int64, s7: int64, b0: int64, b1: int64, b2: int64, b3: int64, b4: int64, b5: int64, b6: int64 }, ok: int64, b: int64, now: int64) -> atom {
+    sequence
+        head: string <- concat(concat("rate: ", it(ok)), concat(concat(" ok answers of ", it(total())), concat(concat(" calls, window ", it(window())), concat(" in ms ", it((now - st.t0) / 1000000)))));
+        lo: string <- concat(concat("; latency ms <1:", it(st.b0 + case b == 0 of { true -> 1; false -> 0 })), concat(concat(" <2:", it(st.b1 + case b == 1 of { true -> 1; false -> 0 })), concat(" <5:", it(st.b2 + case b == 2 of { true -> 1; false -> 0 }))));
+        mid: string <- concat(concat(" <10:", it(st.b3 + case b == 3 of { true -> 1; false -> 0 })), concat(" <20:", it(st.b4 + case b == 4 of { true -> 1; false -> 0 })));
+        hi: string <- concat(concat(" <50:", it(st.b5 + case b == 5 of { true -> 1; false -> 0 })), concat(" >=50:", it(st.b6 + case b == 6 of { true -> 1; false -> 0 })));
+        _: atom <- say(concat(concat(head, lo), concat(mid, hi)))
+    produces pure :ok end
+}
+fn fire(me: actor_ref, n: int64, row: int64) -> atom {
+    trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_add(), 2, ints2(n, 1), me, 8 * n + row)
+}
+fn driver(r: { req: int64, what: atom, value: string }, st: { ok: int64, t0: int64, started: int64, finished: int64, s0: int64, s1: int64, s2: int64, s3: int64, s4: int64, s5: int64, s6: int64, s7: int64, b0: int64, b1: int64, b2: int64, b3: int64, b4: int64, b5: int64, b6: int64 }) -> (:no_reply, { ok: int64, t0: int64, started: int64, finished: int64, s0: int64, s1: int64, s2: int64, s3: int64, s4: int64, s5: int64, s6: int64, s7: int64, b0: int64, b1: int64, b2: int64, b3: int64, b4: int64, b5: int64, b6: int64 }) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        now: int64 <- monotonic_time();
+        // the first message is the start signal { req: -1 - row, .. }: it starts the call of that row
+        boot: boolean <- r.req < 0;
+        row: int64 <- case boot of { true -> 0 - 1 - r.req; false -> r.req % 8 };
+        n: int64 <- r.req / 8;
+        good: boolean <- boot == false and r.what == bees_atoms@a_ok() and value_text(r.value) == concat("int ", it(n + 1));
+        b: int64 <- case boot of { true -> 0 - 1; false -> bucket((now - start_of(st, row)) / 1000000) };
+        fin: int64 <- st.finished + case boot of { true -> 0; false -> 1 };
+        more: boolean <- st.started < total();
+        _: atom <- case more of { true -> fire(me, st.started + 1, row); false -> :ok };
+        ok1: int64 <- st.ok + case good of { true -> 1; false -> 0 };
+        _: atom <- case boot == false and fin == 1 of { true -> boot_rows(me, 1); false -> :ok };
+        _: atom <- case boot == false and fin == total() of { true -> report(st, ok1, b, now); false -> :ok }
+    produces pure (:no_reply, { ok: ok1, t0: st.t0, started: st.started + case more of { true -> 1; false -> 0 }, finished: fin,
+        s0: case more and row == 0 of { true -> now; false -> st.s0 }, s1: case more and row == 1 of { true -> now; false -> st.s1 },
+        s2: case more and row == 2 of { true -> now; false -> st.s2 }, s3: case more and row == 3 of { true -> now; false -> st.s3 },
+        s4: case more and row == 4 of { true -> now; false -> st.s4 }, s5: case more and row == 5 of { true -> now; false -> st.s5 },
+        s6: case more and row == 6 of { true -> now; false -> st.s6 }, s7: case more and row == 7 of { true -> now; false -> st.s7 },
+        b0: st.b0 + case b == 0 of { true -> 1; false -> 0 }, b1: st.b1 + case b == 1 of { true -> 1; false -> 0 },
+        b2: st.b2 + case b == 2 of { true -> 1; false -> 0 }, b3: st.b3 + case b == 3 of { true -> 1; false -> 0 },
+        b4: st.b4 + case b == 4 of { true -> 1; false -> 0 }, b5: st.b5 + case b == 5 of { true -> 1; false -> 0 },
+        b6: st.b6 + case b == 6 of { true -> 1; false -> 0 } }) end
+}
+fn boot_row(d: actor_ref, row: int64) -> atom {
+    sequence proc[concurrency]
+        m: { req: int64, what: atom, value: string } <- { req: 0 - 1 - row, what: bees_atoms@a_ok(), value: "" };
+        _: boolean <- cast(d, m impl ActorMessage {})
+    produces pure :ok end
+}
+fn boot_rows(d: actor_ref, row: int64) -> atom {
+    case row >= window() of { true -> :ok; false -> { sequence _: atom <- boot_row(d, row) produces pure boot_rows(d, row + 1) end } }
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        b: int64 <- trust_boot();
+        _: atom <- start_reporter();
+        _: atom <- trust_start();
+        t0: int64 <- monotonic_time();
+        d: actor_ref <- spawn({ ok: 0, t0: t0, started: 0, finished: 0, s0: 0, s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0, s7: 0, b0: 0, b1: 0, b2: 0, b3: 0, b4: 0, b5: 0, b6: 0 }, driver, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: atom <- boot_row(d, 0);
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

@@ -1,0 +1,89 @@
+// BEES TEMPUS (T3): the draw converter of a node that is not a test node (development-plan/tempus-design.md section 3.5):
+// peer selection draws from the platform's secure random source, through TRUST's random edge (dangerous_bees_trust_edge@trnd,
+// which answers this tuple shape). One per node, spawned by the node part.
+//   (:bees, 1, "", "", code * 1000 + need)   the node asks for `need` draws (1 to 65) for `code` (4 * store + 1 the tick's,
+//                                            + 2 a reply's): the edge is asked for 56 bytes, eight draws of seven bytes,
+//                                            as often as needed
+//   (:bees, 7, etf, "", _)                   the edge's answer, in the order asked
+// When the last bytes of a request have come the node is told (:bees, 128, bytes, "", which, store, me); bytes is "" when
+// any answer of that request was refused (no draws: the store skips that tick or refuses that request and asks again).
+// State: pend, one byte per answer still to come (the code, plus 128 on a request's last answer); got, the bytes of the
+// request in hand; bad, whether one of its answers was refused.
+module dangerous_bees_tempus_draws;
+use bees_trust_frame;
+
+export trc/2;
+
+fn at(s: string, i: int64) -> int64 {
+    sequence proc[transport]
+        b: int64 <- byte_at(s, i)
+    produces pure b end
+}
+fn rc_k(msg: (:bees, int64, string, string, int64)) -> int64 { case msg of { (:bees, k: int64, _s1: string, _s2: string, _n: int64) -> k } }
+fn rc_s(msg: (:bees, int64, string, string, int64)) -> string { case msg of { (:bees, _k: int64, s1: string, _s2: string, _n: int64) -> s1 } }
+fn rc_n(msg: (:bees, int64, string, string, int64)) -> int64 { case msg of { (:bees, _k: int64, _s1: string, _s2: string, n: int64) -> n } }
+fn rc_bytes(etf: string) -> string {
+    r: (:ok, string) | (:rejected, atom) <- bees_trust_frame@dec_token_term(etf);
+    case r of { (:ok, s: string) -> s; (:rejected, _w: atom) -> "" }
+}
+fn rc_ask(rnd: dangerous_actor_ref, me: actor_ref, k: int64) -> boolean {
+    case k <= 0 of {
+        true -> true;
+        false -> {
+            sequence proc[concurrency]
+                _: boolean <- cast(rnd, (1, "", "", 56, me) impl ActorMessage {})
+            produces pure rc_ask(rnd, me, k - 1) end
+        }
+    }
+}
+// the pend bytes of one request: k answers, the last one marked
+fn rc_marks(code: int64, k: int64, acc: string) -> string {
+    case k <= 0 of {
+        true -> acc;
+        false -> rc_marks(code, k - 1, bees_trust_frame@cat2(acc, bees_trust_frame@b1(case k == 1 of { true -> code + 128; false -> code })))
+    }
+}
+fn rc_want(st: { node: actor_ref, rnd: dangerous_actor_ref, pend: string, got: string, bad: boolean }, me: actor_ref, n: int64) -> { node: actor_ref, rnd: dangerous_actor_ref, pend: string, got: string, bad: boolean } {
+    need: int64 <- n % 1000;
+    k: int64 <- (need + 7) / 8;
+    code: int64 <- n / 1000;
+    marks: string <- rc_marks(code, k, st.pend);
+    sequence
+        _: boolean <- rc_ask(st.rnd, me, k)
+    produces pure { node: st.node, rnd: st.rnd, pend: marks, got: st.got, bad: st.bad } end
+}
+fn rc_tell(node: actor_ref, me: actor_ref, code: int64, raw: string) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(node, (:bees, 128, raw, "", code % 4, code / 4, me) impl ActorMessage {})
+    produces pure ok end
+}
+fn rc_got(st: { node: actor_ref, rnd: dangerous_actor_ref, pend: string, got: string, bad: boolean }, me: actor_ref, etf: string) -> { node: actor_ref, rnd: dangerous_actor_ref, pend: string, got: string, bad: boolean } {
+    case length_bytes(st.pend) == 0 of {
+        true -> st;
+        false -> {
+            mark: int64 <- at(st.pend, 0);
+            rest: string <- bees_trust_frame@cut(st.pend, 1, length_bytes(st.pend));
+            b: string <- rc_bytes(etf);
+            bad: boolean <- st.bad or length_bytes(b) != 56;
+            acc: string <- bees_trust_frame@cat2(st.got, b);
+            case mark >= 128 of {
+                false -> { node: st.node, rnd: st.rnd, pend: rest, got: acc, bad: bad };
+                true -> {
+                    sequence
+                        _: boolean <- rc_tell(st.node, me, mark - 128, case bad of { true -> ""; false -> acc })
+                    produces pure { node: st.node, rnd: st.rnd, pend: rest, got: "", bad: false } end
+                }
+            }
+        }
+    }
+}
+fn trc(msg: (:bees, int64, string, string, int64), st: { node: actor_ref, rnd: dangerous_actor_ref, pend: string, got: string, bad: boolean }) -> (:no_reply, { node: actor_ref, rnd: dangerous_actor_ref, pend: string, got: string, bad: boolean }) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        nxt: { node: actor_ref, rnd: dangerous_actor_ref, pend: string, got: string, bad: boolean } <- case rc_k(msg) of {
+            1 -> rc_want(st, me, rc_n(msg));
+            7 -> rc_got(st, me, rc_s(msg));
+            _: int64 -> st
+        }
+    produces pure (:no_reply, nxt) end
+}

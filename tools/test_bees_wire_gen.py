@@ -332,5 +332,363 @@ class IndependentEncoder(unittest.TestCase):
         self.assertGreater(checked, 90)
 
 
+NODE = "node b@127.0.0.1\nredial off\npeer a@127.0.0.1 127.0.0.1 7001 dial\n"
+
+
+def parse_type(text):
+    p = W.Parser(W.tokenize(text, "t.wire:1"), "t.wire:1", "m")
+    ty = p.parse_type("<value>")
+    assert p.peek() is None, p.peek()
+    return ty
+
+
+class NodeKinds(unittest.TestCase):
+    """C1 (development-plan/spikes/C1-codec-term-coverage.md 2.1, 2.2, 2.7): atom literal types, tagged tuples, sums and
+    optional references, carried on the node path only."""
+
+    def refused(self, ty):
+        with self.assertRaises(W.WireError) as cm:
+            parse_type(ty)
+        return str(cm.exception)
+
+    def test_the_new_kinds_parse(self):
+        ty = parse_type("(:a, int64) | (:b, string) | :none")
+        self.assertEqual(ty, ("sum", [("tuple", [("atomlit", "a"), ("prim", "int64")]),
+                                      ("tuple", [("atomlit", "b"), ("prim", "string")]), ("atomlit", "none")]))
+        self.assertEqual(W.canon(ty), "(:a,int64)|(:b,string)|:none")
+        self.assertEqual(W.silica(ty), "(:a, int64) | (:b, string) | :none")
+        self.assertEqual(W.silica_value(ty), W.silica(ty))
+        self.assertEqual((W.depth_of(ty), W.max_depth(ty)), (1, 2))
+        self.assertEqual(W.min_size(ty), 6)                       # the atom none: 119, 4, "none"
+        self.assertEqual(W.type_atoms(ty), ["a", "b", "none"])
+        self.assertFalse(W.has_slot(ty))
+        self.assertTrue(W.has_node_kinds(ty))
+
+    def test_a_sum_may_be_anywhere_a_type_may(self):
+        ty = parse_type("{ id: int64, st: :on | :off, items: List[(:i, int64) | (:s, string) | :gap] }")
+        self.assertEqual(W.silica(ty), "{ id: int64, st: :on | :off, items: List[(:i, int64) | (:s, string) | :gap, mem(normal)] }")
+        self.assertEqual(W.canon(ty), "{id:int64,st::on|:off,items:List[(:i,int64)|(:s,string)|:gap]}")
+        self.assertEqual((W.depth_of(ty), W.max_depth(ty)), (3, 4))
+        self.assertEqual(W.type_atoms(ty), ["on", "off", "i", "s", "gap"])
+        ty = parse_type("(:wrap, { k: :a | :b, v: (:some, int64) | :none })")
+        self.assertEqual(W.silica(ty), "(:wrap, { k: :a | :b, v: (:some, int64) | :none })")
+        self.assertTrue(W.is_tagged(ty))
+        # a record variant (at most one), a tag and an atom of one name, a sum as a tuple's first component
+        for text in ("(:pt, int64, int64) | { x: int64, y: string } | :nil", "(:ping, string) | :ping",
+                     "{ x: int64 } | :nil", "(:a | :b, int64)", ":red | :green | :blue"):
+            self.assertEqual(W.silica(parse_type(text)), text)
+
+    def test_an_optional_reference_makes_the_message_carry_its_region(self):
+        ty = parse_type("(atom, int64, ref?(L, normal, rec))")
+        self.assertEqual(ty, ("tuple", [("prim", "atom"), ("prim", "int64"), ("slot",)]))
+        self.assertTrue(W.has_slot(ty))
+        self.assertEqual(W.canon(ty), "(atom,int64,ref?(L,normal,rec))")
+        self.assertEqual(W.silica_value(ty), "(atom, int64, ref?(L, normal, rec))")
+        self.assertEqual(W.silica(ty), "{ r: region(L, normal), v: (atom, int64, ref?(L, normal, rec)) }")
+        self.assertEqual(W.depth_of(ty), 1)
+        self.assertEqual(W.max_depth(ty), 65)                      # the type's nesting plus 64 (2.7, Q6)
+        self.assertEqual(W.min_size(ty), 2 + 2 + 2 + 6)
+        ty = parse_type("(:chain, { id: int64, head: (int64, string, ref?(L, normal, rec)) })")
+        self.assertEqual(W.silica(ty), "{ r: region(L, normal), v: (:chain, { id: int64, head: (int64, string, ref?(L, normal, rec)) }) }")
+        self.assertEqual((W.depth_of(ty), W.max_depth(ty)), (3, 67))
+        self.assertEqual(W.type_atoms(ty), ["chain"])
+        # a tagged recursive tuple, alone and as a sum variant
+        ty = parse_type("(:cons, int64, ref?(L, normal, rec)) | :nil")
+        self.assertEqual(W.silica(ty), "{ r: region(L, normal), v: (:cons, int64, ref?(L, normal, rec)) | :nil }")
+        self.assertEqual(W.max_depth(ty), 65)
+
+    def test_the_old_kinds_are_as_they_were(self):
+        ty = parse_type("{ a: (int64, string), l: List[List[uint8]] }")
+        self.assertEqual(ty, ("record", [("a", ("tuple", [("prim", "int64"), ("prim", "string")])),
+                                         ("l", ("list", ("list", ("prim", "uint8"))))]))
+        self.assertEqual(W.silica(ty), "{ a: (int64, string), l: List[List[uint8, mem(normal)], mem(normal)] }")
+        self.assertEqual(W.silica_value(ty), W.silica(ty))
+        self.assertEqual(W.canon(ty), "{a:(int64,string),l:List[List[uint8]]}")
+        self.assertEqual((W.depth_of(ty), W.max_depth(ty)), (3, 4))
+        self.assertFalse(W.has_node_kinds(ty))
+        self.assertEqual(W.type_atoms(ty), [])
+
+    def test_refusals(self):
+        cases = [
+            # two variants with one tag
+            ("(:pt, int64, int64) | (:pt, int64) | :none", "<value>", "'(:pt,int64,int64) | ...'",
+             "the variants (:pt,int64,int64) and (:pt,int64) have one tag and cannot be told apart on the wire (E2404)"),
+            ("(:a, int64) | (:a, string)", "<value>", "'(:a,int64) | ...'", "cannot be told apart on the wire (E2404)"),
+            # a primitive, list or untagged tuple variant
+            ("int64 | string", "<value>", "'int64 | ...'", "tag it: (:i, int64)"),
+            ("{ a: (:n, int64) | string }", "a", "'(:n,int64) | ...'", "the variant 'string' is not an atom literal, a tagged tuple or a record"),
+            ("(:n, int64) | List[int64]", "<value>", "'(:n,int64) | ...'", "tag it: (:i, List[int64, mem(normal)])"),
+            ("(:n, int64) | (int64, string)", "<value>", "'(:n,int64) | ...'", "tag it: (:i, int64, string)"),
+            (":a | :a", "<value>", "':a | ...'", "the variant :a is listed twice"),
+            ("{ x: int64 } | { y: int64 }", "<value>", "'{x:int64} | ...'", "a sum has at most one record variant"),
+            # the two orders and shapes the pinned compiler's derived codec does not compile
+            (":ping | (:pong, int64)", "<value>", "':ping | ...'",
+             "a sum that starts with an atom literal cannot have a tagged tuple variant (the compiler's derived decoder does not "
+             "compile it, E2005); write a tagged tuple first: (:pong, int64) | :ping"),
+            ("(:ping) | (:pong, int64)", "<value>", "'(:ping)'", "a tagged tuple has one or more components after its tag"),
+            ("(:ping)", "<value>", "'(:ping)'", "write the atom literal :ping"),
+            # an atom literal type anywhere else
+            (":a", "<value>", "':a'", "an atom literal type is only a tuple's first component or a sum variant"),
+            ("(int64, :tag)", "1", "':tag'", "an atom literal type is only a tuple's first component or a sum variant"),
+            ("{ a: :x }", "a", "':x'", "an atom literal type is only"),
+            ("List[:x]", "<value>[]", "':x'", "an atom literal type is only"),
+            ("(:a, int64) | :9", "<value>", "':9'", "an atom literal type is :name, an identifier"),
+            # an optional reference anywhere but a tuple's component
+            ("{ a: ref?(L, normal, rec) }", "a", "'ref?(L, normal, rec)'", "an optional reference is only a component of a tuple"),
+            ("List[ref?(L, normal, rec)]", "<value>[]", "'ref?(L, normal, rec)'", "only a component of a tuple"),
+            ("ref?(L, normal, rec)", "<value>", "'ref?(L, normal, rec)'", "only a component of a tuple"),
+            ("(int64, ref?(L, normal, rec) | :a)", "1", "'ref?(L, normal, rec)'", "only a component of a tuple"),
+            ("(int64, ref?(L, normal, int64))", "1", "'ref?'", "the one form carried is ref?(L, normal, rec)"),
+            ("(int64, ref?(L, atomic, rec))", "1", "'ref?'", "optional references cannot cross the wire"),
+        ]
+        for ty, path, shown, why in cases:
+            text = self.refused(ty)
+            self.assertIn(f"t.wire:1: message m: field '{path}' has type {shown}, which is not supported on the wire: ", text, ty)
+            self.assertIn(why, text, ty)
+
+    def test_message_names_include_the_atoms_written_in_types(self):
+        with tempfile.TemporaryDirectory() as d:
+            m = write(d, "x.wire", NODE + "remote val @ a@127.0.0.1 cast (:i, int64) | (:s, string) | :none\n"
+                                         "local shape cast { st: :on | :off, v: (:i, int64) | :val }\n")
+            # the names in the manifest's order, then the type atoms, sorted, each once (val is a name already)
+            self.assertEqual(W.message_names([m]), ["val", "shape", "i", "none", "off", "on", "s"])
+            out = os.path.join(d, "out")
+            r = run(["generate", "-o", out, m])
+            self.assertEqual(r.returncode, 0, r.stderr)
+            atoms = read(os.path.join(out, "bees_atoms.silica"))
+            for a in ("val", "shape", "i", "s", "on", "off", "none"):
+                self.assertIn(f"fn a_{a}() -> atom {{ :{a} }}", atoms)
+
+    def test_the_hand_codec_refuses_the_new_kinds(self):
+        """A manifest with no node line is the m1 trials' hand codec (bees_wire_msgs); it does not learn the new kinds."""
+        for ty, shown in (("(:a, int64) | :none", "(:a,int64)|:none"), ("(:tag, int64)", "(:tag,int64)"),
+                          ("(atom, int64, ref?(L, normal, rec))", "(atom,int64,ref?(L,normal,rec))"),
+                          ("{ a: List[:x | :y] }", "{a:List[:x|:y]}")):
+            for cmd in ("wire", "generate"):
+                with tempfile.TemporaryDirectory() as d:
+                    m = write(d, "x.wire", f"message m {ty}\n")
+                    out = os.path.join(d, "out")
+                    r = run([cmd, "-o", out, m])
+                    self.assertNotEqual(r.returncode, 0, ty)
+                    self.assertIn(f"x.wire:1: message m: type '{shown}' (an atom literal type, a sum or an optional reference) is "
+                                  "carried only on the node path (bees_msgs, the language's derived codec)", r.stderr, ty)
+                    self.assertNotIn("Traceback", r.stderr)
+                    self.assertFalse(os.path.exists(os.path.join(out, "bees_wire_msgs.silica")))
+                    self.assertFalse(os.path.exists(os.path.join(out, "bees_atoms.silica")), "nothing is generated")
+            with tempfile.TemporaryDirectory() as d:
+                m = write(d, "x.wire", f"message m {ty}\n")
+                with self.assertRaises(W.WireError):
+                    W.generate_wire(os.path.join(d, "out"), [m])
+                self.assertTrue(W.on_node_path([write(d, "y.wire", NODE)]))
+                self.assertFalse(W.on_node_path([m]))
+
+    def test_existing_manifests_generate_what_they_did(self):
+        """The n1_limits manifest (records of an int64 and of a string, a frame cap of 65536): bees_msgs is, byte for byte,
+        the text the generator wrote before the new kinds existed, and no .atoms file is written."""
+        leaf = os.path.join(ROOT, "trials", "n1_limits")
+        with tempfile.TemporaryDirectory() as d:
+            r = run(["generate", "-o", d, "--config", os.path.join(leaf, "bees.config"), os.path.join(leaf, "limits.wire")])
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(sorted(os.listdir(d)), ["bees_atoms.index", "bees_atoms.silica", "bees_msgs.silica", "bees_peers.silica"])
+            body = read(os.path.join(d, "bees_msgs.silica")).split("module bees_msgs;\n", 1)[1]
+            self.assertEqual(body, N1_LIMITS_MSGS)
+            peers = read(os.path.join(d, "bees_peers.silica"))
+            self.assertIn("fn dlv_num(msg: string, st: int64) -> (:no_reply, int64) {\n    sequence proc[concurrency]\n"
+                          "        r: (:ok, { n: int64 }) | (:rejected, atom) <- bees_msgs@dec_num(msg);\n", peers)
+            self.assertIn("fn proxy_str(msg: { s: string }, st: { tx: actor_ref, id: int64 })", peers)
+            self.assertNotIn("alloc_region", peers)
+
+
+N1_LIMITS_MSGS = """use wire_etf;
+use bees_atoms;
+
+export validate_named/2;
+export enc_num/1;
+export dec_num/1;
+export enc_str/1;
+export dec_str/1;
+
+fn enc_num(msg: { n: int64 }) -> string {
+    sequence proc[mem(normal), transport]
+        s: string <- encode((:etf), msg)
+    produces pure s end
+}
+
+fn dec_num(frame: string) -> (:ok, { n: int64 }) | (:rejected, atom) {
+    sequence proc[mem(normal), transport]
+        r: (:ok, { n: int64 }) | (:rejected, atom) <- decode((:etf), frame)
+    produces pure r end
+}
+
+fn check_num(frame: string) -> atom {
+    sequence
+        r: (:ok, { n: int64 }) | (:rejected, atom) <- dec_num(frame);
+        why: atom <- case r of { (:ok, _v: { n: int64 }) -> :ok; (:rejected, w: atom) -> w }
+    produces pure why end
+}
+
+fn enc_str(msg: { s: string }) -> string {
+    sequence proc[mem(normal), transport]
+        s: string <- encode((:etf), msg)
+    produces pure s end
+}
+
+fn dec_str(frame: string) -> (:ok, { s: string }) | (:rejected, atom) {
+    sequence proc[mem(normal), transport]
+        r: (:ok, { s: string }) | (:rejected, atom) <- decode((:etf), frame, { max_bytes: 65536, max_depth: 2, max_length: 65536 })
+    produces pure r end
+}
+
+fn check_str(frame: string) -> atom {
+    sequence
+        r: (:ok, { s: string }) | (:rejected, atom) <- dec_str(frame);
+        why: atom <- case r of { (:ok, _v: { s: string }) -> :ok; (:rejected, w: atom) -> w }
+    produces pure why end
+}
+
+fn validate_named(frame: string, name: atom) -> atom { case name == bees_atoms@a_num() of { true -> check_num(frame); false -> case name == bees_atoms@a_str() of { true -> check_str(frame); false -> bees_atoms@a_unknown_atom() } } }
+"""
+
+
+class SplitKinds(unittest.TestCase):
+    """C1 (development-plan/spikes/C1-codec-term-coverage.md 2.1, 2.3 to 2.6, 3.5): Map, Set, buf and term in the grammar, what is
+    plain, and the SD-37 switch. Silica is not compiled here; trials/c1_codec_map, c1_codec_set, c1_codec_buf, c1_codec_termmsg
+    and c1_codec_wide run what these shapes generate."""
+
+    def refused(self, ty):
+        with self.assertRaises(W.WireError) as cm:
+            parse_type(ty)
+        return str(cm.exception)
+
+    def collected(self, d, text, node=True):
+        return W.collect([write(d, "x.wire", (NODE if node else "") + text)], warn=False)
+
+    def collect_refused(self, text, node=True):
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(W.WireError) as cm:
+                self.collected(d, text, node)
+        return str(cm.exception)
+
+    def test_a_map(self):
+        ty = parse_type("Map[int64, string]")
+        self.assertEqual(ty, ("map", ("prim", "int64"), ("prim", "string")))
+        self.assertEqual(W.canon(ty), "Map[int64,string]")
+        self.assertEqual(W.silica(ty), "List[(int64, string), mem(normal)]")
+        self.assertEqual(W.silica_value(ty), W.silica(ty))
+        self.assertEqual((W.depth_of(ty), W.max_depth(ty)), (1, 2))
+        self.assertEqual(W.min_size(ty), 5)                        # 116 and the four count bytes
+        self.assertTrue(W.has_node_kinds(ty))
+        self.assertTrue(W.has_special(ty))
+        self.assertFalse(W.is_plain(ty))
+        self.assertFalse(W.has_region(ty))
+        # the value may be a list, a sum, a record, a map or a set; the key a tuple
+        ty = parse_type("Map[(int64, int64), Map[string, Set[(:i, int64) | :none]]]")
+        self.assertEqual(W.canon(ty), "Map[(int64,int64),Map[string,Set[(:i,int64)|:none]]]")
+        self.assertEqual(W.silica(ty), "List[((int64, int64), List[(string, List[(:i, int64) | :none, mem(normal)]), mem(normal)]), mem(normal)]")
+        self.assertEqual(W.depth_of(ty), 4)
+        self.assertEqual(W.type_atoms(ty), ["i", "none"])
+
+    def test_a_set(self):
+        ty = parse_type("Set[(:pt, int64, int64)]")
+        self.assertEqual(ty, ("set", ("tuple", [("atomlit", "pt"), ("prim", "int64"), ("prim", "int64")])))
+        self.assertEqual(W.canon(ty), "Set[(:pt,int64,int64)]")
+        self.assertEqual(W.silica(ty), "List[(:pt, int64, int64), mem(normal)]")
+        self.assertEqual((W.depth_of(ty), W.max_depth(ty)), (2, 3))
+        self.assertEqual(W.type_atoms(ty), ["pt"])
+        self.assertFalse(W.is_plain(ty))
+
+    def test_a_buf_makes_the_message_carry_its_region(self):
+        ty = parse_type("buf(L, normal, uint8, 8)")
+        self.assertEqual(ty, ("buf", 8))
+        self.assertEqual(W.canon(ty), "buf(L,normal,uint8,8)")
+        self.assertEqual(W.silica_value(ty), "{ b: buf(L, normal, uint8, 8), n: int64 }")
+        self.assertEqual(W.silica(ty), "{ r: region(L, normal), v: { b: buf(L, normal, uint8, 8), n: int64 } }")
+        self.assertTrue(W.has_buf(ty) and W.has_region(ty) and not W.has_slot(ty))
+        self.assertEqual(W.depth_of(ty), 0)
+        ty = parse_type("{ id: int64, data: buf(L, normal, uint8, 65536) }")
+        self.assertEqual(W.silica(ty), "{ r: region(L, normal), v: { id: int64, data: { b: buf(L, normal, uint8, 65536), n: int64 } } }")
+        self.assertFalse(W.is_plain(ty))
+
+    def test_a_term_is_a_whole_message(self):
+        with tempfile.TemporaryDirectory() as d:
+            msgs = self.collected(d, "local any cast term\nremote out @ a@127.0.0.1 cast term\n")
+        self.assertEqual(msgs, [("any", ("term",)), ("out", ("term",))])
+        self.assertEqual(W.silica(("term",)), "List[(int64, int64, float64, string), mem(normal)]")
+        self.assertEqual(W.canon(("term",)), "term")
+        self.assertFalse(W.is_plain(("term",)))
+        self.assertFalse(W.has_region(("term",)))
+        self.assertEqual(W.split_uses(msgs), ["use bees_term_wire;"])
+        for text in ("{ a: term }", "List[term]", "(int64, term)", "Map[int64, term]"):
+            self.assertIn("a dynamic term is only a whole message type", self.refused(text), text)
+
+    def test_grammar_refusals(self):
+        why = "holds no Map, Set, buf or optional reference (it is compared for duplicates)"
+        self.assertIn("field '<value>{key}' has type 'Map[int64,int64]', which is not supported on the wire: a map's key " + why,
+                      self.refused("Map[Map[int64, int64], string]"))
+        self.assertIn("field 'a{}' has type 'Set[int64]', which is not supported on the wire: a set's element " + why,
+                      self.refused("{ a: Set[Set[int64]] }"))
+        self.assertIn("a map's key " + why, self.refused("Map[buf(L, normal, uint8, 4), int64]"))
+        self.assertIn("a map is written Map[K, V]", self.refused("{ a: Map }"))
+        self.assertIn("a set is written Set[T]", self.refused("Set"))
+        one = "the one buffer carried is buf(L, normal, uint8, N), N a literal 1..65536"
+        for text in ("buf(L, normal, uint8, 0)", "buf(L, normal, uint8, 65537)", "buf(L, normal, int64, 8)", "buf(L, normal, uint8, 08)",
+                     "buf(L, normal, uint8)", "buf"):
+            self.assertIn("field '<value>' has type 'buf', which is not supported on the wire: " + one, self.refused(text), text)
+
+    def test_what_the_node_by_node_codec_refuses(self):
+        cases = [
+            ("(:m, Map[int64, int64]) | :none", "field '<value>' has type '(:m,Map[int64,int64])|:none'",
+             "a sum with a variant that holds a Map, a Set or a buf is not carried"),
+            ("List[buf(L, normal, uint8, 8)]", "field '<value>[]' has type 'buf(L,normal,uint8,8)'",
+             "a buf is carried below tuples and records only, not in a list"),
+            ("Map[int64, buf(L, normal, uint8, 8)]", "field '<value>{}' has type 'buf(L,normal,uint8,8)'", "not in a map"),
+            ("(int64, Map[int64, int64], ref?(L, normal, rec))", "field '<value>'",
+             "a type with an optional reference holds no Map, Set or buf"),
+            ("(int64, int64, int64, int64, int64, int64, int64, Set[int64])", "field '<value>'",
+             "a tuple that holds a Map, a Set or a buf has at most 7 parts (6 with a buf)"),
+            ("{ a: int64, b: int64, c: int64, d: int64, e: int64, f: int64, g: buf(L, normal, uint8, 8) }", "field '<value>'",
+             "has at most 6 parts (6 with a buf)"),
+            ("{ a: int64, b: int64, c: int64, d: int64, e: int64 } | :none", "field '<value>'",
+             "a sum with a variant that holds a record of more than four fields is not carried on the pinned compiler (SD-37)"),
+        ]
+        for ty, where, why in cases:
+            msg = self.collect_refused(f"local m cast {ty}\n")
+            self.assertIn("message m: " + where, msg, ty)
+            self.assertIn(why, msg, ty)
+        # the hand codec of a manifest with no node line carries none of the new kinds
+        for ty, path, name in (("{ a: Map[int64, int64] }", "a", "Map[int64,int64]"), ("Set[int64]", "<value>", "Set[int64]"),
+                               ("(int64, buf(L, normal, uint8, 8))", "1", "buf(L,normal,uint8,8)"), ("term", "<value>", "term")):
+            msg = self.collect_refused(f"message m {ty}\n", node=False)
+            self.assertIn(f"message m: field '{path}' has type '{name}', which is not supported on the wire: a Map, a Set, a buf "
+                          "and a dynamic term are carried only on the node path (bees_msgs)", msg, ty)
+
+    def test_plain_types_stay_plain(self):
+        for text in ("int64", "{ a: (int64, string), l: List[List[uint8]] }", "(:a, int64) | (:b, string) | :none",
+                     "(atom, int64, ref?(L, normal, rec))", "{ a: int64, b: int64, c: int64, d: int64 }"):
+            self.assertTrue(W.is_plain(parse_type(text)), text)
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(W.split_uses(self.collected(d, "local m cast { a: int64, l: List[string] }\n")), [])
+            self.assertEqual(W.split_uses(self.collected(d, "local m cast Map[int64, int64]\n")),
+                             ["use bees_etf_scan;", "use bees_codec_kinds;"])
+
+    def test_the_sd37_switch(self):
+        wide = parse_type("{ a: int64, b: int64, c: int64, d: int64, e: int64 }")
+        inside = parse_type("List[(:w, { a: int64, b: int64, c: int64, d: int64, e: int64 })]")
+        self.assertTrue(W.SD37_SPLIT)
+        self.assertTrue(W.is_wide(wide))
+        self.assertFalse(W.is_plain(wide))
+        self.assertFalse(W.is_plain(inside))
+        self.assertEqual(W.silica(wide), "{ a: int64, b: int64, c: int64, d: int64, e: int64 }")   # the type itself does not change
+        keep = W.SD37_SPLIT
+        try:
+            W.SD37_SPLIT = False
+            self.assertTrue(W.is_plain(wide) and W.is_plain(inside))
+            del W.SD37_SPLIT                                        # removing the workaround is deleting the constant
+            self.assertTrue(W.is_plain(wide) and W.is_plain(inside))
+            self.assertFalse(W.is_plain(parse_type("Map[int64, int64]")))
+        finally:
+            W.SD37_SPLIT = keep
+
+
 if __name__ == "__main__":
     unittest.main()

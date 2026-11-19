@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests of the Python TEMPUS client's codec (C1) against the Silica frame unit (T2).
+"""Tests of the Python TEMPUS client: its codec (C1) against the Silica frame unit (T2), and its active part (C2).
 
 trials/t2_tempus_frames prints, for every frame and token it writes or mutates, a line `NAME hex HEX` and a line
 `NAME read: ...` saying what the Silica reader made of it. This test:
@@ -7,6 +7,10 @@ trials/t2_tempus_frames prints, for every frame and token it writes or mutates, 
   - reads every HEX of the golden with the Python reader and requires the same verdict (accepted or refused);
   - checks the Python codec on its own (round trips, the canonical key order, real Ed25519 tokens, identities).
 It reads every recorded golden (frames.<platform>.scout) and the last run's output when there is one.
+
+The active part (class Active) is the Python client against itself over mutual TLS 1.3 on 127.0.0.1, a port the system
+assigns: admission both ways and every request kind, each refusal cause, key_rotated, the channel binding, every named
+misbehaviour and the TLS refusals. No Silica program runs; keys and certificates are TEST ONLY, from fixed seeds.
 
     python3 tools/test_bees_tempus_client.py
 """
@@ -201,6 +205,340 @@ class OnItsOwn(unittest.TestCase):
         twice = b"\x83\x74\x00\x00\x00\x02\x77\x01t\x77\x04done\x77\x01t\x77\x04done"
         with self.assertRaisesRegex(c.Refused, "duplicate_field"):
             c.read_body(twice, 3)
+
+
+# ---------------------------------------------------------------- C2: the active part, Python client against Python client
+# Everything below runs on 127.0.0.1 with a port the system assigns. Keys are TEST ONLY, from fixed seeds: 00.. the
+# producer, 60.. the producer's old key, 20.. the dialer, 40.. the listener, 80.. a third peer. The clock is the number
+# NOW, never the machine's.
+NOW, SKEW = 1500, 10
+ADVERTISED = "127.0.0.1:22899"          # the dialer's advertised listen address; nothing dials it in these tests
+PRODUCER_PUB = c._raw_public(c.fixture_key(0))
+OLD = c.fixture_key(96)
+BINDING = "the certificate's key is not the advert's pub"
+PROOF = "the proof of possession does not verify"
+
+
+def who(first, typ="tempus_edge", nbf=1000, exp=2000, addr=None, **more):
+    return c.fixture_identity(first, typ, nbf, exp, addr, **more)
+
+
+DIALER = who(32, addr=ADVERTISED)
+LISTENER = who(64, typ="tempus_sentinel")
+THIRD = who(128, addr=ADVERTISED)
+
+
+def verifier(**more):
+    return c.Verifier(PRODUCER_PUB, "k1", NOW, SKEW, **more)
+
+
+def done(request):
+    return c.done()
+
+
+def exchange(request=None, handler=done, dialer=DIALER, listener=LISTENER, trusted=None, dial_verifier=None,
+             listen_verifier=None, dial=None, listen=None):
+    """One connection: (the dialer's Outcome, the listener's Outcome)."""
+    trusted = [dialer.cert_pem] if trusted is None else trusted
+    with c.Listener(listener, listen_verifier or verifier(), handler, trusted, timeout=5.0, **(listen or {})) as lis:
+        out = c.dial(lis.address, dialer, dial_verifier or verifier(), c.tick("tempus_edge") if request is None else request,
+                     **(dial or {}))
+        (served,) = lis.outcomes(1)
+    return out, served
+
+
+class Active(unittest.TestCase):
+    def test_certificates_are_the_ones_of_the_certificate_tool(self):
+        import bees_tempus_certs as certs
+        files = certs.files()
+        for serial, name in enumerate(sorted(certs.SEEDS), start=1):
+            key = c.fixture_key(certs.SEEDS[name])
+            self.assertEqual(c.certificate_pem(key, "bees tempus test " + name, serial), files[name + ".pem"], name)
+            self.assertEqual(c._key_pem(key), files[name + "-key.pem"], name)
+
+    def test_identity(self):
+        self.assertEqual(DIALER.pub, c._raw_public(c.fixture_key(32)))
+        self.assertEqual(DIALER.peer_id, c.peer_id(DIALER.pub))
+        self.assertEqual(DIALER.cert_pem, who(32).cert_pem, "the certificate is the same on every run")
+        from cryptography import x509
+        from cryptography.hazmat.primitives import serialization
+        der = x509.load_pem_x509_certificate(DIALER.cert_pem).public_bytes(serialization.Encoding.DER)
+        self.assertEqual(c.certificate_key(der), DIALER.pub)
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            cert, key = DIALER.write_pem(tmp)
+            for path, data in ((cert, DIALER.cert_pem), (key, DIALER.key_pem)):
+                with open(path, "rb") as f:
+                    self.assertEqual(f.read(), data)
+        self.assertEqual(verifier().check_descriptor(DIALER.descriptor())["typ"], "tempus_edge")
+
+    def test_admission_both_ways_and_every_request(self):
+        entries = [THIRD.entry(4), DIALER.entry(0)]
+        call = c.etf_encode({c.Atom("t"): c.Atom("call"), c.Atom("req_id"): 7, c.Atom("f"): c.Atom("ping")})
+        result = c.etf_encode({c.Atom("t"): c.Atom("result"), c.Atom("req_id"): 7, c.Atom("value"): 42})
+        cast = c.etf_encode({c.Atom("t"): c.Atom("cast"), c.Atom("f"): c.Atom("ping")})
+        cases = [
+            (c.shuffle("tempus_edge", entries), c.shuffle_reply("tempus_edge", [LISTENER.entry(0, "127.0.0.1:9")]),
+             "shuffle", "shuffle_reply"),
+            (c.sample("tempus_bridge", 2), c.sample_reply("tempus_bridge", []), "sample", "sample_reply"),
+            (c.tick("tempus_sentinel"), c.done(), "tick", "done"),
+            (c.clock(1763424000000), c.done(), "clock", "done"),
+            (call, result, "call", "result"),
+        ]
+        for request, reply, asked, answered in cases:
+            seen = []
+
+            def handler(r, reply=reply):
+                seen.append(r)
+                return reply
+            out, served = exchange(request, handler)
+            self.assertEqual((out.what, out.stage, out.kind), ("reply", "done", answered), out.line())
+            self.assertEqual(out.body, reply)
+            self.assertEqual((served.what, served.kind, served.sent), ("served", asked, "reply"), served.line())
+            self.assertEqual(served.body, request)
+            # each side read and verified the other's advert
+            self.assertEqual(out.advert[c.Atom("id")], LISTENER.peer_id)
+            self.assertEqual(out.typ, "tempus_sentinel")
+            self.assertEqual(served.advert, DIALER.descriptor())
+            self.assertEqual(served.typ, "tempus_edge")
+            self.assertEqual((seen[0].kind, seen[0].index, seen[0].advert), (asked, 0, DIALER.descriptor()))
+            # a listener with no address of its own advertises the one it bound
+            self.assertTrue(out.advert[c.Atom("addr")].startswith(b"127.0.0.1:"))
+        self.assertEqual(seen[0].fields, {"req_id": 7, "f": "ping"})
+        self.assertEqual(out.fields, {"req_id": 7, "value": 42})
+        out, served = exchange(c.shuffle("tempus_edge", entries), lambda r: c.shuffle_reply("tempus_edge", r.fields["entries"]))
+        self.assertEqual(out.fields, {"store": "tempus_edge", "entries": entries})
+        # a cast has no reply: the listener closes
+        out, served = exchange(cast, lambda r: None)
+        self.assertEqual((out.what, out.stage), ("closed", "reply"), out.line())
+        self.assertEqual((served.what, served.kind, served.sent), ("served", "cast", "nothing"), served.line())
+
+    def test_lines_are_deterministic(self):
+        lines = set()
+        for _ in range(2):
+            out, served = exchange(c.sample("tempus_edge", 2), lambda r: c.sample_reply("tempus_edge", [THIRD.entry(3)]))
+            lines.add((out.line(), served.line()))
+        self.assertEqual(lines, {(
+            "reply sample_reply entries=[3:%s] store=tempus_edge peer=%s typ=tempus_sentinel"
+            % (THIRD.peer_id[:8].hex(), LISTENER.peer_id[:8].hex()),
+            "served sample n=2 store=tempus_edge sent=reply peer=%s typ=tempus_edge" % DIALER.peer_id[:8].hex())})
+
+    def test_a_listener_serves_several_connections_in_order(self):
+        with c.Listener(LISTENER, verifier(), done, [DIALER.cert_pem],
+                        nonce=lambda i: bytes([i]) * 32) as lis:
+            for n in (1, 2, 3):
+                self.assertEqual(c.dial(lis.address, DIALER, verifier(), c.sample("tempus_edge", n), nonce=b"N" * 32).what, "reply")
+            self.assertEqual([o.fields["n"] for o in lis.outcomes(3)], [1, 2, 3])
+
+    def test_each_refusal_cause_is_detected_by_the_listening_verifier(self):
+        me = DIALER
+        other_id = c.advert(c.descriptor(THIRD.peer_id, me.pub, ADVERTISED, me.token))
+        cases = [
+            ("wrong signature", who(32, addr=ADVERTISED, producer=c.fixture_key(64)), None, None, "advert",
+             "the signature does not verify"),
+            ("expired", who(32, exp=1400, addr=ADVERTISED), None, None, "advert", "the token has expired"),
+            ("expired at exactly exp plus skew", who(32, exp=1490, addr=ADVERTISED), None, None, "advert", "the token has expired"),
+            ("not yet valid", who(32, nbf=1600, addr=ADVERTISED), None, None, "advert", "the token is not valid yet"),
+            ("sub is another key", who(32, addr=ADVERTISED, sub=THIRD.pub), None, None, "advert", "sub is not the peer's key"),
+            ("typ not allowed", me, None, ("tempus_bridge", "tempus_sentinel"), "advert", "typ is not allowed"),
+            ("id is not the key's hash", me, c.wrong_advert(other_id), None, "advert", "id is not the SHA-512 of pub"),
+            ("token cut short", me, c.wrong_advert(c.advert(c.descriptor(me.peer_id, me.pub, ADVERTISED, me.token[:-1]))), None,
+             "advert", "truncated"),
+            ("proof over another nonce", me, c.wrong_proof_other_nonce(), None, "response", PROOF),
+            ("proof by another key", me, c.wrong_proof_other_key(THIRD.key), None, "response", PROOF),
+            ("proof of zero bytes", me, c.wrong_proof_bytes(), None, "response", PROOF),
+            ("proof of 63 bytes", me, c.wrong_proof_bytes(bytes(63)), None, "response", "sig is not 64 bytes"),
+            ("no proof", me, c.no_proof(), None, "response", "tick where pop_response was due"),
+        ]
+        for name, dialer, mis, types, stage, reason in cases:
+            asked = []
+            out, served = exchange(dialer=dialer, trusted=[me.cert_pem], dial={"misbehaviour": mis},
+                                   handler=lambda r: asked.append(r) or c.done(),
+                                   listen_verifier=verifier(types=types) if types else None)
+            self.assertEqual((served.what, served.stage, served.reason), ("refused", stage, reason), name + ": " + served.line())
+            self.assertEqual(out.what, "closed", name + ": " + out.line())     # closed, no reply: all the wire shows
+            self.assertEqual(asked, [], name)
+        # inside the skew a token is still (or already) good
+        for dialer in (who(32, exp=1495, addr=ADVERTISED), who(32, nbf=1505, addr=ADVERTISED)):
+            out, served = exchange(dialer=dialer, trusted=[me.cert_pem])
+            self.assertEqual((out.what, served.what), ("reply", "served"))
+
+    def test_the_dialing_verifier_refuses_a_bad_listener(self):
+        for listener, mis, stage, reason in (
+                (who(64, exp=1400), None, "advert", "the token has expired"),
+                (who(64, producer=c.fixture_key(128)), None, "advert", "the signature does not verify"),
+                (LISTENER, c.wrong_proof_other_nonce(), "response", PROOF)):
+            out, served = exchange(listener=listener, listen={"misbehaviour": mis})
+            self.assertEqual((out.what, out.stage, out.reason), ("refused", stage, reason), out.line())
+            self.assertEqual(served.what, "closed", served.line())
+        self.assertEqual(out.advert[c.Atom("id")], LISTENER.peer_id, "the refused peer's advert is still reported")
+
+    def test_key_rotated(self):
+        old = who(32, addr=ADVERTISED, producer=OLD, kid="k0")
+        out, served = exchange(dialer=old)
+        self.assertEqual((out.what, out.stage, out.kid), ("key_rotated", "challenge", b"k1"), out.line())
+        self.assertEqual((served.what, served.reason), ("refused", "key_rotated"), served.line())
+        self.assertEqual(out.line(), "key_rotated at=challenge kid=6b31 peer=%s typ=tempus_sentinel" % LISTENER.peer_id[:8].hex())
+        # another kid comes before every other fault of the token (here it is expired too)
+        out, served = exchange(dialer=who(32, addr=ADVERTISED, producer=OLD, kid="k0", exp=1400))
+        self.assertEqual((out.what, out.kid), ("key_rotated", b"k1"))
+        # the other way round: the listener's token is the old one and the dialer says so
+        out, served = exchange(listener=who(64, producer=OLD, kid="k0"))
+        self.assertEqual((out.what, out.reason), ("refused", "key_rotated"), out.line())
+        self.assertEqual((served.what, served.kid), ("key_rotated", b"k1"), served.line())
+
+    def test_channel_binding(self):
+        # THIRD holds a good certificate and a good token of its own, and presents the DIALER's advert: every field of
+        # that advert verifies, so only the binding to the TLS certificate refuses it.
+        self.assertEqual(verifier().check_descriptor(DIALER.descriptor())["sub"], DIALER.pub)
+        with self.assertRaisesRegex(c.Refused, BINDING):
+            verifier().check_descriptor(DIALER.descriptor(), THIRD.pub)
+        asked = []
+        out, served = exchange(dialer=THIRD, dial={"misbehaviour": c.wrong_advert(DIALER.advert())},
+                               handler=lambda r: asked.append(r) or c.done())
+        self.assertEqual((served.what, served.stage, served.reason), ("refused", "advert", BINDING), served.line())
+        self.assertEqual(served.advert, DIALER.descriptor())
+        self.assertEqual((out.what, asked), ("closed", []), out.line())
+        # and a listener presenting somebody else's advert is refused by the dialer
+        out, served = exchange(listen={"misbehaviour": c.wrong_advert(THIRD.advert())})
+        self.assertEqual((out.what, out.stage, out.reason), ("refused", "advert", BINDING), out.line())
+
+    def test_misbehaviour_of_the_dialer(self):
+        junk = c.raw_frame(b"hello")
+        for name, mis, what, stage, reason in (
+                ("closes after the advert", c.close_after_advert(), "closed", "challenge", ""),
+                ("closes instead of the proof", c.close_at("response"), "closed", "response", ""),
+                ("closes instead of the request", c.close_at("request"), "closed", "request", ""),
+                ("a wrong frame for the challenge", c.wrong_frame_at("challenge", c.done()), "refused", "challenge",
+                 "done where pop_challenge or key_rotated was due"),
+                ("a second advert for the request", c.wrong_frame_at("request", DIALER.advert()), "served", "done", ""),
+                ("an unknown key in the request", c.wrong_frame_at("request", c.etf_encode(
+                    {c.Atom("t"): c.Atom("tick"), c.Atom("store"): c.Atom("tempus_edge"), c.Atom("x"): 1})), "refused",
+                 "request", "unknown_field"),
+                ("an oversize advert", c.oversize_frame_at("advert"), "refused", "advert", "a frame above the ceiling"),
+                ("an oversize request", c.oversize_frame_at("request"), "refused", "request", "a frame above the ceiling"),
+                ("raw bytes for the advert", c.raw_bytes_at("advert", junk), "refused", "advert", "bad_version"),
+                ("half a frame, then nothing more", c.raw_bytes_at("request", b"\x00\x00\x00\x10abc") , "timeout", "request", ""),
+                ("no advert at all", c.Misbehaviour(skip=("advert",)), "refused", "advert",
+                 "pop_challenge where advert was due")):
+            with c.Listener(LISTENER, verifier(), done, [DIALER.cert_pem], timeout=0.4) as lis:
+                out = c.dial(lis.address, DIALER, verifier(), c.tick("tempus_edge"), misbehaviour=mis, timeout=3.0)
+                (served,) = lis.outcomes(1)
+            self.assertEqual((served.what, served.stage, served.reason), (what, stage, reason), name + ": " + served.line())
+            if what != "served":
+                self.assertNotEqual(out.what, "reply", name + ": " + out.line())
+        # the close on purpose is said so at the side that made it
+        out, served = exchange(dial={"misbehaviour": c.close_after_advert()})
+        self.assertEqual((out.what, out.stage, out.reason), ("closed", "challenge", c.ON_PURPOSE), out.line())
+
+    def test_silence(self):
+        # a silent dialer: the listener gives up at its timeout and closes, which is what the dialer then sees
+        with c.Listener(LISTENER, verifier(), done, [DIALER.cert_pem], timeout=0.3) as lis:
+            out = c.dial(lis.address, DIALER, verifier(), c.tick("tempus_edge"), misbehaviour=c.silent_at("response", 5), timeout=8.0)
+            (served,) = lis.outcomes(1)
+        self.assertEqual((served.what, served.stage), ("timeout", "response"), served.line())
+        self.assertEqual((out.what, out.stage, out.reason), ("closed", "response", "silent on purpose"), out.line())
+        # a silent listener (during admission, and instead of the reply): the dialer times out
+        for listen, handler, stage in (({"misbehaviour": c.silent_at("challenge", 5)}, done, "challenge"),
+                                       ({}, lambda r: c.stay_silent(5), "reply")):
+            with c.Listener(LISTENER, verifier(), handler, [DIALER.cert_pem], **listen) as lis:
+                out = c.dial(lis.address, DIALER, verifier(), c.tick("tempus_edge"), timeout=0.3)
+                (served,) = lis.outcomes(1)
+            self.assertEqual((out.what, out.stage), ("timeout", stage), out.line())
+        self.assertEqual((served.what, served.sent), ("served", "silent"), served.line())
+
+    def test_misbehaviour_of_the_listener(self):
+        bad_entry = c.descriptor(THIRD.peer_id, THIRD.pub, ADVERTISED, bytes([THIRD.token[0] ^ 1]) + THIRD.token[1:])
+        for name, handler, what, stage, reason in (
+                ("closes instead of replying", lambda r: c.CLOSE, "closed", "reply", ""),
+                ("raw bytes for the reply", lambda r: c.send_raw(c.raw_frame(b"hello")), "refused", "reply", "bad_version"),
+                ("an oversize reply", lambda r: c.send_raw(b"\x00\x02\x00\x01"), "refused", "reply", "a frame above the ceiling"),
+                ("more entries than the shuffle length", lambda r: c.shuffle_reply("tempus_edge", [THIRD.entry(i) for i in range(4)]),
+                 "refused", "reply", "more entries than the shuffle length"),
+                ("an age above 65535", lambda r: c.shuffle_reply("tempus_edge", [THIRD.entry(65536)]), "refused", "reply",
+                 "age is not 0 to 65535")):
+            out, served = exchange(handler=handler, dial={"shuffle_length": 3})
+            self.assertEqual((out.what, out.stage, out.reason), (what, stage, reason), name + ": " + out.line())
+        # row 17: one bad entry among good ones travels as the caller built it (judging entries is the reader's own act)
+        reply = c.shuffle_reply("tempus_edge", [DIALER.entry(1), (2, bad_entry)])
+        out, served = exchange(c.shuffle("tempus_edge", []), lambda r: reply)
+        self.assertEqual(out.what, "reply")
+        verifier().check_descriptor(out.fields["entries"][0][1])
+        with self.assertRaisesRegex(c.Refused, "does not verify"):
+            verifier().check_descriptor(out.fields["entries"][1][1])
+        # the listener closes after its advert
+        out, served = exchange(listen={"misbehaviour": c.close_after_advert()})
+        self.assertEqual((out.what, out.stage), ("closed", "challenge"), out.line())
+
+    def test_tls_refusals(self):
+        p256 = c.p256_certificate()
+        # (the dialer's switches, the certificates the listener trusts) -> what each side sees
+        for name, dial, trusted, d_what, d_stage, l_what, l_reason in (
+                ("TLS 1.2 only", c.tls12_only(), None, "tls_failed", "tls", "tls_failed", "UNSUPPORTED_PROTOCOL"),
+                ("another ALPN", c.other_alpn("h2"), None, "closed", "advert", "refused", "the ALPN protocol is not tempus/1"),
+                ("no ALPN", c.other_alpn(None), None, "closed", "advert", "refused", "the ALPN protocol is not tempus/1"),
+                ("no client certificate", c.no_certificate(), None, "tls_failed", "advert", "tls_failed",
+                 "PEER_DID_NOT_RETURN_A_CERTIFICATE"),
+                ("a P-256 certificate", c.p256_cert(), None, "tls_failed", "advert", "tls_failed", "CERTIFICATE_VERIFY_FAILED"),
+                ("a P-256 certificate the listener was given", c.p256_cert(), [p256[0]], "closed", "advert", "refused",
+                 "the certificate's key is not Ed25519"),
+                # the limit of Python's ssl: a good self-signed Ed25519 certificate the listener was not given
+                ("an unknown Ed25519 certificate", {}, [THIRD.cert_pem], "tls_failed", "advert", "tls_failed",
+                 "CERTIFICATE_VERIFY_FAILED")):
+            asked = []
+            out, served = exchange(dial=dial, trusted=trusted, handler=lambda r: asked.append(r) or c.done())
+            self.assertEqual((out.what, out.stage), (d_what, d_stage), name + ": " + out.line())
+            self.assertEqual((served.what, served.stage, served.reason), (l_what, "tls", l_reason), name + ": " + served.line())
+            self.assertEqual(asked, [], name)
+
+    def test_an_rsa_certificate_is_refused(self):
+        rsa = c.rsa_certificate()
+        self.assertEqual(rsa, c.rsa_certificate())          # fixed primes: the same files on every run
+        out, served = exchange(dial=c.rsa_cert(), trusted=[rsa[0]])
+        self.assertEqual((served.what, served.stage, served.reason), ("refused", "tls", "the certificate's key is not Ed25519"), served.line())
+        self.assertEqual((out.what, out.stage), ("closed", "advert"), out.line())
+
+    def test_the_dialer_checks_the_listener_certificate(self):
+        issued = c.certificate_pem(LISTENER.key, "bees tempus test issued", 9, issuer_key=c.fixture_key(160), issuer_name="bees tempus test issuer")
+        other_name = c.certificate_pem(LISTENER.key, "bees tempus test issued", 9, issuer_name="somebody else")
+        for name, cert, reason in (("P-256", c.p256_certificate(), "the certificate's key is not Ed25519"),
+                                   ("issued by another key", (issued, LISTENER.key_pem), "the certificate is not self-signed"),
+                                   ("issuer name is not the subject", (other_name, LISTENER.key_pem), "the certificate is not self-signed")):
+            out, served = exchange(listen={"tls_cert": cert})
+            self.assertEqual((out.what, out.stage, out.reason), ("refused", "tls", reason), name + ": " + out.line())
+        # and a listener that speaks another ALPN or TLS 1.2
+        out, served = exchange(listen={"alpn": "h2"})
+        self.assertEqual((out.what, out.stage, out.reason), ("refused", "tls", "the ALPN protocol is not tempus/1"), out.line())
+        out, served = exchange(listen={"tls_version": "1.2"})
+        self.assertEqual((out.what, out.stage), ("tls_failed", "tls"), out.line())
+
+    def test_unreachable(self):
+        import socket
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+        s.close()                                   # nothing listens there now
+        out = c.dial("127.0.0.1:%d" % port, DIALER, verifier(), c.tick("tempus_edge"), timeout=2.0)
+        self.assertEqual(out.line(), "unreachable at=tls")
+
+    def test_command_line(self):
+        import contextlib
+        import io
+        with c.Listener(LISTENER, verifier(), lambda r: c.sample_reply("tempus_edge", [THIRD.entry(3)]), [DIALER.cert_pem]) as lis:
+            common = ["bees_tempus_client.py", "dial", lis.address, "--seed", DIALER.seed.hex(), "--addr", ADVERTISED,
+                      "--producer-pub", PRODUCER_PUB.hex(), "--kid", "k1", "--now", str(NOW), "--skew", str(SKEW)]
+            lines = []
+            for more in (["--token", DIALER.token.hex(), "sample", "tempus_edge", "2"],
+                         ["--test-token", "tempus_edge:1000:2000", "--nonce", "4e" * 32, "sample", "tempus_edge", "2"],
+                         ["--test-token", "tempus_edge:1000:1400", "tick", "tempus_edge"]):
+                text = io.StringIO()
+                with contextlib.redirect_stdout(text):
+                    self.assertEqual(c.main(common + more), 0)
+                lines.append(text.getvalue())
+            lis.outcomes(3)
+        peer = "peer=%s typ=tempus_sentinel" % LISTENER.peer_id[:8].hex()
+        reply = "reply sample_reply entries=[3:%s] store=tempus_edge %s\n" % (THIRD.peer_id[:8].hex(), peer)
+        self.assertEqual(lines, [reply, reply, "closed at=challenge %s\n" % peer])
 
 
 if __name__ == "__main__":

@@ -44,6 +44,12 @@ export epm/2;
 export slot/2;
 
 // ======================================================================== tx (M3's writer, plus kind 6: write, then close)
+// F1-2 (spikes/F1-fuzzer.md): kind 8, close only. The connection actor never casts :close to the carrier itself: it asks tx
+// (close_via_tx), so the close reaches the carrier AFTER every write the connection actor queued before it (one sender, one
+// order), and once tx has sent the carrier :close (kind 6 or 8) it is closed for good (`sent` is -1) and casts nothing more to the
+// carrier: a later write, tick or close is dropped. Before, a reply queued at tx could reach a carrier that the connection
+// actor's own :close had already ended, and on this compiler (SD-43) that cast stopped tx with (:explicit, :actor_not_found).
+// A carrier that ends by itself (the peer closed) can still meet a write already queued at tx: that window is SD-43's.
 fn arm(me: actor_ref, ms: uint64) -> boolean {
     sequence proc[concurrency]
         t: timer_ref <- send_after(ms, me, (:bees, 4, "") impl ActorMessage {})
@@ -64,10 +70,21 @@ fn send_data(tx: actor_ref, seg: string) -> boolean {
         ok: boolean <- cast(tx, (:bees, 0, seg) impl ActorMessage {})
     produces pure ok end
 }
+fn close_via_tx(tx: actor_ref) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(tx, (:bees, 8, "") impl ActorMessage {})
+    produces pure ok end
+}
 fn send_close(tx: actor_ref, seg: string) -> boolean {
     sequence proc[concurrency]
         ok: boolean <- cast(tx, (:bees, 6, seg) impl ActorMessage {})
     produces pure ok end
+}
+// N2T (spikes/N2T-beam-tls.md, fact 12): inside TLS stock Erlang frames every HANDSHAKE message with a 4-byte length, where the
+// plaintext handshake has a 2-byte length (inet_tls_dist opens the connection with {packet, 4} from the start). The beam_dist@put_*
+// messages carry the 2-byte length; on a {transport, tls} node it is replaced here. The bodies are the same.
+fn hsf(seg: string) -> string {
+    case beam_conf@tls() of { true -> bees_dist@frame4(beam_dist@span(seg, 2, length_bytes(seg))); false -> seg }
 }
 fn msg_kind(msg: (:bees, int64, string) | (:who, actor_ref) | (:car, actor_ref)) -> int64 {
     case msg of { (:bees, k: int64, _s: string) -> k; (:who, _w: actor_ref) -> 5; (:car, _c: actor_ref) -> 7 }
@@ -83,10 +100,14 @@ fn msg_cn(msg: (:bees, int64, string) | (:who, actor_ref) | (:car, actor_ref), o
 }
 fn is_write(kind: int64, up: boolean) -> boolean { kind == 1 or kind == 6 or (kind == 0 and up) }
 fn up_after(kind: int64, up: boolean) -> boolean {
-    case kind == 2 of { true -> true; false -> case kind == 3 or kind == 6 of { true -> false; false -> up } }
+    case kind == 2 of { true -> true; false -> case kind == 3 or kind == 6 or kind == 8 of { true -> false; false -> up } }
 }
+// -1: the carrier was sent :close (kind 6 or 8); it stays -1
 fn sent_after(kind: int64, up: boolean, sent: int64) -> int64 {
-    case kind == 4 of { true -> 0; false -> case is_write(kind, up) of { true -> sent + 1; false -> sent } }
+    case sent < 0 or kind == 6 or kind == 8 of {
+        true -> 0 - 1;
+        false -> case kind == 4 of { true -> 0; false -> case is_write(kind, up) of { true -> sent + 1; false -> sent } }
+    }
 }
 fn b2i(b: boolean) -> int64 { case b of { true -> 1; false -> 0 } }
 
@@ -98,13 +119,14 @@ fn tx(
         me: actor_ref <- self();
         kind: int64 <- msg_kind(msg);
         seg: string <- msg_seg(msg);
-        _: boolean <- case is_write(kind, st.up) of { true -> cast(st.c, (:tx, seg, me) impl ActorMessage {}); false -> true };
-        _: boolean <- case kind == 6 of { true -> cast(st.c, :close impl ActorMessage {}); false -> true };
+        writable: boolean <- st.sent >= 0;
+        _: boolean <- case writable and is_write(kind, st.up) of { true -> cast(st.c, (:tx, seg, me) impl ActorMessage {}); false -> true };
+        _: boolean <- case writable and (kind == 6 or kind == 8) of { true -> cast(st.c, :close impl ActorMessage {}); false -> true };
         idle: boolean <- kind == 4 and st.up and st.sent == 0 and st.tick_ms > 0;
         tk: string <- bees_dist@tick();
         _: boolean <- case idle of { true -> cast(st.c, (:tx, tk, me) impl ActorMessage {}); false -> true };
-        arm_first: boolean <- kind == 2 and st.tick_ms > 0;
-        arm_again: boolean <- kind == 4 and st.up and st.tick_ms > 0;
+        arm_first: boolean <- kind == 2 and writable and st.tick_ms > 0;
+        arm_again: boolean <- kind == 4 and st.up and writable and st.tick_ms > 0;
         _: boolean <- case arm_first or arm_again of { true -> arm(me, st.tick_ms); false -> true };
         _: boolean <- case kind == 3 of { true -> cast(st.reaper, (:bees, 1, 0, me, st.cn) impl ActorMessage {}); false -> true };
         _: atom <- case kind == 9 of { true -> stop_self(:normal); false -> :ok }
@@ -118,7 +140,11 @@ fn asm(
 ) -> (:no_reply, { core: actor_ref, hs: boolean, rx: { mode: atom, expected: int64, pending: string } }) {
     sequence
         un: (:more, { mode: atom, expected: int64, pending: string }) | (:frame, string, { mode: atom, expected: int64, pending: string }) | (:rejected, atom) <- case a.hs of {
-            true -> bees_dist@unframe2(a.rx, seg, bees_dist@max_handshake());
+            true -> case beam_conf@tls() of {
+                // N2T: inside TLS every handshake message has a 4-byte length (inet_tls_dist opens with {packet, 4})
+                true -> wireframe@unframe(a.rx, seg, bees_dist@max_handshake());
+                false -> bees_dist@unframe2(a.rx, seg, bees_dist@max_handshake())
+            };
             false -> wireframe@unframe(a.rx, seg, beam_conf@frame_max())
         };
         rx2: { mode: atom, expected: int64, pending: string } <- case un of {
@@ -224,7 +250,7 @@ fn on_up(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, auth: dang
 }
 fn link_up(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, auth: dangerous_actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64, dial: boolean, lt: actor_ref, ch: int64, e0: int64, e1: int64, e2: int64, e3: int64, ctl: int64 }, me: actor_ref) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, ch: int64, e0: int64, e1: int64, e2: int64, e3: int64, ctl: int64 } {
     sequence
-        _: boolean <- case st.dial of { true -> send_raw(st.tx, beam_dist@put_n_init(bees_peers@node_name(), beam_conf@creation())); false -> true };
+        _: boolean <- case st.dial of { true -> send_raw(st.tx, hsf(beam_dist@put_n_init(bees_peers@node_name(), beam_conf@creation()))); false -> true };
         _: boolean <- arm_idle(me, st.io_ms);
         a: actor_ref <- spawn_asm(me, true, "");
         s: { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, ch: int64, e0: int64, e1: int64, e2: int64, e3: int64, ctl: int64 } <- ss_up(st, a)
@@ -239,7 +265,7 @@ fn on_rx(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, auth: dang
 fn violation(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, auth: dangerous_actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64, dial: boolean, lt: actor_ref, ch: int64, e0: int64, e1: int64, e2: int64, e3: int64, ctl: int64 }, kind: string, who: string, n: int64) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, ch: int64, e0: int64, e1: int64, e2: int64, e3: int64, ctl: int64 } {
     sequence
         _: atom <- bees_ingress@audit(kind, who, n);
-        _: boolean <- close_link(st.c);
+        _: boolean <- close_via_tx(st.tx);
         s: { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, ch: int64, e0: int64, e1: int64, e2: int64, e3: int64, ctl: int64 } <- ss_closing(st)
     produces pure s end
 }
@@ -342,7 +368,7 @@ fn hs_listed(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, auth: 
         true -> {
             sequence
                 _: atom <- bees_ingress@audit(refusal_text(idx), name, 0 - 1);
-                _: boolean <- send_close(st.tx, beam_dist@put_status("not_allowed"));
+                _: boolean <- send_close(st.tx, hsf(beam_dist@put_status("not_allowed")));
                 s: { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, ch: int64, e0: int64, e1: int64, e2: int64, e3: int64, ctl: int64 } <- ss_closing(st)
             produces pure s end
         };
@@ -355,8 +381,8 @@ fn hs_listed(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, auth: 
             };
             false -> {
                 sequence
-                    _: boolean <- send_raw(st.tx, beam_dist@put_status("ok"));
-                    _: boolean <- send_raw(st.tx, beam_dist@put_n_acc(bees_peers@node_name(), 0, beam_conf@creation()));
+                    _: boolean <- send_raw(st.tx, hsf(beam_dist@put_status("ok")));
+                    _: boolean <- send_raw(st.tx, hsf(beam_dist@put_n_acc(bees_peers@node_name(), 0, beam_conf@creation())));
                     s: { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, ch: int64, e0: int64, e1: int64, e2: int64, e3: int64, ctl: int64 } <- established(st, idx)
                 produces pure s end
             }
@@ -395,8 +421,8 @@ fn auth_challenge(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, a
             false -> keep(st);
             true -> {
                 sequence
-                    _: boolean <- send_raw(st.tx, beam_dist@put_status("ok"));
-                    _: boolean <- send_raw(st.tx, beam_dist@put_n_acc(bees_peers@node_name(), beam_dist@u32_at(body, 0), beam_conf@creation()));
+                    _: boolean <- send_raw(st.tx, hsf(beam_dist@put_status("ok")));
+                    _: boolean <- send_raw(st.tx, hsf(beam_dist@put_n_acc(bees_peers@node_name(), beam_dist@u32_at(body, 0), beam_conf@creation())));
                     s: { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, ch: int64, e0: int64, e1: int64, e2: int64, e3: int64, ctl: int64 } <- with_dig(st, 2, body)
                 produces pure s end
             }
@@ -409,7 +435,7 @@ fn auth_digest(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, auth
             false -> keep(st);
             true -> {
                 sequence
-                    _: boolean <- send_raw(st.tx, beam_dist@put_r(st.ch, digest_of(body)));
+                    _: boolean <- send_raw(st.tx, hsf(beam_dist@put_r(st.ch, digest_of(body))));
                     s: { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, ch: int64, e0: int64, e1: int64, e2: int64, e3: int64, ctl: int64 } <- ms(st, 1, 3)
                 produces pure s end
             }
@@ -418,7 +444,7 @@ fn auth_digest(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, auth
             false -> keep(st);
             true -> {
                 sequence
-                    _: boolean <- send_raw(st.tx, beam_dist@put_a(digest_of(body)));
+                    _: boolean <- send_raw(st.tx, hsf(beam_dist@put_a(digest_of(body))));
                     s: { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, ch: int64, e0: int64, e1: int64, e2: int64, e3: int64, ctl: int64 } <- established(st, st.peer)
                 produces pure s end
             }
@@ -592,7 +618,7 @@ fn on_idle(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, auth: da
             };
             false -> {
                 sequence
-                    _: boolean <- close_link(st.c);
+                    _: boolean <- close_via_tx(st.tx);
                     s: { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, ch: int64, e0: int64, e1: int64, e2: int64, e3: int64, ctl: int64 } <- on_down(st, me, bees_atoms@a_timeout(), 0)
                 produces pure s end
             }
@@ -624,6 +650,14 @@ fn on_more(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, auth: da
 fn asm_gone(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, auth: dangerous_actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64, dial: boolean, lt: actor_ref, ch: int64, e0: int64, e1: int64, e2: int64, e3: int64, ctl: int64 }, s: { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, ch: int64, e0: int64, e1: int64, e2: int64, e3: int64, ctl: int64 }) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, ch: int64, e0: int64, e1: int64, e2: int64, e3: int64, ctl: int64 } {
     ks_asm(s, st.tx, with_aw(s.step, 0))
 }
+// N2T: an audit line of the BEAM TLS link (dangerous_beam_tls@btls, an FFI worker, may not print: E2103), written here in the order
+// the link sent it: before the (:link_up, _) or (:link_down, _) it explains
+fn tls_audit(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, auth: dangerous_actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64, dial: boolean, lt: actor_ref, ch: int64, e0: int64, e1: int64, e2: int64, e3: int64, ctl: int64 }, event: string, what: string) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, ch: int64, e0: int64, e1: int64, e2: int64, e3: int64, ctl: int64 } {
+    sequence
+        _: atom <- bees_ingress@audit(event, what, 0);
+        s: { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, ch: int64, e0: int64, e1: int64, e2: int64, e3: int64, ctl: int64 } <- keep(st)
+    produces pure s end
+}
 fn on_bees(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, auth: dangerous_actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, io_ms: uint64, dial: boolean, lt: actor_ref, ch: int64, e0: int64, e1: int64, e2: int64, e3: int64, ctl: int64 }, me: actor_ref, k: int64, body: string, rest: string, why: atom) -> { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, ch: int64, e0: int64, e1: int64, e2: int64, e3: int64, ctl: int64 } {
     case k of {
         1 -> on_frame(st, me, body, rest);
@@ -635,6 +669,7 @@ fn on_bees(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, auth: da
         7 -> on_replaced(st, me);
         9 -> ks(st, with_fl(st.step, 2));
         11 -> ks(st, with_fl(st.step, 4));
+        12 -> tls_audit(st, body, rest);
         _: int64 -> case k >= 100 of { true -> on_go(st, k - 100); false -> keep(st) }
     }
 }
@@ -645,7 +680,7 @@ fn on_replaced(st: { asm: actor_ref, c: dangerous_actor_ref, tx: actor_ref, auth
         true -> keep(st);
         false -> {
             sequence
-                _: boolean <- close_link(st.c);
+                _: boolean <- close_via_tx(st.tx);
                 s: { asm: actor_ref, mode: int64, step: int64, peer: int64, ok: int64, dropped: int64, ticks: int64, seen: int64, ch: int64, e0: int64, e1: int64, e2: int64, e3: int64, ctl: int64 } <- on_down(st, me, bees_atoms@a_replaced(), 0)
             produces pure s end
         }
@@ -880,8 +915,16 @@ fn epm_up(st: { c: dangerous_actor_ref, lcar: dangerous_actor_ref, conn: actor_r
             false -> beam_dist@port_please2_req(beam_conf@peer_short(st.peer))
         };
         _: boolean <- cast(st.c, (:tx, req, me) impl ActorMessage {});
-        ok: boolean <- credit(st.c, 1)
+        ok: boolean <- credit(st.c, 1);
+        _: boolean <- case st.kind == 2 of { true -> epm_arm(me); false -> true }
     produces pure ok end
+}
+// F1-1: a lookup (kind 2) is bounded by beam.open_timeout_ms from the moment its EPMD carrier is up: an EPMD that accepts and then
+// says nothing, or only part of an answer, would otherwise hold the link for ever (a late timer for an ended lookup is dropped)
+fn epm_arm(me: actor_ref) -> boolean {
+    sequence proc[concurrency]
+        t: timer_ref <- send_after(to_uint64(beam_conf@open_ms()), me, :timeout impl ActorMessage {})
+    produces pure true end
 }
 // -> true when the exchange is over
 fn epm_rx(st: { c: dangerous_actor_ref, lcar: dangerous_actor_ref, conn: actor_ref, kind: int64, port: int64, done: boolean, buf: string, peer: int64, host: string }, b: string) -> boolean {
@@ -910,9 +953,35 @@ fn epm_reg(st: { c: dangerous_actor_ref, lcar: dangerous_actor_ref, conn: actor_
         }
     }
 }
+// F1-1 (spikes/F1-fuzzer.md): a lookup that ends without "found" (the peer is not registered, an answer EPMD does not give, an
+// answer cut short by a close, EPMD unreachable or silent until its carrier gives up) must fail the LINK, so that the link's
+// connection actor sees what a refused dial shows it: (:link_down, fault), then the usual teardown (its proxies' reaper tells the
+// redial actor nrd "gone"), and with redial on the next attempt (a new EPMD lookup) comes after the redial back-off; with redial
+// off the peer stays down. The link carrier was never opened and nothing else holds it, so it is ended here without a word to
+// anyone: a (:tcp) carrier by remove_actor (it ends :normal at its next dispatch; a :close would make an unopened carrier cast its
+// :link_down to no owner, and an open that fails on purpose would end it with a failure exit); on a {transport, tls} node the BEAM
+// TLS link, which on a :close before its :open removes its own unopened carrier the same way and ends (dangerous_beam_tls@btls).
+fn epm_fail_link(st: { c: dangerous_actor_ref, lcar: dangerous_actor_ref, conn: actor_ref, kind: int64, port: int64, done: boolean, buf: string, peer: int64, host: string }) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(st.conn, (:link_down, :fault) impl ActorMessage {});
+        _: boolean <- case beam_conf@tls() of { true -> close_link(st.lcar); false -> epm_drop(st.lcar) }
+    produces pure ok end
+}
+fn epm_drop(c: dangerous_actor_ref) -> boolean {
+    sequence proc[concurrency]
+        r: (int64, affinity_error) <- remove_actor(c)
+    produces pure true end
+}
+// code 1: the answer is not complete yet; one more credit and the exchange is NOT over (it used to be counted over here, so an
+// answer that arrived in two pieces was never read)
+fn epm_more(c: dangerous_actor_ref) -> boolean {
+    sequence
+        _: boolean <- credit(c, 1)
+    produces pure false end
+}
 fn epm_look(st: { c: dangerous_actor_ref, lcar: dangerous_actor_ref, conn: actor_ref, kind: int64, port: int64, done: boolean, buf: string, peer: int64, host: string }, r: { code: int64, port: int64 }) -> boolean {
     case r.code of {
-        1 -> credit(st.c, 1);
+        1 -> epm_more(st.c);
         0 -> {
             sequence proc[concurrency]
                 _: atom <- bees_ingress@audit("epmd: found, dialing", beam_conf@peer_short(st.peer), 0);
@@ -924,12 +993,13 @@ fn epm_look(st: { c: dangerous_actor_ref, lcar: dangerous_actor_ref, conn: actor
         _: int64 -> {
             sequence
                 _: atom <- bees_ingress@audit("epmd: the peer is not registered", beam_conf@peer_short(st.peer), r.code);
-                _: boolean <- close_link(st.c)
+                _: boolean <- close_link(st.c);
+                _: boolean <- epm_fail_link(st)
             produces pure true end
         }
     }
 }
-fn epm_event(msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom), st: { c: dangerous_actor_ref, lcar: dangerous_actor_ref, conn: actor_ref, kind: int64, port: int64, done: boolean, buf: string, peer: int64, host: string }, me: actor_ref) -> boolean {
+fn epm_event(msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | :timeout, st: { c: dangerous_actor_ref, lcar: dangerous_actor_ref, conn: actor_ref, kind: int64, port: int64, done: boolean, buf: string, peer: int64, host: string }, me: actor_ref) -> boolean {
     case msg of {
         (:link_up, _i: string) -> {
             sequence
@@ -939,12 +1009,24 @@ fn epm_event(msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:t
         (:rx, s: string) -> case st.done of { true -> false; false -> epm_rx(st, concat(st.buf, s)) };
         (:tx_credit, _n: int64) -> false;
         (:tx_failed, _w: atom) -> false;
+        :timeout -> case st.done or st.kind != 2 of {
+            true -> false;
+            false -> {
+                sequence
+                    _: atom <- bees_ingress@audit("epmd: no answer within open_timeout_ms", beam_conf@peer_short(st.peer), beam_conf@open_ms());
+                    _: boolean <- close_link(st.c);
+                    _: boolean <- epm_fail_link(st)
+                produces pure true end
+            }
+        };
         (:link_down, w2: atom) -> {
             sequence
                 _: atom <- case st.done and st.kind == 2 of {
                     true -> :ok;
                     false -> bees_ingress@audit("epmd: connection closed", bees_atoms@spelling(w2), st.kind)
-                }
+                };
+                // F1-1: a lookup (kind 2) whose EPMD carrier went down before the answer fails the link (epm_fail_link)
+                _: boolean <- case st.done == false and st.kind == 2 of { true -> epm_fail_link(st); false -> true }
             produces pure true end
         }
     }
@@ -960,37 +1042,40 @@ fn first_colon(s: string, i: int64) -> int64 {
 fn epm_dial_host(st: { c: dangerous_actor_ref, lcar: dangerous_actor_ref, conn: actor_ref, kind: int64, port: int64, done: boolean, buf: string, peer: int64, host: string }) -> string {
     case length_bytes(st.host) > 0 of { true -> st.host; false -> beam_conf@link_host_of(st.peer) }
 }
-fn epm_host(msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom), st: { c: dangerous_actor_ref, lcar: dangerous_actor_ref, conn: actor_ref, kind: int64, port: int64, done: boolean, buf: string, peer: int64, host: string }) -> string {
+fn epm_host(msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | :timeout, st: { c: dangerous_actor_ref, lcar: dangerous_actor_ref, conn: actor_ref, kind: int64, port: int64, done: boolean, buf: string, peer: int64, host: string }) -> string {
     case msg of {
         (:link_up, i: string) -> case st.kind == 2 and first_colon(i, 0) > 0 of { true -> substring(i, 0, first_colon(i, 0)); false -> st.host };
         (:rx, _s: string) -> st.host;
         (:tx_credit, _n: int64) -> st.host;
         (:tx_failed, _w: atom) -> st.host;
-        (:link_down, _w2: atom) -> st.host
+        (:link_down, _w2: atom) -> st.host;
+        :timeout -> st.host
     }
 }
-fn epm_buf(msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom), st: { c: dangerous_actor_ref, lcar: dangerous_actor_ref, conn: actor_ref, kind: int64, port: int64, done: boolean, buf: string, peer: int64, host: string }) -> string {
+fn epm_buf(msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | :timeout, st: { c: dangerous_actor_ref, lcar: dangerous_actor_ref, conn: actor_ref, kind: int64, port: int64, done: boolean, buf: string, peer: int64, host: string }) -> string {
     case msg of {
         (:rx, s: string) -> concat(st.buf, s);
         (:link_up, _i: string) -> st.buf;
         (:tx_credit, _n: int64) -> st.buf;
         (:tx_failed, _w: atom) -> st.buf;
-        (:link_down, _w2: atom) -> st.buf
+        (:link_down, _w2: atom) -> st.buf;
+        :timeout -> st.buf
     }
 }
 // N2c teardown: a lookup (kind 2) is over when its carrier says its last word, link_down: it ends then, so that a node that dials again
 // and again through EPMD does not keep one idle actor per attempt (the registration, kind 1, lives as long as the node)
-fn epm_ends(msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom), st: { c: dangerous_actor_ref, lcar: dangerous_actor_ref, conn: actor_ref, kind: int64, port: int64, done: boolean, buf: string, peer: int64, host: string }) -> boolean {
+fn epm_ends(msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | :timeout, st: { c: dangerous_actor_ref, lcar: dangerous_actor_ref, conn: actor_ref, kind: int64, port: int64, done: boolean, buf: string, peer: int64, host: string }) -> boolean {
     case msg of {
         (:link_down, _w: atom) -> st.kind == 2;
         (:link_up, _i: string) -> false;
         (:rx, _s: string) -> false;
         (:tx_credit, _n: int64) -> false;
-        (:tx_failed, _x: atom) -> false
+        (:tx_failed, _x: atom) -> false;
+        :timeout -> false
     }
 }
 fn epm(
-    msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom),
+    msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | :timeout,
     st: { c: dangerous_actor_ref, lcar: dangerous_actor_ref, conn: actor_ref, kind: int64, port: int64, done: boolean, buf: string, peer: int64, host: string }
 ) -> (:no_reply, { c: dangerous_actor_ref, lcar: dangerous_actor_ref, conn: actor_ref, kind: int64, port: int64, done: boolean, buf: string, peer: int64, host: string }) {
     sequence proc[concurrency]

@@ -1,0 +1,56 @@
+// A diagnostic, not a scenario (no golden): where does the 6 MiB script of `pause` fault on the Linux box? Each stage prints a
+// line before and after, so the last line printed names the stage. Stages: (1) build the 6 MiB string in main (`doubled`, 16
+// doublings of one request frame), (2) spawn an actor that holds it in its state and send that actor three messages that do not
+// touch it (each message copies the state on this compiler, SD-35), (3) cast the string to another actor, (4) the raw peer of
+// `pause` (`sraw_open`) to an address where nothing listens: connect fails, the peer gets :link_down, never sends.
+fn label(step: int64) -> string { "probe" }
+fn forbidden_frame() -> string { f4(bees_trust_frame@enc_request(bees_atoms@a_cast(), "f", bees_atoms@a_erlang(), bees_atoms@a_apply(), 3, ints3(1, 2, 3))) }
+fn holder(m: { req: int64, what: atom, value: string }, st: { big: string, n: int64 }) -> (:no_reply, { big: string, n: int64 }) {
+    sequence proc[device_io]
+        _: atom <- println(concat(concat("probe: holder got message ", bees_trust_frame@int_text(st.n + 1)), concat(", holds bytes ", bees_trust_frame@int_text(length_bytes(st.big)))))
+    produces pure (:no_reply, { big: st.big, n: st.n + 1 }) end
+}
+fn taker(m: { req: int64, what: atom, value: string }, n: int64) -> (:no_reply, int64) {
+    sequence proc[device_io]
+        _: atom <- println(concat("probe: taker got bytes ", bees_trust_frame@int_text(length_bytes(m.value))))
+    produces pure (:no_reply, n + 1) end
+}
+fn ping(to: actor_ref, k: int64) -> boolean {
+    sequence proc[concurrency]
+        m: { req: int64, what: atom, value: string } <- { req: k, what: bees_atoms@a_ok(), value: "" };
+        ok: boolean <- cast(to, m impl ActorMessage {})
+    produces pure ok end
+}
+fn give(to: actor_ref, s: string) -> boolean {
+    sequence proc[concurrency]
+        m: { req: int64, what: atom, value: string } <- { req: 0, what: bees_atoms@a_ok(), value: s };
+        ok: boolean <- cast(to, m impl ActorMessage {})
+    produces pure ok end
+}
+fn driver(r: { req: int64, what: atom, value: string }, n: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- say(concat("probe: stage 4 outcome ", outcome(r)))
+    produces pure (:no_reply, n + 1) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        b: int64 <- trust_boot();
+        _: atom <- start_reporter();
+        _: atom <- trust_start();
+        _: atom <- say("probe: stage 1 build");
+        big: string <- doubled(forbidden_frame(), 16);
+        _: atom <- say(concat("probe: stage 1 built bytes ", bees_trust_frame@int_text(length_bytes(big))));
+        h: actor_ref <- spawn({ big: big, n: 0 }, holder, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: atom <- say("probe: stage 2 spawned the holder");
+        _: boolean <- ping(h, 1);
+        _: boolean <- ping(h, 2);
+        _: boolean <- ping(h, 3);
+        t: actor_ref <- spawn(0, taker, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: boolean <- give(t, big);
+        _: atom <- say("probe: stage 3 cast the string");
+        d: actor_ref <- spawn(0, driver, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: atom <- sraw_open(1, cat(bees_trust_conf@self_fp(), big), d, false);
+        _: atom <- say("probe: stage 4 raw peer opened");
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

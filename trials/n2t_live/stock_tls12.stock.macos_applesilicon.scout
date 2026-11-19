@@ -1,0 +1,4 @@
+stock: ping beesl@localhost -> pang
+stock: nodes() lists BEES: false
+stock: done
+exit=0

@@ -1,0 +1,17 @@
+# C1 codec trial, sum types (development-plan/spikes/C1-codec-term-coverage.md 2, 2.1): an in-memory node manifest (no link is
+# opened; the peer port is only data) whose message types are sums. bees.config sets beam.frame_size_max to 1024, so the decode
+# limits of bees_msgs (max_bytes, max_length) are 1024.
+node   b@127.0.0.1
+peer   a@127.0.0.1 127.0.0.1 23800 dial
+# a sum of atom literals
+remote colour @ a@127.0.0.1 cast :red | :green | :blue
+# tagged tuples with scalars, a string, a float, big integers; an atom variant
+remote val    @ a@127.0.0.1 cast (:i, int64) | (:s, string) | (:f, float64) | (:u, uint64) | (:n, int64) | :none
+# a tag and an atom variant of one name (a tuple and an atom differ on the wire)
+remote ping   @ a@127.0.0.1 cast (:ping, string) | :ping
+# a record variant (a map) among a tagged tuple and an atom
+local  shape  cast (:pt, int64, int64) | { x: int64, y: string } | :nil
+# a sum in a record field and as a list element
+local  item   cast { id: int64, st: :on | :off, items: List[(:i, int64) | (:s, string) | :gap] }
+# a sum inside a tagged tuple (in a record inside it)
+local  wrap   cast (:wrap, { k: :a | :b, v: (:some, int64) | :none })

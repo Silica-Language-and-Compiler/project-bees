@@ -1,0 +1,58 @@
+// deny, and suspicion per request (criteria 5; R-7), against node a (suspicion_limit 3):
+//   1  a permitted call (opens a session)
+//   2  a forbidden MFA on that session: audit, suspicion 1, goaway deny, closed at once; the caller sees closed
+//   3  an MFA the whitelist does not grant, on a new connection: the same, suspicion 2
+//   4  a permitted call: a new session; suspicion falls to 1
+//   5  a call whose user code fails: no frame comes back (the caller's own call_timeout_ms ends it: timeout), suspicion 2,
+//      and THE SESSION GOES ON
+//   6, 7  two casts whose user code fails, on the same session: suspicion 3, then 4, above the limit: the fingerprint is
+//      quarantined and the session is closed with goaway deny
+//   8  a call while quarantined: refused at the gate, closed
+fn label(step: int64) -> string {
+    case step of {
+        1 -> "call demo:add([1, 2]) (opens a session)";
+        2 -> "call erlang:apply/3 (forbidden) on the session";
+        3 -> "call demo:secret/0 (not in b.cert's spec)";
+        4 -> "call demo:add([1, 2]) (a new session)";
+        5 -> "call demo:crash/1 (the user code fails; the session goes on)";
+        6 -> "cast demo:crash/1";
+        7 -> "cast demo:crash/1 (suspicion above the limit: quarantine, the session is closed)";
+        8 -> "call demo:add([1, 2]) while quarantined";
+        _: int64 -> "?"
+    }
+}
+fn start(step: int64, me: actor_ref) -> atom {
+    case step of {
+        1 -> trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_add(), 2, ints2(1, 2), me, 1);
+        2 -> trpc_call(server(), bees_atoms@a_erlang(), bees_atoms@a_apply(), 3, ints3(1, 2, 3), me, 2);
+        3 -> trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_secret(), 0, no_args(), me, 3);
+        4 -> trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_add(), 2, ints2(1, 2), me, 4);
+        5 -> trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_crash(), 1, ints1(1), me, 5);
+        6 -> trpc_cast(server(), bees_atoms@a_demo(), bees_atoms@a_crash(), 1, ints1(1), me, 6);
+        7 -> trpc_cast(server(), bees_atoms@a_demo(), bees_atoms@a_crash(), 1, ints1(1), me, 7);
+        8 -> trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_add(), 2, ints2(1, 2), me, 8);
+        _: int64 -> say("deny done")
+    }
+}
+fn next(step: int64, me: actor_ref) -> atom {
+    case step of { 7 -> wake(me, 400, 8); 8 -> wake(me, 300, 9); _: int64 -> wake(me, 200, step + 1) }
+}
+fn driver(r: { req: int64, what: atom, value: string }, n: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        _: atom <- case r.value == "go" of {
+            true -> start(r.req, me);
+            false -> { sequence _: atom <- step_line(r) produces pure next(r.req, me) end }
+        }
+    produces pure (:no_reply, n + 1) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        b: int64 <- trust_boot();
+        _: atom <- start_reporter();
+        _: atom <- trust_start();
+        d: actor_ref <- spawn(0, driver, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: atom <- start(1, d);
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

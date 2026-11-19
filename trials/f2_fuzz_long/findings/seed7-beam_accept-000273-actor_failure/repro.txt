@@ -1,0 +1,6 @@
+FINDING beam_accept case 273 frames/length/over_cap (crash): actor failure report: reason:          (:explicit, :actor_not_found) | #0  dangerous_beam_net_tx
+
+replay this case alone on a fresh node:
+  python3 tools/bees_fuzz.py replay --seed 7 --surface beam_accept --case 273 --trial trials/f1_fuzz_wire
+with the cases of its slice before it (when the case alone does not show it):
+  python3 tools/bees_fuzz.py replay --seed 7 --surface beam_accept --case 273 --before 273 --trial trials/f1_fuzz_wire

@@ -1,0 +1,3 @@
+configuration refused: record 3 schema 11: beam.time: the record does not decode as its kind
+done
+exit=0

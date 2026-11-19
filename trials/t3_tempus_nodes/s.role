@@ -1,0 +1,5 @@
+// T3 node trial: the sentinel (identity 2), the first one: it has no sentinel of its own.
+fn me() -> int64 { 2 }
+fn typ() -> int64 { 3 }
+fn port() -> string { "23800" }
+fn sents() -> string { "" }

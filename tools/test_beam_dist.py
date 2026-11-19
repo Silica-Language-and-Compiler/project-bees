@@ -140,7 +140,7 @@ class Reader(unittest.TestCase):
         self.refuse(GOOD, r"beam\.cookie_file: cookie must hold 1 to 255 bytes", cookie=b"\n")
 
     def test_not_built_yet(self):
-        self.refuse(GOOD.replace("{transport, tcp}, ", ""), r"beam\.transport: tls \(the default, D25\) is not built yet")
+        self.refuse(GOOD.replace("{transport, tcp}, ", ""), r"beam\.transport: required, no default")   # N2T: tls is built; ruled 2026-11-18: no default
         self.refuse(GOOD.replace('"127.0.0.1"', '"10.0.0.7"'), r"beam\.listen_address: 10\.0\.0\.7 is not built yet")
         self.refuse(GOOD.replace("{net_ticktime_s, 8}", "{net_ticktime_s, 8}, {frame_size_max, 4294967296}"), r"beam\.frame_size_max: 4294967296 is above 4294967295")
         self.refuse(GOOD.replace("{net_ticktime_s, 8}", "{net_ticktime_s, 8}, {spawn, any}"), r"beam\.spawn: any is not built yet")

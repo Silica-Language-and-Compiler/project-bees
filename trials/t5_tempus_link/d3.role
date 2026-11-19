@@ -1,0 +1,9 @@
+// T5 link trial, pair p256: the dialer's certificate has a P-256 key (certs/p256.pem), not an Ed25519 identity key.
+fn port() -> string { "23702" }
+fn me_id() -> int64 { 0 }
+fn certfile() -> string { "../t5_tempus_tls/certs/p256.pem" }
+fn keyfile() -> string { "../t5_tempus_tls/certs/p256-key.pem" }
+fn steps() -> int64 { 1 }
+fn step_of(k: int64) -> { i: int64, v: int64, wl: string, kid: string, alt: boolean, what: string } {
+    { i: 0, v: 1, wl: tempus_ids@fp_hex(2), kid: tempus_ids@kid(), alt: false, what: "a certificate whose key is P-256" }
+}

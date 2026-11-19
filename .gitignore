@@ -333,6 +333,7 @@ examples/*/__pycache__/
 !trials/d2_store_config/certs/
 # N2T: n2t_pair, n2t_live (BEAM mode inside TLS: roles, node leaves, test certificates; generated files and cookies ignored again)
 !trials/n2t_pair/roles/
+!trials/n2t_live/roles/
 !trials/n2t_pair/nodes/
 !trials/n2t_live/nodes/
 !trials/n2t_pair/certs/
@@ -439,3 +440,23 @@ trials/t3_tempus_nodes/dangerous_[sab].silica
 trials/t3_tempus_nodes/lib/bees_tempus_node.silica
 trials/t3_tempus_nodes/.gen.mk
 trials/t5_tempus_link/.gen.mk
+!trials/c2_tempus_clients/dangerous_exposure_source
+trials/c2_tempus_clients/dangerous_[nmo].silica
+trials/c2_tempus_clients/dangerous_c[se].silica
+trials/c2_tempus_clients/lib/bees_tempus_node.silica
+trials/c2_tempus_clients/.gen.mk
+trials/c3_tempus_bridge/nodes/*/dangerous_*.silica
+trials/c3_tempus_bridge/nodes/*/.gen.mk
+trials/c3_tempus_bridge/nodes/b?/trust_root.part
+trials/c3_tempus_bridge/nodes/*/lib/bees_trust_conf.*
+trials/c3_tempus_bridge/nodes/*/lib/bees_trust_mfa.silica
+trials/c3_tempus_bridge/nodes/*/lib/bees_tempus_spec.silica
+trials/c3_tempus_bridge/nodes/*/lib/bees_tempus_node.silica
+trials/c3_tempus_bridge/nodes/*/lib/tempus_ids.silica
+!trials/c3_tempus_bridge/nodes/*/dangerous_exposure_source
+trials/c4_tempus_boot/dangerous_*.silica
+trials/c4_tempus_boot/lib/bees_tempus_node.silica
+trials/c4_tempus_boot/lib/tempus_ids.silica
+trials/c4_tempus_boot/.gen.mk
+!trials/c4_tempus_boot/dangerous_exposure_source
+trials/c3_tempus_bridge/nodes/*/.gen.root

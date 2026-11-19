@@ -1,0 +1,930 @@
+// C1: dynamic terms. bees_term_wire (any ETF term to and from a flat token list) and bees_etf_scan (positions), in one
+// process, with no network.
+//
+// Part 1, fixtures: the bytes stock Erlang wrote (OTP 28, term_to_binary/1; tools/bees_term_fixtures.erl prints them, and
+// tools/test_bees_term_etf.py compares the hex below with erl again). Each line: label, the tokens bees_term_wire@decode
+// made (at most 40, then +N), and "same" when bees_term_wire@encode of those tokens gives the fixture's bytes back.
+// A " SCAN" mark would follow when bees_etf_scan@skip did not end at the frame's end (never expected).
+//   token spelling: i<n> integer, I+<hex> I-<hex> big integer (magnitude, little-endian), f<hex> float (IEEE bits),
+//   a:<hex> atom name, b:<hex> binary, B<bits>:<hex> bit string, t<n> tuple, l<n> list (n elements and a tail), n nil,
+//   s:<hex> byte list, m<n> map, p: r: o: u: a carried pid, reference, port, fun; hex over 24 bytes is cut, ~<length>.
+// The fixed_ fixtures (pid, reference, port, local fun) were captured once: their bytes differ in every Erlang run.
+// Part 2: forms Erlang reads but does not write (old tags, padded integers): the tokens, and the canonical bytes.
+// Part 3: terms built with the constructors; their bytes equal the fixture's.
+// Part 4: the scanner's questions.  Part 5: refusals (decode: the rejection atom; encode: an empty result).
+// Part 6: large terms (60,002 tokens) and the limits.
+use bees_etf_scan;
+use bees_term_wire;
+
+// ---- hex ----
+fn at(s: string, i: int64) -> int64 {
+    sequence proc[transport]
+        b: int64 <- byte_at(s, i)
+    produces pure b end
+}
+fn cut(s: string, start: int64, stop: int64) -> string {
+    sequence proc[mem(normal), transport]
+        out: string <- byte_slice(s, start, stop)
+    produces pure out end
+}
+fn hv(c: int64) -> int64 { case c >= 97 of { true -> c - 87; false -> c - 48 } }
+fn unhex_acc(s: string, i: int64, acc: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    case i < 0 of {
+        true -> acc;
+        false -> {
+            sequence proc[mem(normal)]
+                b: int64 <- hv(at(s, i)) * 16 + hv(at(s, i + 1));
+                l: List[int64, mem(normal)] <- prepend[int64, mem(normal)](b, acc)
+            produces pure unhex_acc(s, i - 2, l) end
+        }
+    }
+}
+fn no_ints() -> List[int64, mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[int64, mem(normal)] <- []
+    produces pure e end
+}
+fn no_toks() -> List[(int64, int64, float64, string), mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[(int64, int64, float64, string), mem(normal)] <- []
+    produces pure e end
+}
+fn packed(xs: List[int64, mem(normal)]) -> string {
+    sequence proc[mem(normal), transport]
+        out: string <- bytes_of(xs)
+    produces pure out end
+}
+fn unhex(s: string) -> string { packed(unhex_acc(s, length_bytes(s) - 2, no_ints())) }
+fn hd(v: int64) -> int64 { case v < 10 of { true -> 48 + v; false -> 87 + v } }
+fn hex_acc(s: string, i: int64, acc: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    case i < 0 of {
+        true -> acc;
+        false -> {
+            sequence proc[mem(normal)]
+                l1: List[int64, mem(normal)] <- prepend[int64, mem(normal)](hd(at(s, i) % 16), acc);
+                l2: List[int64, mem(normal)] <- prepend[int64, mem(normal)](hd(at(s, i) / 16), l1)
+            produces pure hex_acc(s, i - 1, l2) end
+        }
+    }
+}
+fn hex(s: string) -> string { packed(hex_acc(s, length_bytes(s) - 1, no_ints())) }
+
+// ---- printing ----
+fn say(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+fn num(label: string, n: int64) -> atom {
+    sequence proc[device_io]
+        _: atom <- print_string(label);
+        _: atom <- print_string(" ");
+        _: atom <- print_int64(n);
+        _: atom <- println("")
+    produces pure :ok end
+}
+fn text(label: string, s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- print_string(label);
+        _: atom <- print_string(" ");
+        _: atom <- println(s)
+    produces pure :ok end
+}
+fn why(label: string, a: atom) -> atom {
+    sequence proc[device_io]
+        _: atom <- print_string(label);
+        _: atom <- print_string(" ");
+        _: atom <- print_atom(a);
+        _: atom <- println("")
+    produces pure :ok end
+}
+fn put_num(prefix: string, n: int64) -> atom {
+    sequence proc[device_io]
+        _: atom <- print_string(prefix);
+        _: atom <- print_int64(n)
+    produces pure :ok end
+}
+fn put_clip(prefix: string, s: string) -> atom {
+    n: int64 <- length_bytes(s);
+    case n <= 24 of {
+        true -> {
+            sequence proc[device_io]
+                _: atom <- print_string(prefix);
+                _: atom <- print_string(hex(s))
+            produces pure :ok end
+        };
+        false -> {
+            sequence proc[device_io]
+                _: atom <- print_string(prefix);
+                _: atom <- print_string(hex(cut(s, 0, 24)));
+                _: atom <- print_string("~");
+                _: atom <- print_int64(n)
+            produces pure :ok end
+        }
+    }
+}
+fn put_bits(t: (int64, int64, float64, string)) -> atom {
+    sequence
+        _: atom <- put_num("B", bees_term_wire@n_of(t));
+        _: atom <- put_clip(":", bees_term_wire@s_of(t))
+    produces pure :ok end
+}
+fn sign_mark(n: int64) -> string { case n == 1 of { true -> "I-"; false -> "I+" } }
+fn show_tok(t: (int64, int64, float64, string)) -> atom {
+    case bees_term_wire@kind_of(t) of {
+        1 -> put_num("i", bees_term_wire@n_of(t));
+        2 -> put_clip(sign_mark(bees_term_wire@n_of(t)), bees_term_wire@s_of(t));
+        3 -> put_clip("f", bees_etf_scan@body_of(bees_etf_scan@float_term(bees_term_wire@f_of(t))));
+        4 -> put_clip("a:", bees_term_wire@s_of(t));
+        5 -> put_clip("b:", bees_term_wire@s_of(t));
+        6 -> put_bits(t);
+        7 -> put_num("t", bees_term_wire@n_of(t));
+        8 -> put_num("l", bees_term_wire@n_of(t));
+        9 -> put_clip("n", "");
+        10 -> put_clip("s:", bees_term_wire@s_of(t));
+        11 -> put_num("m", bees_term_wire@n_of(t));
+        12 -> put_clip("p:", bees_term_wire@s_of(t));
+        13 -> put_clip("r:", bees_term_wire@s_of(t));
+        14 -> put_clip("o:", bees_term_wire@s_of(t));
+        15 -> put_clip("u:", bees_term_wire@s_of(t));
+        _: int64 -> put_num("?", bees_term_wire@kind_of(t))
+    }
+}
+fn count(toks: List[(int64, int64, float64, string), mem(normal)], n: int64) -> int64 {
+    case toks of {
+        []: List[(int64, int64, float64, string), mem(normal)] -> n;
+        [_h: (int64, int64, float64, string), t: List[(int64, int64, float64, string), mem(normal)]] -> count(t, n + 1)
+    }
+}
+fn show_toks(toks: List[(int64, int64, float64, string), mem(normal)], left: int64) -> atom {
+    case toks of {
+        []: List[(int64, int64, float64, string), mem(normal)] -> :ok;
+        [h: (int64, int64, float64, string), t: List[(int64, int64, float64, string), mem(normal)]] -> case left == 0 of {
+            true -> put_num(" +", count(toks, 0));
+            false -> {
+                sequence proc[device_io]
+                    _: atom <- print_string(" ");
+                    _: atom <- show_tok(h)
+                produces pure show_toks(t, left - 1) end
+            }
+        }
+    }
+}
+fn verdict(a: string, b: string) -> string { case a == b of { true -> "same"; false -> "differs" } }
+fn scan_mark(frame: string) -> string {
+    case bees_etf_scan@skip(frame, 1) == length_bytes(frame) of { true -> ""; false -> " SCAN" }
+}
+
+// ---- part 1: a fixture, decoded, shown, encoded again ----
+fn shown(frame: string, toks: List[(int64, int64, float64, string), mem(normal)]) -> atom {
+    sequence proc[device_io]
+        _: atom <- show_toks(toks, 40);
+        again: string <- bees_term_wire@encode(toks);
+        _: atom <- print_string(" | ");
+        _: atom <- print_string(verdict(again, frame));
+        _: atom <- println(scan_mark(frame))
+    produces pure :ok end
+}
+fn refused(reason: atom) -> atom {
+    sequence proc[device_io]
+        _: atom <- print_string(" rejected ");
+        _: atom <- print_atom(reason);
+        _: atom <- println("")
+    produces pure :ok end
+}
+fn fx_done(frame: string, r: (:ok, List[(int64, int64, float64, string), mem(normal)]) | (:rejected, atom)) -> atom {
+    case r of {
+        (:ok, toks: List[(int64, int64, float64, string), mem(normal)]) -> shown(frame, toks);
+        (:rejected, reason: atom) -> refused(reason)
+    }
+}
+fn fxb(label: string, frame: string) -> atom {
+    sequence proc[device_io]
+        r: (:ok, List[(int64, int64, float64, string), mem(normal)]) | (:rejected, atom) <- bees_term_wire@decode(frame);
+        _: atom <- print_string(label);
+        _: atom <- print_string(":")
+    produces pure fx_done(frame, r) end
+}
+fn fx(label: string, hx: string) -> atom { fxb(label, unhex(hx)) }
+
+// ---- part 2: a form Erlang does not write: the tokens, then the canonical bytes ----
+fn canon_done(r: (:ok, List[(int64, int64, float64, string), mem(normal)]) | (:rejected, atom)) -> atom {
+    case r of {
+        (:ok, toks: List[(int64, int64, float64, string), mem(normal)]) -> {
+            sequence proc[device_io]
+                _: atom <- show_toks(toks, 40);
+                again: string <- bees_term_wire@encode(toks);
+                _: atom <- print_string(" -> ");
+                _: atom <- println(hex(again))
+            produces pure :ok end
+        };
+        (:rejected, reason: atom) -> refused(reason)
+    }
+}
+fn canon(label: string, hx: string) -> atom {
+    sequence proc[device_io]
+        r: (:ok, List[(int64, int64, float64, string), mem(normal)]) | (:rejected, atom) <- bees_term_wire@decode(unhex(hx));
+        _: atom <- print_string(label);
+        _: atom <- print_string(":")
+    produces pure canon_done(r) end
+}
+
+// ---- part 3: built from constructors ----
+fn built(label: string, toks: List[(int64, int64, float64, string), mem(normal)], hx: string) -> atom {
+    sequence
+        out: string <- bees_term_wire@encode(toks);
+        _: atom <- text(label, verdict(out, unhex(hx)))
+    produces pure :ok end
+}
+// encode refuses: the length of what it returned (0)
+fn enc_no(label: string, toks: List[(int64, int64, float64, string), mem(normal)]) -> atom {
+    sequence
+        out: string <- bees_term_wire@encode(toks);
+        _: atom <- num(label, length_bytes(out))
+    produces pure :ok end
+}
+
+// ---- frames made here ----
+fn fill(acc: List[int64, mem(normal)], b: int64, n: int64) -> List[int64, mem(normal)] {
+    case n <= 0 of {
+        true -> acc;
+        false -> {
+            sequence proc[mem(normal)]
+                l: List[int64, mem(normal)] <- prepend[int64, mem(normal)](b, acc)
+            produces pure fill(l, b, n - 1) end
+        }
+    }
+}
+fn push2(acc: List[int64, mem(normal)], a: int64, b: int64) -> List[int64, mem(normal)] {
+    sequence proc[mem(normal)]
+        l1: List[int64, mem(normal)] <- prepend[int64, mem(normal)](b, acc);
+        l2: List[int64, mem(normal)] <- prepend[int64, mem(normal)](a, l1)
+    produces pure l2 end
+}
+// tag and a 4-byte count in front of acc
+fn head4(acc: List[int64, mem(normal)], tag: int64, n: int64) -> List[int64, mem(normal)] {
+    sequence proc[mem(normal)]
+        l1: List[int64, mem(normal)] <- push2(acc, (n / 256) % 256, n % 256);
+        l2: List[int64, mem(normal)] <- push2(l1, (n / 16777216) % 256, (n / 65536) % 256);
+        l3: List[int64, mem(normal)] <- prepend[int64, mem(normal)](tag, l2)
+    produces pure l3 end
+}
+fn framed(acc: List[int64, mem(normal)]) -> string {
+    sequence proc[mem(normal)]
+        l: List[int64, mem(normal)] <- prepend[int64, mem(normal)](131, acc)
+    produces pure packed(l) end
+}
+fn one(b: int64) -> List[int64, mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[int64, mem(normal)] <- [b]
+    produces pure e end
+}
+// n one-element tuples inside one another around nil: {{...{[]}...}}
+fn nest_acc(acc: List[int64, mem(normal)], n: int64) -> List[int64, mem(normal)] {
+    case n <= 0 of { true -> acc; false -> nest_acc(push2(acc, 104, 1), n - 1) }
+}
+fn nested(n: int64) -> string { framed(nest_acc(one(106), n)) }
+// a list of n elements, each the bytes `a b` (n times), closed by nil
+fn pairs_acc(acc: List[int64, mem(normal)], a: int64, b: int64, n: int64) -> List[int64, mem(normal)] {
+    case n <= 0 of { true -> acc; false -> pairs_acc(push2(acc, a, b), a, b, n - 1) }
+}
+// [{0}, {1}, ..., {255}, {0}, ...]: n one-element tuples of a small integer
+fn tuples_acc(acc: List[int64, mem(normal)], i: int64) -> List[int64, mem(normal)] {
+    case i < 0 of { true -> acc; false -> tuples_acc(push2(push2(acc, 97, i % 256), 104, 1), i - 1) }
+}
+fn tuple_list(n: int64) -> string { framed(head4(tuples_acc(one(106), n - 1), 108, n)) }
+// [1000, 1001, ...]: n integers as INTEGER_EXT
+fn ints_acc(acc: List[int64, mem(normal)], i: int64) -> List[int64, mem(normal)] {
+    case i < 0 of { true -> acc; false -> ints_acc(head4(acc, 98, 1000 + i), i - 1) }
+}
+fn int_list(n: int64) -> string { framed(head4(ints_acc(one(106), n - 1), 108, n)) }
+// [0, 1, ..., 255, 0, ...] spelled as LIST_EXT of SMALL_INTEGER_EXT (Erlang writes STRING_EXT)
+fn small_acc(acc: List[int64, mem(normal)], i: int64) -> List[int64, mem(normal)] {
+    case i < 0 of { true -> acc; false -> small_acc(push2(acc, 97, i % 256), i - 1) }
+}
+fn small_list(n: int64) -> string { framed(head4(small_acc(one(106), n - 1), 108, n)) }
+// a list of n nils
+fn nil_list(n: int64) -> string { framed(head4(fill(one(106), 106, n), 108, n)) }
+// a list of `rows` tuples of 255 nils each: the token limit is passed part of the way in
+fn rows_acc(acc: List[int64, mem(normal)], rows: int64) -> List[int64, mem(normal)] {
+    case rows <= 0 of { true -> acc; false -> rows_acc(push2(fill(acc, 106, 255), 104, 255), rows - 1) }
+}
+fn row_list(rows: int64) -> string { framed(head4(rows_acc(one(106), rows), 108, rows)) }
+// #{1000 => [], 1001 => [], ...}: n pairs with INTEGER_EXT keys
+fn map_acc(acc: List[int64, mem(normal)], i: int64) -> List[int64, mem(normal)] {
+    case i < 0 of {
+        true -> acc;
+        false -> {
+            sequence proc[mem(normal)]
+                l: List[int64, mem(normal)] <- prepend[int64, mem(normal)](106, acc)
+            produces pure map_acc(head4(l, 98, 1000 + i), i - 1) end
+        }
+    }
+}
+fn int_map(n: int64) -> string { framed(head4(map_acc(no_ints(), n - 1), 116, n)) }
+// an atom of n letters x under ATOM_UTF8_EXT
+fn long_atom(n: int64) -> string {
+    sequence proc[mem(normal)]
+        l1: List[int64, mem(normal)] <- push2(fill(no_ints(), 120, n), n / 256, n % 256);
+        l2: List[int64, mem(normal)] <- prepend[int64, mem(normal)](118, l1)
+    produces pure framed(l2) end
+}
+fn letters(n: int64) -> string { packed(fill(no_ints(), 120, n)) }
+
+// what decode says: the reason, or the number of tokens
+fn verdict_of(label: string, r: (:ok, List[(int64, int64, float64, string), mem(normal)]) | (:rejected, atom)) -> atom {
+    case r of {
+        (:ok, toks: List[(int64, int64, float64, string), mem(normal)]) -> num(concat(label, ": accepted, tokens"), count(toks, 0));
+        (:rejected, reason: atom) -> why(concat(label, ": rejected"), reason)
+    }
+}
+fn ask(label: string, frame: string) -> atom {
+    sequence
+        r: (:ok, List[(int64, int64, float64, string), mem(normal)]) | (:rejected, atom) <- bees_term_wire@decode(frame)
+    produces pure verdict_of(label, r) end
+}
+fn ask_within(label: string, frame: string, d: int64, t: int64) -> atom {
+    sequence
+        r: (:ok, List[(int64, int64, float64, string), mem(normal)]) | (:rejected, atom) <- bees_term_wire@decode_within(frame, d, t)
+    produces pure verdict_of(label, r) end
+}
+// a large term: tokens, the bytes back, and the scanner's end
+fn large_done(label: string, frame: string, r: (:ok, List[(int64, int64, float64, string), mem(normal)]) | (:rejected, atom)) -> atom {
+    case r of {
+        (:ok, toks: List[(int64, int64, float64, string), mem(normal)]) -> {
+            sequence
+                again: string <- bees_term_wire@encode(toks);
+                _: atom <- num(concat(label, ": tokens"), count(toks, 0));
+                _: atom <- num(concat(label, ": bytes in"), length_bytes(frame));
+                _: atom <- num(concat(label, ": bytes out"), length_bytes(again));
+                _: atom <- text(concat(label, ": bytes"), verdict(again, frame));
+                _: atom <- num(concat(label, ": scanner ends at"), bees_etf_scan@skip(frame, 1))
+            produces pure :ok end
+        };
+        (:rejected, reason: atom) -> why(concat(label, ": rejected"), reason)
+    }
+}
+fn large(label: string, frame: string) -> atom {
+    sequence
+        r: (:ok, List[(int64, int64, float64, string), mem(normal)]) | (:rejected, atom) <- bees_term_wire@decode(frame)
+    produces pure large_done(label, frame, r) end
+}
+
+// ---- every prefix of a frame, and every byte of it changed ----
+fn is_ok(r: (:ok, List[(int64, int64, float64, string), mem(normal)]) | (:rejected, atom)) -> int64 {
+    case r of {
+        (:ok, _t: List[(int64, int64, float64, string), mem(normal)]) -> 1;
+        (:rejected, _a: atom) -> 0
+    }
+}
+fn is_truncated(r: (:ok, List[(int64, int64, float64, string), mem(normal)]) | (:rejected, atom)) -> int64 {
+    case r of {
+        (:ok, _t: List[(int64, int64, float64, string), mem(normal)]) -> 0;
+        (:rejected, a: atom) -> case a == :truncated of { true -> 1; false -> 0 }
+    }
+}
+fn dec(frame: string) -> (:ok, List[(int64, int64, float64, string), mem(normal)]) | (:rejected, atom) { bees_term_wire@decode(frame) }
+// k from len - 1 down to 0: decode of the first k bytes; acc = accepted * 1000000 + truncated * 1000 + scanner refusals
+fn prefixes(frame: string, k: int64, acc: int64) -> int64 {
+    case k < 0 of {
+        true -> acc;
+        false -> {
+            sequence
+                part: string <- cut(frame, 0, k);
+                r: (:ok, List[(int64, int64, float64, string), mem(normal)]) | (:rejected, atom) <- dec(part);
+                sc: int64 <- case bees_etf_scan@skip(part, 1) < 0 of { true -> 1; false -> 0 }
+            produces pure prefixes(frame, k - 1, acc + is_ok(r) * 1000000 + is_truncated(r) * 1000 + sc) end
+        }
+    }
+}
+fn changed(frame: string, i: int64, add: int64) -> string {
+    sequence proc[mem(normal), transport]
+        a: string <- byte_slice(frame, 0, i);
+        m: string <- packed(one((at(frame, i) + add) % 256));
+        b: string <- byte_slice(frame, i + 1, length_bytes(frame));
+        parts: List[string, mem(normal)] <- [a, m, b];
+        out: string <- join_bytes(parts)
+    produces pure out end
+}
+// every byte i changed by `add`: the number of changed frames decode accepted (the rest were refused; none faulted)
+fn changes(frame: string, i: int64, add: int64, acc: int64) -> int64 {
+    case i < 0 of {
+        true -> acc;
+        false -> {
+            sequence
+                r: (:ok, List[(int64, int64, float64, string), mem(normal)]) | (:rejected, atom) <- dec(changed(frame, i, add))
+            produces pure changes(frame, i - 1, add, acc + is_ok(r)) end
+        }
+    }
+}
+fn sweep(label: string, hx: string) -> atom {
+    sequence
+        frame: string <- unhex(hx);
+        p: int64 <- prefixes(frame, length_bytes(frame) - 1, 0);
+        _: atom <- num(concat(label, ": prefixes tried"), length_bytes(frame));
+        _: atom <- num(concat(label, ": prefixes accepted"), p / 1000000);
+        _: atom <- num(concat(label, ": prefixes rejected truncated"), (p / 1000) % 1000);
+        _: atom <- num(concat(label, ": prefixes the scanner refused"), p % 1000);
+        _: atom <- num(concat(label, ": bytes changed by 1, accepted"), changes(frame, length_bytes(frame) - 1, 1, 0));
+        _: atom <- num(concat(label, ": bytes changed by 128, accepted"), changes(frame, length_bytes(frame) - 1, 128, 0))
+    produces pure :ok end
+}
+
+fn fl_2_5() -> float64 { v: float64 <- 2.5; v }
+fn fl_1_5() -> float64 { v: float64 <- 1.5; v }
+fn fl_1_0() -> float64 { v: float64 <- 1.0; v }
+fn fl_neg0() -> float64 { z: float64 <- 0.0; m: float64 <- 0.0 - 1.0; z * m }
+fn one_tok(t: (int64, int64, float64, string)) -> List[(int64, int64, float64, string), mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[(int64, int64, float64, string), mem(normal)] <- [t]
+    produces pure e end
+}
+// n one-element tuple tokens in front of toks
+fn tuples_in(n: int64, toks: List[(int64, int64, float64, string), mem(normal)]) -> List[(int64, int64, float64, string), mem(normal)] {
+    case n <= 0 of {
+        true -> toks;
+        false -> {
+            sequence proc[mem(normal)]
+                l: List[(int64, int64, float64, string), mem(normal)] <- prepend[(int64, int64, float64, string), mem(normal)](bees_term_wire@t_tuple(1), toks)
+            produces pure tuples_in(n - 1, l) end
+        }
+    }
+}
+fn toks_of(frame: string) -> List[(int64, int64, float64, string), mem(normal)] {
+    sequence
+        r: (:ok, List[(int64, int64, float64, string), mem(normal)]) | (:rejected, atom) <- bees_term_wire@decode(frame)
+    produces pure case r of { (:ok, toks: List[(int64, int64, float64, string), mem(normal)]) -> toks; (:rejected, _a: atom) -> no_toks() } end
+}
+fn part1a() -> atom {
+    sequence 
+        _: atom <- fx("int_0", "836100");
+        _: atom <- fx("int_255", "8361ff");
+        _: atom <- fx("int_256", "836200000100");
+        _: atom <- fx("int_neg1", "8362ffffffff");
+        _: atom <- fx("int_i32max", "83627fffffff");
+        _: atom <- fx("int_i32min", "836280000000");
+        _: atom <- fx("int_i32max1", "836e040000000080");
+        _: atom <- fx("int_i32min1", "836e040101000080");
+        _: atom <- fx("int_i64max", "836e0800ffffffffffffff7f");
+        _: atom <- fx("int_i64min", "836e08010000000000000080");
+        _: atom <- fx("int_i64max1", "836e08000000000000000080");
+        _: atom <- fx("int_i64min1", "836e08010100000000000080");
+        _: atom <- fx("int_2p64", "836e0900000000000000000001");
+        _: atom <- fx("big_2048", "836f000001000039300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080");
+        _: atom <- fx("big_2048_neg", "836f000001000139300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080");
+        _: atom <- fx("float_1_5", "83463ff8000000000000");
+        _: atom <- fx("float_neg0", "83468000000000000000");
+        _: atom <- fx("float_0", "83460000000000000000");
+        _: atom <- fx("float_big", "83467e37e43c8800759c");
+        _: atom <- fx("float_pi", "8346400921fb54442d18")
+    produces pure :ok end
+}
+
+fn part1b() -> atom {
+    sequence 
+        _: atom <- fx("atom_ok", "8377026f6b");
+        _: atom <- fx("atom_empty", "837700");
+        _: atom <- fx("atom_utf8", "83770968c3a96c6c6fe28692");
+        _: atom <- fx("atom_255", "8377ff787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878");
+        _: atom <- fx("atom_255_utf8", "837601fec3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9");
+        _: atom <- fx("bin_empty", "836d00000000");
+        _: atom <- fx("bin_abc", "836d00000003616263");
+        _: atom <- fx("bin_bytes", "836d0000000400ff0102");
+        _: atom <- fx("bits_3", "834d0000000103a0");
+        _: atom <- fx("bits_12", "834d0000000304010230");
+        _: atom <- fx("tuple_0", "836800");
+        _: atom <- fx("tuple_3", "83680377016161016d0000000178");
+        _: atom <- fx("tuple_300", "83690000012c610161026103610461056106610761086109610a610b610c610d610e610f6110611161126113611461156116611761186119611a611b611c611d611e611f6120612161226123612461256126612761286129612a612b612c612d612e612f6130613161326133613461356136613761386139613a613b613c613d613e613f6140614161426143614461456146614761486149614a614b614c614d614e614f6150615161526153615461556156615761586159615a615b615c615d615e615f6160616161626163616461656166616761686169616a616b616c616d616e616f6170617161726173617461756176617761786179617a617b617c617d617e617f6180618161826183618461856186618761886189618a618b618c618d618e618f6190619161926193619461956196619761986199619a619b619c619d619e619f61a061a161a261a361a461a561a661a761a861a961aa61ab61ac61ad61ae61af61b061b161b261b361b461b561b661b761b861b961ba61bb61bc61bd61be61bf61c061c161c261c361c461c561c661c761c861c961ca61cb61cc61cd61ce61cf61d061d161d261d361d461d561d661d761d861d961da61db61dc61dd61de61df61e061e161e261e361e461e561e661e761e861e961ea61eb61ec61ed61ee61ef61f061f161f261f361f461f561f661f761f861f961fa61fb61fc61fd61fe61ff6200000100620000010162000001026200000103620000010462000001056200000106620000010762000001086200000109620000010a620000010b620000010c620000010d620000010e620000010f6200000110620000011162000001126200000113620000011462000001156200000116620000011762000001186200000119620000011a620000011b620000011c620000011d620000011e620000011f6200000120620000012162000001226200000123620000012462000001256200000126620000012762000001286200000129620000012a620000012b620000012c");
+        _: atom <- fx("nil", "836a");
+        _: atom <- fx("string", "836b0003616263");
+        _: atom <- fx("list_mixed", "836c0000000761017701616d000000016268017701634640040000000000006a6b0001736a");
+        _: atom <- fx("improper", "836c0000000161016102");
+        _: atom <- fx("improper2", "836c00000002770161770162770163");
+        _: atom <- fx("list_big_ints", "836c00000004620000010062000003e8620001000062ffffffff6a");
+        _: atom <- fx("list_char_256", "836c00000002616862000001006a")
+    produces pure :ok end
+}
+
+fn part1c() -> atom {
+    sequence 
+        _: atom <- fx("map_0", "837400000000");
+        _: atom <- fx("map_1", "8374000000017701616101");
+        _: atom <- fx("map_atoms", "83740000000277016261027701616101");
+        _: atom <- fx("map_ints", "837400000003610177016161027701626103770163");
+        _: atom <- fx("map_1_and_1_0", "8374000000026101770161463ff0000000000000770162");
+        _: atom <- fx("map_nested", "83740000000277016b740000000161016c0000000174000000006a6d000000016268017400000000");
+        _: atom <- fx("set", "83740000000361016a61026a61036a");
+        _: atom <- fx("export_fun", "837177056c6973747377036d61706102");
+        _: atom <- fx("mixed", "836805770463616c6c74000000037704617267736c0000000861014640040000000000006d0000000362696e6b00037374726c00000001770178770179680074000000004d0000000101806a77036269676e0b0000000000000000000000017702696461074680000000000000007705c3bc6ec3af6c0000000371770665726c616e6777046e6f64656100620001117062fffeee906a");
+        _: atom <- fx("fixed_pid", "8358770d6e6f6e6f6465406e6f686f73740000000a0000000000000000");
+        _: atom <- fx("fixed_ref", "835a0003770d6e6f6e6f6465406e6f686f7374000000000003e24b59c40001ea4cbcd5");
+        _: atom <- fx("fixed_port", "8378770d6e6f6e6f6465406e6f686f7374000000000000000000000000");
+        _: atom <- fx("fixed_local_fun", "83680277016670000000540074dbbc348b4519207f78ab4cd050723300000001000000007712626565735f7465726d5f666978747572657361016203a6dde158770d6e6f6e6f6465406e6f686f7374000000000000000000000000");
+        _: atom <- fx("fixed_all", "836c0000000358770d6e6f6e6f6465406e6f686f73740000000a000000000000000068025a0003770d6e6f6e6f6465406e6f686f7374000000000003e24c59c40001ea4cbcd578770d6e6f6e6f6465406e6f686f7374000000000000000000000000740000000177016670000000540174dbbc348b4519207f78ab4cd050723300000002000000007712626565735f7465726d5f666978747572657361026203a6dde158770d6e6f6e6f6465406e6f686f73740000000000000000000000006a")
+    produces pure :ok end
+}
+
+fn part2() -> atom {
+    sequence 
+        _: atom <- canon("atom_ext_latin1", "8364000268e9");
+        _: atom <- canon("small_atom_ext_latin1", "83730268e9");
+        _: atom <- canon("atom_utf8_ext_short", "837600026f6b");
+        _: atom <- canon("integer_ext_small", "836200000005");
+        _: atom <- canon("small_big_one", "836e040001000000");
+        _: atom <- canon("small_big_padded", "836e0a00ff000000000000000000");
+        _: atom <- canon("large_big_minus_one", "836f00000002010100");
+        _: atom <- canon("small_big_minus_zero", "836e010100");
+        _: atom <- canon("small_big_2p64_padded", "836e0b000000000000000000010000");
+        _: atom <- canon("large_big_2p64", "836f0000000900000000000000000001");
+        _: atom <- canon("string_ext_empty", "836b0000");
+        _: atom <- canon("list_of_small_ints", "836c000000036161616261636a");
+        _: atom <- canon("bits_8", "834d0000000108ff");
+        _: atom <- canon("bits_3_unused_set", "834d0000000103bf");
+        _: atom <- canon("pid_ext", "8367770161000000010000000203");
+        _: atom <- canon("new_reference_ext", "837200017701610100000007");
+        _: atom <- canon("reference_ext", "83657701610000000102");
+        _: atom <- canon("new_port_ext", "83597701610000000100000002");
+        _: atom <- canon("port_ext", "83667701610000000102")
+    produces pure :ok end
+}
+
+fn part3a() -> atom {
+    sequence proc[mem(normal)]
+        b0: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_tuple(3), bees_term_wire@t_atom("a"), bees_term_wire@t_int(1), bees_term_wire@t_bin("x")];
+        _: atom <- built("built tuple_3:", b0, "83680377016161016d0000000178");
+        b1: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_tuple(0)];
+        _: atom <- built("built tuple_0:", b1, "836800");
+        b2: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_bytes("abc")];
+        _: atom <- built("built string from a byte list token:", b2, "836b0003616263");
+        b3: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_list(3), bees_term_wire@t_int(97), bees_term_wire@t_int(98), bees_term_wire@t_int(99), bees_term_wire@t_nil()];
+        _: atom <- built("built string from a list of small integers:", b3, "836b0003616263");
+        b4: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_list(1), bees_term_wire@t_int(1), bees_term_wire@t_int(2)];
+        _: atom <- built("built improper:", b4, "836c0000000161016102");
+        b5: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_list(2), bees_term_wire@t_atom("a"), bees_term_wire@t_atom("b"), bees_term_wire@t_atom("c")];
+        _: atom <- built("built improper2:", b5, "836c00000002770161770162770163");
+        b6: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_list(7), bees_term_wire@t_int(1), bees_term_wire@t_atom("a"), bees_term_wire@t_bin("b"), bees_term_wire@t_tuple(1), bees_term_wire@t_atom("c"), bees_term_wire@t_float(fl_2_5()), bees_term_wire@t_nil(), bees_term_wire@t_bytes("s"), bees_term_wire@t_nil()];
+        _: atom <- built("built list_mixed:", b6, "836c0000000761017701616d000000016268017701634640040000000000006a6b0001736a");
+        b7: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_list(4), bees_term_wire@t_int(256), bees_term_wire@t_int(1000), bees_term_wire@t_int(65536), bees_term_wire@t_int(0 - 1), bees_term_wire@t_nil()];
+        _: atom <- built("built list_big_ints:", b7, "836c00000004620000010062000003e8620001000062ffffffff6a");
+        b8: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_list(2), bees_term_wire@t_int(104), bees_term_wire@t_int(256), bees_term_wire@t_nil()];
+        _: atom <- built("built list_char_256:", b8, "836c00000002616862000001006a");
+        b9: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_map(3), bees_term_wire@t_int(1), bees_term_wire@t_atom("a"), bees_term_wire@t_int(2), bees_term_wire@t_atom("b"), bees_term_wire@t_int(3), bees_term_wire@t_atom("c")];
+        _: atom <- built("built map_ints:", b9, "837400000003610177016161027701626103770163");
+        b10: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_map(2), bees_term_wire@t_int(1), bees_term_wire@t_atom("a"), bees_term_wire@t_float(fl_1_0()), bees_term_wire@t_atom("b")];
+        _: atom <- built("built map_1_and_1_0:", b10, "8374000000026101770161463ff0000000000000770162");
+        b11: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_map(1), bees_term_wire@t_map(2), bees_term_wire@t_int(1), bees_term_wire@t_nil(), bees_term_wire@t_int(2), bees_term_wire@t_nil(), bees_term_wire@t_nil()];
+        _: atom <- built("built a map whose key is a map:", b11, "837400000001740000000261016a61026a6a");
+        b12: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_map(2), bees_term_wire@t_atom("k"), bees_term_wire@t_map(1), bees_term_wire@t_int(1), bees_term_wire@t_list(1), bees_term_wire@t_map(0), bees_term_wire@t_nil(), bees_term_wire@t_bin("b"), bees_term_wire@t_tuple(1), bees_term_wire@t_map(0)];
+        _: atom <- built("built map_nested:", b12, "83740000000277016b740000000161016c0000000174000000006a6d000000016268017400000000");
+        b13: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_map(3), bees_term_wire@t_int(1), bees_term_wire@t_nil(), bees_term_wire@t_int(2), bees_term_wire@t_nil(), bees_term_wire@t_int(3), bees_term_wire@t_nil()];
+        _: atom <- built("built set:", b13, "83740000000361016a61026a61036a");
+        b14: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_big(0, unhex("000000000000000001"))];
+        _: atom <- built("built int_2p64:", b14, "836e0900000000000000000001");
+        b15: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_big(1, unhex("0100000000000080"))];
+        _: atom <- built("built int_i64min1:", b15, "836e08010100000000000080")
+    produces pure :ok end
+}
+
+fn part3b() -> atom {
+    sequence proc[mem(normal)]
+        b16: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_big(0, unhex("ff"))];
+        _: atom <- built("built int_255 from a big token that fits:", b16, "8361ff");
+        b17: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_big(1, unhex("0000000000000080"))];
+        _: atom <- built("built int_i64min from a big token that fits:", b17, "836e08010000000000000080");
+        b18: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_int(0 - 9223372036854775807 - 1)];
+        _: atom <- built("built int_i64min:", b18, "836e08010000000000000080");
+        b19: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_int(0 - 2147483649)];
+        _: atom <- built("built int_i32min1:", b19, "836e040101000080");
+        b20: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_float(fl_1_5())];
+        _: atom <- built("built float_1_5:", b20, "83463ff8000000000000");
+        b21: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_float(fl_neg0())];
+        _: atom <- built("built float_neg0:", b21, "83468000000000000000");
+        b22: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_atom(unhex("68c3a96c6c6fe28692"))];
+        _: atom <- built("built atom_utf8:", b22, "83770968c3a96c6c6fe28692");
+        b23: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_atom(letters(255))];
+        _: atom <- built("built atom_255:", b23, "8377ff787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878");
+        b24: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_atom("")];
+        _: atom <- built("built atom_empty:", b24, "837700");
+        b25: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_bin("")];
+        _: atom <- built("built bin_empty:", b25, "836d00000000");
+        b26: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_bits(unhex("a0"), 3)];
+        _: atom <- built("built bits_3:", b26, "834d0000000103a0");
+        b27: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_bits(unhex("bf"), 3)];
+        _: atom <- built("built bits_3 with unused bits set:", b27, "834d0000000103a0");
+        b28: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_bits("abc", 8)];
+        _: atom <- built("built bin_abc from a bit string of 8 bits:", b28, "836d00000003616263");
+        b29: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_fun(unhex("7177056c6973747377036d61706102"))];
+        _: atom <- built("built export_fun:", b29, "837177056c6973747377036d61706102");
+        b30: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_pid(unhex("58770d6e6f6e6f6465406e6f686f73740000000a0000000000000000"))];
+        _: atom <- built("built fixed_pid:", b30, "8358770d6e6f6e6f6465406e6f686f73740000000a0000000000000000");
+        b31: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_ref(unhex("5a0003770d6e6f6e6f6465406e6f686f7374000000000003e24b59c40001ea4cbcd5"))];
+        _: atom <- built("built fixed_ref:", b31, "835a0003770d6e6f6e6f6465406e6f686f7374000000000003e24b59c40001ea4cbcd5");
+        b32: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_port(unhex("78770d6e6f6e6f6465406e6f686f7374000000000000000000000000"))];
+        _: atom <- built("built fixed_port:", b32, "8378770d6e6f6e6f6465406e6f686f7374000000000000000000000000")
+    produces pure :ok end
+}
+
+fn part3() -> atom {
+    sequence
+        _: atom <- part3a();
+        _: atom <- part3b()
+    produces pure :ok end
+}
+
+fn part4a() -> atom {
+    sequence proc[device_io]
+        m: string <- unhex("836805770463616c6c74000000037704617267736c0000000861014640040000000000006d0000000362696e6b00037374726c00000001770178770179680074000000004d0000000101806a77036269676e0b0000000000000000000000017702696461074680000000000000007705c3bc6ec3af6c0000000371770665726c616e6777046e6f64656100620001117062fffeee906a");
+        _: atom <- num("mixed: length", length_bytes(m));
+        _: atom <- num("mixed: skip from 1", bees_etf_scan@skip(m, 1));
+        _: atom <- num("mixed: tag_at 1", bees_etf_scan@tag_at(m, 1));
+        _: atom <- num("mixed: tuple_arity 1", bees_etf_scan@tuple_arity(m, 1));
+        e1: int64 <- bees_etf_scan@tuple_first(m, 1);
+        _: atom <- num("mixed: tuple_first 1", e1);
+        _: atom <- text("mixed: atom_text of element 1", bees_etf_scan@atom_text(m, e1));
+        _: atom <- num("mixed: atom_check of element 1", bees_etf_scan@atom_check(m, e1));
+        _: atom <- print_boolean(bees_etf_scan@atom_is(m, e1, "call"));
+        _: atom <- println(" atom_is call");
+        _: atom <- print_boolean(bees_etf_scan@atom_is(m, e1, "cast"));
+        _: atom <- println(" atom_is cast");
+        e2: int64 <- bees_etf_scan@skip(m, e1);
+        _: atom <- num("mixed: element 2 at", e2);
+        _: atom <- num("mixed: map_count of element 2", bees_etf_scan@map_count(m, e2));
+        k1: int64 <- bees_etf_scan@map_first(m, e2);
+        _: atom <- num("mixed: map_first of element 2", k1);
+        _: atom <- text("mixed: first key", bees_etf_scan@atom_text(m, k1));
+        v1: int64 <- bees_etf_scan@skip(m, k1);
+        _: atom <- num("mixed: first value: tag", bees_etf_scan@tag_at(m, v1));
+        _: atom <- num("mixed: first value: list_count", bees_etf_scan@list_count(m, v1));
+        x1: int64 <- bees_etf_scan@list_first(m, v1);
+        _: atom <- num("mixed: first value: list_first", x1);
+        x2: int64 <- bees_etf_scan@skip(m, x1);
+        sl: string <- bees_etf_scan@slice_term(m, x1, x2);
+        _: atom <- text("mixed: slice_term of the first element", hex(sl));
+        _: atom <- text("mixed: body_of that slice", hex(bees_etf_scan@body_of(sl)));
+        _: atom <- num("mixed: leaf_int of that slice", bees_etf_scan@leaf_int(sl).v);
+        _: atom <- num("mixed: atom_check of element 2 (a map)", bees_etf_scan@atom_check(m, e2));
+        _: atom <- num("mixed: length of atom_text of element 2", length_bytes(bees_etf_scan@atom_text(m, e2)));
+        _: atom <- num("mixed: map_count of element 1 (an atom)", bees_etf_scan@map_count(m, e1));
+        _: atom <- num("mixed: tuple_arity of element 1", bees_etf_scan@tuple_arity(m, e1));
+        _: atom <- num("mixed: list_count of element 1", bees_etf_scan@list_count(m, e1));
+        _: atom <- num("mixed: tag_at 100000", bees_etf_scan@tag_at(m, 100000));
+        _: atom <- num("mixed: tag_at -1", bees_etf_scan@tag_at(m, 0 - 1));
+        _: atom <- num("mixed: skip from 100000", bees_etf_scan@skip(m, 100000));
+        _: atom <- num("mixed: slice_term outside, length", length_bytes(bees_etf_scan@slice_term(m, 5, 100000)))
+    produces pure :ok end
+}
+
+fn part4b() -> atom {
+    sequence 
+        _: atom <- num("string: list_count", bees_etf_scan@list_count(unhex("836b0003616263"), 1));
+        _: atom <- num("string: list_first", bees_etf_scan@list_first(unhex("836b0003616263"), 1));
+        _: atom <- num("nil: list_count", bees_etf_scan@list_count(unhex("836a"), 1));
+        _: atom <- num("nil: list_first", bees_etf_scan@list_first(unhex("836a"), 1));
+        _: atom <- num("tuple_300: tuple_arity", bees_etf_scan@tuple_arity(unhex("83690000012c610161026103610461056106610761086109610a610b610c610d610e610f6110611161126113611461156116611761186119611a611b611c611d611e611f6120612161226123612461256126612761286129612a612b612c612d612e612f6130613161326133613461356136613761386139613a613b613c613d613e613f6140614161426143614461456146614761486149614a614b614c614d614e614f6150615161526153615461556156615761586159615a615b615c615d615e615f6160616161626163616461656166616761686169616a616b616c616d616e616f6170617161726173617461756176617761786179617a617b617c617d617e617f6180618161826183618461856186618761886189618a618b618c618d618e618f6190619161926193619461956196619761986199619a619b619c619d619e619f61a061a161a261a361a461a561a661a761a861a961aa61ab61ac61ad61ae61af61b061b161b261b361b461b561b661b761b861b961ba61bb61bc61bd61be61bf61c061c161c261c361c461c561c661c761c861c961ca61cb61cc61cd61ce61cf61d061d161d261d361d461d561d661d761d861d961da61db61dc61dd61de61df61e061e161e261e361e461e561e661e761e861e961ea61eb61ec61ed61ee61ef61f061f161f261f361f461f561f661f761f861f961fa61fb61fc61fd61fe61ff6200000100620000010162000001026200000103620000010462000001056200000106620000010762000001086200000109620000010a620000010b620000010c620000010d620000010e620000010f6200000110620000011162000001126200000113620000011462000001156200000116620000011762000001186200000119620000011a620000011b620000011c620000011d620000011e620000011f6200000120620000012162000001226200000123620000012462000001256200000126620000012762000001286200000129620000012a620000012b620000012c"), 1));
+        _: atom <- num("tuple_300: tuple_first", bees_etf_scan@tuple_first(unhex("83690000012c610161026103610461056106610761086109610a610b610c610d610e610f6110611161126113611461156116611761186119611a611b611c611d611e611f6120612161226123612461256126612761286129612a612b612c612d612e612f6130613161326133613461356136613761386139613a613b613c613d613e613f6140614161426143614461456146614761486149614a614b614c614d614e614f6150615161526153615461556156615761586159615a615b615c615d615e615f6160616161626163616461656166616761686169616a616b616c616d616e616f6170617161726173617461756176617761786179617a617b617c617d617e617f6180618161826183618461856186618761886189618a618b618c618d618e618f6190619161926193619461956196619761986199619a619b619c619d619e619f61a061a161a261a361a461a561a661a761a861a961aa61ab61ac61ad61ae61af61b061b161b261b361b461b561b661b761b861b961ba61bb61bc61bd61be61bf61c061c161c261c361c461c561c661c761c861c961ca61cb61cc61cd61ce61cf61d061d161d261d361d461d561d661d761d861d961da61db61dc61dd61de61df61e061e161e261e361e461e561e661e761e861e961ea61eb61ec61ed61ee61ef61f061f161f261f361f461f561f661f761f861f961fa61fb61fc61fd61fe61ff6200000100620000010162000001026200000103620000010462000001056200000106620000010762000001086200000109620000010a620000010b620000010c620000010d620000010e620000010f6200000110620000011162000001126200000113620000011462000001156200000116620000011762000001186200000119620000011a620000011b620000011c620000011d620000011e620000011f6200000120620000012162000001226200000123620000012462000001256200000126620000012762000001286200000129620000012a620000012b620000012c"), 1));
+        _: atom <- num("map_0: map_count", bees_etf_scan@map_count(unhex("837400000000"), 1));
+        _: atom <- num("map count over the bytes left", bees_etf_scan@map_count(unhex("8374000000ff6a"), 1));
+        _: atom <- num("tuple arity over the bytes left", bees_etf_scan@tuple_arity(unhex("8368056a"), 1));
+        _: atom <- num("list count over the bytes left", bees_etf_scan@list_count(unhex("836c000000056a"), 1));
+        _: atom <- num("string count over the bytes left", bees_etf_scan@list_count(unhex("836b000561"), 1));
+        _: atom <- text("atom_ext latin1: atom_text", hex(bees_etf_scan@atom_text(unhex("8364000268e9"), 1)));
+        _: atom <- text("small_atom_ext latin1: atom_text", hex(bees_etf_scan@atom_text(unhex("83730268e9"), 1)));
+        _: atom <- num("atom of 256 letters: atom_check", bees_etf_scan@atom_check(long_atom(256), 1));
+        _: atom <- num("atom of 255 letters: atom_check", bees_etf_scan@atom_check(long_atom(255), 1));
+        _: atom <- num("atom not utf8: atom_check", bees_etf_scan@atom_check(unhex("837702c328"), 1));
+        _: atom <- num("atom cut: atom_check", bees_etf_scan@atom_check(unhex("8377056f6b"), 1));
+        _: atom <- num("atom cache reference: atom_check", bees_etf_scan@atom_check(unhex("835200"), 1));
+        _: atom <- num("atom cut: atom_end", bees_etf_scan@atom_end(unhex("8377056f6b"), 1));
+        _: atom <- num("atom ok: atom_end", bees_etf_scan@atom_end(unhex("8377026f6b"), 1));
+        _: atom <- num("utf8_chars h e-acute l l o arrow", bees_etf_scan@utf8_chars(unhex("68c3a96c6c6fe28692")));
+        _: atom <- num("utf8_chars U+10FFFF", bees_etf_scan@utf8_chars(unhex("f48fbfbf")));
+        _: atom <- num("utf8_chars above U+10FFFF", bees_etf_scan@utf8_chars(unhex("f4908080")));
+        _: atom <- num("utf8_chars surrogate", bees_etf_scan@utf8_chars(unhex("eda080")));
+        _: atom <- num("utf8_chars overlong", bees_etf_scan@utf8_chars(unhex("c080")));
+        _: atom <- num("utf8_chars cut", bees_etf_scan@utf8_chars(unhex("e282")));
+        _: atom <- num("utf8_chars lone continuation", bees_etf_scan@utf8_chars(unhex("80")));
+        _: atom <- text("latin1_to_utf8 00 7f 80 ff", hex(bees_etf_scan@latin1_to_utf8(unhex("007f80ff"))));
+        _: atom <- num("bytes_compare ab abc", bees_etf_scan@bytes_compare("ab", "abc"));
+        _: atom <- num("bytes_compare abc ab", bees_etf_scan@bytes_compare("abc", "ab"));
+        _: atom <- num("bytes_compare abc abc", bees_etf_scan@bytes_compare("abc", "abc"));
+        _: atom <- num("bytes_compare empty empty", bees_etf_scan@bytes_compare("", ""));
+        _: atom <- num("bytes_compare ff 00", bees_etf_scan@bytes_compare(unhex("ff"), unhex("00")));
+        _: atom <- num("bytes_compare 7f 80", bees_etf_scan@bytes_compare(unhex("7f"), unhex("80")));
+        _: atom <- num("bytes_compare abd abc", bees_etf_scan@bytes_compare("abd", "abc"));
+        _: atom <- num("skip unknown tag", bees_etf_scan@skip(unhex("83ff"), 1));
+        _: atom <- num("skip FLOAT_EXT", bees_etf_scan@skip(unhex("8363"), 1));
+        _: atom <- num("skip compressed", bees_etf_scan@skip(unhex("8350"), 1));
+        _: atom <- num("skip cut tuple", bees_etf_scan@skip(unhex("8368026101"), 1));
+        _: atom <- num("skip 64 deep (130 bytes)", bees_etf_scan@skip(nested(64), 1));
+        _: atom <- num("skip 65 deep", bees_etf_scan@skip(nested(65), 1));
+        _: atom <- num("skip_within 2: 2 deep", bees_etf_scan@skip_within(nested(2), 1, 2));
+        _: atom <- num("skip_within 2: 3 deep", bees_etf_scan@skip_within(nested(3), 1, 2));
+        _: atom <- num("skip list claiming 4294967295 elements", bees_etf_scan@skip(unhex("836cffffffff61016a"), 1));
+        _: atom <- num("skip new fun with a size under 4", bees_etf_scan@skip(unhex("837000000003"), 1))
+    produces pure :ok end
+}
+
+fn part4c() -> atom {
+    sequence 
+        _: atom <- why("code_reason -1", bees_etf_scan@code_reason(0 - 1));
+        _: atom <- why("code_reason -2", bees_etf_scan@code_reason(0 - 2));
+        _: atom <- why("code_reason -3", bees_etf_scan@code_reason(0 - 3));
+        _: atom <- why("code_reason -4", bees_etf_scan@code_reason(0 - 4));
+        _: atom <- why("code_reason -5", bees_etf_scan@code_reason(0 - 5));
+        _: atom <- why("code_reason -6", bees_etf_scan@code_reason(0 - 6));
+        _: atom <- why("code_reason -7", bees_etf_scan@code_reason(0 - 7));
+        _: atom <- why("code_reason -8", bees_etf_scan@code_reason(0 - 8));
+        _: atom <- why("code_reason -9", bees_etf_scan@code_reason(0 - 9));
+        _: atom <- why("code_reason -10", bees_etf_scan@code_reason(0 - 10));
+        _: atom <- why("code_reason -11", bees_etf_scan@code_reason(0 - 11));
+        _: atom <- why("code_reason -12", bees_etf_scan@code_reason(0 - 12));
+        _: atom <- why("code_reason -13", bees_etf_scan@code_reason(0 - 13));
+        _: atom <- why("code_reason -14", bees_etf_scan@code_reason(0 - 14));
+        _: atom <- why("code_reason -15", bees_etf_scan@code_reason(0 - 15));
+        _: atom <- why("code_reason -16", bees_etf_scan@code_reason(0 - 16));
+        _: atom <- why("code_reason 0", bees_etf_scan@code_reason(0));
+        _: atom <- why("code_reason -99", bees_etf_scan@code_reason(0 - 99))
+    produces pure :ok end
+}
+
+fn part4() -> atom {
+    sequence
+        _: atom <- part4a();
+        _: atom <- part4b();
+        _: atom <- part4c()
+    produces pure :ok end
+}
+
+fn part5a() -> atom {
+    sequence 
+        _: atom <- fx("empty frame", "");
+        _: atom <- fx("no 131", "6100");
+        _: atom <- fx("version 132", "8461");
+        _: atom <- fx("131 alone", "83");
+        _: atom <- fx("compressed term", "8350000000026a6a");
+        _: atom <- fx("distribution header", "834400");
+        _: atom <- fx("unknown tag 255", "83ff");
+        _: atom <- fx("unknown tag 0", "8300");
+        _: atom <- fx("trailing bytes", "836a00");
+        _: atom <- fx("list claiming 4294967295 elements", "836cffffffff61016a");
+        _: atom <- fx("tuple claiming 4294967295 elements", "8369ffffffff6a6a6a");
+        _: atom <- fx("map claiming 4294967295 pairs", "8374ffffffff6a6a6a");
+        _: atom <- fx("binary claiming 4294967295 bytes", "836dffffffff000000");
+        _: atom <- fx("big integer claiming 4294967295 bytes", "836fffffffff00010203");
+        _: atom <- fx("string claiming 65535 bytes", "836bffff6161");
+        _: atom <- fx("list of 0 elements and a tail", "836c000000006a");
+        _: atom <- fx("duplicate key", "83740000000261017701616101770162");
+        _: atom <- fx("duplicate key, 1 as 97 and as 98", "83740000000261016a62000000016a");
+        _: atom <- fx("duplicate key, ab as 107 and as 108", "8374000000026b000261626a6c00000002616161626a6a");
+        _: atom <- fx("duplicate key, old and new atom tag", "83740000000277016b6a6400016b6a");
+        _: atom <- fx("duplicate key in a map inside a tuple in a list", "836c000000016801740000000261016a61016a6a");
+        _: atom <- fx("duplicate key, two maps with the same pairs in another order", "837400000002740000000261016a61026a6a740000000261026a61016a6a");
+        _: atom <- fx("two keys that are maps with different pairs", "837400000002740000000261016a61026a6a740000000261016a61036a6a");
+        _: atom <- fx("duplicate key, maps in another order inside a tuple and a list", "83740000000268016c00000001740000000261016a61026a6a6a68016c00000001740000000261026a61016a6a6a")
+    produces pure :ok end
+}
+
+fn part5b() -> atom {
+    sequence 
+        _: atom <- fx("duplicate key, maps in another order inside a map key", "8374000000027400000001740000000261016a61026a6a6a7400000001740000000261026a61016a6a6a");
+        _: atom <- fx("duplicate key, same map values in another order", "8374000000027400000002610177016161027701626a7400000002610277016261017701616a");
+        _: atom <- fx("two keys, same map keys with other values", "8374000000027400000002610177016161027701626a7400000002610277016161017701626a");
+        _: atom <- fx("atom not utf8", "837702c328");
+        _: atom <- fx("atom surrogate", "837703eda080");
+        _: atom <- fx("FLOAT_EXT", "836330303030303030303030303030303030303030303030303030303030303030");
+        _: atom <- fx("atom cache reference", "835200");
+        _: atom <- fx("pid whose node is a cache reference", "83585200000000010000000000000000");
+        _: atom <- fx("bit string, 0 bits", "834d000000010080");
+        _: atom <- fx("bit string, 9 bits", "834d000000010980");
+        _: atom <- fx("bit string, no byte", "834d0000000003");
+        _: atom <- fx("big integer, sign byte 2", "836e010205");
+        _: atom <- fx("new fun, size under 4", "837000000003");
+        _: atom <- fx("export, arity not a small integer", "83717701617701626200000001");
+        _: atom <- fx("old FUN_EXT", "8375");
+        _: atom <- fx("LOCAL_EXT", "8379");
+        _: atom <- fx("pid cut by one byte", "8358770d6e6f6e6f6465406e6f686f73740000000a00000000000000");
+        _: atom <- fx("tuple cut", "836803610162");
+        _: atom <- fx("float cut", "834640");
+        _: atom <- fx("atom cut", "8377056f6b");
+        _: atom <- fxb("atom of 256 letters", long_atom(256));
+        _: atom <- fxb("65 deep", nested(65));
+        _: atom <- fxb("64 deep", nested(64));
+        _: atom <- sweep("mixed", "836805770463616c6c74000000037704617267736c0000000861014640040000000000006d0000000362696e6b00037374726c00000001770178770179680074000000004d0000000101806a77036269676e0b0000000000000000000000017702696461074680000000000000007705c3bc6ec3af6c0000000371770665726c616e6777046e6f64656100620001117062fffeee906a");
+        _: atom <- sweep("fixed_all", "836c0000000358770d6e6f6e6f6465406e6f686f73740000000a000000000000000068025a0003770d6e6f6e6f6465406e6f686f7374000000000003e24c59c40001ea4cbcd578770d6e6f6e6f6465406e6f686f7374000000000000000000000000740000000177016670000000540174dbbc348b4519207f78ab4cd050723300000002000000007712626565735f7465726d5f666978747572657361026203a6dde158770d6e6f6e6f6465406e6f686f73740000000000000000000000006a")
+    produces pure :ok end
+}
+
+fn part5c() -> atom {
+    sequence proc[mem(normal)]
+        e0: List[(int64, int64, float64, string), mem(normal)] <- no_toks();
+        _: atom <- enc_no("encode refuses no token: length", e0);
+        e1: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_tuple(2), bees_term_wire@t_int(1)];
+        _: atom <- enc_no("encode refuses tuple of 2 with 1 element: length", e1);
+        e2: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_int(1), bees_term_wire@t_int(2)];
+        _: atom <- enc_no("encode refuses two terms: length", e2);
+        e3: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_list(1), bees_term_wire@t_int(1)];
+        _: atom <- enc_no("encode refuses list without its tail: length", e3);
+        e4: List[(int64, int64, float64, string), mem(normal)] <- [(99, 0, 0.0, "")];
+        _: atom <- enc_no("encode refuses unknown kind 99: length", e4);
+        e5: List[(int64, int64, float64, string), mem(normal)] <- [(0, 0, 0.0, "")];
+        _: atom <- enc_no("encode refuses unknown kind 0: length", e5);
+        e6: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_bits("a", 0)];
+        _: atom <- enc_no("encode refuses bit string, 0 bits: length", e6);
+        e7: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_bits("a", 9)];
+        _: atom <- enc_no("encode refuses bit string, 9 bits: length", e7);
+        e8: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_bits("", 3)];
+        _: atom <- enc_no("encode refuses bit string, no byte: length", e8);
+        e9: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_atom(letters(256))];
+        _: atom <- enc_no("encode refuses atom of 256 letters: length", e9);
+        e10: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_atom(unhex("c328"))];
+        _: atom <- enc_no("encode refuses atom not utf8: length", e10);
+        e11: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_map(2), bees_term_wire@t_int(1), bees_term_wire@t_atom("a"), bees_term_wire@t_int(1), bees_term_wire@t_atom("b")];
+        _: atom <- enc_no("encode refuses duplicate key: length", e11);
+        e12: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_map(2), bees_term_wire@t_bytes("ab"), bees_term_wire@t_nil(), bees_term_wire@t_list(2), bees_term_wire@t_int(97), bees_term_wire@t_int(98), bees_term_wire@t_nil(), bees_term_wire@t_nil()];
+        _: atom <- enc_no("encode refuses duplicate key, byte list and list of small integers: length", e12);
+        e13: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_map(2), bees_term_wire@t_map(2), bees_term_wire@t_int(1), bees_term_wire@t_nil(), bees_term_wire@t_int(2), bees_term_wire@t_nil(), bees_term_wire@t_nil(), bees_term_wire@t_map(2), bees_term_wire@t_int(2), bees_term_wire@t_nil(), bees_term_wire@t_int(1), bees_term_wire@t_nil(), bees_term_wire@t_nil()];
+        _: atom <- enc_no("encode refuses duplicate key, two maps with the same pairs in another order: length", e13);
+        e14: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_tuple(1), bees_term_wire@t_map(2), bees_term_wire@t_atom("k"), bees_term_wire@t_nil(), bees_term_wire@t_atom("k"), bees_term_wire@t_nil()];
+        _: atom <- enc_no("encode refuses duplicate key in an inner map: length", e14);
+        e15: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_map(1025)];
+        _: atom <- enc_no("encode refuses map of 1025 pairs: length", e15);
+        e16: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_map(0 - 1)];
+        _: atom <- enc_no("encode refuses map of -1 pairs: length", e16);
+        e17: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_big(2, "x")];
+        _: atom <- enc_no("encode refuses big integer, sign 2: length", e17);
+        e18: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_big(0, unhex("0100"))];
+        _: atom <- enc_no("encode refuses big integer, leading zero byte: length", e18);
+        e19: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_big(0, "")];
+        _: atom <- enc_no("encode refuses big integer, no byte: length", e19);
+        e20: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_pid("abc")];
+        _: atom <- enc_no("encode refuses pid that is not a pid: length", e20);
+        e21: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_pid(unhex("5a0003770d6e6f6e6f6465406e6f686f7374000000000003e24b59c40001ea4cbcd5"))];
+        _: atom <- enc_no("encode refuses pid holding a reference: length", e21);
+        e22: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_pid(unhex("58770d6e6f6e6f6465406e6f686f73740000000a000000000000000000"))];
+        _: atom <- enc_no("encode refuses pid with a byte too many: length", e22);
+        e23: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_fun("")];
+        _: atom <- enc_no("encode refuses fun, empty: length", e23);
+        e24: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_list(0), bees_term_wire@t_nil()];
+        _: atom <- enc_no("encode refuses list of 0: length", e24);
+        e25: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_tuple(0 - 1)];
+        _: atom <- enc_no("encode refuses tuple of -1: length", e25);
+        _: atom <- enc_no("encode 65 deep: length", tuples_in(65, one_tok(bees_term_wire@t_nil())));
+        _: atom <- enc_no("encode 64 deep: length", tuples_in(64, one_tok(bees_term_wire@t_nil())))
+    produces pure :ok end
+}
+
+fn part6() -> atom {
+    sequence proc[mem(normal)]
+        _: atom <- large("list of 30000 one-tuples", tuple_list(30000));
+        _: atom <- large("list of 60000 integers", int_list(60000));
+        _: atom <- large("60000 small integers spelled as a list (out: STRING_EXT)", small_list(60000));
+        _: atom <- large("map of 1024 pairs", int_map(1024));
+        _: atom <- ask("map of 1025 pairs", int_map(1025));
+        _: atom <- ask("list of 65534 nils (65536 tokens)", nil_list(65534));
+        _: atom <- ask("list of 65535 nils (65537 tokens)", nil_list(65535));
+        _: atom <- ask("300 tuples of 255 nils (76802 tokens)", row_list(300));
+        _: atom <- ask_within("tuple_3 within 4 tokens", unhex("83680377016161016d0000000178"), 64, 4);
+        _: atom <- ask_within("tuple_3 within 3 tokens", unhex("83680377016161016d0000000178"), 64, 3);
+        _: atom <- ask_within("2 deep within depth 2", nested(2), 2, 100);
+        _: atom <- ask_within("3 deep within depth 2", nested(3), 2, 100);
+        _: atom <- ask_within("64 deep within depth 1000 (lowered to 64)", nested(64), 1000, 1000000);
+        _: atom <- ask_within("65 deep within depth 1000 (lowered to 64)", nested(65), 1000, 1000000);
+        by1: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_bytes(letters(65535))];
+        _: atom <- enc_no("encode byte list of 65535 (STRING_EXT): length", by1);
+        by2: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_bytes(letters(65536))];
+        _: atom <- enc_no("encode byte list of 65536 (LIST_EXT): length", by2);
+        mx: List[(int64, int64, float64, string), mem(normal)] <- toks_of(unhex("836805770463616c6c74000000037704617267736c0000000861014640040000000000006d0000000362696e6b00037374726c00000001770178770179680074000000004d0000000101806a77036269676e0b0000000000000000000000017702696461074680000000000000007705c3bc6ec3af6c0000000371770665726c616e6777046e6f64656100620001117062fffeee906a"));
+        _: atom <- num("mixed: tokens", count(mx, 0));
+        _: atom <- num("mixed: term_size", bees_term_wire@term_size(mx));
+        _: atom <- num("mixed: term_end 0", bees_term_wire@term_end(mx, 0));
+        _: atom <- num("mixed: term_end 1 (an atom)", bees_term_wire@term_end(mx, 1));
+        _: atom <- num("mixed: term_end 2 (the map)", bees_term_wire@term_end(mx, 2));
+        _: atom <- num("mixed: term_end 3 (its first key)", bees_term_wire@term_end(mx, 3));
+        _: atom <- num("mixed: term_end 4 (its first value)", bees_term_wire@term_end(mx, 4));
+        _: atom <- num("mixed: term_end 9999", bees_term_wire@term_end(mx, 9999));
+        _: atom <- num("mixed: tokens of rest_after", count(bees_term_wire@rest_after(mx), 0));
+        cutl: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_tuple(2), bees_term_wire@t_int(1)];
+        _: atom <- num("tuple of 2 with 1 element: term_size", bees_term_wire@term_size(cutl))
+    produces pure :ok end
+}
+
+fn main() -> int64 {
+    sequence
+        _: atom <- say("-- 1 fixtures from erl");
+        _: atom <- part1a();
+        _: atom <- part1b();
+        _: atom <- part1c();
+        _: atom <- say("-- 2 forms erl reads and does not write");
+        _: atom <- part2();
+        _: atom <- say("-- 3 built from constructors");
+        _: atom <- part3();
+        _: atom <- say("-- 4 scanner");
+        _: atom <- part4();
+        _: atom <- say("-- 5 refusals");
+        _: atom <- part5a();
+        _: atom <- part5b();
+        _: atom <- part5c();
+        _: atom <- say("-- 6 large terms and limits");
+        _: atom <- part6()
+    produces pure 0 end
+}

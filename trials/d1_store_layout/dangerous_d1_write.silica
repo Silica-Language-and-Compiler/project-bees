@@ -1,0 +1,131 @@
+// D1: the values of cases.py written through the hosted (:store) carrier; the backing it leaves is compared with the packer's image.
+use bees_reporter;
+use carrier;
+use wireframe;
+use wire_etf;
+use storelog;
+use dangerous_store;
+use dangerous_store_backing_carrier;
+module dangerous_d1_write;
+
+carried_on journal: (:store) (:backing, "d1w.sildat", 16384, :stop);
+
+fn say_n(label: string, n: int64) -> atom {
+    sequence proc[device_io]
+        _: atom <- print(label);
+        _: atom <- print_int64(n);
+        o: atom <- println("")
+    produces pure o end
+}
+fn say_atom(label: string, a: atom) -> atom {
+    sequence proc[device_io]
+        _: atom <- print(label);
+        _: atom <- print_atom(a);
+        o: atom <- println("")
+    produces pure o end
+}
+fn say_text(label: string, s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- print(label);
+        o: atom <- println(s)
+    produces pure o end
+}
+fn say_log(oldest: int64, nx: int64, capacity: int64) -> atom {
+    sequence proc[device_io]
+        _: atom <- print("log oldest=");
+        _: atom <- print_int64(oldest);
+        _: atom <- print(" next=");
+        _: atom <- print_int64(nx);
+        _: atom <- print(" capacity=");
+        _: atom <- print_int64(capacity);
+        o: atom <- println("")
+    produces pure o end
+}
+fn tx(car: dangerous_actor_ref, s: string) -> boolean {
+    sequence proc[concurrency]
+        r: boolean <- cast(car, (:tx, s, self()) impl ActorMessage {})
+    produces pure r end
+}
+fn tx_all(car: dangerous_actor_ref, segs: List[string, mem(normal)]) -> boolean {
+    case segs of {
+        []: List[string, mem(normal)] -> true;
+        [h: string, t: List[string, mem(normal)]] -> {
+            _: atom <- say_n("tx record bytes=", length_bytes(h));
+            _: boolean <- tx(car, h);
+            tx_all(car, t)
+        }
+    }
+}
+fn ask(car: dangerous_actor_ref, what: atom) -> boolean {
+    sequence proc[concurrency]
+        r: boolean <- case what == :sync of {
+            true -> cast(car, :sync impl ActorMessage {});
+            false -> cast(car, :close impl ActorMessage {})
+        }
+    produces pure r end
+}
+fn enc_small() -> string {
+    sequence proc[mem(normal), transport]
+        v: { name: string, n: int64 } <- { name: "alpha", n: 42 };
+        s: string <- encode((:etf), v)
+    produces pure s end
+}
+fn enc_big() -> string {
+    sequence proc[mem(normal), transport]
+        z: string <- storelog@zeros(10000);
+        s: string <- encode((:etf), z)
+    produces pure s end
+}
+fn enc_mixed() -> string {
+    sequence proc[mem(normal), transport]
+        none: List[{ a: int64, s: string }, mem(normal)] <- empty[{ a: int64, s: string }, mem(normal)]();
+        one: List[{ a: int64, s: string }, mem(normal)] <- prepend[{ a: int64, s: string }, mem(normal)]({ a: 2, s: "two" }, none);
+        two: List[{ a: int64, s: string }, mem(normal)] <- prepend[{ a: int64, s: string }, mem(normal)]({ a: 1, s: "one" }, one);
+        v: { flag: boolean, items: List[{ a: int64, s: string }, mem(normal)], neg: int64, wide: int64 } <- { flag: true, items: two, neg: 0 - 70000, wide: 4294967295 };
+        s: string <- encode((:etf), v)
+    produces pure s end
+}
+fn stored(schema: int64, etf: string) -> List[string, mem(normal)] {
+    r: string <- wireframe@record(:etf, schema, etf);
+    wireframe@frame(r, 4064, :storage)
+}
+fn write_all(car: dangerous_actor_ref) -> boolean {
+    a: string <- enc_small();
+    _: atom <- say_n("small etf bytes=", length_bytes(a));
+    _: boolean <- tx_all(car, stored(1, a));
+    b: string <- enc_big();
+    _: atom <- say_n("big etf bytes=", length_bytes(b));
+    _: boolean <- tx_all(car, stored(2, b));
+    c: string <- enc_mixed();
+    _: atom <- say_n("mixed etf bytes=", length_bytes(c));
+    _: boolean <- tx_all(car, stored(3, c));
+    ask(car, :sync)
+}
+fn finished() -> boolean {
+    sequence proc[device_io]
+        _: atom <- println("done")
+    produces pure true end
+}
+fn owner(msg: (:link_up, string) | (:log, int64, int64, int64) | (:tx_credit, int64) | (:synced, int64) | (:rx, string) | (:rx_end, int64) | (:tx_failed, atom) | (:read_failed, atom) | (:link_down, atom), state: { car: dangerous_actor_ref, n: int64 }) -> (:no_reply, { car: dangerous_actor_ref, n: int64 }) {
+    case msg of {
+        (:link_up, info: string) -> { _: atom <- say_text("link_up ", info); (:no_reply, state) };
+        (:log, a: int64, b: int64, c: int64) -> { _: atom <- say_log(a, b, c); _: boolean <- write_all(state.car); (:no_reply, state) };
+        (:tx_credit, n: int64) -> { _: atom <- say_n("tx_credit ", n); (:no_reply, state) };
+        (:synced, n: int64) -> { _: atom <- say_n("synced ", n); _: boolean <- ask(state.car, :close); (:no_reply, state) };
+        (:rx, s: string) -> (:no_reply, state);
+        (:rx_end, n: int64) -> (:no_reply, state);
+        (:tx_failed, why: atom) -> { _: atom <- say_atom("tx_failed ", why); (:no_reply, state) };
+        (:read_failed, why: atom) -> { _: atom <- say_atom("read_failed ", why); (:no_reply, state) };
+        (:link_down, why: atom) -> { _: atom <- say_atom("link_down ", why); _: boolean <- finished(); (:no_reply, state) }
+    }
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- bees_reporter@start();
+        _: atom <- say_n("mtu ", carrier@mtu((:store)));
+        car: dangerous_actor_ref <- spawn_dangerous_carrier(journal, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        own: actor_ref <- spawn({ car: car, n: 0 }, owner, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: boolean <- cast(car, (:open, own, "") impl ActorMessage {});
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

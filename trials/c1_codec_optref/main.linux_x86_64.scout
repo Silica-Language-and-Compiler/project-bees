@@ -1,0 +1,61 @@
+-- a chain: (atom, int64, ref?(L, normal, rec))
+{ok,1,none} 83680377026f6b610177046e6f6e65  = erl
+  decoded into a fresh region: ok ok, cells=1 sum=1 values: 1
+  erl's bytes decoded: ok ok, cells=1 sum=1 values: 1
+{ok,3,{ok,2,{ok,1,none}}} 83680377026f6b6103680377026f6b6102680377026f6b610177046e6f6e65  = erl
+  decoded into a fresh region: ok ok, cells=3 sum=6 values: 3 2 1
+  erl's bytes decoded: ok ok, cells=3 sum=6 values: 3 2 1
+erl's {ok,5,{ok,3,{ok,4,none}}}: ok ok, cells=3 sum=12 values: 5 3 4
+60 cells 83680377026f6b613c680377026f6b613b680377026f6b61... (487 bytes)  = erl
+  decoded into a fresh region: ok ok, cells=60 sum=1830
+  erl's bytes decoded: ok ok, cells=60 sum=1830
+65 cells (max_depth is 65) 83680377026f6b6141680377026f6b6140680377026f6b61... (527 bytes)  = erl
+  decoded into a fresh region: ok ok, cells=65 sum=2145
+  erl's bytes decoded: ok ok, cells=65 sum=2145
+-- a tagged recursive tuple: (:cons, int64, ref?(L, normal, rec))
+{cons,1,{cons,2,none}} 8368037704636f6e73610168037704636f6e73610277046e6f6e65  = erl
+  decoded into a fresh region: ok cons: 1 2
+  erl's bytes decoded: ok cons: 1 2
+-- the same tuple as a variant of a sum: (:cons, int64, ref?(L, normal, rec)) | :nil
+{cons,1,{cons,2,none}} 8368037704636f6e73610168037704636f6e73610277046e6f6e65  = erl
+  decoded into a fresh region: ok cons: 1 2
+nil 8377036e696c  = erl
+  decoded into a fresh region: ok nil
+-- a recursive tuple inside a record and inside a tagged tuple: (:chain, { id: int64, head: (int64, string, ref?(L, normal, rec)) })
+#{id=>7,head=>{1,<<"a">>,{2,<<"b">>,none}}} 837400000002770468656164680361016d0000000161680361026d000000016277046e6f6e65770269646107  (a map: erl's bytes are decoded, not compared)
+  decoded into a fresh region: ok { id: 7, head: 1:a 2:b }
+  erl's bytes decoded: ok { id: 7, head: 1:a 2:b }
+{chain,#{id=>7,head=>{1,<<"a">>,{2,<<"b">>,none}}}} 8368027705636861696e7400000002770468656164680361016d0000000161680361026d000000016277046e6f6e65770269646107  (a map: erl's bytes are decoded, not compared)
+  decoded into a fresh region: ok (chain, { id: 7, head: 1:a 2:b })
+  erl's bytes decoded: ok (chain, { id: 7, head: 1:a 2:b })
+-- refusals, decoded as (atom, int64, ref?(L, normal, rec))
+66 cells, one deeper than max_depth 83680377026f6b6142680377026f6b6141680377026f6b61... (535 bytes)  = erl
+  decoded into a fresh region: rejected too_deep
+  erl's bytes decoded: rejected too_deep
+the slot holds an atom other than none: {ok,1,nil}: rejected bad_variant
+the slot holds an atom the program does not hold: {ok,1,zzqx}: rejected bad_variant
+the slot of the third cell holds nil: {ok,5,{ok,3,{ok,4,nil}}}: rejected bad_variant
+the slot holds an integer: {ok,1,2}: rejected bad_tag
+the slot holds a cell of another arity: {ok,1,{ok,2}}: rejected bad_tag
+the cell's atom is one the program does not hold: {zzqx,1,none}: rejected unknown_atom
+empty frame: rejected truncated
+truncated after the first cell's integer: rejected truncated
+truncated inside the second cell: rejected truncated
+truncated inside the last slot's atom: rejected truncated
+trailing byte: rejected trailing_bytes
+200 cells, a frame of 1607 bytes, above the cap of 1024: rejected too_large
+cons, a cell with another tag: {cons,1,{ok,2,none}}: rejected bad_tag
+cons, the slot holds nil: {cons,1,nil}: rejected bad_variant
+lst, the slot holds nil (a variant of the sum, not an empty slot): {cons,1,nil}: rejected bad_variant
+lst, the atom none (an empty slot, not a variant): rejected bad_variant
+-- 20000 decodes in a row of each, every one into a scratch region (validate_named)
+66 cells, refused too_deep: 20000
+60 cells, accepted: 20000
+-- the deliverer path: bees_peers@start_deliverer decodes into a fresh region and casts { r, v } to the name chain
+actor chain, message 0: ok, cells=4 sum=10 values: 4 3 2 1
+actor chain, message 1: ok, cells=3 sum=12 values: 5 3 4
+actor chain, message 2: ok, cells=60 sum=1830
+actor chain: now a payload of 66 cells (refused), one whose slot holds nil (refused), then {ok,1,none}
+actor chain, message 3: ok, cells=1 sum=1 values: 1
+actor chain: done
+exit=0
