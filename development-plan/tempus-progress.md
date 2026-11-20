@@ -654,4 +654,11 @@ start no start until a reading, later the last reading is kept; a step back is f
 second), NQ-23 (which refused connections make a new score entry; built: only those after the token verified). NQ-21 is
 still open.
 
+Ruled 2026-11-20: NQ-22 (a step back is followed; a clock that fails after a good reading now stops the node admitting
+and ticking until it is read again, audit line `clock_refused`; read once a second) and NQ-23 (new score entries only
+after the token verified; the score limit is the bridge application's value). The failing-clock change is built and the
+eight TEMPUS trials pass with it on the Mac; no golden changed, because no trial can make the clock fail, so that path
+is still read from the code only. Also ruled that day: a file that configures BEAM together with TRUST or with TEMPUS
+is refused (`tools/bees_conf.py`, `tools/bees_tempus_conf.py`, development-plan/bees-config-file.md section 3).
+
 What remains is the plan of the entry above (T7's store-carrier part, the edits in tools/bees_conf.py by its owner, T8).

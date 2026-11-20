@@ -1,0 +1,126 @@
+// ---- examples/trust_mesh: a node of the five-node TRUST mesh. Every node runs this same program; only its bees.config,
+// its whitelist and its pin file differ. A node is a TRUST server (trust_start listens, because a whitelist is configured)
+// and a TRUST client of the other four (trpc_call), in one program.
+//
+// A baton goes round the mesh. The node that holds it calls mesh:relay([Hop, Caller]) on the next server of its pin file;
+// the node that answers now holds the baton (mesh_demo@relay tells its driver) and makes the next call. A node calls its
+// pinned servers in the order of the pin file, and the pin files are written so that the baton uses each of the 20
+// directed pairs once per lap. Node 1 starts. There are two laps: the first opens the 20 TLS connections (one session
+// each), the second sends 20 more calls over the sessions that are open.
+//
+// One call at a time, and a short wait before each: two actors of one program that print at the same moment can mix
+// their lines (Silica defect SD-49), and the example's output is compared with a recorded one.
+fn region_dump_limit() -> int64 { 0 }
+// every failure report but an ordinary stop_self(:normal) goes to stderr; none is expected while the baton goes round
+fn reporter(report: string, st: int64) -> (:no_reply, int64) {
+    sequence proc[device_io]
+        _: atom <- case contains(report, "reason:          :normal") of { true -> :ok; false -> println_stderr(report) }
+    produces pure (:no_reply, st) end
+}
+fn start_reporter() -> atom {
+    sequence proc[concurrency]
+        r: actor_ref <- spawn(0, reporter, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        ok: atom <- register_failure_reporter(r)
+    produces pure ok end
+}
+fn say(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+// this node's number: the last two digits of the port it listens on (24403 is node 3), from its bees.config
+fn number() -> int64 { bees_trust_conf@port() % 100 }
+fn laps() -> int64 { 2 }
+fn calls_to_make() -> int64 { laps() * bees_trust_conf@server_count() }
+fn wait_ms() -> uint64 { 200 }
+fn ints2(a: int64, b: int64) -> string {
+    sequence proc[mem(normal)]
+        xs: List[int64, mem(normal)] <- [a, b]
+    produces pure bees_trust_frame@enc_args_ints(xs) end
+}
+fn text(n: int64) -> string { bees_trust_frame@int_text(n) }
+// the answer of a call as text: {ok, int N} or {error, Reason}
+fn outcome(r: { req: int64, what: atom, value: string }) -> string {
+    case r.what == bees_atoms@a_ok() of {
+        true -> case bees_trust_frame@dec_int(r.value) of {
+            (:ok, n: int64) -> concat("{ok, int ", concat(text(n), "}"));
+            (:rejected, _w: atom) -> "{ok, not an integer}"
+        };
+        false -> concat("{error, ", concat(bees_atoms@spelling(r.what), "}"))
+    }
+}
+// "go" in Hop's turn, wait_ms from now
+fn wake(d: actor_ref, hop: int64) -> atom {
+    sequence proc[concurrency]
+        m: { req: int64, what: atom, value: string } <- { req: hop, what: bees_atoms@a_ok(), value: "go" };
+        t: timer_ref <- send_after(wait_ms(), d, m impl ActorMessage {})
+    produces pure :ok end
+}
+// the server of this node's call number i (0 first): the pin file's order, round again in the second lap
+fn server_of(i: int64) -> string { bees_trust_conf@server_addr(i % bees_trust_conf@server_count()) }
+fn call_line(hop: int64, addr: string) -> string {
+    sequence
+        h: string <- text(hop);
+        n: string <- text(number());
+        head: string <- concat(concat("hop ", h), concat(": n", n));
+        call: string <- concat(concat(" called ", addr), concat(concat(" mesh:relay([", h), concat(concat(", ", n), "])")))
+    produces pure concat(head, call) end
+}
+fn done_line() -> string {
+    concat(concat("n", text(number())), concat(": done, calls made and answered: ", text(calls_to_make())))
+}
+fn make_call(hop: int64, i: int64, me: actor_ref) -> atom {
+    sequence
+        addr: string <- server_of(i);
+        args: string <- ints2(hop, number());
+        ok: atom <- trpc_call(addr, bees_atoms@a_mesh(), bees_atoms@a_relay(), 2, args, me, hop)
+    produces pure ok end
+}
+// the driver. Its messages are the answers of its calls ({ req: Hop, what, value }), the baton from mesh_demo@relay
+// (value "baton": this node has just answered hop req) and its own timer (value "go": make the call of hop req).
+fn on_baton(r: { req: int64, what: atom, value: string }, st: { made: int64, answered: int64, served: int64 }, me: actor_ref) -> { made: int64, answered: int64, served: int64 } {
+    sequence
+        _: atom <- wake(me, r.req + 1)
+    produces pure { made: st.made, answered: st.answered, served: st.served + 1 } end
+}
+fn on_go(r: { req: int64, what: atom, value: string }, st: { made: int64, answered: int64, served: int64 }, me: actor_ref) -> { made: int64, answered: int64, served: int64 } {
+    case st.made >= calls_to_make() of {
+        true -> { sequence _: atom <- say(done_line()) produces pure st end };
+        false -> { sequence _: atom <- make_call(r.req, st.made, me) produces pure { made: st.made + 1, answered: st.answered, served: st.served } end }
+    }
+}
+fn on_answer(r: { req: int64, what: atom, value: string }, st: { made: int64, answered: int64, served: int64 }) -> { made: int64, answered: int64, served: int64 } {
+    sequence
+        addr: string <- server_of(st.answered);
+        head: string <- call_line(r.req, addr);
+        res: string <- outcome(r);
+        _: atom <- say(concat(head, concat(": ", res)));
+        all: boolean <- (st.answered + 1 >= calls_to_make()) and (st.served >= calls_to_make());
+        _: atom <- case all of { true -> say(done_line()); false -> :ok }
+    produces pure { made: st.made, answered: st.answered + 1, served: st.served } end
+}
+fn driver(r: { req: int64, what: atom, value: string }, st: { made: int64, answered: int64, served: int64 }) -> (:no_reply, { made: int64, answered: int64, served: int64 }) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        nx: { made: int64, answered: int64, served: int64 } <- case r.value == "baton" of {
+            true -> on_baton(r, st, me);
+            false -> case r.value == "go" of { true -> on_go(r, st, me); false -> on_answer(r, st) }
+        }
+    produces pure (:no_reply, nx) end
+}
+fn start() -> atom {
+    sequence proc[concurrency]
+        _: atom <- start_reporter();
+        d: actor_ref <- spawn_registered({ made: 0, answered: 0, served: 0 }, driver, bees_atoms@a_mesh_driver(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: atom <- trust_start();
+        _: atom <- case number() == 1 of { true -> wake(d, 1); false -> :ok }
+    produces pure :ok end
+}
+// the boot check comes first: on a boot error the line is printed and nothing is started
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        b: int64 <- trust_boot();
+        _: atom <- case b == 0 of { true -> start(); false -> :ok };
+        rc: int64 <- case b == 0 of { true -> wait_for_exit(); false -> 1 }
+    produces pure rc end
+}

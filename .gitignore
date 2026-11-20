@@ -460,3 +460,28 @@ trials/c4_tempus_boot/lib/tempus_ids.silica
 trials/c4_tempus_boot/.gen.mk
 !trials/c4_tempus_boot/dangerous_exposure_source
 trials/c3_tempus_bridge/nodes/*/.gen.root
+# examples/trust_mesh (the five-node TRUST mesh, run by trials/n5_trust_mesh): the node leaves keep their configuration, links
+# and the TEST-ONLY certificates (examples/trust_mesh/make_certs.sh; keys that belong to nobody); what the build and the run
+# write is ignored again
+!trials/n5_trust_mesh/Makefile
+examples/trust_mesh/nodes/*/*
+!examples/trust_mesh/nodes/*/Makefile
+!examples/trust_mesh/nodes/*/*.config
+!examples/trust_mesh/nodes/*/*.atoms
+!examples/trust_mesh/nodes/*/lib/
+!examples/trust_mesh/nodes/*/dangerous_exposure_source
+examples/trust_mesh/nodes/*/lib/bees_trust_conf.*
+examples/trust_mesh/nodes/*/lib/bees_trust_mfa.silica
+examples/trust_mesh/nodes/*/lib/bees_trust_slots.silica
+examples/trust_mesh/nodes/*/lib/dangerous_bees_trust_mux.silica
+examples/trust_mesh/nodes/*/lib/bees_trust_mux_frame.silica
+examples/trust_mesh/nodes/*/lib/bees_trust_mux.atoms
+examples/trust_mesh/nodes/*/lib/bees_atoms.*
+examples/trust_mesh/nodes/*/lib/*.sams
+examples/trust_mesh/nodes/*/lib/*.iface
+examples/trust_mesh/nodes/*/lib/*.o
+examples/trust_mesh/nodes/*/lib/*.silica.derived
+examples/trust_mesh/*.raw
+examples/trust_mesh/mesh.check
+examples/trust_mesh/nodes/*/silica.config
+examples/trust_mesh/nodes/*/silica.atoms

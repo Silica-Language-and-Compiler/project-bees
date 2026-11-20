@@ -60,14 +60,17 @@ compiler never needs to edit `bees.config`; it only has to ship it, or embed it 
 [
   {mode, trust},                 %% beam | trust (one mode per node, section 3.1)
   {node, [ ... ]},               %% section 5.1
-  {beam, [ ... ]},               %% section 5.2, validated always, used when mode is beam
-  {trust, [ ... ]}               %% section 5.3, validated always, used when mode is trust
+  {beam, [ ... ]},               %% section 5.2, only in a BEAM-mode node's file
+  {trust, [ ... ]}               %% section 5.3, only in a TRUST-mode node's file
 ]
 ```
 
-Every top-level key is optional except as noted in the tables. Both the `beam` and the `trust` section are **validated whichever
-mode is selected** (syntax, types, bounds, unknown keys), so that a file written for one mode cannot hide a mistake until
-the other is chosen; only the selected section is acted on.
+Every top-level key is optional except as noted in the tables. **A file holds the `beam` section or the `trust` section, never
+both (owner's ruling, 2026-11-20).** A file that configures BEAM together with TRUST, or BEAM together with TEMPUS (a `tempus`
+section, or mode `tempus` or `tempus-trust`), is refused with one line and nothing starts: the build stops, or the node's
+startup prints the line and exits 1, as for any other refusal. This replaces the earlier rule, under which both sections were
+validated and only the selected one was acted on. A section that does not belong to the selected mode is refused in the same
+way (a `trust` section under `{mode, beam}`, a `beam` section under `{mode, trust}` or under the default).
 
 ### 3.1 The `mode` choice
 
@@ -316,9 +319,22 @@ multiplexing design's 1 MiB and 64 KiB, are **not** BEES's defaults or bounds; a
                 max_calls => 100, drain_ms => 1_000}},
     {acceptors, 8},
     {session_slots_max, 1_000}
+  ]}
+].
+```
+
+The same for a BEAM-mode node, in a file of its own (a file with both a `beam` and a `trust` section is refused, section 3):
+
+```erlang
+[
+  {mode, beam},
+
+  {node, [
+    {name, "orders@10.0.0.7"},
+    {creation, 1}
   ]},
 
-  {beam, [                                    %% validated, not used while mode is trust
+  {beam, [
     {transport, tcp},                         %% tls does not exist yet
     {auth, cookie},
     {cookie_file, "secrets/erlang.cookie"},

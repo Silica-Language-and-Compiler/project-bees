@@ -519,6 +519,12 @@ def validate(cfg_path, manifest=None):
             raise E(1, "mode", "absent, so the mode is trust (R3); a BEAM-mode node must write {mode, beam} "
                     "(the manifest has remote/local lines)")
         raise E(mln, "mode", "trust, but the manifest has remote/local lines, which exist only for BEAM mode")
+    # ---- owner's ruling 2026-11-20: a file that configures BEAM together with TRUST is refused (a node is one or the other);
+    # the same for BEAM with TEMPUS in tools/bees_tempus_conf.py. Before this both sections were validated and one was used.
+    if "beam" in top and "trust" in top:
+        other = "trust" if mode == "beam" else "beam"
+        raise E(top[other][1], other, f"a beam section and a trust section in one file: a node is BEAM or TRUST, never both "
+                f"(the mode is {mode}; remove the {other} section)")
     sec_line = {k: top[k][1] for k in top}
     conf = {"mode": mode, "notes": notes, "file": os.path.abspath(cfg_path)}
     conf["node"] = node_section(top, manifest, E)
@@ -579,7 +585,7 @@ def want_r(fn, E, node, path, *a):
 
 
 def beam_section(top, mode, manifest, base, E, sec_line):
-    """section 5.2, validated whatever the mode (section 3); the required values and the link only when mode is beam"""
+    """section 5.2 (absent in a TRUST file since the ruling of 2026-11-20); the required values and the link when mode is beam"""
     b = proplist_r(sec(top, "beam"), "beam", BEAM_OPTS, E)
     bl = lambda k: b[k][1]  # noqa: E731
     sl = sec_line.get("beam", 1)
@@ -823,7 +829,7 @@ def cookie_check(base, cf, ln, E):
 
 
 def trust_section(top, mode, base, E, sec_line, notes, fname):
-    """section 5.3, validated whatever the mode; the required values, files and the whitelist only when mode is trust"""
+    """section 5.3 (absent in a BEAM file since the ruling of 2026-11-20); the required values, files and the whitelist when mode is trust"""
     tr = proplist_r(sec(top, "trust"), "trust", TRUST_OPTS, E)
     sl = sec_line.get("trust", 1)
     v = {"mode": mode}

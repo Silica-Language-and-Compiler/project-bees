@@ -1,0 +1,53 @@
+[trust] transport: mutual TLS 1.3 over the programmer-installed OpenSSL; peer identity: the SHA-512 of its certificate
+[trust] mode trust, transport mutual TLS 1.3 (ALPN trust/1, X25519MLKEM768, peers by the SHA-512 of their certificate, pins only, no cacertfile), listen 127.0.0.1:24402, whitelist 4 entries, pinned servers 4, frame_size_max 4096, args_len_max 4096, term_depth_max 32, call_timeout_ms 5000, first_frame_timeout_ms 2000, suspicion_limit 3, token_bytes 48, token_ttl_sec 300, sessions (B2): max_inflight 8, max_calls 100, max_age_ms 60000, idle_ms 30000, drain_ms 1000
+[trust] listening on 127.0.0.1:24402
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 0
+[trust audit] token_issued fp=2f6ad2fc891153b1051327e00c1eb490a4637da5c8833f1cf42f1c1585f7279a409c75cc742f5f4b6959c819d4f7e31461f9ceb708162ea153b5406ef090ffe6 new token for this fingerprint (the token itself is never logged) 0
+[trust telemetry] session.start client_id=fp:2f6ad2fc891153b1 conn=0
+[trust audit] admitted fp=2f6ad2fc891153b1051327e00c1eb490a4637da5c8833f1cf42f1c1585f7279a409c75cc742f5f4b6959c819d4f7e31461f9ceb708162ea153b5406ef090ffe6 call mesh:relay/2 0
+[trust telemetry] request.accept type=call req_id=0000000000000000000000000001 conn=0
+[trust telemetry] request.finish req_id=0000000000000000000000000001 outcome=ok duration_ms=N conn=0
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as client 0
+hop 2: n2 called 127.0.0.1:24403 mesh:relay([2, 2]): {ok, int 223}
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 1
+[trust audit] token_issued fp=28a0c7993ee2463b1c17d985333f50cb49a019e153d8ac55b8846b9301d6f7f794a1cced4e917744210ceef8f804c53b54f47fa4d24cfc3a081e6e605e4214a1 new token for this fingerprint (the token itself is never logged) 1
+[trust telemetry] session.start client_id=fp:28a0c7993ee2463b conn=1
+[trust audit] admitted fp=28a0c7993ee2463b1c17d985333f50cb49a019e153d8ac55b8846b9301d6f7f794a1cced4e917744210ceef8f804c53b54f47fa4d24cfc3a081e6e605e4214a1 call mesh:relay/2 1
+[trust telemetry] request.accept type=call req_id=0000000000000000000000000001 conn=1
+[trust telemetry] request.finish req_id=0000000000000000000000000001 outcome=ok duration_ms=N conn=1
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as client 1
+hop 9: n2 called 127.0.0.1:24404 mesh:relay([9, 2]): {ok, int 924}
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 2
+[trust audit] token_issued fp=2c56080bfe938fd76049187dec5af667d50694a55a76b31269b656079d556aab90c491cf27ebb2fa13e8755e2db8e86321fc4fe8e7be83a81332c74bbe6d4993 new token for this fingerprint (the token itself is never logged) 2
+[trust telemetry] session.start client_id=fp:2c56080bfe938fd7 conn=2
+[trust audit] admitted fp=2c56080bfe938fd76049187dec5af667d50694a55a76b31269b656079d556aab90c491cf27ebb2fa13e8755e2db8e86321fc4fe8e7be83a81332c74bbe6d4993 call mesh:relay/2 2
+[trust telemetry] request.accept type=call req_id=0000000000000000000000000001 conn=2
+[trust telemetry] request.finish req_id=0000000000000000000000000001 outcome=ok duration_ms=N conn=2
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as client 2
+hop 13: n2 called 127.0.0.1:24405 mesh:relay([13, 2]): {ok, int 1325}
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 3
+[trust audit] token_issued fp=288132ecb1683218b4f662147ca4ed4c5175cb4ddafee4c384f917185dc7b77929e0f619dc6a6fe526f19c5d725d61eb3ad7ac2a782d7cbf96d96797377e3284 new token for this fingerprint (the token itself is never logged) 3
+[trust telemetry] session.start client_id=fp:288132ecb1683218 conn=3
+[trust audit] admitted fp=288132ecb1683218b4f662147ca4ed4c5175cb4ddafee4c384f917185dc7b77929e0f619dc6a6fe526f19c5d725d61eb3ad7ac2a782d7cbf96d96797377e3284 call mesh:relay/2 3
+[trust telemetry] request.accept type=call req_id=0000000000000000000000000001 conn=3
+[trust telemetry] request.finish req_id=0000000000000000000000000001 outcome=ok duration_ms=N conn=3
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as client 3
+hop 20: n2 called 127.0.0.1:24401 mesh:relay([20, 2]): {ok, int 2021}
+[trust audit] admitted fp=2f6ad2fc891153b1051327e00c1eb490a4637da5c8833f1cf42f1c1585f7279a409c75cc742f5f4b6959c819d4f7e31461f9ceb708162ea153b5406ef090ffe6 call mesh:relay/2 0
+[trust telemetry] request.accept type=call req_id=0000000000000000000000000002 conn=0
+[trust telemetry] request.finish req_id=0000000000000000000000000002 outcome=ok duration_ms=N conn=0
+hop 22: n2 called 127.0.0.1:24403 mesh:relay([22, 2]): {ok, int 2223}
+[trust audit] admitted fp=28a0c7993ee2463b1c17d985333f50cb49a019e153d8ac55b8846b9301d6f7f794a1cced4e917744210ceef8f804c53b54f47fa4d24cfc3a081e6e605e4214a1 call mesh:relay/2 1
+[trust telemetry] request.accept type=call req_id=0000000000000000000000000002 conn=1
+[trust telemetry] request.finish req_id=0000000000000000000000000002 outcome=ok duration_ms=N conn=1
+hop 29: n2 called 127.0.0.1:24404 mesh:relay([29, 2]): {ok, int 2924}
+[trust audit] admitted fp=2c56080bfe938fd76049187dec5af667d50694a55a76b31269b656079d556aab90c491cf27ebb2fa13e8755e2db8e86321fc4fe8e7be83a81332c74bbe6d4993 call mesh:relay/2 2
+[trust telemetry] request.accept type=call req_id=0000000000000000000000000002 conn=2
+[trust telemetry] request.finish req_id=0000000000000000000000000002 outcome=ok duration_ms=N conn=2
+hop 33: n2 called 127.0.0.1:24405 mesh:relay([33, 2]): {ok, int 3325}
+[trust audit] admitted fp=288132ecb1683218b4f662147ca4ed4c5175cb4ddafee4c384f917185dc7b77929e0f619dc6a6fe526f19c5d725d61eb3ad7ac2a782d7cbf96d96797377e3284 call mesh:relay/2 3
+[trust telemetry] request.accept type=call req_id=0000000000000000000000000002 conn=3
+[trust telemetry] request.finish req_id=0000000000000000000000000002 outcome=ok duration_ms=N conn=3
+hop 40: n2 called 127.0.0.1:24401 mesh:relay([40, 2]): {ok, int 4021}
+n2: done, calls made and answered: 8
+exit=0

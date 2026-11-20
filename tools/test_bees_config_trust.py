@@ -119,11 +119,11 @@ class Conf(unittest.TestCase):
         # N4.1: without plaintext_test_only the node speaks TLS, so tls_opts is required (all three keys)
         self.refused("""[{trust, [{listen_address, "127.0.0.1"}]}].""", "trust.tls_opts", "required")
         self.refused("""[{trust, [{listen_address, "10.0.0.7"}, {plaintext_test_only, true}]}].""", "trust.listen_address", "loopback")
-        # in mode beam the trust section is validated (types, bounds) but its required values are not demanded
+        # owner's ruling 2026-11-20: BEAM and TRUST configured together are refused, whichever mode is written
         beam = '{beam, [{transport, tcp}, {auth, none}, {listen_address, "127.0.0.1"}]}'
-        v, _, err = self.verdict("""[{mode, beam}, %s, {trust, [{port, 6469}]}].""" % beam)
-        self.assertIsNone(err)
-        self.refused("""[{mode, beam}, %s, {trust, [{port, 0}]}].""" % beam, "trust.port", "0 is below 1")
+        self.refused("""[{mode, beam}, %s, {trust, [{port, 6469}]}].""" % beam, "trust", "never both")
+        self.refused("""[{mode, trust}, %s, {trust, [{plaintext_test_only, true}, {listen_address, "127.0.0.1"}]}].""" % beam, "beam", "never both")
+        self.refused("""[%s, {trust, [{plaintext_test_only, true}, {listen_address, "127.0.0.1"}]}].""" % beam, "beam", "never both")
 
     def test_whitelist_files(self):
         self.refused(GOOD_TRUST % ', {whitelist_file, "wl.config"}', "trust.whitelist_file", 'whitelist file "wl.config" does not exist')

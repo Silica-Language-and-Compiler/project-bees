@@ -467,10 +467,13 @@ fn tn_up(c: $NC$, v: $NV$, me: actor_ref) -> $NV$ {
     produces pure tn_join_start(c, v, me) end
 }
 fn tn_accepted(c: $NC$, v: $NV$, me: actor_ref, l: dangerous_actor_ref) -> $NV$ {
-    over: boolean <- v.live >= c.max;
+    // role 4 (ruling NQ-22): the system clock cannot be read, so no token can be judged; closed at once like role 3
+    noclk: boolean <- v.ck == 2;
+    full: boolean <- v.live >= c.max;
+    over: boolean <- case noclk of { true -> true; false -> full };
     cfg: $CFG$ <- tn_cfg(c, v, me, tn_maxcount(c));
     sequence
-        _: boolean <- tempus_conn(cfg, l, case over of { true -> 3; false -> 2 }, v.na + 1, "", "")
+        _: boolean <- tempus_conn(cfg, l, case noclk of { true -> 4; false -> case full of { true -> 3; false -> 2 } }, v.na + 1, "", "")
     produces pure tn_vc(v, case over of { true -> v.live; false -> v.live + 1 }, v.na + 1, v.nd) end
 }
 fn tn_token(c: $NC$, v: $NV$, token: string) -> $NV$ {
@@ -492,12 +495,14 @@ fn tn_timer(c: $NC$, v: $NV$, me: actor_ref, st: int64) -> $NV$ {
     p: $P$ <- { k: 3, cid: 0, st: st, x: 0, who: tn_null(), s: "" };
     sequence
         _: boolean <- tn_arm(me, case st of { 1 -> c.t1; 2 -> c.t2; _: int64 -> c.t3 }, st)
-    // no tick before the first reading of the system clock (v.ck 0 or 3): the node has not begun
-    produces pure case v.ck == 0 or v.ck == 3 of { true -> v; false -> tn_tick(c, v, me, st, p) } end
+    // no tick before the first reading of the system clock (v.ck 0 or 3): the node has not begun; none while a reading
+    // has failed after a good one (v.ck 2; ruling NQ-22): the node's time stands still, so it admits and dials nobody
+    produces pure case v.ck != 1 of { true -> v; false -> tn_tick(c, v, me, st, p) } end
 }
 // A reading of the system clock (130, from the node's clock actor; ruling NQ-11): n the seconds since 1970, or -1 when the
 // operating system gave none. v.ck: 0 no reading yet; 3 no reading yet and the application was told; 1 the last reading
-// was good; 2 a reading failed after a good one and the application was told.
+// was good; 2 a reading failed after a good one and the application was told (ruling NQ-22: until the next good reading
+// the node does not tick, and an accepted connection is closed at once, tn_accepted).
 // The first good reading starts the node: it listens (and joins when its link is up). A reading earlier than the last
 // is followed, one line (the difference is not a time of day).
 fn tn_clock(c: $NC$, v: $NV$, me: actor_ref, n: int64) -> $NV$ {
@@ -505,7 +510,7 @@ fn tn_clock(c: $NC$, v: $NV$, me: actor_ref, n: int64) -> $NV$ {
         true -> case v.ck == 2 or v.ck == 3 of {
             true -> v;
             false -> {
-                why: string <- case v.ck == 0 of { true -> "the system clock could not be read: the node has not started"; false -> "the system clock could not be read: the node goes on with its last reading" };
+                why: string <- case v.ck == 0 of { true -> "the system clock could not be read: the node has not started"; false -> "the system clock could not be read: the node admits no connection and does not tick until it is read again" };
                 sequence
                     _: atom <- tn_say(concat("clock: ", why));
                     _: boolean <- tn_app(c, me, 86, why)
@@ -521,6 +526,7 @@ fn tn_clock(c: $NC$, v: $NV$, me: actor_ref, n: int64) -> $NV$ {
             };
             false -> {
                 sequence
+                    _: atom <- case v.ck == 2 of { true -> tn_say("clock: the system clock is read again"); false -> :ok };
                     _: atom <- case n < v.now of { true -> tn_say(concat(concat("clock: the system clock went back by ", tn_num(v.now - n)), " s; the node follows it")); false -> :ok }
                 produces pure tn_vclk(v, n, 1) end
             }

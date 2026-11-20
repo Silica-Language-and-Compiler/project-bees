@@ -161,7 +161,12 @@ class Document(Base):
         p = self.write("bees.config", m.group(1))
         top = C.proplist(C.read_file(p), "", C.TOP_KEYS)
         tr = C.proplist(top["trust"][0], "trust", C.TRUST_OPTS)
-        bm = C.proplist(top["beam"][0], "beam", C.BEAM_OPTS)
+        # the BEAM-mode file is the next block: one file never holds both sections (owner's ruling 2026-11-20)
+        m2 = re.search(r"## 6\. A full worked example\s+```erlang\n.*?```.*?```erlang\n(.*?)```", self.text, re.S)
+        top2 = C.proplist(C.read_file(self.write("bees2.config", m2.group(1))), "", C.TOP_KEYS)
+        self.assertNotIn("beam", top)
+        self.assertNotIn("trust", top2)
+        bm = C.proplist(top2["beam"][0], "beam", C.BEAM_OPTS)
         self.assertEqual(str(top["mode"][0].value), "trust")
         written = {"port": 6464, "listen_address": "10.0.0.7", "call_timeout_ms": 5000, "suspicion_limit": 3, "token_bytes": 48,
                    "token_ttl_sec": 300, "frame_size_max": 4294967295, "args_len_max": 4294967295, "term_depth_max": 32,

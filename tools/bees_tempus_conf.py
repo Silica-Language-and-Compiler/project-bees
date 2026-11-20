@@ -106,6 +106,10 @@ def tempus_section(top, mode, fname):
     """the effective tempus values, or None for a node that runs no TEMPUS; ConfError on any refusal"""
     has = "tempus" in top
     runs = mode in ("tempus", "tempus-trust")
+    # owner's ruling 2026-11-20: BEAM configured together with TEMPUS is refused, whatever the mode says
+    if "beam" in top and (has or runs):
+        raise C.ConfError(top["beam"][1], "beam", "a beam section in a file that configures TEMPUS: a node is BEAM or "
+                          "TEMPUS, never both (the mode is %s)" % mode, fname)
     if has and not runs:
         raise C.ConfError(top["tempus"][1], "tempus", "a tempus section in a %s node (mode tempus or tempus-trust runs TEMPUS)" % mode, fname)
     if runs and not has:

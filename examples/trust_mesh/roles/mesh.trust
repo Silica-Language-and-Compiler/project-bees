@@ -1,0 +1,3 @@
+# examples/trust_mesh: the one function a TRUST peer may name on a mesh node (tools/bees_trust_gen.py). Whether a given peer
+# may call it is the whitelist's business (trust_whitelist.config).
+export mesh relay 2 mesh_demo@relay args int64 result int64

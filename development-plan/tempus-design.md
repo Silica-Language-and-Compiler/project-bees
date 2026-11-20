@@ -264,7 +264,7 @@ arbitrary bytes (not text) behaves as on text; T2 checks it with 64-byte identit
   does not listen, join or tick before the first reading. The application passes no time of day to such a node. A node
   under `control_test_only` never reads the system clock: its clock is the value its application passed at start, until
   a `clock` frame sets another (16.3). What a reading that fails, and a reading earlier than the one before, do is in
-  section 10; NQ-22 asks whether that is what the owner wants.
+  section 10 (ruling NQ-22).
 - Proof of possession happens when two nodes connect, in both directions, on every connection: a 32-byte nonce from the
   platform's secure source, answered by the Ed25519 signature of `nonce || token` `[S: R:432-433; B: OQ-9]`. A peer that
   fails it is removed from the view `[B: OQ-4]`.
@@ -456,11 +456,13 @@ an accepted peer whose identity it knows (NQ-19; 17.5); only a bridge does anyth
   the refresh (section 6).
 - `key_rotated`: the node reports to the application, which fetches a new token `[S: R:400]`.
 - A failed random request or a failed signature call: the tick is skipped, audited.
-- The system clock cannot be read (a node that is not a test node, section 4) `[P; NQ-22 asks]`: at start the node does
+- The system clock cannot be read (a node that is not a test node, section 4) `[S: ruling NQ-22]`: at start the node does
   not begin (it does not listen, join or tick), says so in one line, tells its application, and begins when a later
-  reading succeeds. After a good reading the node says so once, tells its application, and goes on with its last
-  reading until the clock answers again.
-- The system clock goes back (a reading earlier than the one before) `[P; NQ-22 asks]`: the node follows it, with one
+  reading succeeds. When a reading fails after a good one the node says so once, tells its application, and until the
+  clock is read again it does not tick (so it dials nobody) and closes every accepted connection at once with the audit
+  line `clock_refused`; its time stands still and no token is judged by it. The next good reading is said in one line
+  (`clock: the system clock is read again`) and the node goes on.
+- The system clock goes back (a reading earlier than the one before) `[S: ruling NQ-22]`: the node follows it, with one
   line. Its clock is the system's and it remembers no earlier one. What follows from that: a token that had expired by
   the old reading and has not by the new one is accepted again from then on, in a new connection or a newly received
   entry; nothing that already happened is undone (an entry dropped as expired stays dropped until it is gossiped again;
@@ -994,8 +996,8 @@ reaches TRUST:
   certificate, which the handshake proved the peer holds (section 4, the binding); so nobody can raise another peer's
   score by showing that peer's advert. A refusal counts for a peer the table already holds, and makes a new entry only
   when the producer's signature on the peer's token had verified (from the proof of possession on): an entry lives until
-  its token expires, and an expiry the producer did not sign is not to be believed (NQ-23 asks whether this is what
-  the owner wants).
+  its token expires, and an expiry the producer did not sign is not to be believed (ruling NQ-23). The score limit is
+  not a constant of BEES: the bridge application passes it when it starts the node, with the other limits below.
 - A rate bound and an in-flight bound per peer, and an in-flight bound for the whole TEMPUS side.
 - TRUST's wire is unchanged: the edge's identity is not passed onward by BEES.
 
@@ -1070,7 +1072,7 @@ node by the trial itself, to show that edges then see `closed` and nothing else.
 NQ-1 to NQ-10 were all ruled by the owner on 2026-11-18 and NQ-11 to NQ-20 on 2026-11-19 (the lines beginning "RULED");
 the sections above state the results as `[B: NQ-n]`, and all of them are built (tempus-progress.md, the entry of
 2026-11-19 on the rulings NQ-11 to NQ-20). Where a question's text below says "Provisional behaviour, built", it is the
-question as it was asked: the line beginning "RULED" under it is what holds now. Open: NQ-21, NQ-22, NQ-23.
+question as it was asked: the line beginning "RULED" under it is what holds now. Open: NQ-21.
 
 None of these blocks T1, T2, C1 or T4. Each says what it blocks.
 
@@ -1263,6 +1265,11 @@ once a second (the clock is in whole seconds; the literal is `read_every_ms` in 
 is therefore at most about a second old, inside any skew allowance of a second or more. Not shown by a trial: a failing
 clock and a clock going back (a trial cannot set the machine's clock); those two paths are read from the code only.
 Blocks: nothing.
+RULED (owner, 2026-11-20): (2) option (a), the node follows the system clock. The owner's reason was daylight saving time;
+the reading is seconds since 1970 in UTC, which daylight saving time does not change, so that case never produces a step
+back (put to the owner). (1) the other choice: a node whose clock fails after a good reading stops admitting connections
+and stops ticking until the clock is read again, and tells its application (built: `tn_clock`, `tn_timer`, `tn_accepted`
+and role 4 of `dangerous_bees_tempus_conn`, audit line `clock_refused`). (3) kept: at start and once a second.
 
 NQ-23. Which refused connections make a NEW score entry at a bridge (follows the ruling on NQ-19). The ruling says the
 connection actor's refusals of an edge (token, proof, malformed frame) raise that edge's score. Two things had to be
@@ -1279,3 +1286,6 @@ by admission every time, which is all a score could do to it; (c) if the owner w
 (`report` in `dangerous_bees_tempus_conn`, `conn_refused` in `bees_tempus_bridge`; `trials/c3_tempus_bridge` shows edge Q
 reaching the limit by six refused connections alone, and edge Z, never served, keeping no score from two bad tokens).
 Blocks: nothing.
+RULED (owner, 2026-11-20): (a), and the score limit must be a value that can be configured. It is: the bridge application
+passes `score_limit` (with the table size, the rate and the in-flight bounds) when it starts the node (OQ-25), and
+`bees_tempus_bridge@lim_why` refuses a value below 0; BEES holds no constant for it.

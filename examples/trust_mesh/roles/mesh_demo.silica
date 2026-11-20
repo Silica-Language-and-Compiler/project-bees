@@ -1,0 +1,26 @@
+// examples/trust_mesh: the service of a mesh node, the one function its mesh.trust manifest offers to TRUST peers.
+// relay([Hop, Caller]) is called by another node. It answers Hop * 100 + Caller * 10 + this node's number, so the caller's
+// output shows which node answered, and it hands the baton to this node's own driver actor, which makes the next call.
+// It prints nothing: a line printed here would race with the lines of the connection's actors.
+module mesh_demo;
+use bees_atoms;
+use bees_trust_conf;
+
+export relay/1;
+
+fn nth(xs: List[int64, mem(normal)], i: int64) -> int64 {
+    case xs of {
+        []: List[int64, mem(normal)] -> 0;
+        [h: int64, t: List[int64, mem(normal)]] -> case i <= 0 of { true -> h; false -> nth(t, i - 1) }
+    }
+}
+// this node's number: the last two digits of the port it listens on (24403 is node 3), from its bees.config
+fn number() -> int64 { bees_trust_conf@port() % 100 }
+fn relay(xs: List[int64, mem(normal)]) -> (:ok, int64) | (:error, atom) {
+    sequence proc[concurrency]
+        hop: int64 <- nth(xs, 0);
+        caller: int64 <- nth(xs, 1);
+        m: { req: int64, what: atom, value: string } <- { req: hop, what: bees_atoms@a_ok(), value: "baton" };
+        _: boolean <- cast_registered(bees_atoms@a_mesh_driver(), m impl ActorMessage {})
+    produces pure (:ok, hop * 100 + caller * 10 + number()) end
+}

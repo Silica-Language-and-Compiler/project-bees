@@ -1,0 +1,6 @@
+# examples/trust_mesh: the atoms of a mesh node besides BEES's own. Every atom is known when the program is built.
+# the function every node offers to its TRUST peers: mesh:relay/2
+mesh
+relay
+# the registered name of the node's driver actor
+mesh_driver

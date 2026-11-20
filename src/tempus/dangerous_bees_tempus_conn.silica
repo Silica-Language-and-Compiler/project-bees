@@ -4,7 +4,8 @@
 // SHA-512 of its DER (64 bytes).
 //
 // A connection, the same in both roles until the request (role 0 dialed, role 2 accepted; role 3 is an accepted connection
-// beyond the node's inflight_max: when its link is up it is closed at once, one audit line, and the node is told nothing):
+// beyond the node's inflight_max, role 4 one accepted while the node's system clock cannot be read (ruling NQ-22): when
+// its link is up it is closed at once, one audit line, and the node is told nothing):
 //   the link comes up; this node's advert goes out at once
 //   the 96 identity bytes of the link
 //   the peer's advert: its bounds; THE CHANNEL BINDING: the advert's pub must be the key of the peer's TLS certificate
@@ -320,10 +321,10 @@ fn stage(phase: int64) -> string {
 fn c_up(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     case st.v.phase == 0 of {
         false -> st.v;
-        true -> case st.role == 3 of {
+        true -> case st.role >= 3 of {
             true -> {
                 sequence
-                    _: atom <- audit(st, "inflight_refused", "more accepted connections than inflight_max: closed at once")
+                    _: atom <- case st.role == 3 of { true -> audit(st, "inflight_refused", "more accepted connections than inflight_max: closed at once"); false -> audit(st, "clock_refused", "the system clock cannot be read: closed at once") }
                 produces pure finish(st, me, 0, "") end
             };
             false -> {
@@ -366,7 +367,7 @@ fn c_down_in(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int6
         true -> {
             sequence
                 _: boolean <- tx_end(st.tx, true);
-                _: boolean <- case st.role == 3 of { true -> true; false -> tell(st, me, case st.role == 0 of { true -> 61; false -> 64 }, "connect_failed", "", 0) }
+                _: boolean <- case st.role >= 3 of { true -> true; false -> tell(st, me, case st.role == 0 of { true -> 61; false -> 64 }, "connect_failed", "", 0) }
             produces pure vp(st.v, 20) end
         };
         false -> case reading(st.v.phase) of {
