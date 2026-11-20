@@ -1,0 +1,305 @@
+// BEES TEMPUS TEST UNIT. NOT A PART OF THE LIBRARY A PRODUCTION PROGRAM COMPILES (owner's ruling of 2026-11-20 on design
+// question OQ-20: "Move the test frames out of the library into a unit only test programs list in their build. A
+// production build does not contain the handlers at all."). development-plan/tempus-design.md sections 5 and 16.3.
+//
+// A test program lists this unit and src/tempus_test/bees_tempus_test.atoms beside the library's units and starts its node
+// externally driven (src/tempus/bees_tempus_node.part: drv { driven: true, ext: start(now), draws }). The node
+// introduces itself to this actor at its start. This unit then is that node's clock and its timers:
+//   - the node's first clock reading is the value the test program passes (a fixture, never the machine's clock);
+//   - a peer's `clock` frame is a clock reading (or a failed reading), judged by the node's configured clock_back and
+//     clock_fail like a reading of the system clock;
+//   - a peer's `tick` frame is one tick of a store, answered `done` when the shuffle it started has ended.
+// Everything of the two frames is here: their atoms, their encoders (the clients of trials send them), their decoders,
+// and what is done with them. The node hands this actor every well-formed frame of no tempus/1 kind from an admitted peer
+// and reads none of it.
+//
+// The safeguards (ruling OQ-20, kept): the node must listen on a loopback address (the node gives its own listen text
+// when it introduces itself: on any other address this actor prints one refusal line and never gives the node a clock
+// reading, so the node never listens; the node's own boot check refuses the same start before that); and the banner,
+// printed before the node listens. A loopback listener is reached from the same machine only, so every frame this
+// actor is handed came from a loopback peer.
+//
+// The frames (design section 5):
+//   #{t => tick, store => Typ}                              one tick of that store
+//   #{t => clock, ms => N}                                  a clock reading: N milliseconds since 1970 (0 to 2^53); -1:
+//                                                           the clock could not be read (a failed reading)
+//   #{t => clock, ms => N, wait => W, later => L}           the same, and W milliseconds (1 to 60000) after the reading
+//                                                           is taken a second reading L (the same range as ms). For
+//                                                           what a peer cannot do: a node that waits for its clock
+//                                                           (clock_fail pause) closes every connection, so the reading
+//                                                           that ends the wait cannot arrive in a frame
+// Each is answered #{t => done}: a tick when it has ended (the node says when), a clock when the node has taken the
+// first reading. A frame that is neither, or breaks a bound, is handed back to the connection actor, which refuses it
+// as on a node without this unit (protocol_error; a bridge scores it).
+//
+// The actor (tdrv): messages (:bees, op, s1, s2, n, m, who), state { node, on }.
+//   133  from the node, once, at its start: who the node, s1 its listen text
+//   68   from the node: an admitted peer's frame of no tempus/1 kind (s1 the body, s2 the peer's descriptor, n the
+//        accepted connection's number, who its connection actor, which is answered exactly once)
+//   131  from the node: the tick with tag n has ended (who: the connection actor)
+//   132  from the node: the reading with tag n is taken (who: the connection actor)
+//   3    its own timer: the later reading of a clock frame (n: seconds or -1)
+module bees_tempus_test;
+use bees_atoms;
+use bees_trust_frame;
+use bees_tempus_frame;
+
+export start/1;
+export tdrv/2;
+export boot_why/1;
+export loopback/1;
+export kind/1;
+export tick/1;
+export clock/1;
+export clock_later/3;
+export dec_tick/1;
+export dec_clock/1;
+
+fn say(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+fn num(n: int64) -> string { bees_trust_frame@int_text(n) }
+fn at(s: string, i: int64) -> int64 {
+    sequence proc[transport]
+        b: int64 <- byte_at(s, i)
+    produces pure b end
+}
+
+// ---- the safeguard: a loopback listen address only
+fn digits(s: string, i: int64) -> boolean {
+    case i >= length_bytes(s) of {
+        true -> length_bytes(s) > 0;
+        false -> { c: int64 <- at(s, i); case c >= 48 and c <= 57 of { true -> digits(s, i + 1); false -> false } }
+    }
+}
+// the carrier's listen text names a loopback address: "listen:PORT" (127.0.0.1) or "listen:127.a.b.c:PORT"
+fn loopback(listen: string) -> boolean {
+    case starts_with(listen, "listen:") of {
+        false -> false;
+        true -> {
+            rest: string <- bees_trust_frame@cut(listen, 7, length_bytes(listen));
+            digits(rest, 0) or starts_with(rest, "127.")
+        }
+    }
+}
+// "" when the test unit may drive a node that listens there, else why not
+fn boot_why(listen: string) -> string {
+    case loopback(listen) of { true -> ""; false -> "the test unit drives a node on a loopback listen address only" }
+}
+
+// ---- the two frames
+fn tick_atom() -> atom { bees_atoms@a_tick() }
+fn clock_atom() -> atom { bees_atoms@a_clock() }
+fn t_of(r: (:ok, atom) | (:rejected, atom)) -> int64 {
+    case r of {
+        (:ok, a: atom) -> case a == tick_atom() of { true -> 9; false -> case a == clock_atom() of { true -> 10; false -> 0 } };
+        (:rejected, _w: atom) -> 0
+    }
+}
+// 9 a tick frame, 10 a clock frame (the numbers these kinds had in bees_tempus_frame), 0 anything else
+fn kind(body: string) -> int64 {
+    c: int64 <- bees_trust_frame@check(body, 6, 131072);
+    case c == 0 of {
+        false -> 0;
+        true -> {
+            sp: string <- bees_trust_frame@span(body, "t");
+            r: (:ok, atom) | (:rejected, atom) <- bees_trust_frame@dec_atom(sp);
+            t_of(r)
+        }
+    }
+}
+fn store_atom(s: int64) -> atom {
+    case s of { 1 -> bees_atoms@a_tempus_edge(); 2 -> bees_atoms@a_tempus_bridge(); _: int64 -> bees_atoms@a_tempus_sentinel() }
+}
+fn tick(store: int64) -> string {
+    sequence proc[mem(normal), transport]
+        t: atom <- tick_atom();
+        st: atom <- store_atom(store);
+        m: { store: atom, t: atom } <- { store: st, t: t };
+        s: string <- encode((:etf), m)
+    produces pure s end
+}
+fn clock(ms: int64) -> string {
+    sequence proc[mem(normal), transport]
+        t: atom <- clock_atom();
+        m: { ms: int64, t: atom } <- { ms: ms, t: t };
+        s: string <- encode((:etf), m)
+    produces pure s end
+}
+fn clock_later(ms: int64, w: int64, l: int64) -> string {
+    sequence proc[mem(normal), transport]
+        t: atom <- clock_atom();
+        m: { later: int64, ms: int64, t: atom, wait: int64 } <- { later: l, ms: ms, t: t, wait: w };
+        s: string <- encode((:etf), m)
+    produces pure s end
+}
+fn said(w: atom) -> string { bees_atoms@spelling(w) }
+fn tick_read(r: (:ok, { store: atom, t: atom }) | (:rejected, atom)) -> { ok: boolean, why: string, store: int64 } {
+    case r of {
+        (:rejected, w: atom) -> { ok: false, why: said(w), store: 0 };
+        (:ok, m: { store: atom, t: atom }) -> {
+            st: int64 <- bees_tempus_frame@store_code(m.store);
+            case m.t != tick_atom() of {
+                true -> { ok: false, why: "another kind", store: 0 };
+                false -> case st == 0 of {
+                    true -> { ok: false, why: "store is not a peer type", store: 0 };
+                    false -> { ok: true, why: "", store: st }
+                }
+            }
+        }
+    }
+}
+fn dec_tick(body: string) -> { ok: boolean, why: string, store: int64 } {
+    sequence proc[mem(normal), transport]
+        r: (:ok, { store: atom, t: atom }) | (:rejected, atom) <- decode((:etf), body, { max_bytes: 128, max_depth: 2, max_length: 32 })
+    produces pure tick_read(r) end
+}
+fn ms_ok(ms: int64) -> boolean { ms >= 0 - 1 and ms <= 9007199254740992 }
+fn clock_bad(why: string) -> { ok: boolean, why: string, ms: int64, wait: int64, later: int64 } { { ok: false, why: why, ms: 0, wait: 0, later: 0 } }
+fn clock_one(r: (:ok, { ms: int64, t: atom }) | (:rejected, atom)) -> { ok: boolean, why: string, ms: int64, wait: int64, later: int64 } {
+    case r of {
+        (:rejected, w: atom) -> clock_bad(said(w));
+        (:ok, m: { ms: int64, t: atom }) -> case m.t != clock_atom() of {
+            true -> clock_bad("another kind");
+            false -> case ms_ok(m.ms) of {
+                false -> clock_bad("ms is not -1 (no time) or 0 to 2^53");
+                true -> { ok: true, why: "", ms: m.ms, wait: 0, later: 0 }
+            }
+        }
+    }
+}
+fn clock_two(r: (:ok, { later: int64, ms: int64, t: atom, wait: int64 }) | (:rejected, atom)) -> { ok: boolean, why: string, ms: int64, wait: int64, later: int64 } {
+    case r of {
+        (:rejected, w: atom) -> clock_bad(said(w));
+        (:ok, m: { later: int64, ms: int64, t: atom, wait: int64 }) -> case m.t != clock_atom() of {
+            true -> clock_bad("another kind");
+            false -> case ms_ok(m.ms) and ms_ok(m.later) of {
+                false -> clock_bad("ms or later is not -1 (no time) or 0 to 2^53");
+                true -> case m.wait < 1 or m.wait > 60000 of {
+                    true -> clock_bad("wait is not 1 to 60000");
+                    false -> { ok: true, why: "", ms: m.ms, wait: m.wait, later: m.later }
+                }
+            }
+        }
+    }
+}
+fn dec_clock_two(body: string) -> { ok: boolean, why: string, ms: int64, wait: int64, later: int64 } {
+    sequence proc[mem(normal), transport]
+        r: (:ok, { later: int64, ms: int64, t: atom, wait: int64 }) | (:rejected, atom) <- decode((:etf), body, { max_bytes: 160, max_depth: 2, max_length: 32 })
+    produces pure clock_two(r) end
+}
+fn dec_clock_one(body: string) -> { ok: boolean, why: string, ms: int64, wait: int64, later: int64 } {
+    sequence proc[mem(normal), transport]
+        r: (:ok, { ms: int64, t: atom }) | (:rejected, atom) <- decode((:etf), body, { max_bytes: 128, max_depth: 2, max_length: 32 })
+    produces pure clock_one(r) end
+}
+// { ok, why, ms, wait, later }: wait 0 when the frame holds one reading
+fn dec_clock(body: string) -> { ok: boolean, why: string, ms: int64, wait: int64, later: int64 } {
+    c: int64 <- bees_trust_frame@check(body, 6, 131072);
+    sp: string <- case c == 0 of { true -> bees_trust_frame@span(body, "wait"); false -> "" };
+    case length_bytes(sp) > 0 of { true -> dec_clock_two(body); false -> dec_clock_one(body) }
+}
+
+// ---- the actor
+fn secs(ms: int64) -> int64 { case ms < 0 of { true -> 0 - 1; false -> ms / 1000 } }
+fn secs_text(n: int64) -> string { case n < 0 of { true -> "no time"; false -> concat(num(n), " s") } }
+fn to_node(node: actor_ref, op: int64, n: int64, m: int64, who: actor_ref) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(node, (:bees, op, "", "", n, m, who) impl ActorMessage {})
+    produces pure ok end
+}
+// the answer to an accepted connection: 20 a reply body, 21 close with no reply, 22 refuse as a frame that is not a request
+fn ans(who: actor_ref, k: int64, body: string) -> boolean {
+    sequence proc[concurrency]
+        ok: boolean <- cast(who, (:bees, k, body, "", 0) impl ActorMessage {})
+    produces pure ok end
+}
+fn done(who: actor_ref) -> boolean {
+    b: string <- bees_tempus_frame@enc_done();
+    ans(who, 20, b)
+}
+// not a frame of this unit, or one that breaks a bound: the connection actor refuses it as it refuses any frame that is
+// not a request on a node without this unit (its audit line protocol_error, the node told, no reply)
+fn refuse(who: actor_ref, why: string) -> boolean { ans(who, 22, why) }
+fn arm_later(me: actor_ref, ms: int64, n: int64) -> boolean {
+    sequence proc[concurrency]
+        t: timer_ref <- send_after(to_uint64(ms), me, (:bees, 3, "", "", n, 0, me) impl ActorMessage {})
+    produces pure true end
+}
+fn on_tick(node: actor_ref, body: string, cid: int64, who: actor_ref) -> boolean {
+    t: { ok: boolean, why: string, store: int64 } <- dec_tick(body);
+    case t.ok of {
+        false -> refuse(who, t.why);
+        true -> to_node(node, 1, cid, t.store, who)
+    }
+}
+fn on_clock(node: actor_ref, me: actor_ref, body: string, cid: int64, who: actor_ref) -> boolean {
+    k: { ok: boolean, why: string, ms: int64, wait: int64, later: int64 } <- dec_clock(body);
+    case k.ok of {
+        false -> refuse(who, k.why);
+        true -> {
+            sequence
+                _: atom <- say(concat("clock: ", secs_text(secs(k.ms))));
+                _: boolean <- to_node(node, 130, secs(k.ms), cid, who);
+                _: boolean <- case k.wait > 0 of { true -> arm_later(me, k.wait, secs(k.later)); false -> true }
+            produces pure true end
+        }
+    }
+}
+fn on_frame(node: actor_ref, me: actor_ref, body: string, cid: int64, who: actor_ref) -> boolean {
+    case kind(body) of {
+        9 -> on_tick(node, body, cid, who);
+        10 -> on_clock(node, me, body, cid, who);
+        _: int64 -> refuse(who, "not a request: unknown kind")
+    }
+}
+fn on_later(node: actor_ref, me: actor_ref, n: int64) -> boolean {
+    sequence
+        _: atom <- say(concat(concat("clock: ", secs_text(n)), " (the later reading of a clock frame)"));
+        _: boolean <- to_node(node, 130, n, 0, me)
+    produces pure true end
+}
+fn on_drive(node: actor_ref, me: actor_ref, listen: string, now: int64) -> boolean {
+    why: string <- boot_why(listen);
+    case length_bytes(why) > 0 of {
+        true -> { sequence _: atom <- say(concat("TEST ONLY refused: ", why)) produces pure false end };
+        false -> {
+            sequence
+                _: atom <- say("TEST ONLY: tick and clock frames are accepted");
+                _: boolean <- to_node(node, 130, now, 0, me)
+            produces pure true end
+        }
+    }
+}
+fn step(st: { node: actor_ref, on: boolean, now: int64 }, me: actor_ref, b: { op: int64, s1: string, s2: string, n: int64, who: actor_ref }) -> { node: actor_ref, on: boolean, now: int64 } {
+    case b.op of {
+        133 -> case st.on of { true -> st; false -> { node: b.who, on: on_drive(b.who, me, b.s1, st.now), now: st.now } };
+        68 -> { sequence _: boolean <- case st.on of { true -> on_frame(st.node, me, b.s1, b.n, b.who); false -> ans(b.who, 21, "") } produces pure st end };
+        131 -> { sequence _: boolean <- done(b.who) produces pure st end };
+        132 -> { sequence _: boolean <- done(b.who) produces pure st end };
+        3 -> { sequence _: boolean <- case st.on of { true -> on_later(st.node, me, b.n); false -> true } produces pure st end };
+        _: int64 -> st
+    }
+}
+fn unpack(msg: (:bees, int64, string, string, int64, int64, actor_ref)) -> { op: int64, s1: string, s2: string, n: int64, who: actor_ref } {
+    case msg of {
+        (:bees, op: int64, s1: string, s2: string, n: int64, _m: int64, who: actor_ref) -> { op: op, s1: s1, s2: s2, n: n, who: who }
+    }
+}
+fn tdrv(msg: (:bees, int64, string, string, int64, int64, actor_ref), st: { node: actor_ref, on: boolean, now: int64 }) -> (:no_reply, { node: actor_ref, on: boolean, now: int64 }) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        nxt: { node: actor_ref, on: boolean, now: int64 } <- step(st, me, unpack(msg))
+    produces pure (:no_reply, nxt) end
+}
+// The test unit's actor, for ONE node: the test program passes it as drv.ext of tempus_node_start with driven true. now:
+// the node's first clock reading, in seconds since 1970 (a fixture). It does nothing until that node has introduced
+// itself (133), which an externally driven node does once, at its start.
+fn start(now: int64) -> actor_ref {
+    sequence proc[concurrency]
+        none: actor_ref <- actor_ref_of_word(0);
+        a: actor_ref <- spawn({ node: none, on: false, now: now }, tdrv, stack_policy(0, :keep_last_message), state_policy(:keep_state_area))
+    produces pure a end
+}

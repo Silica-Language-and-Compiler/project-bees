@@ -10,8 +10,8 @@
     bees_tempus_gen.py spec SPEC_FILE OUT_FILE    the unit bees_tempus_spec (T6): a bridge's per-type permission specs
 
 The unit is: the `use` lines; `module NAME;`; src/shim/bees_tcp_edge.part (carrier_new); src/tempus/bees_tempus_link.part
-(the TEMPUS link edge); any further parts named with --part (a file name of src/tempus, or DIR/NAME under src, as
-tempus_client/bees_tempus_client.part); then the role files, the
+(the TEMPUS link edge); any further parts named with --part (a file name of src/tempus, or a path from the BEES root,
+as example_tempus_clients/silica/bees_tempus_client.part); then the role files, the
 program's own code, in order. As tools/bees_edge_gen.py does for BEAM mode and tools/bees_trust_gen.py for TRUST.
 
 Silica has no type names, so the parts and roles may write the long record types of the TEMPUS units as $NAME$; they are
@@ -27,7 +27,7 @@ SRC = os.path.join(HERE, "..", "src")
 D = "{ addr: string, id: string, pub: string, token: string }"
 L = "List[{ id: string, d: string, age: int64 }, mem(normal)]"
 CFG = ("{ node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, "
-       "kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }")
+       "kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }")
 NM = ("(:link_up, string) | (:accepted, dangerous_actor_ref, string) | (:rx, string) | (:tx_credit, int64) | "
       "(:tx_failed, atom) | (:link_down, atom) | (:bees, int64, string, string, int64, int64, actor_ref)")
 # the node (T3): src/tempus/bees_tempus_node.silica.in and src/tempus/bees_tempus_node.part say what each is
@@ -36,16 +36,17 @@ DL = "List[int64, mem(normal)]"
 M = "{ op: int64, id: string, d: string, n: int64, entries: $L$, draws: $DL$ }"
 ML = "List[$M$, mem(normal)]"
 A = ("{ node: actor_ref, st: actor_ref, up: boolean, typ: int64, "
-     "id: string, d: string, own: boolean, cap: int64, count: int64, test: boolean, skew: int64, lit: $DL$, j: int64, q: $ML$ }")
-AZ = ("{ typ: int64, id: string, d: string, own: boolean, cap: int64, count: int64, test: boolean, skew: int64, "
+     "id: string, d: string, own: boolean, cap: int64, count: int64, drv: boolean, skew: int64, lit: $DL$, j: int64, q: $ML$ }")
+AZ = ("{ typ: int64, id: string, d: string, own: boolean, cap: int64, count: int64, drv: boolean, skew: int64, "
       "lit: string }")
 P = "{ k: int64, cid: int64, st: int64, x: int64, who: actor_ref, s: string }"
 PL = "List[$P$, mem(normal)]"
 T5 = "(:bees, int64, string, string, int64)"
 NC = ("{ app: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, wl: string, sents: string, "
       "listen: string, spec: string, mst: string, id: string, pub: string, addr: string, draws: string, typ: int64, skew: int64, max: int64, "
+      "back: int64, blim: int64, fail: int64, "
       "k1: int64, c1: int64, k2: int64, c2: int64, k3: int64, c3: int64, ms: uint64, t1: uint64, t2: uint64, t3: uint64, "
-      "j0: uint64, j1: uint64, test: boolean }")
+      "j0: uint64, j1: uint64, driven: boolean, ext: actor_ref }")
 NV = ("{ up: boolean, rc: actor_ref, a1: actor_ref, a2: actor_ref, a3: actor_ref, now: int64, ck: int64, mtok: string, kid: string, "
       "ppub: string, live: int64, na: int64, nd: int64, stop: boolean, jst: int64, jd: uint64, q: $PL$ }")
 NS = "{ c: $NC$, v: $NV$ }"
@@ -53,10 +54,10 @@ NB = "{ op: int64, s1: string, s2: string, n: int64, m: int64, who: actor_ref }"
 RQ = "{ body: string, pd: string, cid: int64, m: int64, who: actor_ref }"
 NI = "{ id: string, pub: string, seed: string, addr: string, token: string, typ: int64 }"
 NN = ("{ listen: string, spec: string, sents: string, wl: string, kid: string, ppub: string, ms: uint64, mst: string, "
-      "max: int64, skew: int64, j0: uint64, j1: uint64 }")
+      "max: int64, skew: int64, j0: uint64, j1: uint64, back: int64, blim: int64, fail: int64, every: uint64 }")
 NZ = "{ k1: int64, c1: int64, t1: uint64, k2: int64, c2: int64, t2: uint64, k3: int64, c3: int64, t3: uint64 }"
-NT = "{ test: boolean, now: int64, draws: string }"
-# the client (C2): src/tempus_client/bees_tempus_client.part says what each is
+NT = "{ driven: boolean, ext: actor_ref, draws: string }"
+# the client (C2): example_tempus_clients/silica/bees_tempus_client.part says what each is
 CI = ("{ id: string, pub: string, seed: string, seed2: string, addr: string, token: string, listen: string, spec: string, "
       "wl: string, kid: string, ppub: string, now: int64, skew: int64, count: int64, ms: uint64, mst: string }")
 CS = "{ app: actor_ref, sig: actor_ref, sig2: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, na: int64, c: $CI$ }"
@@ -95,6 +96,12 @@ def expand(text, where, more=None):
     return text
 
 
+def part_path(name):
+    """a part of src/tempus by its file name; any other part by its path from the BEES root (the example clients' part
+    is example_tempus_clients/silica/bees_tempus_client.part)"""
+    return os.path.join(HERE, "..", name) if "/" in name else os.path.join(SRC, "tempus", name)
+
+
 def edge(argv):
     name, out, rest = argv[0], argv[1], argv[2:]
     uses, parts, roles = [], [], []
@@ -103,8 +110,7 @@ def edge(argv):
             uses.append(rest[1])
             rest = rest[2:]
         elif rest[0] == "--part" and len(rest) > 1:
-            # a part of src/tempus by its file name, or of another directory of src as DIR/NAME
-            parts.append(os.path.join(SRC, rest[1]) if "/" in rest[1] else os.path.join(SRC, "tempus", rest[1]))
+            parts.append(part_path(rest[1]))
             rest = rest[2:]
         else:
             roles.append(rest[0])
@@ -137,7 +143,7 @@ def bridge(argv):
             uses.append(rest[1])
             rest = rest[2:]
         elif rest[0] == "--part" and len(rest) > 1:
-            parts.append(os.path.join(SRC, rest[1]) if "/" in rest[1] else os.path.join(SRC, "tempus", rest[1]))
+            parts.append(part_path(rest[1]))
             rest = rest[2:]
         else:
             roles.append(rest[0])

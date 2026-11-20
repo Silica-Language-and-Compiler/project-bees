@@ -5,7 +5,7 @@ trials/t4_tempus_admission runs the Silica admission rules and the native edge (
 tools/bees_tempus_fixtures.py, and prints one line per case. This test:
   - checks that the fixtures unit in the tree is what the tool writes now (keys and tokens are deterministic);
   - requires, for every case, the verdict the Python client's own checks give for the same bytes
-    (bees_tempus_fixtures.cases(), computed with tools/bees_tempus_client.py and the `cryptography` package);
+    (bees_tempus_fixtures.cases(), computed with example_tempus_clients/python/bees_tempus_client.py and the `cryptography` package);
   - checks the fixtures themselves (each refusal case differs from the good one in the one thing its name says).
 It reads every recorded golden (dangerous_admit.<platform>.scout) and the last run's output when there is one.
 
@@ -19,6 +19,7 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(HERE, "..", "example_tempus_clients", "python"))  # the example Python client
 import bees_tempus_client as c  # noqa: E402
 import bees_tempus_fixtures as fx  # noqa: E402
 

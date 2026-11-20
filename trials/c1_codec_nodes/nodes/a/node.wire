@@ -1,0 +1,20 @@
+# C1 codec trial, two nodes (development-plan/spikes/C1-codec-term-coverage.md 2.1-2.7, 3.2, 3.5): node a (dials b; sends one message of each kind and prints each echo). Every kind of the
+# manifest grammar as a message that crosses the link: a sum (tagged tuples, a record, an atom), a recursive tuple with an
+# optional reference, a map, a set, a record with a buf, a record of six fields, a dynamic term. The names val .. any are
+# actors on node b (a's proxies send to them); valx .. anyx are actors on node a (b's proxies echo to them).
+node   a@127.0.0.1
+peer   b@127.0.0.1 127.0.0.1 24000 dial
+remote val   @ b@127.0.0.1 cast (:i, int64) | (:s, string) | (:f, float64) | (:pt, int64, int64) | { x: int64, y: string } | :none
+local  valx  cast (:i, int64) | (:s, string) | (:f, float64) | (:pt, int64, int64) | { x: int64, y: string } | :none
+remote chain @ b@127.0.0.1 cast (atom, int64, ref?(L, normal, rec))
+local  chainx cast (atom, int64, ref?(L, normal, rec))
+remote im    @ b@127.0.0.1 cast Map[int64, string]
+local  imx   cast Map[int64, string]
+remote ints  @ b@127.0.0.1 cast Set[int64]
+local  intsx cast Set[int64]
+remote pkt   @ b@127.0.0.1 cast { id: int64, data: buf(L, normal, uint8, 16), note: string }
+local  pktx  cast { id: int64, data: buf(L, normal, uint8, 16), note: string }
+remote wide  @ b@127.0.0.1 cast { a: int64, b: string, c: boolean, d: float64, e: atom, f: List[int64] }
+local  widex cast { a: int64, b: string, c: boolean, d: float64, e: atom, f: List[int64] }
+remote any   @ b@127.0.0.1 cast term
+local  anyx  cast term

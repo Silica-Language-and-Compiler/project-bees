@@ -178,7 +178,7 @@ units with their own trials, the TLS link is being written, and no node listens 
 not built). There is nothing stable to dial. The hook: `SURFACES["tempus"] = False` in `tools/bees_fuzz_gen.py` (asking for it
 prints the reason), `test_tempus_is_a_documented_hook`. To make it live when T3 exists: a node leaf under
 `trials/f1_fuzz_wire/nodes/` that prints what it merges, a `case_tempus` generator over the frames of
-`tools/bees_tempus_client.py`, a model from tempus-design.md's validation rules, and a `Runner` subclass like `TrustRunner`
+`example_tempus_clients/python/bees_tempus_client.py`, a model from tempus-design.md's validation rules, and a `Runner` subclass like `TrustRunner`
 (about 150 lines; the ETF generator and the probe machinery are reused).
 
 ## 8. The 24-hour runs (not started; for the coordinator)

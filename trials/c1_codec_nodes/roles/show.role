@@ -1,0 +1,168 @@
+// ---- C1 two nodes, both programs: every kind as text (the shapes of the in-process trials c1_codec_*). Nothing here mentions
+// the network.
+fn hexd(v: int64) -> string { substring("0123456789abcdef", v, v + 1) }
+fn at(s: string, i: int64) -> int64 {
+    sequence proc[transport]
+        b: int64 <- byte_at(s, i)
+    produces pure b end
+}
+fn hex_of(s: string, i: int64, n: int64) -> string {
+    case i >= n of {
+        true -> "";
+        false -> concat(concat(hexd(at(s, i) / 16), hexd(at(s, i) % 16)), hex_of(s, i + 1, n))
+    }
+}
+fn hex(s: string) -> string { hex_of(s, 0, length_bytes(s)) }
+fn pos_text(n: int64) -> string {
+    case n < 10 of {
+        true -> substring("0123456789", n, n + 1);
+        false -> concat(pos_text(n / 10), substring("0123456789", n % 10, n % 10 + 1))
+    }
+}
+fn int_text(n: int64) -> string {
+    case n < 0 of {
+        true -> concat("-", pos_text(0 - n));
+        false -> pos_text(n)
+    }
+}
+fn cat3(a: string, b: string, c: string) -> string { concat(concat(a, b), c) }
+fn cat4(a: string, b: string, c: string, d: string) -> string { concat(concat(concat(a, b), c), d) }
+// the two floats the trial sends (a float literal is bound before it is compared: SD-58)
+fn f_text(x: float64) -> string {
+    sequence
+        a: float64 <- 1.5;
+        b: float64 <- 2.5;
+        c: float64 <- 4.5;
+        ta: string <- case x == a of { true -> "1.5"; false -> "" };
+        tb: string <- case x == b of { true -> "2.5"; false -> "" };
+        tc: string <- case x == c of { true -> "4.5"; false -> "" };
+        t: string <- cat3(ta, tb, tc)
+    produces pure case length_bytes(t) == 0 of { true -> "another float"; false -> t } end
+}
+fn ints_bytes(xs: List[int64, mem(normal)]) -> string {
+    sequence proc[mem(normal), transport]
+        out: string <- bytes_of(xs)
+    produces pure out end
+}
+
+// ---- the sum: tagged tuples, a record, an atom
+fn t_xy(x: int64, y: string) -> string { concat(cat4("{ x: ", int_text(x), ", y: ", y), " }") }
+fn t_val(v: (:i, int64) | (:s, string) | (:f, float64) | (:pt, int64, int64) | { x: int64, y: string } | :none) -> string {
+    case v of {
+        (:i, k: int64) -> cat3("(i, ", int_text(k), ")");
+        (:s, s: string) -> cat3("(s, \"", s, "\")");
+        (:f, x: float64) -> cat3("(f, ", f_text(x), ")");
+        (:pt, p: int64, q: int64) -> concat(cat4("(pt, ", int_text(p), ", ", int_text(q)), ")");
+        { x: wx, y: wy } -> t_xy(wx, wy);
+        :none -> "none"
+    }
+}
+
+// ---- the chain (atom, int64, ref?(L, normal, rec)): walked cell by cell in the region that came with it
+fn walk(top: ref?(L, normal, (atom, int64, ref?(L, normal, rec))), n: int64, sum: int64, vals: string) -> string {
+    case top of {
+        :none -> concat(cat4("cells=", int_text(n), " sum=", int_text(sum)), concat(" values:", vals));
+        c: ref(L, normal, (atom, int64, ref?(L, normal, rec))) -> {
+            sequence proc[mem(normal)]
+                node: (atom, int64, ref?(L, normal, rec)) <- read_ref(c);
+                (_: atom, v: int64, nx: ref?(L, normal, (atom, int64, ref?(L, normal, rec)))) <- node
+            produces pure walk(nx, n + 1, sum + v, cat3(vals, " ", int_text(v))) end
+        }
+    }
+}
+fn t_chain(w: (atom, int64, ref?(L, normal, rec))) -> string {
+    sequence
+        (a: atom, v0: int64, nx: ref?(L, normal, (atom, int64, ref?(L, normal, rec)))) <- w
+    produces pure cat3(case a == :ok of { true -> "ok"; false -> bees_atoms@spelling(a) }, ", ", walk(nx, 1, v0, concat(" ", int_text(v0)))) end
+}
+
+// ---- the map (a list of pairs, in the order they crossed) and the set (a list)
+fn t_im(l: List[(int64, string), mem(normal)], sep: string) -> string {
+    case l of {
+        []: List[(int64, string), mem(normal)] -> "";
+        [h: (int64, string), t: List[(int64, string), mem(normal)]] -> case h of {
+            (k: int64, v: string) -> cat4(sep, int_text(k), "=>", concat(v, t_im(t, ", ")))
+        }
+    }
+}
+fn t_ints(l: List[int64, mem(normal)], sep: string) -> string {
+    case l of {
+        []: List[int64, mem(normal)] -> "";
+        [h: int64, t: List[int64, mem(normal)]] -> cat3(sep, int_text(h), t_ints(t, ","))
+    }
+}
+
+// ---- buf(L, normal, uint8, 16): filled from a list of bytes; its bytes in use as text
+fn fill16(b: buf(L, normal, uint8, 16), r: region(L, normal), xs: List[int64, mem(normal)], i: int64) -> int64 {
+    case xs of {
+        []: List[int64, mem(normal)] -> i;
+        [h: int64, t: List[int64, mem(normal)]] -> {
+            sequence proc[mem(normal)]
+                y: uint8 <- bees_codec_kinds@int_byte(h);
+                _: atom <- write_buf(b, i, y)
+            produces pure fill16(b, r, t, i + 1) end
+        }
+    }
+}
+fn mk16(r: region(L, normal), xs: List[int64, mem(normal)]) -> { b: buf(L, normal, uint8, 16), n: int64 } {
+    sequence proc[mem(normal)]
+        b: buf(L, normal, uint8, 16) <- alloc_buf(r, 16);
+        n: int64 <- fill16(b, r, xs, 0)
+    produces pure { b: b, n: n } end
+}
+fn hx16(b: buf(L, normal, uint8, 16), r: region(L, normal), i: int64, n: int64) -> string {
+    case i >= n of {
+        true -> "";
+        false -> {
+            sequence proc[mem(normal)]
+                x: uint8 <- read_buf(b, i);
+                y: int64 <- bees_codec_kinds@byte_int(x)
+            produces pure cat3(hexd(y / 16), hexd(y % 16), hx16(b, r, i + 1, n)) end
+        }
+    }
+}
+fn t_b16(v: { b: buf(L, normal, uint8, 16), n: int64 }, r: region(L, normal)) -> string {
+    cat4("<<", hx16(v.b, r, 0, v.n), ">> n=", int_text(v.n))
+}
+fn t_pkt(id: int64, data: { b: buf(L, normal, uint8, 16), n: int64 }, note: string, r: region(L, normal)) -> string {
+    concat(cat4("{ id: ", int_text(id), ", data: ", t_b16(data, r)), cat3(", note: ", note, " }"))
+}
+
+// ---- the record of six fields
+fn t_wide(v: { a: int64, b: string, c: boolean, d: float64, e: atom, f: List[int64, mem(normal)] }) -> string {
+    sequence
+        c: string <- case v.c of { true -> "true"; false -> "false" };
+        d: string <- f_text(v.d);
+        e: string <- bees_atoms@spelling(v.e);
+        f: string <- t_ints(v.f, "");
+        p: string <- cat4("{ a: ", int_text(v.a), ", b: ", v.b);
+        q: string <- cat4(", c: ", c, ", d: ", d);
+        s: string <- cat4(", e: ", e, ", f: [", f)
+    produces pure cat4(p, q, s, "] }") end
+}
+
+// ---- a dynamic term: its tokens in prefix order. i<n> integer, I<sign>:<hex> big integer (magnitude, little-endian), f:<x>
+// float, a:<name> atom, b:<hex> binary, bits<n>:<hex> bit string (n bits used in the last byte), t<n> tuple, l<n> list (n
+// elements and a tail), nil, s:<hex> byte list, m<n> map, k<kind> an opaque pid, reference, port or fun (12..15)
+fn tok(t: (int64, int64, float64, string)) -> string {
+    case bees_term_wire@kind_of(t) of {
+        1 -> concat("i", int_text(bees_term_wire@n_of(t)));
+        2 -> cat4("I", int_text(bees_term_wire@n_of(t)), ":", hex(bees_term_wire@s_of(t)));
+        3 -> concat("f:", f_text(bees_term_wire@f_of(t)));
+        4 -> concat("a:", bees_term_wire@s_of(t));
+        5 -> concat("b:", hex(bees_term_wire@s_of(t)));
+        6 -> cat4("bits", int_text(bees_term_wire@n_of(t)), ":", hex(bees_term_wire@s_of(t)));
+        7 -> concat("t", int_text(bees_term_wire@n_of(t)));
+        8 -> concat("l", int_text(bees_term_wire@n_of(t)));
+        9 -> "nil";
+        10 -> concat("s:", hex(bees_term_wire@s_of(t)));
+        11 -> concat("m", int_text(bees_term_wire@n_of(t)));
+        _: int64 -> concat("k", int_text(bees_term_wire@kind_of(t)))
+    }
+}
+fn toks_text(l: List[(int64, int64, float64, string), mem(normal)], sep: string) -> string {
+    case l of {
+        []: List[(int64, int64, float64, string), mem(normal)] -> "";
+        [h: (int64, int64, float64, string), t: List[(int64, int64, float64, string), mem(normal)]] -> cat3(sep, tok(h), toks_text(t, " "))
+    }
+}

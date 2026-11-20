@@ -1,0 +1,10 @@
+# BEES TEMPUS TEST UNIT: the atoms of the test-only tick and clock frames (development-plan/tempus-design.md 16.3).
+# Only a test program lists this file and src/tempus_test/bees_tempus_test.silica in its build; a production program
+# lists neither, and then holds none of these atoms.
+# message kinds (the value of t)
+tick
+clock
+# keys of the clock frame
+ms
+wait
+later

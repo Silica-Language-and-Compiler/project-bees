@@ -1,0 +1,34 @@
+# C1 codec trial against stock Erlang, node beesl (BEAM mode): listens on 127.0.0.1:24100, registered with the trial's private
+# EPMD (127.0.0.1:24190); the stock node (stock@localhost, `erl -sname`) dials it.
+node   beesl@localhost
+peer   stock@localhost 127.0.0.1 24100 listen
+# the stock node starts the exchange, and BEES tells it when a step is done (the stock node sees #{n => K})
+local  kick  cast { n: int64 }
+remote ack   @ stock@localhost cast { n: int64 }
+# phase 1, as node a of trials/c1_codec_nodes: BEES sends each kind to a registered process of the stock node (val .. any),
+# which sends it back to valx .. anyx here
+remote val   @ stock@localhost cast (:i, int64) | (:s, string) | (:f, float64) | (:pt, int64, int64) | { x: int64, y: string } | :none
+local  valx  cast (:i, int64) | (:s, string) | (:f, float64) | (:pt, int64, int64) | { x: int64, y: string } | :none
+remote chain @ stock@localhost cast (atom, int64, ref?(L, normal, rec))
+local  chainx cast (atom, int64, ref?(L, normal, rec))
+remote im    @ stock@localhost cast Map[int64, string]
+local  imx   cast Map[int64, string]
+remote ints  @ stock@localhost cast Set[int64]
+local  intsx cast Set[int64]
+remote pkt   @ stock@localhost cast { id: int64, data: buf(L, normal, uint8, 16), note: string }
+local  pktx  cast { id: int64, data: buf(L, normal, uint8, 16), note: string }
+remote wide  @ stock@localhost cast { a: int64, b: string, c: boolean, d: float64, e: atom, f: List[int64] }
+local  widex cast { a: int64, b: string, c: boolean, d: float64, e: atom, f: List[int64] }
+remote any   @ stock@localhost cast term
+local  anyx  cast term
+# phase 2: the stock node sends terms to these typed names: the ones that do not fit the type are dropped, a good one arrives
+local  rval   cast (:i, int64) | (:s, string) | (:f, float64) | (:pt, int64, int64) | { x: int64, y: string } | :none
+local  rchain cast (atom, int64, ref?(L, normal, rec))
+local  rim    cast Map[int64, string]
+local  rints  cast Set[int64]
+local  rpkt   cast { id: int64, data: buf(L, normal, uint8, 16), note: string }
+local  rwide  cast { a: int64, b: string, c: boolean, d: float64, e: atom, f: List[int64] }
+# phase 3: the stock node sends arbitrary terms (pids, references, a port, funs, an atom this node never saw); each is
+# printed as tokens and sent back unchanged
+local  tany  cast term
+remote tanyx @ stock@localhost cast term

@@ -4,7 +4,8 @@
 // SHA-512 of its DER (64 bytes).
 //
 // A connection, the same in both roles until the request (role 0 dialed, role 2 accepted; role 3 is an accepted connection
-// beyond the node's inflight_max, role 4 one accepted while the node's system clock cannot be read (ruling NQ-22): when
+// beyond the node's inflight_max, role 4 one accepted while the node's system clock cannot be read, role 5 one accepted after the
+// node stopped because its system clock went back by more than its limit (ruling NQ-22): when
 // its link is up it is closed at once, one audit line, and the node is told nothing):
 //   the link comes up; this node's advert goes out at once
 //   the 96 identity bytes of the link
@@ -32,6 +33,11 @@
 //      + the peer's type). The node answers this actor (:bees, 20, reply_body, "", 0), or (:bees, 21, "", "", 0) to close
 //      with no reply. It always answers.
 //   64 an accepted connection has closed (the listener's count)
+//   68 only when cfg.ext is true (an externally driven node, never a production node): an admitted peer's request whose
+//      t is no kind of tempus/1, well formed (bees_tempus_frame@ext_request); the fields and the answer as in 63, and
+//      one answer more: (:bees, 22, why, "", 0), refuse it as a frame that is not a request (the audit line
+//      protocol_error with `why`, the node told with 67). With cfg.ext false such a frame is refused here in that way
+//      and 22 is not an answer
 //   67 an accepted peer was refused by this actor (ruling NQ-19; s1: the audit event; m 1: s2 is the peer's descriptor,
 //      its id and its token verified; m 0: s2 is the peer's id alone, the SHA-512 of its certificate's key, its token
 //      not verified). See report() for which refusals are told. A bridge raises the peer's score; any other node drops it.
@@ -48,7 +54,8 @@
 // NQ-14: one bound from dial to close. The carrier's connect budget, the link's handshake timer and this actor's timer
 // are each armed with what is left of it, one after another, so the three stages share the one bound;
 // tempus_conn in src/tempus/bees_tempus_link.part turns the caller's shuffle_timeout_ms into this value). While the
-// node itself works on an admitted request (phase 16) the bound is the node's: it always answers.
+// node itself works on an admitted request (phase 16) the bound is the node's: it always answers. ext: whether a frame
+// of no kind may go on to the node as 68 (true only on an externally driven node; a client passes false).
 module dangerous_bees_tempus_conn;
 use bees_atoms;
 use bees_trust_frame;
@@ -230,7 +237,7 @@ fn vp(v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int
 fn vask(v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string }, phase: int64) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } { { asm: v.asm, phase: phase, live: v.live, down: v.down, pend: v.pend + 1, ckey: v.ckey, cfp: v.cfp, pd: v.pd, nonce: v.nonce, k: v.k, body: v.body } }
 fn vgot(v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string }) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } { { asm: v.asm, phase: v.phase, live: v.live, down: v.down, pend: v.pend - 1, ckey: v.ckey, cfp: v.cfp, pd: v.pd, nonce: v.nonce, k: v.k, body: v.body } }
 fn vdown(v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string }) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } { { asm: v.asm, phase: v.phase, live: v.live, down: true, pend: v.pend, ckey: v.ckey, cfp: v.cfp, pd: v.pd, nonce: v.nonce, k: v.k, body: v.body } }
-fn with_v(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string }) -> { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } } { { c: st.c, tx: st.tx, role: st.role, cid: st.cid, req: st.req, cfg: st.cfg, v: v } }
+fn with_v(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string }) -> { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } } { { c: st.c, tx: st.tx, role: st.role, cid: st.cid, req: st.req, cfg: st.cfg, v: v } }
 
 fn peer_of(v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string }) -> { addr: string, id: string, pub: string, token: string } {
     r: { ok: boolean, d: { addr: string, id: string, pub: string, token: string } } <- bees_tempus_frame@desc_of(v.pd);
@@ -242,26 +249,26 @@ fn peer_short(v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, p
         false -> { d: { addr: string, id: string, pub: string, token: string } <- peer_of(v); bees_trust_frame@cut(bees_trust_frame@hex(d.id), 0, 16) }
     }
 }
-fn cid_text(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }) -> string { concat(case st.role == 0 of { true -> "d"; false -> "a" }, bees_trust_frame@int_text(st.cid)) }
+fn cid_text(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }) -> string { concat(case st.role == 0 of { true -> "d"; false -> "a" }, bees_trust_frame@int_text(st.cid)) }
 // one TEMPUS audit line: the event, the peer (the first 16 hex digits of its id, once its advert was read), what, and the
 // connection (a: accepted, d: dialed, and its number)
-fn audit(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, event: string, what: string) -> atom {
+fn audit(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, event: string, what: string) -> atom {
     say(concat(concat(concat("[tempus audit] ", event), concat(" peer=", peer_short(st.v))), concat(concat(" ", what), concat(" ", cid_text(st)))))
 }
-fn tell(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, op: int64, s1: string, s2: string, m: int64) -> boolean {
+fn tell(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, op: int64, s1: string, s2: string, m: int64) -> boolean {
     sequence proc[concurrency]
         ok: boolean <- cast(st.cfg.node, (:bees, op, s1, s2, st.cid, m, me) impl ActorMessage {})
     produces pure ok end
 }
 // what the node is told of an admitted peer beside its descriptor: 4 * (whitelist index + 1) + the token's type
-fn peer_m(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }) -> int64 {
+fn peer_m(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }) -> int64 {
     d: { addr: string, id: string, pub: string, token: string } <- peer_of(st.v);
     t: { ok: boolean, why: string, kid: string, sub: string, typ: int64, nbf: int64, exp: int64, payload: string, sig: string } <- bees_tempus_frame@tok(d.token);
     4 * (wl_index(st.cfg.wl, bees_trust_frame@hex(st.v.cfp)) + 1) + t.typ
 }
 // close: the node is told (op; 0: nothing to tell; an accepted connection always tells 64), the send actor closes the link
 // after what it holds, the assembler ends, the actor is reaped later
-fn finish(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, op: int64, s1: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn finish(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, op: int64, s1: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     sequence
         _: boolean <- case op of { 0 -> true; 60 -> tell(st, me, 60, s1, st.v.pd, peer_m(st)); _: int64 -> tell(st, me, op, s1, "", 0) };
         _: boolean <- case st.role == 2 of { true -> tell(st, me, 64, "", "", 0); false -> true };
@@ -270,14 +277,14 @@ fn finish(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, 
         _: boolean <- arm(me, 500, 9)
     produces pure { asm: st.v.asm, phase: 19, live: false, down: st.v.down, pend: st.v.pend, ckey: st.v.ckey, cfp: st.v.cfp, pd: st.v.pd, nonce: st.v.nonce, k: st.v.k, body: "" } end
 }
-fn refuse(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, event: string, what: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn refuse(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, event: string, what: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     sequence
         _: atom <- audit(st, event, what);
         v1: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } <- finish(st, me, case st.role == 0 of { true -> 61; false -> 0 }, event)
     produces pure report(st, me, event, v1) end
 }
 // a refusal that is not the peer's doing (this node's random source or signer): nothing is reported
-fn refuse_own(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, event: string, what: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn refuse_own(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, event: string, what: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     sequence
         _: atom <- audit(st, event, what)
     produces pure finish(st, me, case st.role == 0 of { true -> 61; false -> 0 }, event) end
@@ -289,7 +296,7 @@ fn refuse_own(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int
 // Before that the token is not to be believed: only the id goes (m 0), in phase 2 after the edge has hashed the
 // certificate's key (the answer comes when the connection is already closing: k -1 marks it, body keeps the event). A
 // timeout counts only while the connection waits for the peer.
-fn report(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, event: string, v1: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string }) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn report(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, event: string, v1: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string }) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     ph: int64 <- st.v.phase;
     case st.role != 2 or length_bytes(st.v.ckey) != 32 or (event == "timeout" and reading(ph) == false) of {
         true -> v1;
@@ -318,13 +325,13 @@ fn stage(phase: int64) -> string {
     }
 }
 
-fn c_up(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn c_up(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     case st.v.phase == 0 of {
         false -> st.v;
         true -> case st.role >= 3 of {
             true -> {
                 sequence
-                    _: atom <- case st.role == 3 of { true -> audit(st, "inflight_refused", "more accepted connections than inflight_max: closed at once"); false -> audit(st, "clock_refused", "the system clock cannot be read: closed at once") }
+                    _: atom <- case st.role == 3 of { true -> audit(st, "inflight_refused", "more accepted connections than inflight_max: closed at once"); false -> case st.role == 4 of { true -> audit(st, "clock_refused", "the system clock cannot be read: closed at once"); false -> audit(st, "clock_stopped", "the node stopped after its system clock went back: closed at once") } }
                 produces pure finish(st, me, 0, "") end
             };
             false -> {
@@ -338,7 +345,7 @@ fn c_up(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, re
         }
     }
 }
-fn c_rx(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, seg: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn c_rx(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, seg: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     case st.v.live and st.v.phase < 19 of {
         false -> st.v;
         true -> {
@@ -348,7 +355,7 @@ fn c_rx(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, re
         }
     }
 }
-fn c_more(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn c_more(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     case st.v.live and st.v.phase < 19 and st.v.down == false of {
         false -> st.v;
         true -> { sequence _: boolean <- credit(st.c, 1) produces pure st.v end }
@@ -356,13 +363,13 @@ fn c_more(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, 
 }
 fn reading(phase: int64) -> boolean { phase == 1 or phase == 2 or phase == 6 or phase == 8 or phase == 10 or phase == 13 }
 // the link said :link_down and has ended with it: nothing casts to it again
-fn c_down(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn c_down(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     case st.v.phase == 17 of {
-        true -> { g: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } } <- with_v(st, vdown(st.v)); finish(g, me, case st.role == 0 of { true -> 61; false -> 0 }, "key_rotated_sent") };
+        true -> { g: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } } <- with_v(st, vdown(st.v)); finish(g, me, case st.role == 0 of { true -> 61; false -> 0 }, "key_rotated_sent") };
         false -> c_down_in(st, me)
     }
 }
-fn c_down_in(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn c_down_in(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     case st.v.phase == 0 of {
         true -> {
             sequence
@@ -375,13 +382,13 @@ fn c_down_in(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int6
             true -> {
                 sequence
                     _: atom <- audit(st, "closed_by_peer", stage(st.v.phase));
-                    g: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } } <- with_v(st, vdown(st.v))
+                    g: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } } <- with_v(st, vdown(st.v))
                 produces pure finish(g, me, case st.role == 0 of { true -> 61; false -> 0 }, "closed_by_peer") end
             }
         }
     }
 }
-fn c_timer(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, tag: int64) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn c_timer(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, tag: int64) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     case tag of {
         9 -> case st.v.phase == 19 of {
             false -> st.v;
@@ -401,36 +408,36 @@ fn c_timer(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64,
     }
 }
 // a framing refusal (an oversize length): no frame was stored or decoded; the assembler has ended
-fn c_reject(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, code: int64) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn c_reject(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, code: int64) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     case st.v.phase < 19 of {
         false -> st.v;
         true -> {
             sequence
-                dead: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } } <- with_v(st, { asm: st.v.asm, phase: st.v.phase, live: false, down: st.v.down, pend: st.v.pend, ckey: st.v.ckey, cfp: st.v.cfp, pd: st.v.pd, nonce: st.v.nonce, k: st.v.k, body: st.v.body })
+                dead: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } } <- with_v(st, { asm: st.v.asm, phase: st.v.phase, live: false, down: st.v.down, pend: st.v.pend, ckey: st.v.ckey, cfp: st.v.cfp, pd: st.v.pd, nonce: st.v.nonce, k: st.v.k, body: st.v.body })
             produces pure refuse(dead, me, "protocol_error", concat("frame refused before decoding: ", bees_atoms@spelling(bees_trust_frame@reason(code)))) end
         }
     }
 }
 
 // ---- asking the edges; each answer comes back as (:bees, kind, ...) and is counted (pend)
-fn ask_edge(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, op: int64, input: string) -> boolean {
+fn ask_edge(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, op: int64, input: string) -> boolean {
     sequence proc[concurrency]
         ok: boolean <- cast(st.cfg.edge, (op, input, 0, me) impl ActorMessage {})
     produces pure ok end
 }
-fn ask_rnd(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref) -> boolean {
+fn ask_rnd(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref) -> boolean {
     sequence proc[concurrency]
         ok: boolean <- cast(st.cfg.rnd, (1, "", "", 32, me) impl ActorMessage {})
     produces pure ok end
 }
-fn ask_sig(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, text: string) -> boolean {
+fn ask_sig(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, text: string) -> boolean {
     sequence proc[concurrency]
         ok: boolean <- cast(st.cfg.sig, (2, text, 0, me) impl ActorMessage {})
     produces pure ok end
 }
 
 // ---- phase 1: the link's identity bytes
-fn c_ident(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, body: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn c_ident(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, body: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     sequence
         _: boolean <- asm_go(st.v.asm)
     produces pure { asm: st.v.asm, phase: 2, live: st.v.live, down: st.v.down, pend: st.v.pend, ckey: bees_trust_frame@cut(body, 0, 32), cfp: bees_trust_frame@cut(body, 32, 96), pd: "", nonce: "", k: 0, body: "" } end
@@ -446,7 +453,7 @@ fn wl_why(typ: int64, wli: int64) -> string {
         false -> case wli < 0 of { true -> "a tempus_bridge or tempus_sentinel token under a certificate that is not in the tempus whitelist"; false -> "" }
     }
 }
-fn c_advert(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, body: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn c_advert(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, body: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     case bees_tempus_frame@kind(body) != 1 of {
         true -> refuse(st, me, "protocol_error", "the first frame is not an advert");
         false -> {
@@ -458,10 +465,10 @@ fn c_advert(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64
         }
     }
 }
-fn c_advert_ok(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, d: { addr: string, id: string, pub: string, token: string }) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn c_advert_ok(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, d: { addr: string, id: string, pub: string, token: string }) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     pd: string <- bees_tempus_frame@desc_bytes(d);
     v1: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } <- { asm: st.v.asm, phase: st.v.phase, live: st.v.live, down: st.v.down, pend: st.v.pend, ckey: st.v.ckey, cfp: st.v.cfp, pd: pd, nonce: "", k: 0, body: "" };
-    s1: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } } <- with_v(st, v1);
+    s1: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } } <- with_v(st, v1);
     case d.pub != st.v.ckey of {
         true -> refuse(s1, me, "binding_refused", "the advert's pub is not the key of the peer's TLS certificate");
         false -> {
@@ -489,7 +496,7 @@ fn c_advert_ok(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: in
     }
 }
 // ---- phase 3: the SHA-512 of the peer's pub; phase 4: the producer's signature over the token's payload
-fn c_hash(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, etf: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn c_hash(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, etf: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     d: { addr: string, id: string, pub: string, token: string } <- peer_of(st.v);
     case edge_bytes(etf) == d.id of {
         false -> {
@@ -507,14 +514,14 @@ fn c_hash(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, 
         }
     }
 }
-fn c_prod(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, verdict: int64) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn c_prod(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, verdict: int64) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     case verdict == 1 of {
         false -> refuse(st, me, "admission_refused", "the signature does not verify");
         true -> { sequence _: boolean <- ask_rnd(st, me) produces pure vask(st.v, 5) end }
     }
 }
 // ---- phase 5: the nonce; this node's challenge goes out and the peer's is read
-fn c_nonce(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, etf: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn c_nonce(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, etf: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     nonce: string <- edge_bytes(etf);
     case length_bytes(nonce) == 32 of {
         false -> refuse_own(st, me, "internal_error", "random bytes refused");
@@ -527,7 +534,7 @@ fn c_nonce(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64,
     }
 }
 // ---- phase 6: the peer's challenge, or its key_rotated
-fn c_challenge(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, body: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn c_challenge(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, body: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     k: int64 <- bees_tempus_frame@kind(body);
     case k == 4 of {
         true -> {
@@ -554,7 +561,7 @@ fn c_challenge(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: in
     }
 }
 // ---- phase 7: this node's signature; its response goes out and the peer's is read
-fn c_signed(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, etf: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn c_signed(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, etf: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     sig: string <- edge_bytes(etf);
     case length_bytes(sig) == 64 of {
         false -> refuse_own(st, me, "internal_error", "the signature could not be made");
@@ -567,7 +574,7 @@ fn c_signed(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64
     }
 }
 // ---- phase 8: the peer's response; phase 9: its verification
-fn c_response(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, body: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn c_response(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, body: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     case bees_tempus_frame@kind(body) != 3 of {
         true -> refuse(st, me, "pop_failed", "a response was expected");
         false -> {
@@ -585,7 +592,7 @@ fn c_response(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int
     }
 }
 fn typ_text(typ: int64) -> string { case typ of { 1 -> "tempus_edge"; 2 -> "tempus_bridge"; 3 -> "tempus_sentinel"; _: int64 -> "?" } }
-fn c_pop(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, verdict: int64) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn c_pop(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, verdict: int64) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     case verdict == 1 of {
         false -> refuse(st, me, "pop_failed", "the proof of possession does not verify");
         true -> {
@@ -597,7 +604,7 @@ fn c_pop(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, r
         }
     }
 }
-fn c_admitted(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn c_admitted(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     case st.role == 2 of {
         true -> { sequence _: boolean <- asm_go(st.v.asm) produces pure vp(st.v, 13) end };
         false -> case length_bytes(st.req) == 0 of {
@@ -618,21 +625,21 @@ fn nth(v: List[{ id: string, d: string, age: int64 }, mem(normal)], k: int64) ->
         [h: { id: string, d: string, age: int64 }, t: List[{ id: string, d: string, age: int64 }, mem(normal)]] -> case k <= 0 of { true -> h; false -> nth(t, k - 1) }
     }
 }
-fn ent_d(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }) -> { addr: string, id: string, pub: string, token: string } {
+fn ent_d(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }) -> { addr: string, id: string, pub: string, token: string } {
     e: { ok: boolean, why: string, store: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_frame@dec_entries(st.v.body, st.cfg.count);
     en: { id: string, d: string, age: int64 } <- nth(e.entries, st.v.k);
     r: { ok: boolean, d: { addr: string, id: string, pub: string, token: string } } <- bees_tempus_frame@desc_of(en.d);
     r.d
 }
-fn ent_pre(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, d: { addr: string, id: string, pub: string, token: string }) -> { why: string, payload: string, sig: string } {
+fn ent_pre(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, d: { addr: string, id: string, pub: string, token: string }) -> { why: string, payload: string, sig: string } {
     e: { ok: boolean, why: string, store: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_frame@dec_entries(st.v.body, st.cfg.count);
     bees_tempus_admit@pre(d, st.cfg.kid, st.cfg.now, st.cfg.skew, e.store)
 }
-fn ent_count(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }) -> int64 {
+fn ent_count(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }) -> int64 {
     e: { ok: boolean, why: string, store: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_frame@dec_entries(st.v.body, st.cfg.count);
     bees_tempus_view@size(e.entries)
 }
-fn ent_step(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, base: int64) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn ent_step(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, base: int64) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     case st.v.k >= ent_count(st) of {
         true -> ent_done(st, me, base);
         false -> {
@@ -645,7 +652,7 @@ fn ent_step(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64
         }
     }
 }
-fn ent_hash(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, etf: string, base: int64) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn ent_hash(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, etf: string, base: int64) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     d: { addr: string, id: string, pub: string, token: string } <- ent_d(st);
     case edge_bytes(etf) == d.id of {
         false -> refuse(st, me, "entry_refused", concat(concat("entry ", bees_trust_frame@int_text(st.v.k)), ": id is not the SHA-512 of pub"));
@@ -657,33 +664,33 @@ fn ent_hash(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64
         }
     }
 }
-fn ent_sig(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, verdict: int64, base: int64) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn ent_sig(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, verdict: int64, base: int64) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     case verdict == 1 of {
         false -> refuse(st, me, "entry_refused", concat(concat("entry ", bees_trust_frame@int_text(st.v.k)), ": the signature does not verify"));
         true -> {
-            nx: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } } <- with_v(st, { asm: st.v.asm, phase: st.v.phase, live: st.v.live, down: st.v.down, pend: st.v.pend, ckey: st.v.ckey, cfp: st.v.cfp, pd: st.v.pd, nonce: st.v.nonce, k: st.v.k + 1, body: st.v.body });
+            nx: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } } <- with_v(st, { asm: st.v.asm, phase: st.v.phase, live: st.v.live, down: st.v.down, pend: st.v.pend, ckey: st.v.ckey, cfp: st.v.cfp, pd: st.v.pd, nonce: st.v.nonce, k: st.v.k + 1, body: st.v.body });
             ent_step(nx, me, base)
         }
     }
 }
-fn ent_done(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, base: int64) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn ent_done(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, base: int64) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     case base == 11 of {
         true -> finish(st, me, 60, st.v.body);
-        false -> to_node(st, me, st.v.body)
+        false -> to_node(st, me, st.v.body, 63)
     }
 }
-fn ent_begin(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, body: string, base: int64) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn ent_begin(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, body: string, base: int64) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     e: { ok: boolean, why: string, store: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_frame@dec_entries(body, st.cfg.count);
     case e.ok of {
         false -> refuse(st, me, "protocol_error", e.why);
         true -> {
-            s0: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } } <- with_v(st, { asm: st.v.asm, phase: st.v.phase, live: st.v.live, down: st.v.down, pend: st.v.pend, ckey: st.v.ckey, cfp: st.v.cfp, pd: st.v.pd, nonce: st.v.nonce, k: 0, body: body });
+            s0: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } } <- with_v(st, { asm: st.v.asm, phase: st.v.phase, live: st.v.live, down: st.v.down, pend: st.v.pend, ckey: st.v.ckey, cfp: st.v.cfp, pd: st.v.pd, nonce: st.v.nonce, k: 0, body: body });
             ent_step(s0, me, base)
         }
     }
 }
 // ---- phase 10 (role 0): the reply
-fn c_reply(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, body: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn c_reply(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, body: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     k: int64 <- bees_tempus_frame@kind(body);
     case k == 6 or k == 8 of {
         true -> ent_begin(st, me, body, 11);
@@ -694,35 +701,51 @@ fn c_reply(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64,
     }
 }
 // ---- phase 13 (role 2): the request; phase 16: the node's answer
-fn to_node(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, body: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn to_node(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, body: string, op: int64) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     m: int64 <- peer_m(st);
     sequence
-        _: boolean <- tell(st, me, 63, body, st.v.pd, m)
+        _: boolean <- tell(st, me, op, body, st.v.pd, m)
     produces pure { asm: st.v.asm, phase: 16, live: st.v.live, down: st.v.down, pend: st.v.pend + 1, ckey: st.v.ckey, cfp: st.v.cfp, pd: st.v.pd, nonce: st.v.nonce, k: 0, body: "" } end
 }
-fn c_request(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, body: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn c_request(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, body: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     k: int64 <- bees_tempus_frame@kind(body);
     case k == 5 of {
         true -> ent_begin(st, me, body, 14);
-        false -> case k == 7 or k == 9 or k == 10 or k == 12 or k == 13 of {
-            true -> to_node(st, me, body);
-            false -> refuse(st, me, "protocol_error", concat("not a request: ", bees_tempus_frame@why_refused(body)))
+        false -> case k == 7 or k == 12 or k == 13 of {
+            true -> to_node(st, me, body, 63);
+            // a frame of no kind of tempus/1. On a node that is not externally driven (cfg.ext false: every production
+            // node) it is refused here like any frame that is not a request. On an externally driven node a well-formed
+            // one goes to the node as 68, which passes it to its extension actor (design 16.3; owner's ruling of
+            // 2026-11-20: the test-only frames are no part of this library)
+            false -> case st.cfg.ext of {
+                false -> refuse(st, me, "protocol_error", concat("not a request: ", bees_tempus_frame@why_refused(body)));
+                true -> case bees_tempus_frame@ext_request(body) of {
+                    true -> to_node(st, me, body, 68);
+                    false -> refuse(st, me, "protocol_error", concat("not a request: ", bees_tempus_frame@why_refused(body)))
+                }
+            }
         }
     }
 }
-fn c_answer(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, k: int64, body: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
-    g: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } } <- with_v(st, vgot(st.v));
+fn c_answer(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, k: int64, body: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+    g: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } } <- with_v(st, vgot(st.v));
     case g.v.phase != 16 of {
         true -> g.v;
-        false -> case k == 20 and g.v.down == false of {
-            true -> { sequence _: boolean <- tx_frame(st.tx, body) produces pure finish(g, me, 0, "") end };
-            false -> finish(g, me, 0, "")
+        // 22, from the extension actor of an externally driven node only: the frame it was handed is not one it serves,
+        // or breaks a bound (body: why). Refused as this actor refuses any frame that is not a request: the same audit
+        // event, the node told (67), no reply.
+        false -> case k == 22 and st.cfg.ext of {
+            true -> refuse(g, me, "protocol_error", body);
+            false -> case k == 20 and g.v.down == false of {
+                true -> { sequence _: boolean <- tx_frame(st.tx, body) produces pure finish(g, me, 0, "") end };
+                false -> finish(g, me, 0, "")
+            }
         }
     }
 }
 // a frame from the assembler: the next assembler is started with the bytes after it HELD, and let go when this actor is
 // ready for the next frame
-fn c_frame(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, body: string, rest: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn c_frame(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, body: string, rest: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     case st.v.phase == 17 of {
         true -> {
             sequence
@@ -732,18 +755,18 @@ fn c_frame(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64,
         false -> c_frame_rd(st, me, body, rest)
     }
 }
-fn c_frame_rd(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, body: string, rest: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn c_frame_rd(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, body: string, rest: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     case reading(st.v.phase) of {
         false -> { asm: st.v.asm, phase: st.v.phase, live: false, down: st.v.down, pend: st.v.pend, ckey: st.v.ckey, cfp: st.v.cfp, pd: st.v.pd, nonce: st.v.nonce, k: st.v.k, body: st.v.body };
         true -> {
             sequence
                 a: actor_ref <- asm_new(me, 0, rest, false);
-                s2: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } } <- with_v(st, { asm: a, phase: st.v.phase, live: true, down: st.v.down, pend: st.v.pend, ckey: st.v.ckey, cfp: st.v.cfp, pd: st.v.pd, nonce: st.v.nonce, k: st.v.k, body: st.v.body })
+                s2: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } } <- with_v(st, { asm: a, phase: st.v.phase, live: true, down: st.v.down, pend: st.v.pend, ckey: st.v.ckey, cfp: st.v.cfp, pd: st.v.pd, nonce: st.v.nonce, k: st.v.k, body: st.v.body })
             produces pure c_frame_in(s2, me, body) end
         }
     }
 }
-fn c_frame_in(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, body: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn c_frame_in(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, body: string) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     case st.v.phase of {
         1 -> c_ident(st, body);
         2 -> c_advert(st, me, body);
@@ -755,8 +778,8 @@ fn c_frame_in(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int
 }
 // an answer of an edge, the random edge or the signer: counted; dropped when the connection has closed meanwhile; a link
 // that went down while it was on its way ends the connection here
-fn c_edge(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, k: int64, s1: string, n: int64) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
-    g: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } } <- with_v(st, vgot(st.v));
+fn c_edge(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, k: int64, s1: string, n: int64) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+    g: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } } <- with_v(st, vgot(st.v));
     case g.v.phase >= 19 of {
         // closed meanwhile: dropped, but for the hash a refusal in phase 2 asked for (report): the node is told now
         true -> case g.v.phase == 19 and k == 34 and g.v.k == 0 - 1 of {
@@ -774,7 +797,7 @@ fn c_edge(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, 
         }
     }
 }
-fn c_edge_in(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, k: int64, s1: string, n: int64) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn c_edge_in(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, k: int64, s1: string, n: int64) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     case st.v.phase of {
         3 -> case k == 34 of { true -> c_hash(st, me, s1); false -> st.v };
         4 -> case k == 31 of { true -> c_prod(st, me, n); false -> st.v };
@@ -788,7 +811,7 @@ fn c_edge_in(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int6
         _: int64 -> st.v
     }
 }
-fn c_bees(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, k: int64, s1: string, s2: string, n: int64) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn c_bees(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, k: int64, s1: string, s2: string, n: int64) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     case k of {
         1 -> c_frame(st, me, s1, s2);
         2 -> c_reject(st, me, n);
@@ -800,12 +823,13 @@ fn c_bees(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, 
         34 -> c_edge(st, me, k, s1, n);
         20 -> c_answer(st, me, k, s1);
         21 -> c_answer(st, me, k, s1);
+        22 -> c_answer(st, me, k, s1);
         // an audit line of the TLS link under this connection (it may not print itself, E2103): event, what
         11 -> { sequence _: atom <- audit(st, s1, s2) produces pure st.v end };
         _: int64 -> st.v
     }
 }
-fn conn_handle(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | (:bees, int64, string, string, int64)) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
+fn conn_handle(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }, me: actor_ref, msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | (:bees, int64, string, string, int64)) -> { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } {
     case msg of {
         (:link_up, _info: string) -> c_up(st, me);
         (:rx, seg: string) -> c_rx(st, seg);
@@ -815,7 +839,7 @@ fn conn_handle(st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: in
         (:bees, k: int64, s1: string, s2: string, n: int64) -> c_bees(st, me, k, s1, s2, n)
     }
 }
-fn tcon(msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | (:bees, int64, string, string, int64), st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }) -> (:no_reply, { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64 }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }) {
+fn tcon(msg: (:link_up, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom) | (:bees, int64, string, string, int64), st: { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }) -> (:no_reply, { c: dangerous_actor_ref, tx: actor_ref, role: int64, cid: int64, req: string, cfg: { node: actor_ref, sig: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, mine: string, mtok: string, kid: string, ppub: string, wl: string, now: int64, skew: int64, count: int64, ms: uint64, ext: boolean }, v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } }) {
     sequence proc[concurrency]
         me: actor_ref <- self();
         v: { asm: actor_ref, phase: int64, live: boolean, down: boolean, pend: int64, ckey: string, cfp: string, pd: string, nonce: string, k: int64, body: string } <- conn_handle(st, me, msg);

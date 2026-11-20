@@ -4,7 +4,7 @@
     bees_tempus_fixtures.py write   writes trials/t4_tempus_admission/lib/tempus_fixtures.silica
     bees_tempus_fixtures.py check   fails when that file is not what this tool writes now
 
-Everything is made with tools/bees_tempus_client.py and the `cryptography` package from fixed seeds (00..1f the producer,
+Everything is made with example_tempus_clients/python/bees_tempus_client.py and the `cryptography` package from fixed seeds (00..1f the producer,
 20..3f the node, 40..5f another key, 60..7f the producer's old key): keys that belong to nobody. Ed25519 is deterministic,
 so the file is the same on every run. cases() also says what a correct verifier must answer for each case, computed here
 with the Python client's own checks: tools/test_bees_tempus_admission.py compares that with what the Silica node answered.
@@ -15,6 +15,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(HERE, "..", "example_tempus_clients", "python"))  # the example Python client
 import bees_tempus_client as c  # noqa: E402
 from cryptography.hazmat.primitives import serialization  # noqa: E402
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402

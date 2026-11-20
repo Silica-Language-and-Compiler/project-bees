@@ -1,5 +1,5 @@
 // C2 clients trial, the thin application of a Silica TEMPUS client (design 16.4, OQ-21): it only wires the client library
-// (src/tempus_client: bees_tempus_client and bees_tempus_client.part) to its inputs, the TEST-ONLY values of
+// (example_tempus_clients/silica: bees_tempus_client and bees_tempus_client.part) to its inputs, the TEST-ONLY values of
 // lib/tempus_ids.silica and the scenario compiled into the entry's own role file, and to its output, one line per event.
 // The role file gives me_id() (the identity), deftok() (its usual token), port(), start_after() (how many accepted
 // connections must have closed before the first step: 0 starts when the client listens), steps(), step_of/1 and

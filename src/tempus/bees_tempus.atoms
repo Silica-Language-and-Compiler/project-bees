@@ -10,8 +10,6 @@ shuffle
 shuffle_reply
 sample
 sample_reply
-tick
-clock
 done
 # peer types (the value of store, and of a token's typ)
 tempus_edge
@@ -29,7 +27,6 @@ store
 entries
 age
 n
-ms
 sub
 typ
 nbf

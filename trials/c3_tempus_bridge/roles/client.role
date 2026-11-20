@@ -1,0 +1,187 @@
+// C3 bridges trial, the thin application of a Silica TEMPUS client (design 16.4, OQ-21), adapted from C2's
+// (trials/c2_tempus_clients/client.role): it only wires the client library (example_tempus_clients/silica) to the TEST-ONLY values of
+// lib/tempus_ids.silica and to the scenario compiled into c.role, and prints one line per event. Changes from C2's: the
+// addresses are the bridges' (to 0 bridge B1, 1 bridge B2, 2 nobody, 9 the bridge the last sample's pick_bridge chose);
+// a step with flags 2 is not waited for (a held call: its outcome is printed when it comes, as `held call K outcome`), and
+// after a step with flags 3 the next step waits until every held call has its outcome;
+// a sample's reply is kept for pick_bridge (bees_tempus_client@pick_bridge with the literal draw draw()); the client's
+// tempus whitelist holds the TEMPUS certificates of B1 and B2.
+// A step is one dialed connection with one request: { tok, idv, kid, lkid, now, flags, to, req, what } as in C2.
+//$ CST = { tok: int64, idv: int64, kid: string, lkid: string, now: int64, flags: int64, to: int64, req: string, what: string }
+//$ CRA = { act: int64, body: string, what: string }
+//$ CA = { cl: actor_ref, step: int64, rq: int64, closed: int64, pick: string, held: int64, after: int64 }
+fn say(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+fn hx(s: string) -> string { tempus_ids@unhex(s) }
+fn num(n: int64) -> string { bees_trust_frame@int_text(n) }
+fn at(p: int64) -> string { concat("127.0.0.1:", num(p)) }
+// the entry of identity i with token variant v, reachable at port p, at an age
+fn ent(i: int64, v: int64, p: int64, age: int64) -> $E$ {
+    bees_tempus_client@entry(hx(tempus_ids@id_hex(i)), hx(tempus_ids@pub_hex(i)), at(p), hx(tempus_ids@tok_hex(i, v)), age)
+}
+fn l0() -> $L$ { bees_tempus_view@none() }
+fn l1(a: $E$) -> $L$ { bees_tempus_view@cons(a, l0()) }
+fn l2(a: $E$, b: $E$) -> $L$ { bees_tempus_view@cons(a, l1(b)) }
+fn l3(a: $E$, b: $E$, c: $E$) -> $L$ { bees_tempus_view@cons(a, l2(b, c)) }
+fn l4(a: $E$, b: $E$, c: $E$, d: $E$) -> $L$ { bees_tempus_view@cons(a, l3(b, c, d)) }
+fn kid1() -> string { tempus_ids@kid() }
+// an ordinary step: the client's usual advert, the trial's clock
+fn s(what: string, req: string) -> $CST$ { { tok: 0, idv: me_id(), kid: kid1(), lkid: "", now: tempus_ids@now(), flags: 0, to: 0, req: req, what: what } }
+// a step with another token, claimed identity or proof
+fn sa(what: string, req: string, tok: int64, idv: int64, flags: int64) -> $CST$ { { tok: tok, idv: idv, kid: kid1(), lkid: "", now: tempus_ids@now(), flags: flags, to: 0, req: req, what: what } }
+// a step at another time of the client's clock
+fn sn(what: string, req: string, now: int64) -> $CST$ { { tok: 0, idv: me_id(), kid: kid1(), lkid: "", now: now, flags: 0, to: 0, req: req, what: what } }
+// a step to another address
+fn st(what: string, req: string, to: int64) -> $CST$ { { tok: 0, idv: me_id(), kid: kid1(), lkid: "", now: tempus_ids@now(), flags: 0, to: to, req: req, what: what } }
+fn answer(what: string, body: string) -> $CRA$ { { act: 20, body: body, what: what } }
+fn act(k: int64, what: string) -> $CRA$ { { act: k, body: "", what: what } }
+// a body of n bytes that is no frame (zeros)
+fn zeros(acc: string, n: int64) -> string {
+    case length_bytes(acc) >= n of { true -> bees_trust_frame@cut(acc, 0, n); false -> zeros(bees_trust_frame@cat2(acc, acc), n) }
+}
+fn addr_of(to: int64, pick: string) -> string { case to of { 0 -> at(24201); 1 -> at(24202); 9 -> pick; _: int64 -> at(24205) } }
+fn pause(me: actor_ref, next: int64) -> boolean {
+    sequence proc[concurrency]
+        t: timer_ref <- send_after(700, me, (:bees, 91, "", "", next, 0, me) impl ActorMessage {})
+    produces pure true end
+}
+fn hold(me: actor_ref, who: actor_ref) -> boolean {
+    sequence proc[concurrency]
+        t: timer_ref <- send_after(2300, me, (:bees, 92, "", "", 0, 0, who) impl ActorMessage {})
+    produces pure true end
+}
+fn run_step(a: $CA$, me: actor_ref, k: int64) -> $CA$ {
+    case k > steps() of {
+        true -> { sequence _: atom <- say("done") produces pure { cl: a.cl, step: k, rq: a.rq, closed: a.closed, pick: a.pick, held: a.held, after: a.after } end };
+        false -> {
+            p: $CST$ <- step_of(k);
+            sequence
+                _: atom <- say(concat(concat("step ", num(k)), concat(": ", p.what)));
+                _: boolean <- tempus_client_set(a.cl, 3, hx(tempus_ids@tok_hex(me_id(), case p.tok == 0 of { true -> deftok(); false -> p.tok })), 0);
+                _: boolean <- tempus_client_set(a.cl, 4, hx(tempus_ids@id_hex(p.idv)), 0);
+                _: boolean <- tempus_client_set(a.cl, 6, p.kid, 0);
+                _: boolean <- tempus_client_set(a.cl, 5, "", p.now);
+                _: boolean <- tempus_client_dial(a.cl, addr_of(p.to, a.pick), p.req, case p.flags of { 2 -> 800 + k; 3 -> 700 + k; _: int64 -> k }, case p.flags >= 2 of { true -> 0; false -> p.flags });
+                _: boolean <- case p.flags == 2 of { true -> pause(me, k + 1); false -> true };
+                _: boolean <- case length_bytes(p.lkid) > 0 of { true -> tempus_client_set(a.cl, 6, p.lkid, 0); false -> true }
+            produces pure { cl: a.cl, step: k, rq: a.rq, closed: a.closed, pick: a.pick, held: a.held + case p.flags == 2 of { true -> 1; false -> 0 }, after: a.after } end
+        }
+    }
+}
+fn outcome(op: int64, s1: string) -> string {
+    case op of {
+        60 -> concat("reply ", bees_tempus_client@show(s1, 8));
+        61 -> concat("failed: ", s1);
+        62 -> concat("key_rotated, the peer's current kid is ", s1);
+        _: int64 -> "admitted and closed"
+    }
+}
+// a sample's reply is kept: the next step to address 9 goes to the bridge pick_bridge chooses from it
+fn picked(a: $CA$, op: int64, s1: string) -> $CA$ {
+    case op == 60 and bees_tempus_client@reply_kind(s1) == 8 of {
+        false -> a;
+        true -> {
+            p: string <- bees_tempus_client@pick_bridge(s1, 8, draw());
+            sequence
+                _: atom <- say(concat("  pick_bridge with draw ", concat(num(draw()), concat(": ", p))))
+            produces pure { cl: a.cl, step: a.step, rq: a.rq, closed: a.closed, pick: p, held: a.held, after: a.after } end
+        }
+    }
+}
+fn dialed(a: $CA$, me: actor_ref, op: int64, s1: string, cid: int64) -> $CA$ {
+    case cid >= 900 of {
+        true -> { sequence _: atom <- say(concat("  a second connection meanwhile: ", outcome(op, s1))) produces pure a end };
+        false -> case cid >= 800 of {
+            true -> {
+                h: int64 <- a.held - 1;
+                sequence
+                    _: atom <- say(concat(concat("held call ", num(cid - 800)), concat(" outcome: ", outcome(op, s1))));
+                    _: boolean <- case h == 0 and a.after > 0 of { true -> pause(me, a.after); false -> true }
+                produces pure { cl: a.cl, step: a.step, rq: a.rq, closed: a.closed, pick: a.pick, held: h, after: case h == 0 of { true -> 0; false -> a.after } } end
+            };
+            false -> case cid >= 700 of {
+                true -> {
+                    k: int64 <- cid - 700;
+                    sequence
+                        _: atom <- say(concat(concat("step ", num(k)), concat(" outcome: ", outcome(op, s1))));
+                        _: boolean <- case a.held == 0 of { true -> pause(me, k + 1); false -> true }
+                    produces pure { cl: a.cl, step: a.step, rq: a.rq, closed: a.closed, pick: a.pick, held: a.held, after: case a.held == 0 of { true -> 0; false -> k + 1 } } end
+                };
+                false -> {
+                    sequence
+                        _: atom <- say(concat(concat("step ", num(cid)), concat(" outcome: ", outcome(op, s1))));
+                        a2: $CA$ <- picked(a, op, s1);
+                        _: boolean <- pause(me, cid + 1)
+                    produces pure a2 end
+                }
+            }
+        }
+    }
+}
+fn peer8(pd: string) -> string {
+    r: { ok: boolean, d: $D$ } <- bees_tempus_frame@desc_of(pd);
+    d: $D$ <- r.d;
+    bees_trust_frame@cut(bees_trust_frame@hex(d.id), 0, 8)
+}
+fn request(a: $CA$, me: actor_ref, body: string, pd: string, who: actor_ref) -> $CA$ {
+    n: int64 <- a.rq + 1;
+    r: $CRA$ <- on_request(a.step, body);
+    sequence
+        _: atom <- say(concat(concat(concat("  request ", num(n)), concat(" from ", peer8(pd))), concat(": ", bees_tempus_client@show(body, 8))));
+        _: atom <- say(concat("  the client ", r.what));
+        _: boolean <- case r.act of {
+            20 -> tempus_client_answer(who, r.body);
+            21 -> tempus_client_close(who);
+            31 -> { sequence _: boolean <- tempus_client_dial(a.cl, addr_of(0, a.pick), r.body, 900 + n, 0) produces pure hold(me, who) end };
+            _: int64 -> hold(me, who)
+        }
+    produces pure { cl: a.cl, step: a.step, rq: n, closed: a.closed, pick: a.pick, held: a.held, after: a.after } end
+}
+fn closed(a: $CA$, me: actor_ref) -> $CA$ {
+    n: int64 <- a.closed + 1;
+    sequence
+        _: boolean <- case n == start_after() and a.step == 0 of { true -> pause(me, 1); false -> true }
+    produces pure { cl: a.cl, step: a.step, rq: a.rq, closed: n, pick: a.pick, held: a.held, after: a.after } end
+}
+fn c_bees(a: $CA$, me: actor_ref, b: $NB$) -> $CA$ {
+    case b.op of {
+        0 -> { cl: b.who, step: a.step, rq: a.rq, closed: a.closed, pick: a.pick, held: a.held, after: a.after };
+        66 -> { sequence _: atom <- say(concat("the client listens, ", b.s1)); _: boolean <- case start_after() == 0 of { true -> pause(me, 1); false -> true } produces pure a end };
+        60 -> dialed(a, me, b.op, b.s1, b.n);
+        61 -> dialed(a, me, b.op, b.s1, b.n);
+        62 -> dialed(a, me, b.op, b.s1, b.n);
+        65 -> dialed(a, me, b.op, b.s1, b.n);
+        63 -> request(a, me, b.s1, b.s2, b.who);
+        64 -> closed(a, me);
+        91 -> run_step(a, me, b.n);
+        92 -> { sequence _: atom <- say("  the client closes the held connection with no reply"); _: boolean <- tempus_client_close(b.who) produces pure a end };
+        _: int64 -> a
+    }
+}
+fn cdrv(msg: $NM$, a: $CA$) -> (:no_reply, $CA$) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        a2: $CA$ <- case msg of {
+            (:accepted, _l: dangerous_actor_ref, _i: string) -> a;
+            (:link_up, _info: string) -> a;
+            (:rx, _s: string) -> a;
+            (:tx_credit, _n: int64) -> a;
+            (:tx_failed, _w: atom) -> a;
+            (:link_down, _w2: atom) -> a;
+            (:bees, op: int64, s1: string, sb: string, n: int64, m: int64, who: actor_ref) -> c_bees(a, me, { op: op, s1: s1, s2: sb, n: n, m: m, who: who })
+        }
+    produces pure (:no_reply, a2) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- bees_reporter@start();
+        d: actor_ref <- spawn({ cl: actor_ref_of_word(0), step: 0, rq: 0, closed: 0, pick: "", held: 0, after: 0 }, cdrv, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        ci: $CI$ <- { id: hx(tempus_ids@id_hex(me_id())), pub: hx(tempus_ids@pub_hex(me_id())), seed: hx(tempus_ids@seed_hex(me_id())), seed2: hx(tempus_ids@seed_hex(7)), addr: at(port()), token: hx(tempus_ids@tok_hex(me_id(), deftok())), listen: concat("listen:", num(port())), spec: tempus_spec(tempus_ids@certfile(me_id()), tempus_ids@keyfile(me_id())), wl: concat(tempus_ids@fp_hex(3), tempus_ids@fp_hex(4)), kid: kid1(), ppub: hx(tempus_ids@producer_pub_hex()), now: tempus_ids@now(), skew: tempus_ids@skew(), count: 8, ms: 6000, mst: "6000" };
+        cl: actor_ref <- tempus_client_start(d, ci);
+        _: boolean <- cast(d, (:bees, 0, "", "", 0, 0, cl) impl ActorMessage {});
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

@@ -1,9 +1,9 @@
 # C2: coverage of the behaviour list (design 16.2) by the two clients
 
-Trial `trials/c2_tempus_clients`. The Python client (`tools/bees_tempus_client.py`, scenario `c2` of
-`tools/bees_tempus_trial.py`) drives node N; the Silica client (`src/tempus_client`, thin application `client.role`,
+Trial `trials/c2_tempus_clients`. The Python client (`example_tempus_clients/python/bees_tempus_client.py`, scenario `c2` of
+`tools/bees_tempus_trial.py`) drives node N; the Silica client (`example_tempus_clients/silica`, thin application `client.role`,
 scenarios `cs.role` as a sentinel and `ce.role` as an edge) drives node M, the same node on another port. Both send one
-tick to node O, which is not a test node. Step numbers are those of `cs.role` (written s1 to s10) and `ce.role` (1 to
+tick to node O, which is not a test program's node (it is not externally driven; row 37). Step numbers are those of `cs.role` (written s1 to s10) and `ce.role` (1 to
 54); the Python scenario uses the same numbers and adds its own steps P1 to P11.
 
 "Client" in the last column means the client sees the result on the wire: the Python scenario asserts it and the Silica
@@ -41,7 +41,7 @@ frame shows it (ruling NQ-1).
 | 27 | draws from the platform's source | not a client's act | not a client's act | the trial's goldens are the same on every run (literal draws on a test node) |
 | 28 | boot refusals of a bad configuration | T7 | T7 | not built |
 | 29 to 36 | bridges | C3, T6 | C3, T6 | not built |
-| 37 | test-only frames on a node that is not a test node | 43 | 43 | Client: closed with no reply. Node O: `test_only_refused` |
+| 37 | test-only frames on a node that is not a test program's | 43 | 43 | Client: closed with no reply. Node O: `protocol_error ... not a request: unknown kind`, the refusal of any frame of no kind (until 2026-11-20 `test_only_refused`, from a handler every node held). O is built in this trial's one directory, whose unit list holds the test unit for N and M, so O's linked program contains the unit's code although O's root unit does not use it and O is not externally driven; O therefore shows the refusal, not the absence. The node whose build lists nothing of the test unit, and whose compiled units are searched, is node P of `trials/t6_tempus_clock` |
 
 Rulings of 2026-11-19 that are no row of 16.2, and where this trial shows them:
 

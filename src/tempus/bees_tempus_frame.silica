@@ -12,8 +12,12 @@
 // Every dec_ answers { ok, why, ... }: why is "" or the reason in words, for the audit line; a refused frame yields nothing else.
 //
 // Kinds: 1 advert, 2 pop_challenge, 3 pop_response, 4 key_rotated, 5 shuffle, 6 shuffle_reply, 7 sample, 8 sample_reply,
-// 9 tick (test-only), 10 clock (test-only), 11 done, 12 call, 13 cast, 14 result (TRUST's frames: bees_trust_frame reads
-// them), 0 refused. Stores and peer types: 1 tempus_edge, 2 tempus_bridge, 3 tempus_sentinel.
+// 11 done, 12 call, 13 cast, 14 result (TRUST's frames: bees_trust_frame reads them), 0 refused. 9 and 10 are not kinds
+// of this unit: they were the test-only tick and clock frames, which no unit of src/tempus reads or writes any more
+// (owner's ruling of 2026-11-20; they are in src/tempus_test/bees_tempus_test.silica, a unit only a test program
+// lists). Stores and peer types: 1 tempus_edge, 2 tempus_bridge, 3 tempus_sentinel.
+// ext_request(body): the body is well formed (the same structure check as kind) and its t is an atom this program holds
+// that is no kind here. Only such a frame may go to the extension actor of an externally driven node (design 16.3).
 //
 // A descriptor is { addr, id, pub, token }. In a view (bees_tempus_view) an entry's `d` is the descriptor's own ETF bytes
 // (desc_bytes), so the view stays opaque and a frame is built from a view without a second representation.
@@ -27,6 +31,7 @@ use bees_trust_frame;
 use bees_tempus_view;
 
 export kind/1;
+export ext_request/1;
 export why_refused/1;
 export store_code/1;
 export desc/4;
@@ -39,15 +44,11 @@ export enc_response/1;
 export enc_rotated/1;
 export enc_entries/3;
 export enc_sample/2;
-export enc_tick/1;
-export enc_clock/1;
 export enc_done/0;
 export dec_advert/1;
 export dec_field/2;
 export dec_entries/2;
 export dec_sample/2;
-export dec_tick/1;
-export dec_clock/1;
 export dec_done/1;
 export tok/1;
 export entries_max/0;
@@ -64,12 +65,10 @@ fn kind_of(a: atom) -> int64 {
     case a == bees_atoms@a_shuffle_reply() of { true -> 6; false ->
     case a == bees_atoms@a_sample() of { true -> 7; false ->
     case a == bees_atoms@a_sample_reply() of { true -> 8; false ->
-    case a == bees_atoms@a_tick() of { true -> 9; false ->
-    case a == bees_atoms@a_clock() of { true -> 10; false ->
     case a == bees_atoms@a_done() of { true -> 11; false ->
     case a == bees_atoms@a_call() of { true -> 12; false ->
     case a == bees_atoms@a_cast() of { true -> 13; false ->
-    case a == bees_atoms@a_result() of { true -> 14; false -> 0 } } } } } } } } } } } } } }
+    case a == bees_atoms@a_result() of { true -> 14; false -> 0 } } } } } } } } } } } }
 }
 fn kind_atom(k: int64) -> atom {
     case k of {
@@ -81,8 +80,6 @@ fn kind_atom(k: int64) -> atom {
         6 -> bees_atoms@a_shuffle_reply();
         7 -> bees_atoms@a_sample();
         8 -> bees_atoms@a_sample_reply();
-        9 -> bees_atoms@a_tick();
-        10 -> bees_atoms@a_clock();
         _: int64 -> bees_atoms@a_done()
     }
 }
@@ -110,6 +107,20 @@ fn kind(body: string) -> int64 {
     }
 }
 // why kind() answered 0, in words
+fn t_ext(r: (:ok, atom) | (:rejected, atom)) -> boolean {
+    case r of { (:ok, a: atom) -> kind_of(a) == 0; (:rejected, _w: atom) -> false }
+}
+fn ext_request(body: string) -> boolean {
+    c: int64 <- bees_trust_frame@check(body, 6, 131072);
+    case c == 0 of {
+        false -> false;
+        true -> {
+            sp: string <- bees_trust_frame@span(body, "t");
+            r: (:ok, atom) | (:rejected, atom) <- bees_trust_frame@dec_atom(sp);
+            t_ext(r)
+        }
+    }
+}
 fn why_refused(body: string) -> string {
     c: int64 <- bees_trust_frame@check(body, 6, 131072);
     case c == 0 of {
@@ -227,21 +238,6 @@ fn enc_sample(store: int64, n: int64) -> string {
         t: atom <- kind_atom(7);
         st: atom <- store_atom(store);
         m: { n: int64, store: atom, t: atom } <- { n: n, store: st, t: t };
-        s: string <- encode((:etf), m)
-    produces pure s end
-}
-fn enc_tick(store: int64) -> string {
-    sequence proc[mem(normal), transport]
-        t: atom <- kind_atom(9);
-        st: atom <- store_atom(store);
-        m: { store: atom, t: atom } <- { store: st, t: t };
-        s: string <- encode((:etf), m)
-    produces pure s end
-}
-fn enc_clock(ms: int64) -> string {
-    sequence proc[mem(normal), transport]
-        t: atom <- kind_atom(10);
-        m: { ms: int64, t: atom } <- { ms: ms, t: t };
         s: string <- encode((:etf), m)
     produces pure s end
 }
@@ -411,44 +407,6 @@ fn dec_sample(body: string, count: int64) -> { ok: boolean, why: string, store: 
         r: (:ok, { n: int64, store: atom, t: atom }) | (:rejected, atom) <- decode((:etf), body, { max_bytes: 128, max_depth: 2, max_length: 32 })
     produces pure sample_read(r, count) end
 }
-fn tick_read(r: (:ok, { store: atom, t: atom }) | (:rejected, atom)) -> { ok: boolean, why: string, store: int64 } {
-    case r of {
-        (:rejected, w: atom) -> { ok: false, why: said(w), store: 0 };
-        (:ok, m: { store: atom, t: atom }) -> {
-            st: int64 <- store_code(m.store);
-            case kind_of(m.t) != 9 of {
-                true -> { ok: false, why: "another kind", store: 0 };
-                false -> case st == 0 of {
-                    true -> { ok: false, why: "store is not a peer type", store: 0 };
-                    false -> { ok: true, why: "", store: st }
-                }
-            }
-        }
-    }
-}
-fn dec_tick(body: string) -> { ok: boolean, why: string, store: int64 } {
-    sequence proc[mem(normal), transport]
-        r: (:ok, { store: atom, t: atom }) | (:rejected, atom) <- decode((:etf), body, { max_bytes: 128, max_depth: 2, max_length: 32 })
-    produces pure tick_read(r) end
-}
-fn clock_read(r: (:ok, { ms: int64, t: atom }) | (:rejected, atom)) -> { ok: boolean, why: string, ms: int64 } {
-    case r of {
-        (:rejected, w: atom) -> { ok: false, why: said(w), ms: 0 };
-        (:ok, m: { ms: int64, t: atom }) -> case kind_of(m.t) != 10 of {
-            true -> { ok: false, why: "another kind", ms: 0 };
-            false -> case m.ms < 0 or m.ms > 9007199254740992 of {
-                true -> { ok: false, why: "ms is not 0 to 2^53", ms: 0 };
-                false -> { ok: true, why: "", ms: m.ms }
-            }
-        }
-    }
-}
-fn dec_clock(body: string) -> { ok: boolean, why: string, ms: int64 } {
-    sequence proc[mem(normal), transport]
-        r: (:ok, { ms: int64, t: atom }) | (:rejected, atom) <- decode((:etf), body, { max_bytes: 128, max_depth: 2, max_length: 32 })
-    produces pure clock_read(r) end
-}
-
 fn done_read(r: (:ok, { t: atom }) | (:rejected, atom)) -> { ok: boolean, why: string } {
     case r of {
         (:rejected, w: atom) -> { ok: false, why: said(w) };

@@ -3,7 +3,7 @@
 // trials/t1_tempus_store and tempus-progress.md), feeds it the events it receives and tells its `link` what to do. The
 // link is whatever stands between the store and its peers: the connection layer in a node, a driver in a trial. The
 // actor makes no random number and reads no clock: draws arrive as messages (it asks the link for them), ticks arrive
-// as messages (a node's timer or, on a test node, a peer's tick frame).
+// as messages (a node's timer or, on an externally driven node, its driver's message).
 //
 // One message type for both directions, { op, id, d, n, entries, draws } (unused fields empty or 0).
 // To the store:

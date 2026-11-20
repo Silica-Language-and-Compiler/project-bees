@@ -1,0 +1,61 @@
+// ---- C1 two nodes, node b: one plain actor per kind, registered under the manifest's local name. Each prints what arrived
+// (the decoded value; a chain walked and a buffer read in the region that came with the message; a term's tokens) and casts
+// the same message to the matching name on node a (valx .. anyx, proxies here), so every message makes a round trip through
+// both nodes' proxies and deliverers. Nothing here mentions the network. `b: done` after the last message ("bye").
+fn val(msg: (:i, int64) | (:s, string) | (:f, float64) | (:pt, int64, int64) | { x: int64, y: string } | :none, st: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        _: atom <- say(cat4("b: val ", int_text(st), ": ", t_val(msg)));
+        _: boolean <- cast_registered(bees_atoms@a_valx(), msg impl ActorMessage {});
+        _: atom <- case st of { 6 -> say("b: done"); _: int64 -> :ok }
+    produces pure (:no_reply, st + 1) end
+}
+fn chain(msg: { r: region(L, normal), v: (atom, int64, ref?(L, normal, rec)) }, st: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        _: atom <- say(cat4("b: chain ", int_text(st), ": ", t_chain(msg.v)));
+        _: boolean <- cast_registered(bees_atoms@a_chainx(), msg impl ActorMessage {})
+    produces pure (:no_reply, st + 1) end
+}
+fn im(msg: List[(int64, string), mem(normal)], st: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        _: atom <- say(cat4("b: im ", int_text(st), ": #{", concat(t_im(msg, ""), "}")));
+        _: boolean <- cast_registered(bees_atoms@a_imx(), msg impl ActorMessage {})
+    produces pure (:no_reply, st + 1) end
+}
+fn ints(msg: List[int64, mem(normal)], st: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        _: atom <- say(cat4("b: ints ", int_text(st), ": set [", concat(t_ints(msg, ""), "]")));
+        _: boolean <- cast_registered(bees_atoms@a_intsx(), msg impl ActorMessage {})
+    produces pure (:no_reply, st + 1) end
+}
+fn pkt(msg: { r: region(L, normal), v: { id: int64, data: { b: buf(L, normal, uint8, 16), n: int64 }, note: string } }, st: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        _: atom <- say(cat4("b: pkt ", int_text(st), ": ", t_pkt(msg.v.id, msg.v.data, msg.v.note, msg.r)));
+        _: boolean <- cast_registered(bees_atoms@a_pktx(), msg impl ActorMessage {})
+    produces pure (:no_reply, st + 1) end
+}
+fn wide(msg: { a: int64, b: string, c: boolean, d: float64, e: atom, f: List[int64, mem(normal)] }, st: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        _: atom <- say(cat4("b: wide ", int_text(st), ": ", t_wide(msg)));
+        _: boolean <- cast_registered(bees_atoms@a_widex(), msg impl ActorMessage {})
+    produces pure (:no_reply, st + 1) end
+}
+fn any(msg: List[(int64, int64, float64, string), mem(normal)], st: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        _: atom <- say(cat4("b: any ", int_text(st), ": ", toks_text(msg, "")));
+        _: boolean <- cast_registered(bees_atoms@a_anyx(), msg impl ActorMessage {})
+    produces pure (:no_reply, st + 1) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- start_reporter();
+        _: actor_ref <- spawn_registered(0, val, bees_atoms@a_val(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: actor_ref <- spawn_registered(0, chain, bees_atoms@a_chain(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: actor_ref <- spawn_registered(0, im, bees_atoms@a_im(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: actor_ref <- spawn_registered(0, ints, bees_atoms@a_ints(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: actor_ref <- spawn_registered(0, pkt, bees_atoms@a_pkt(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: actor_ref <- spawn_registered(0, wide, bees_atoms@a_wide(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: actor_ref <- spawn_registered(0, any, bees_atoms@a_any(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        n: actor_ref <- node_start(open_ms(), io_ms(), tick_ms());
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

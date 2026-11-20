@@ -1,0 +1,4 @@
+// C1 two nodes: a peer silent for 20 s is lost; a tick after 5 s of idleness (the whole exchange takes far less)
+fn open_ms() -> int64 { 15000 }
+fn io_ms() -> uint64 { 20000 }
+fn tick_ms() -> uint64 { 5000 }

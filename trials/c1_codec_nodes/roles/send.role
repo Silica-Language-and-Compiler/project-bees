@@ -1,0 +1,211 @@
+// ---- C1 two nodes, node a: sends one message of each kind to the names on node b (proxies here), one at a time: the next is
+// sent only when the echo of the previous one arrived (the actors valx .. anyx print it and call go), so the order of every
+// line of both programs is the protocol's, not the scheduler's. For each kind with an encoder check, a value the encoder
+// refuses is sent first (a map with a key twice, a set with an element twice, a buffer count above the buffer, a token list
+// that is not one term): the proxy drops it without a word (ruling Q9; nothing is reported today, a known gap), nothing
+// arrives on node b, and the good message sent right behind it through the same proxy arrives next. Nothing here mentions
+// the network. me() (the program's name in its lines) and finish() (what happens after the last echo) are the program's own:
+// send_main.role here, live.role in trials/c1_codec_live, which uses this file unchanged against a stock Erlang node.
+fn send_val(v: (:i, int64) | (:s, string) | (:f, float64) | (:pt, int64, int64) | { x: int64, y: string } | :none) -> atom {
+    sequence proc[concurrency]
+        _: boolean <- cast_registered(bees_atoms@a_val(), v impl ActorMessage {})
+    produces pure :ok end
+}
+// (the float literal is bound before it goes into the tuple: SD-51)
+fn send_f() -> atom {
+    sequence
+        x: float64 <- 1.5;
+        v: (:i, int64) | (:s, string) | (:f, float64) | (:pt, int64, int64) | { x: int64, y: string } | :none <- (:f, x)
+    produces pure send_val(v) end
+}
+// the chain {ok,n,{ok,n-1,...{ok,1,none}}} built in a fresh region; the region goes with the message
+fn push(r: region(L, normal), top: ref?(L, normal, (atom, int64, ref?(L, normal, rec))), v: int64) -> ref?(L, normal, (atom, int64, ref?(L, normal, rec))) {
+    sequence proc[mem(normal)]
+        cell: ref(L, normal, (atom, int64, ref?(L, normal, rec))) <- alloc_rec(r, (:ok, v, top))
+    produces pure cell end
+}
+fn below(r: region(L, normal), k: int64, n: int64, top: ref?(L, normal, (atom, int64, ref?(L, normal, rec)))) -> ref?(L, normal, (atom, int64, ref?(L, normal, rec))) {
+    case k >= n of {
+        true -> top;
+        false -> below(r, k + 1, n, push(r, top, k))
+    }
+}
+fn chain_of(r: region(L, normal), n: int64) -> (atom, int64, ref?(L, normal, rec)) {
+    sequence
+        rest: ref?(L, normal, (atom, int64, ref?(L, normal, rec))) <- below(r, 1, n, :none)
+    produces pure (:ok, n, rest) end
+}
+fn chain_msg(n: int64) -> { r: region(L, normal), v: (atom, int64, ref?(L, normal, rec)) } {
+    sequence proc[mem(normal)]
+        L: lifetime <- fresh_lifetime();
+        r: region(L, normal) <- alloc_region(normal);
+        top: (atom, int64, ref?(L, normal, rec)) <- chain_of(r, n)
+    produces pure { r: r, v: top } end
+}
+fn send_chain(n: int64) -> atom {
+    sequence proc[concurrency]
+        m: { r: region(L, normal), v: (atom, int64, ref?(L, normal, rec)) } <- chain_msg(n);
+        _: boolean <- cast_registered(bees_atoms@a_chain(), m impl ActorMessage {})
+    produces pure :ok end
+}
+fn send_im(l: List[(int64, string), mem(normal)]) -> atom {
+    sequence proc[concurrency]
+        _: boolean <- cast_registered(bees_atoms@a_im(), l impl ActorMessage {})
+    produces pure :ok end
+}
+fn send_ints(l: List[int64, mem(normal)]) -> atom {
+    sequence proc[concurrency]
+        _: boolean <- cast_registered(bees_atoms@a_ints(), l impl ActorMessage {})
+    produces pure :ok end
+}
+// a buffer of 16 that holds de ad be ef, with the count n (4 is what was written; 17 is more than the buffer has)
+fn pkt_msg(id: int64, n: int64, note: string) -> { r: region(L, normal), v: { id: int64, data: { b: buf(L, normal, uint8, 16), n: int64 }, note: string } } {
+    sequence proc[mem(normal)]
+        L: lifetime <- fresh_lifetime();
+        r: region(L, normal) <- alloc_region(normal);
+        xs: List[int64, mem(normal)] <- [222, 173, 190, 239];
+        d: { b: buf(L, normal, uint8, 16), n: int64 } <- mk16(r, xs)
+    produces pure { r: r, v: { id: id, data: { b: d.b, n: n }, note: note } } end
+}
+fn send_pkt(id: int64, n: int64, note: string) -> atom {
+    sequence proc[concurrency]
+        m: { r: region(L, normal), v: { id: int64, data: { b: buf(L, normal, uint8, 16), n: int64 }, note: string } } <- pkt_msg(id, n, note);
+        _: boolean <- cast_registered(bees_atoms@a_pkt(), m impl ActorMessage {})
+    produces pure :ok end
+}
+fn send_wide() -> atom {
+    sequence proc[concurrency, mem(normal)]
+        d: float64 <- 4.5;
+        fl: List[int64, mem(normal)] <- [1000, 2000];
+        v: { a: int64, b: string, c: boolean, d: float64, e: atom, f: List[int64, mem(normal)] } <- { a: 1, b: "two", c: true, d: d, e: bees_atoms@a_wide(), f: fl };
+        _: boolean <- cast_registered(bees_atoms@a_wide(), v impl ActorMessage {})
+    produces pure :ok end
+}
+fn send_any(l: List[(int64, int64, float64, string), mem(normal)]) -> atom {
+    sequence proc[concurrency]
+        _: boolean <- cast_registered(bees_atoms@a_any(), l impl ActorMessage {})
+    produces pure :ok end
+}
+// {7, -1234567890123, 1208925819614629174706176 (2^80), 2.5, hello, zzqx_not_held, <<"bin">>, <<5:3>>, {a,1}, [1,2,3],
+//  [x,y], [a|b], #{1 => one}, []}: integers small and big, a float, atoms (zzqx_not_held is in no manifest of node b: its
+// text is carried), a binary, a bit string, a tuple, a byte list, a proper and an improper list, a map, nil
+fn big_term() -> List[(int64, int64, float64, string), mem(normal)] {
+    sequence proc[mem(normal)]
+        x: float64 <- 2.5;
+        ml: List[int64, mem(normal)] <- [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
+        mag: string <- ints_bytes(ml);
+        bl: List[int64, mem(normal)] <- [160];
+        bits: string <- ints_bytes(bl);
+        sl: List[int64, mem(normal)] <- [1, 2, 3];
+        bs: string <- ints_bytes(sl);
+        t: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_tuple(14), bees_term_wire@t_int(7), bees_term_wire@t_int(-1234567890123), bees_term_wire@t_big(0, mag), bees_term_wire@t_float(x), bees_term_wire@t_atom("hello"), bees_term_wire@t_atom("zzqx_not_held"), bees_term_wire@t_bin("bin"), bees_term_wire@t_bits(bits, 3), bees_term_wire@t_tuple(2), bees_term_wire@t_atom("a"), bees_term_wire@t_int(1), bees_term_wire@t_bytes(bs), bees_term_wire@t_list(2), bees_term_wire@t_atom("x"), bees_term_wire@t_atom("y"), bees_term_wire@t_nil(), bees_term_wire@t_list(1), bees_term_wire@t_atom("a"), bees_term_wire@t_atom("b"), bees_term_wire@t_map(1), bees_term_wire@t_int(1), bees_term_wire@t_atom("one"), bees_term_wire@t_nil()]
+    produces pure t end
+}
+fn refused_im() -> atom {
+    sequence proc[mem(normal)]
+        _: atom <- say(concat(me(), ": a map with the key 1 twice (the encoder refuses it: not sent), then #{9=>after}"));
+        dup: List[(int64, string), mem(normal)] <- [(1, "a"), (2, "b"), (1, "c")];
+        _: atom <- send_im(dup);
+        good: List[(int64, string), mem(normal)] <- [(9, "after")]
+    produces pure send_im(good) end
+}
+fn refused_ints() -> atom {
+    sequence proc[mem(normal)]
+        _: atom <- say(concat(me(), ": a set with the element 5 twice (not sent), then the set [4]"));
+        dup: List[int64, mem(normal)] <- [5, 6, 5];
+        _: atom <- send_ints(dup);
+        good: List[int64, mem(normal)] <- [4]
+    produces pure send_ints(good) end
+}
+fn refused_pkt() -> atom {
+    sequence
+        _: atom <- say(concat(me(), ": a buffer of 16 with the count 17, and one with the count -1 (not sent), then one with the count 2"));
+        _: atom <- send_pkt(8, 17, "over");
+        _: atom <- send_pkt(9, -1, "under")
+    produces pure send_pkt(10, 2, "after") end
+}
+fn refused_any() -> atom {
+    sequence proc[mem(normal)]
+        _: atom <- say(concat(me(), ": a token list that is a tuple of 2 with one element, and an empty one (not sent), then {after,1}"));
+        short: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_tuple(2), bees_term_wire@t_int(1)];
+        _: atom <- send_any(short);
+        none: List[(int64, int64, float64, string), mem(normal)] <- [];
+        _: atom <- send_any(none);
+        good: List[(int64, int64, float64, string), mem(normal)] <- [bees_term_wire@t_tuple(2), bees_term_wire@t_atom("after"), bees_term_wire@t_int(1)]
+    produces pure send_any(good) end
+}
+fn first_im() -> atom {
+    sequence proc[mem(normal)]
+        l: List[(int64, string), mem(normal)] <- [(3, "c"), (1, "a"), (2, "b")]
+    produces pure send_im(l) end
+}
+fn first_ints() -> atom {
+    sequence proc[mem(normal)]
+        l: List[int64, mem(normal)] <- [3, 1, 2]
+    produces pure send_ints(l) end
+}
+fn line(what: string, st: int64, text: string) -> string { concat(cat4(me(), ": ", what, " "), cat3(int_text(st), ": ", text)) }
+// step k is sent when the echo of step k - 1 arrived
+fn go(step: int64) -> atom {
+    case step of {
+        0 -> send_val((:i, 7));
+        1 -> send_val((:s, "hi"));
+        2 -> send_f();
+        3 -> send_val((:pt, 3, -4));
+        4 -> send_val({ x: 1, y: "rec" });
+        5 -> send_val(:none);
+        6 -> send_chain(3);
+        7 -> first_im();
+        8 -> refused_im();
+        9 -> first_ints();
+        10 -> refused_ints();
+        11 -> send_pkt(7, 4, "n");
+        12 -> refused_pkt();
+        13 -> send_wide();
+        14 -> send_any(big_term());
+        15 -> refused_any();
+        _: int64 -> send_val((:s, "bye"))
+    }
+}
+fn valx(msg: (:i, int64) | (:s, string) | (:f, float64) | (:pt, int64, int64) | { x: int64, y: string } | :none, st: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- say(line("echo val", st, t_val(msg)));
+        _: atom <- case st of { 6 -> finish(); _: int64 -> go(st + 1) }
+    produces pure (:no_reply, st + 1) end
+}
+fn chainx(msg: { r: region(L, normal), v: (atom, int64, ref?(L, normal, rec)) }, st: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- say(line("echo chain", st, t_chain(msg.v)));
+        _: atom <- go(7)
+    produces pure (:no_reply, st + 1) end
+}
+fn imx(msg: List[(int64, string), mem(normal)], st: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- say(line("echo im", st, concat("#{", concat(t_im(msg, ""), "}"))));
+        _: atom <- go(8 + st)
+    produces pure (:no_reply, st + 1) end
+}
+fn intsx(msg: List[int64, mem(normal)], st: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- say(line("echo ints", st, concat("set [", concat(t_ints(msg, ""), "]"))));
+        _: atom <- go(10 + st)
+    produces pure (:no_reply, st + 1) end
+}
+fn pktx(msg: { r: region(L, normal), v: { id: int64, data: { b: buf(L, normal, uint8, 16), n: int64 }, note: string } }, st: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- say(line("echo pkt", st, t_pkt(msg.v.id, msg.v.data, msg.v.note, msg.r)));
+        _: atom <- go(12 + st)
+    produces pure (:no_reply, st + 1) end
+}
+fn widex(msg: { a: int64, b: string, c: boolean, d: float64, e: atom, f: List[int64, mem(normal)] }, st: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- say(line("echo wide", st, t_wide(msg)));
+        _: atom <- go(14)
+    produces pure (:no_reply, st + 1) end
+}
+fn anyx(msg: List[(int64, int64, float64, string), mem(normal)], st: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- say(line("echo any", st, toks_text(msg, "")));
+        _: atom <- go(15 + st)
+    produces pure (:no_reply, st + 1) end
+}

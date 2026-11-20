@@ -17,6 +17,6 @@ fn mk_cfg(node: actor_ref, sig: actor_ref, e: dangerous_actor_ref, r: dangerous_
     mine: string <- advert_of(i, v, concat("127.0.0.1:", num(23710 + i)));
     mtok: string <- hx(tempus_ids@tok_hex(i, v));
     ppub: string <- hx(tempus_ids@producer_pub_hex());
-    { node: node, sig: sig, edge: e, rnd: r, mine: mine, mtok: mtok, kid: kid, ppub: ppub, wl: wl, now: tempus_ids@now(), skew: tempus_ids@skew(), count: 8, ms: 3000 }
+    { node: node, sig: sig, edge: e, rnd: r, mine: mine, mtok: mtok, kid: kid, ppub: ppub, wl: wl, now: tempus_ids@now(), skew: tempus_ids@skew(), count: 8, ms: 3000, ext: false }
 }
 fn typ_name(t: int64) -> string { case t of { 1 -> "tempus_edge"; 2 -> "tempus_bridge"; 3 -> "tempus_sentinel"; _: int64 -> "?" } }

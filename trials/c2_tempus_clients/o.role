@@ -1,6 +1,8 @@
-// C2 clients trial: node O, NOT a test node (no control_test_only): a tick or clock frame is an unknown request to it
+// C2 clients trial: node O, NOT a test program: it is not externally driven and its root unit names nothing of the test
+// unit, so a tick or clock frame is to it a frame of no kind, refused like any other
 // (row 37 of design 16.2). It has no sentinel and its stores tick once an hour, so nothing in its output depends on time.
 fn port() -> string { "23902" }
 fn sents() -> string { "" }
-fn test() -> boolean { false }
+fn driven() -> boolean { false }
+fn ext_start(app: actor_ref) -> actor_ref { app }
 fn tick_ms() -> uint64 { 3600000 }

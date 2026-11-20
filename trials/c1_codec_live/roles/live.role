@@ -1,0 +1,90 @@
+// ---- C1 codec trial against stock Erlang, the BEES node's own part (the rest is trials/c1_codec_nodes/roles: show.role and
+// send.role, the sender of the two-node trial, unchanged). Nothing here mentions the network.
+//   phase 1  kick (from the stock node) starts send.role's go(0): each kind is cast to a registered process of the stock node
+//            and comes back to valx .. anyx; after the last echo finish() tells the stock node (ack 100)
+//   phase 2  rval .. rwide: typed names the stock node sends to. A term that does not fit the type never gets here (the node
+//            drops the frame; its audit line says why); the good one is printed and acknowledged (ack 1..6)
+//   phase 3  tany: any term, printed as its tokens (a pid, reference, port or fun by its kind number only: its bytes vary
+//            between runs) and cast back to tanyx on the stock node, which compares it with what it sent
+fn me() -> string { "bees" }
+fn ack(n: int64) -> atom {
+    sequence proc[concurrency]
+        m: { n: int64 } <- { n: n };
+        _: boolean <- cast_registered(bees_atoms@a_ack(), m impl ActorMessage {})
+    produces pure :ok end
+}
+fn finish() -> atom {
+    sequence
+        _: atom <- say("bees: every kind was sent and came back")
+    produces pure ack(100) end
+}
+fn kick(msg: { n: int64 }, st: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- say("bees: sending");
+        _: atom <- go(0)
+    produces pure (:no_reply, st + 1) end
+}
+fn rval(msg: (:i, int64) | (:s, string) | (:f, float64) | (:pt, int64, int64) | { x: int64, y: string } | :none, st: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- say(concat("bees: from erl, val: ", t_val(msg)));
+        _: atom <- ack(1)
+    produces pure (:no_reply, st + 1) end
+}
+fn rchain(msg: { r: region(L, normal), v: (atom, int64, ref?(L, normal, rec)) }, st: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- say(concat("bees: from erl, chain: ", t_chain(msg.v)));
+        _: atom <- ack(2)
+    produces pure (:no_reply, st + 1) end
+}
+fn rim(msg: List[(int64, string), mem(normal)], st: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- say(cat3("bees: from erl, im: #{", t_im(msg, ""), "}"));
+        _: atom <- ack(3)
+    produces pure (:no_reply, st + 1) end
+}
+fn rints(msg: List[int64, mem(normal)], st: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- say(cat3("bees: from erl, ints: set [", t_ints(msg, ""), "]"));
+        _: atom <- ack(4)
+    produces pure (:no_reply, st + 1) end
+}
+fn rpkt(msg: { r: region(L, normal), v: { id: int64, data: { b: buf(L, normal, uint8, 16), n: int64 }, note: string } }, st: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- say(concat("bees: from erl, pkt: ", t_pkt(msg.v.id, msg.v.data, msg.v.note, msg.r)));
+        _: atom <- ack(5)
+    produces pure (:no_reply, st + 1) end
+}
+fn rwide(msg: { a: int64, b: string, c: boolean, d: float64, e: atom, f: List[int64, mem(normal)] }, st: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- say(concat("bees: from erl, wide: ", t_wide(msg)));
+        _: atom <- ack(6)
+    produces pure (:no_reply, st + 1) end
+}
+fn tany(msg: List[(int64, int64, float64, string), mem(normal)], st: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        _: atom <- say(cat4("bees: from erl, term ", int_text(st), ": ", toks_text(msg, "")));
+        _: boolean <- cast_registered(bees_atoms@a_tanyx(), msg impl ActorMessage {})
+    produces pure (:no_reply, st + 1) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- start_reporter();
+        _: actor_ref <- spawn_registered(0, kick, bees_atoms@a_kick(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: actor_ref <- spawn_registered(0, valx, bees_atoms@a_valx(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: actor_ref <- spawn_registered(0, chainx, bees_atoms@a_chainx(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: actor_ref <- spawn_registered(0, imx, bees_atoms@a_imx(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: actor_ref <- spawn_registered(0, intsx, bees_atoms@a_intsx(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: actor_ref <- spawn_registered(0, pktx, bees_atoms@a_pktx(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: actor_ref <- spawn_registered(0, widex, bees_atoms@a_widex(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: actor_ref <- spawn_registered(0, anyx, bees_atoms@a_anyx(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: actor_ref <- spawn_registered(0, rval, bees_atoms@a_rval(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: actor_ref <- spawn_registered(0, rchain, bees_atoms@a_rchain(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: actor_ref <- spawn_registered(0, rim, bees_atoms@a_rim(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: actor_ref <- spawn_registered(0, rints, bees_atoms@a_rints(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: actor_ref <- spawn_registered(0, rpkt, bees_atoms@a_rpkt(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: actor_ref <- spawn_registered(0, rwide, bees_atoms@a_rwide(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: actor_ref <- spawn_registered(0, tany, bees_atoms@a_tany(), stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        n: actor_ref <- node_start(io_ms(), tick_ms());
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

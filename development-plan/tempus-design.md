@@ -146,8 +146,8 @@ node or the reverse; whether suspicion, quarantine, the whitelist or TRUST's rec
   after a merge, no scoring of edges (OQ-12); TEMPUS and TRUST relate as section 7 says (OQ-13); a SEMP node runs TRUST,
   TEMPUS or both (OQ-14); every TEMPUS node is reachable (OQ-15); an explicit clock-skew allowance (OQ-16); no admission
   stand-in, admission and TLS before any networked trial (OQ-17); all of TEMPUS now, not after 1.0 (OQ-18, changing D12's
-  placement); both clients are wire-only TEMPUS peers (OQ-19); test-only tick and clock behind `control_test_only`
-  (OQ-20); compiled-in client scenarios first (OQ-21); a bridge is a node that is both, with two keys (OQ-22); the bridge
+  placement); both clients are wire-only TEMPUS peers (OQ-19); the test-only tick and clock frames in a unit only a
+  test program lists in its build (OQ-20, as ruled again on 2026-11-20; first behind a flag `control_test_only`); compiled-in client scenarios first (OQ-21); a bridge is a node that is both, with two keys (OQ-22); the bridge
   forwards nothing, scores and bounds each peer (OQ-23); the application picks a bridge, BEES does not retry (OQ-24); the
   bridge's bounds are the bridge application's (OQ-25).
 
@@ -257,14 +257,17 @@ arbitrary bytes (not text) behaves as on text; T2 checks it with 64-byte identit
   signature under the current producer key, `kid` current, `nbf - skew <= now < exp + skew` `[B: OQ-16]`, `sub == pub`,
   `typ` equal to the store's type, `id` equal to the SHA-512 of `pub`. An entry is dropped when its token expires. Tokens
   travel in gossip, so a token must contain nothing secret.
-- The clock of the token checks `[B: NQ-11]`. A node that is not a test node reads the system (wall) clock through the
+- The clock of the token checks `[B: NQ-11]`. A node that is not externally driven (16.3) reads the system (wall) clock through the
   TEMPUS native edge (`bees_tempus_wall_clock` in `native/tempus/`: whole seconds since 1970 UTC, C11's `timespec_get`;
   an error of the operating system, or a time before 1970, is an error and never a made-up time). The node asks for a
-  reading at start and once a second afterwards (its clock is in whole seconds), and its clock is the last reading. It
-  does not listen, join or tick before the first reading. The application passes no time of day to such a node. A node
-  under `control_test_only` never reads the system clock: its clock is the value its application passed at start, until
-  a `clock` frame sets another (16.3). What a reading that fails, and a reading earlier than the one before, do is in
-  section 10 (ruling NQ-22).
+  reading at start and every `clock_read_ms` afterwards (configured, section 11; its clock is in whole seconds), and its
+  clock is the last reading, unless the configured choices of section 10 say otherwise for a reading that fails or is
+  earlier than the node's time. It does not listen, join or tick before the first reading. The application passes no time of day to such a node. An
+  externally driven node (16.3: a test program's node) never reads the system clock: it has no clock actor, and its
+  readings are cast to it by its driver, the test unit, which gives it the test program's fixture value first and
+  then what a `clock` frame says. It judges each such reading exactly as a reading of the system clock, by the same
+  configured choices. What a reading that fails, and a reading earlier than the node's time, do is in
+  section 10 (ruling NQ-22): each is a choice the configuration must make (`clock_fail`, `clock_back`).
 - Proof of possession happens when two nodes connect, in both directions, on every connection: a 32-byte nonce from the
   platform's secure source, answered by the Ed25519 signature of `nonce || token` `[S: R:432-433; B: OQ-9]`. A peer that
   fails it is removed from the view `[B: OQ-4]`.
@@ -299,9 +302,17 @@ are only key names and the closed sets below; all are used in BEES's code, so ev
 | sample | `#{t => sample, store => Typ, n => 1..shuffle_length}` | any admitted peer; a joiner to a sentinel (section 6) |
 | sample reply | `#{t => sample_reply, store => Typ, entries => [E]}` | then close |
 | call, cast, result | TRUST's frames, unchanged `[B: D36, OQ-13]` | edge to bridge (sections 7 and 17) |
-| tick (test-only) | `#{t => tick, store => Typ}` | an admitted peer to a node with `control_test_only` `[B: OQ-19, OQ-20]` |
-| clock (test-only) | `#{t => clock, ms => Milliseconds}` | the same |
-| done | `#{t => done}` | the answer to tick (when the shuffle it started has ended) and to clock, then close |
+| done | `#{t => done}` | the answer to the two frames of the test unit below, then close |
+
+The frames of the test unit. They are no part of `tempus/1` as the library of `src/tempus` reads it: no unit there
+decodes, answers or names them, and a program that does not list the test unit does not hold their atoms (owner's ruling
+of 2026-11-20 on OQ-20; 16.3). They are specified here because the two clients send them to test programs:
+
+| Message | ETF form | Direction |
+| --- | --- | --- |
+| tick | `#{t => tick, store => Typ}` | an admitted peer to a test program's node `[B: OQ-19, OQ-20]` |
+| clock | `#{t => clock, ms => Milliseconds}`; `ms` -1 says the clock could not be read | the same |
+| clock, two readings | `#{t => clock, ms => M, wait => W, later => L}`: the reading `M`, and `W` milliseconds (1 to 60000) after it is taken the reading `L` (either may be -1) | the same |
 
 `Typ` is `tempus_edge`, `tempus_bridge` or `tempus_sentinel`. The advert carries no `typ` of its own: the type is the one
 in the token `[P, a detail: one source of truth]`.
@@ -316,9 +327,12 @@ destroy the `key_rotated` frame before the peer has read it (the peer's challeng
 Any violation closes without a reply `[S: R:17]`, with one audit line locally `[B: inter-nodal-modes 3]`; the one exception
 is `key_rotated` `[B: OQ-10]`.
 
-The two test-only requests exist only on a node whose application passed `control_test_only`; such a node accepts them only
-from a loopback address, prints a boot banner, and takes no tick from its own timer (so that a trial's ticks are exactly
-the ones a client sends) `[B: OQ-20; P for the last clause]`. On any other node they are unknown frames.
+The two test-only requests exist only in a test program: one whose build lists the test unit
+(`src/tempus_test/bees_tempus_test.silica` and its atoms) and which starts its node externally driven with that unit's
+actor (16.3). Such a node listens on a loopback address only, the unit prints a boot banner, and the node takes no tick
+from a timer of its own (so that a trial's ticks are exactly the ones a client sends) `[B: OQ-20; P for the last
+clause]`. On any other node they are frames of no kind: the connection actor refuses them like any frame that is not a
+request (`protocol_error`, `not a request: ...`), and the program holds no code that could do otherwise.
 
 ## 6. Joining and leaving
 
@@ -389,7 +403,7 @@ before decode sees the bytes `[B: D47]`. The numbers are `[P]`, details of the s
 | view | the configured `capacity`; ceiling 256 per store | `bees_tempus_view@merge` evicts; `valid` checks |
 | accepted connections at once | configured `inflight_max`; ceiling 64 | the listener refuses beyond it |
 | time for a whole connection | configured `shuffle_timeout_ms`: ONE bound from the dial (on the accepting side, from the accept) to the close, not one per stage `[B: NQ-14]` | one deadline, fixed at the dial or the accept (`tempus_dial`, `tempus_conn` in `src/tempus/bees_tempus_link.part`; the listener for an accepted link); the carrier's connect budget, the link's handshake timer and the connection actor's timer each get what is left of it. While the node itself works on an admitted request (a tick frame's shuffle, a bridge's call) the connection waits for the node, which always answers: that wait is bounded by the node's own bounds (the shuffle's connection, the bridge's call timeout), not by this one |
-| `ms` of the test-only `clock` | 0 to 2^53 | after decode |
+| `ms` and `later` of the test unit's `clock` | -1 (no time) or 0 to 2^53; `wait` 1 to 60000 | after decode, in the test unit (`bees_tempus_test@dec_clock`); the library has no such frame |
 
 Memory, worst case, at the ceilings: three stores of 256 entries of about 1.5 KiB are about 1.2 MiB; 64 connections with one
 frame each are about 8 MiB; the sent entries of one shuffle in flight per store are 64 entries. Nothing is kept per peer
@@ -423,8 +437,8 @@ What is built of this table (T1): `tstore` as `src/tempus/bees_tempus_store_acto
 `src/tempus/bees_tempus_store.silica`. It asks its link for draws (two sets: one for its next tick, one for its next answer
 to somebody else; each is used once; a tick with no tick draws is skipped and a request with no reply draws is refused, so
 nothing is ever chosen without a draw), takes ticks as messages, and tells its link what to send and when a tick has
-ended (the `done` of the test-only tick frame). It arms no timer itself: the node part (T3) does, or, under
-`control_test_only`, nobody does.
+ended. It arms no timer itself: the node part (T3) does, or, for an externally driven node (16.3), nobody does: its
+driver casts the node the timer's message.
 
 What is built of this table (T3). The node actor is `tnode` in `src/tempus/bees_tempus_node.part`, pasted into the
 program's root unit because it dials; it is also the listener's owner (`tlsn`: it counts the accepted connections and
@@ -432,14 +446,16 @@ gives one beyond `inflight_max` to a connection actor of role 3, which closes it
 `inflight_refused`; the TLS handshake of such a connection is still done, because the link accepts before its owner
 knows of it). `tout` and `tin` are the one connection actor of T5. Each store actor has a front, `tadp`
 (`src/tempus/bees_tempus_node.silica.in`), which turns frame bodies into the store's typed messages and back, drops the
-entries whose token has expired before every tick, answers the store's requests for draws (a test node: from the literal
+entries whose token has expired before every tick, answers the store's requests for draws (an externally driven node: from the literal
 list; any other: random bytes through the node's converter, `dangerous_bees_tempus_draws@trc`, seven bytes a draw) and,
-on a test node, sends the node the view line before the message that follows a change. The node handles byte strings
-only. A node that is not a test node arms one `send_after` per store and has a clock actor
-(`dangerous_bees_tempus_draws@tck`), which asks the native edge for the system clock at start and once a second and
-tells the node each reading (NQ-11; section 4). The node's application is told when the node's
+on an externally driven node, sends the node the view line before the message that follows a change. The node handles byte strings
+only. A node that is not externally driven arms one `send_after` per store and has a clock actor
+(`dangerous_bees_tempus_draws@tck`), which asks the native edge for the system clock at start and every `clock_read_ms` and
+tells the node each reading (NQ-11; section 4); what the node does with a reading is decided by the pure
+`bees_tempus_node@clock_turn` (NQ-22; section 10). The node's application is told when the node's
 own token is not valid any more (the check is admission's own, `bees_tempus_admit@pre`, so ticking stops exactly when no
-peer would admit the node), when a dialed peer answered `key_rotated`, and when the system clock could not be read; it
+peer would admit the node), when a dialed peer answered `key_rotated`, when the system clock could not be read, and when the node stopped because the system clock went back by
+more than its limit; it
 passes a new token or a new producer key as a message (NQ-5). The connection actor tells the node of every refusal of
 an accepted peer whose identity it knows (NQ-19; 17.5); only a bridge does anything with that.
 
@@ -456,17 +472,59 @@ an accepted peer whose identity it knows (NQ-19; 17.5); only a bridge does anyth
   the refresh (section 6).
 - `key_rotated`: the node reports to the application, which fetches a new token `[S: R:400]`.
 - A failed random request or a failed signature call: the tick is skipped, audited.
-- The system clock cannot be read (a node that is not a test node, section 4) `[S: ruling NQ-22]`: at start the node does
-  not begin (it does not listen, join or tick), says so in one line, tells its application, and begins when a later
-  reading succeeds. When a reading fails after a good one the node says so once, tells its application, and until the
-  clock is read again it does not tick (so it dials nobody) and closes every accepted connection at once with the audit
-  line `clock_refused`; its time stands still and no token is judged by it. The next good reading is said in one line
-  (`clock: the system clock is read again`) and the node goes on.
-- The system clock goes back (a reading earlier than the one before) `[S: ruling NQ-22]`: the node follows it, with one
-  line. Its clock is the system's and it remembers no earlier one. What follows from that: a token that had expired by
-  the old reading and has not by the new one is accepted again from then on, in a new connection or a newly received
-  entry; nothing that already happened is undone (an entry dropped as expired stays dropped until it is gossiped again;
-  a node that stopped ticking for its own expired token starts again only when its application passes a token).
+- The clock (the system clock's readings, or, for an externally driven node, its driver's: section 4 and 16.3) `[S: ruling NQ-22, both rulings of 2026-11-20]`. What the
+  node does with a reading that fails after a good one, and with a reading earlier than its time, are two choices of the
+  configuration, `clock_fail` and `clock_back`; how often the clock is read is `clock_read_ms`; none has a default
+  (section 11). The decision is one pure function, `bees_tempus_node@clock_turn` (with `clock_back` inside it), so
+  `trials/t0_tempus_clock` shows every case below with readings given as numbers; the node part (`tn_clock`) prints the
+  lines and does what the function says, and `trials/t6_tempus_clock` shows that on running nodes: two test programs
+  whose readings come from `clock` frames through the test unit (the hold beginning and ending; the wait for the clock
+  with its line, the application told, a connection closed with `clock_refused`, the line when the clock is read again;
+  going on with the last reading; a step back inside the limit followed; the stop above the limit with its line, the
+  application told, a connection closed with `clock_stopped`, and no resume at a later good reading).
+- The system clock cannot be read at start: this is not a choice. The node does not begin (it does not listen, join or
+  tick), says so in one line, tells its application (86), and begins when a later reading succeeds.
+- A reading fails after a good one, `clock_fail`:
+  - `continue`: the node goes on with its last reading. It says so once (`clock: the system clock could not be read: the
+    node goes on with its last reading`), tells its application (86), and keeps ticking and admitting; its time stands
+    still until the next good reading, which it takes without a line. A token that expires while the clock cannot be
+    read is still accepted for that long.
+  - `pause`: the node says so once, tells its application (86), and until the clock is read again it does not tick (so
+    it dials nobody) and closes every accepted connection at once with the audit line `clock_refused`; its time stands
+    still and no token is judged by it. The next good reading is said in one line (`clock: the system clock is read
+    again`) and the node goes on. A join request that falls due meanwhile (a retry timer, or the next store after an
+    answer) is not dialed: the node remembers it, with one line, and dials it at once when the clock is read again
+    (owner's ruling of 2026-11-20, option d of the join question; `tn_join`, `tn_clock_join`; shown by
+    `trials/t6_tempus_clock`, node S: the retry falls due during the wait, its line, and the dial at once when the
+    clock is read again).
+- The system clock goes back (a reading earlier than the node's time), `clock_back`:
+  - `follow`: the node follows it, with one line (`clock: the system clock went back by N s; the node follows it`). Its
+    clock is the system's and it remembers no earlier one. What follows from that: a token that had expired by the old
+    reading and has not by the new one is accepted again from then on, in a new connection or a newly received entry;
+    nothing that already happened is undone (an entry dropped as expired stays dropped until it is gossiped again; a
+    node that stopped ticking for its own expired token starts again only when its application passes a token).
+  - `hold`: the node's time never goes back. It keeps its greatest reading, says once that it holds (`clock: the system
+    clock went back by N s; the node holds its time until the system clock has reached it`), and goes on ticking and
+    admitting by the held time; later readings that are still behind change nothing and print nothing. When a reading
+    is equal to the held time or later, the node says one line (`clock: the system clock has reached the held time; the
+    node follows it again`) and its clock is the system's again. No token comes back to life; a clock that was wrongly
+    ahead and is corrected leaves the node refusing good tokens as not valid yet for as long as the error was large. A
+    reading that fails while the node holds is handled by `clock_fail`; if the next good reading is still behind, the
+    hold line is said once more.
+  - `stop`: a step back of at most `clock_back_limit_s` seconds is followed as under `follow`. A larger one stops the
+    node: one line (`clock: the system clock went back by N s, more than clock_back_limit_s L: the node has stopped; it
+    admits no connection and does not tick until its application starts it again`), the application is told (87), the
+    node's time stays at its last value, it does not tick, a waiting join retry dials nobody, and every accepted
+    connection is closed at once with the audit line `clock_stopped` (role 5 of the connection actor, beside role 4 and
+    `clock_refused` for the clock that cannot be read, so the two causes can be told apart). The node stays stopped
+    whatever is read afterwards; only the application starting a node again ends it. Connections that were already
+    admitted when the node stopped end by themselves within `shuffle_timeout_ms`.
+- An externally driven node (a test program's, 16.3) reads no system clock, and all of these apply to it: every
+  reading its driver casts it, the first value and each `clock` frame's, is judged by `clock_turn` with the node's
+  configured choices, and a `clock` frame can say that the clock could not be read. Under `follow` a `clock` frame
+  therefore sets the node's time to any value, with the node's one line when the value is earlier. What is still read
+  from the code only: the clock actor's own path (the native edge's reading and the timer between readings), and a
+  system clock that cannot be read at start.
 - A cast to an ended actor fails the sender in Silica (SD-43), so the teardown order of a connection follows TRUST's: an
   actor ends only when nothing can still cast to it `[B: N2b teardown]`.
 
@@ -509,9 +567,24 @@ nothing here has a built-in default `[B: OQ-11, OQ-16, D39 R6, the redial ruling
 | `shuffle_timeout_ms` | integer | none: required | 100 to 60000 | one bound for a whole connection, from the dial or the accept to the close (section 8) `[B: NQ-14]` |
 | `inflight_max` | integer | none: required | 1 to 64 | accepted connections at once |
 | `clock_skew_ms` | integer | none: required | 0 to 300000 | `[B: OQ-16]` |
+| `clock_back` | `follow`, `hold`, `stop` | none: required | closed set | what a reading of the system clock earlier than the node's time does (section 10) `[B: NQ-22]` |
+| `clock_back_limit_s` | integer, seconds | none: required when `clock_back` is `stop`; refused under `follow` and `hold` | 0 to 86400 | the greatest step back that `stop` still follows; a larger one stops the node |
+| `clock_fail` | `continue`, `pause` | none: required | closed set | what a reading that fails after a good one does (section 10) `[B: NQ-22]` |
+| `clock_read_ms` | integer | none: required | 100 to 60000 | how often the system clock is read |
 | `join_retry_initial_ms`, `join_retry_max_ms` | integers | none: required | 100 to 3600000 | section 6 |
 | `edge_spec`, `bridge_spec`, `sentinel_spec` | `none`, `any`, or the per-module list, as `whitelist_default_spec` | `none` | closed forms | what an admitted peer of that type may call here `[B: OQ-13]` |
-| `control_test_only` | boolean | `false` | `true` only with a loopback `listen_address` | the test-only `tick` and `clock` frames, a clock that is the value the application passes and never the system's `[B: NQ-11]`, no timer ticks, a boot banner `[B: OQ-20]` |
+
+There is no `control_test_only` key (owner's ruling of 2026-11-20 on OQ-20). The key existed until that day and turned
+the test-only frames on in any node. Now no configuration can: the frames are in a unit a production build does not
+contain (16.3). `tools/bees_tempus_conf.py` refuses a file that holds the key, with either value, and says where the
+test frames went. A test program needs no key: its own source starts its node externally driven.
+
+The four clock values are required of every TEMPUS node. A test program's node uses three of them (`clock_back`, its
+limit and `clock_fail` judge the readings its driver gives it; `clock_read_ms` is not used, because it has no clock
+actor). The node is passed the
+choices as numbers (`clock_back` 1 follow, 2 hold, 3 stop; `clock_fail` 1 continue, 2 pause) in the same record as
+`clock_skew`, and its boot check refuses a number outside the set (`trials/c4_tempus_boot`, entry `dangerous_clockback`).
+The node does not look at the limit unless the choice is `stop`.
 
 Not configuration: the bridge's per-peer bounds (17.5) are values the bridge application passes when it starts the node
 `[B: OQ-25]`; the node's own token is passed and replaced by the application at run time (section 6). There is no
@@ -526,7 +599,7 @@ Not configuration: the bridge's per-peer bounds (17.5) are values the bridge app
 | frames (T2, C1) | in memory: every frame written decodes back; hostile frames refused with the language's reason; the Python client's own codec writes the same bytes and reads them (tools test) | no carrier |
 | admission (T4) | one process: fixed test keys and tokens made once by a tool, a fixed clock value as a test-only input | no real time in the checks |
 | TLS (T5) | as `trials/n4_trust_tls` | fixtures |
-| nodes (T3), clients (C2, C3), bridge (T6) | processes over TLS on loopback, `control_test_only`: ticks and the clock come from client frames, draws from a test-only list passed at start | fixed ports from the port table; a legitimate ordering race is post-processed in the Makefile as `trials/n2_mesh` does |
+| nodes (T3), clients (C2, C3), bridge (T6), the clock on running nodes (`trials/t6_tempus_clock`) | processes over TLS on loopback, test programs (externally driven nodes with the test unit, 16.3): ticks and the clock come from client frames, draws from a test-only list passed at start | fixed ports from the port table; a legitimate ordering race is post-processed in the Makefile as `trials/n2_mesh` does |
 | properties (in-degree spread, removal of a dead node within a known number of ticks) | T1's driver with a fixed draw table | bounded and exact for that table, not statistical |
 
 Not testable by a deterministic trial: uniformity of sampling at scale, behaviour under real churn, real clock skew, the
@@ -541,11 +614,11 @@ The order follows OQ-17 (admission and TLS before any networked node trial) and 
 | 1 | T0 | The pure view logic of section 3: `src/tempus/bees_tempus_view.silica`, trial `trials/t0_tempus_view` | golden recorded after reading it against hand-worked expectations and an independent model | built 2026-11-18 |
 | 2 | T1 | The store: its steps as pure functions (`bees_tempus_store`), the store actor, the measurement of how an actor can hold a view (SD-35) and the choice that follows | the step trial matches an independent model; a store actor's memory is flat over many ticks (measured); a population of store actors converges under a fixed draw table | built 2026-11-18 |
 | 3 | T2 | Frames in Silica: every message of section 5 written and read, the bounds of section 8, hostile frames | goldens; flat memory over many refused frames, as N3 | built 2026-11-18 (memory read at one count only) |
-| 3 | C1 | The Python client's codec (`tools/bees_tempus_client.py`), independent of the Silica one; the Silica client library's pure part (`src/tempus_client/`) | each side's bytes for every frame equal the other's, and each reads the other's | built 2026-11-18 |
+| 3 | C1 | The Python client's codec (`example_tempus_clients/python/bees_tempus_client.py`), independent of the Silica one; the Silica client library's pure part (`example_tempus_clients/silica/`) | each side's bytes for every frame equal the other's, and each reads the other's | built 2026-11-18 |
 | 4 | T4 | Admission: Ed25519 verify and sign and SHA-512 in the native edge (`native/tempus/`), the token check, proof of possession, `kid` pinning, expiry and skew, `key_rotated`; a tool that makes test keys and tokens | goldens for acceptance and for each refusal, in one process | built 2026-11-18: the rules, the native edge, the verifier actor, `trials/t4_tempus_admission` (the `key_rotated` frame itself is written by T3's connection actor; T4 gives the verdict) |
 | 5 | T5 | Mutual TLS 1.3 with ALPN `tempus/1` and self-signed Ed25519 certificates; the `tempus` whitelist | as N4.1 | built 2026-11-18: the engine's three additions (`trials/t5_tempus_tls`), the TEMPUS link and the connection actor's admission with the channel binding and the whitelist (`trials/t5_tempus_link`, two processes over TLS on loopback) |
-| 6 | T3 | Nodes over TLS on loopback: listener, connection actors, join through a sentinel, `control_test_only`; a three-node trial | goldens for join, shuffle, a dead partner, a hostile peer | built 2026-11-18: the node part (`src/tempus/bees_tempus_node.part`), the store adapters (`bees_tempus_node.silica.in`), the draw converter (`dangerous_bees_tempus_draws.silica`), `trials/t3_tempus_nodes` (three nodes and the Python client; port block 23800); NQ-11 to NQ-14 are open and built provisionally |
-| 7 | C2 | Both clients as TEMPUS peers on the wire (dialing and listening); the thin Silica app; the rows of 16.2 that need no bridge | each such row has a trial from each client | built 2026-11-18, goldens 2026-11-19: `src/tempus_client/bees_tempus_client.part`, `trials/c2_tempus_clients` (port block 23900) with `COVERAGE.md`; rows 12 "no proof", 18 "closes after the advert" and 20 from the Python client only (16.4) |
+| 6 | T3 | Nodes over TLS on loopback: listener, connection actors, join through a sentinel, test-only ticks and clock (then `control_test_only`, since 2026-11-20 the test unit of 16.3); a three-node trial | goldens for join, shuffle, a dead partner, a hostile peer | built 2026-11-18: the node part (`src/tempus/bees_tempus_node.part`), the store adapters (`bees_tempus_node.silica.in`), the draw converter (`dangerous_bees_tempus_draws.silica`), `trials/t3_tempus_nodes` (three nodes and the Python client; port block 23800); NQ-11 to NQ-14 are open and built provisionally |
+| 7 | C2 | Both clients as TEMPUS peers on the wire (dialing and listening); the thin Silica app; the rows of 16.2 that need no bridge | each such row has a trial from each client | built 2026-11-18, goldens 2026-11-19: `example_tempus_clients/silica/bees_tempus_client.part`, `trials/c2_tempus_clients` (port block 23900) with `COVERAGE.md`; rows 12 "no proof", 18 "closes after the advert" and 20 from the Python client only (16.4) |
 | 8 | T6 | The bridge node (section 17): TRUST and TEMPUS in one program, two keys, per-type spec, per-peer score and bounds from the application | goldens with an edge client, two bridges and a TRUST node | built 2026-11-19: `src/tempus/bees_tempus_bridge.silica` (the per-peer table and the per-request actor), `bees_tempus_bridge.part` (`tempus_bridge_start`, `tempus_bridge_onward`), the node's call and cast going to the bridge's table (`bees_tempus_node.part`), `tools/bees_tempus_gen.py bridge` and `spec`; `src/trust` unchanged; NQ-18 to NQ-20 |
 | 9 | C3 | The clients against the bridge: the rest of 16.2 | every row of 16.2 has a trial from each client | built 2026-11-19: `trials/c3_tempus_bridge` (port block 24200) with `COVERAGE.md`; rows 29 and 33 and the quarantine of 17.7 from the Python client only |
 | 10 | T7 | Configuration: the `tempus` section and the three `mode` spellings through the `(:store)` carrier, validation, the packer | when D46's store reader exists for TRUST | in part 2026-11-19: the node's boot refusals from its arguments (`tempus_node_boot`, `bees_tempus_node@boot_why`, `trials/c4_tempus_boot`, port block 24300), `tools/bees_tempus_conf.py` (the mode spellings and the `tempus` section, with tests); the store-carrier conversion waits on D46's reader (NQ-21) |
@@ -696,6 +769,7 @@ only when the application passes `control_test_only`, loopback only, with a boot
 such operations: trials use short real ticks and real token lifetimes of seconds, and post-process timing. Recommendation:
 (a): it keeps the trials deterministic, which is a standing rule.
 RULED 2026-11-18 (owner): option (a): the test-only tick and clock operations exist only under `control_test_only`, loopback only, with a boot banner.
+RULED (owner, 2026-11-20): option (a) is replaced. The owner saw that under (a) the handlers of the two frames were compiled into every node, a production node too, behind one flag, and ruled: "Move the test frames out of the library into a unit only test programs list in their build. A production build does not contain the handlers at all." Built the same day (16.3): the frames, their atoms, their decoders and what is done with them are in `src/tempus_test/bees_tempus_test.silica` (with `bees_tempus_test.atoms`), which is not among the units a production application compiles; the node has a narrow hook (it can be started externally driven, and then hands frames of no `tempus/1` kind to one extension actor); `control_test_only` is gone, as a start value and as a configuration key (the key is refused). The safeguards of (a) stay with the test unit: a loopback listen address only, and the boot banner. `trials/t6_tempus_clock` searches the compiled units and the linked program of a node built without the test unit and finds no trace of it, and shows that node refusing the frames as frames of no kind.
 
 OQ-21. Where the thin Silica client app takes its operations from. Options: (a) a script of operations packed as ETF records
 in a `(:store)` log, the ruled configuration source (D46); (b) the program's standard input, if Silica gives a program more
@@ -780,15 +854,16 @@ Decided by the owner `[B: requirement of 2026-11-18; OQ-19 with its follow-ups; 
    `silica.config`, one compiler run, values passed in, no file reads of its own) and a thin app that only wires the
    library to its inputs and outputs. The thin app's operations are compiled-in scenarios, one per trial role, until D46's
    reader exists; then a `(:store)` script.
-5. The test-only tick and clock operations exist, only under `control_test_only`, loopback only, with a boot banner; they
-   travel on the same wire, since no other channel exists.
+5. The test-only tick and clock operations exist, loopback only, with a boot banner; they travel on the same wire,
+   since no other channel exists. First ruled "only under `control_test_only`"; since the ruling of 2026-11-20 they
+   exist only in a program whose build lists the test unit (16.3).
 
 ### 16.1 What a client is
 
 An admitted peer, in two positions:
 
-- Dialing: it connects to the node, is admitted, and sends one request: `shuffle`, `sample`, `call`, `cast`, or, on a
-  test node, `tick` or `clock`.
+- Dialing: it connects to the node, is admitted, and sends one request: `shuffle`, `sample`, `call`, `cast`, or, to a
+  test program's node, `tick` or `clock`.
 - Listening: as an ordinary peer it has a listen address (OQ-15), so the node dials it: for the node's own shuffles when
   the client's entry is the oldest, and, when the client's token says `tempus_sentinel`, for the node's join. The client
   then sees exactly the frames the node writes and chooses what to answer.
@@ -807,7 +882,7 @@ the row allows `[B: NQ-2]`.
 ### 16.2 The behaviour list, and how each client causes and observes each item
 
 Both clients have the same operations, so one column serves both. "Node output" means the node's own lines in the trial
-(audit lines, and under `control_test_only` one line per view change).
+(audit lines, and for a test program's node one line per view change).
 
 | # | Behaviour of the node (source) | How a client causes it | How it is observed | From |
 | --- | --- | --- | --- | --- |
@@ -847,13 +922,13 @@ Both clients have the same operations, so one column serves both. "Node output" 
 | 34 | The bridge refuses an edge that misbehaves, without touching TRUST `[B: OQ-23]` | the client sends forbidden, unpermitted and malformed requests until the bridge's limit | closed with no reply each time; then even a good request is refused; bridge output; the TRUST node's output shows the bridge's suspicion unchanged | C3 |
 | 35 | The bridge's rate and in-flight bounds per peer, set by the bridge application `[B: OQ-25]` | the client sends faster than the bound; holds more calls open than the bound | the excess is refused; another admitted client is still served | C3 |
 | 36 | The TRUST side of a bridge is plain TRUST | the trial's TRUST node does; not a TEMPUS client operation | the TRUST trials' own lines | T6 |
-| 37 | Test-only frames on a node without `control_test_only`, or from a non-loopback address | the client sends `tick` to an ordinary node | closed with no reply; node output | C2 |
+| 37 | Test-only frames on a node built without the test unit (16.3) | the client sends `tick` and `clock` to an ordinary node | closed with no reply; node output: `protocol_error ... not a request`, as for any frame of no kind | C2 (node O, `tick`), `trials/t6_tempus_clock` (node P, whose build lists no unit of the test unit: `tick` and both `clock` forms) |
 
 Rows 27, 28 and 36 are not reachable by a TEMPUS client by their nature (they happen before or outside a running node's
 `tempus/1` interface); trials cover them directly. Rows whose observation rests on node output are read from the node's golden
 `[B: NQ-1]`.
 
-### 16.3 The test-only operations on the wire
+### 16.3 The test-only operations on the wire, and the test unit
 
 There is no control interface `[B: OQ-19]`. The two test-only requests of section 5 are ordinary requests of an admitted
 connection:
@@ -861,24 +936,81 @@ connection:
 | Request | Effect | Reply |
 | --- | --- | --- |
 | `#{t => tick, store => Typ}` | one tick of that store, as the timer would cause | `#{t => done}` when the shuffle the tick started has ended (succeeded, failed or timed out), or at once when the tick started none |
-| `#{t => clock, ms => N}` | the node's clock for token checks reads `N` from now on | `#{t => done}` |
+| `#{t => clock, ms => N}` | a clock reading for the node: `N` milliseconds since 1970, or -1, the clock could not be read. The node judges it as it judges a reading of the system clock, by its configured `clock_back` and `clock_fail` (section 10) | `#{t => done}` when the node has taken the reading |
+| `#{t => clock, ms => N, wait => W, later => L}` | the same, and `W` milliseconds after the reading is taken a second reading `L` | `#{t => done}` when the node has taken the first reading |
 
-Conditions `[B: OQ-20]`: the node's application passed `control_test_only`; the node listens on a loopback address; the
-request comes from a loopback address; the boot banner says `TEST ONLY: tick and clock frames are accepted`. Under the
-flag the node's timers do not tick the stores and its clock starts at a value the application passes, so a trial's tokens
-are fixtures. Any other node reads the system clock (section 4, `[B: NQ-11]`), and the value the application passes is
-not read. Everything else a client does (join as sentinel, shuffles, samples, calls) uses the frames every node uses.
+The third form exists because a node that waits for its clock (`clock_fail` `pause`) closes every connection: the reading
+that ends the wait cannot arrive in a frame, so the frame that begins the wait carries it.
+
+Where they are `[B: OQ-20, the owner's ruling of 2026-11-20]`. Not in the library. Until that ruling the handlers were
+in the node part behind a start value `control_test_only`, so every node, a production node too, held them. Now:
+
+- The test unit is `src/tempus_test/bees_tempus_test.silica`, with its atoms in `src/tempus_test/bees_tempus_test.atoms`.
+  It holds everything of the two frames: the atoms `tick`, `clock`, `ms`, `wait`, `later`; the encoders the Silica
+  client's scenarios use; the decoders; the actor that acts on them; the banner; the loopback check.
+- `src/tempus_test` is not among the units a production application compiles. An application lists the units of
+  `src/tempus`; it must not list `src/tempus_test`. (The two clients of 16.4 and 16.5 are examples, in
+  `example_tempus_clients/` since 2026-11-20, and are not for production: an application that is a client writes its
+  own, see `example_tempus_clients/writing-a-tempus-client.md`.) A test program does:
+  one more unit and one more atoms file in its build (in a trial: two links in `lib/`, and `--use bees_tempus_test`
+  for the generated root unit).
+- No unit of `src/tempus` or `example_tempus_clients/silica` decodes, answers or names a `tick` or a `clock` frame, with any start
+  value. `bees_tempus_frame@kind` gives such a frame 0, as for any `t` that is no kind.
+
+The hook in the node. The node's last start argument is `drv`, `{ driven, ext, draws }`. A production application passes
+`driven` false, and `ext` and `draws` are then never read. With `driven` true the node is externally driven:
+
+1. It starts no clock actor and arms no store timer. It waits for the messages those would send: a clock reading
+   `(:bees, 130, "", "", Seconds or -1, Tag, Who)` and a tick of a store `(:bees, 1, "", "", Tag, Store, Who)`. Nobody
+   sends them by itself, so an externally driven node that nobody drives never gets a first reading and never
+   listens.
+2. Its draws are the literal list `draws` and it prints one line per view change (as a node under the old flag did).
+3. Once, at its start, it tells the actor `ext` who it is and its listen text (133).
+4. A frame from an admitted peer, as the one request of an accepted connection, that is well formed (one ETF map inside
+   the structural bounds, at most 131072 bytes) and whose `t` is an atom the program holds that is no kind of
+   `tempus/1`, is handed to `ext` unread (68, with the peer's descriptor and the connection actor). `ext` answers the
+   connection actor once: a reply body, a close, or "refuse it as you would" (22), which gives the same audit line and
+   the same score at a bridge as on a production node.
+5. When a tick or a reading that carried a tag has ended or is taken, the node tells `ext` (131, 132), handing back the
+   actor reference that came with it. This is how the `done` of a tick is sent when the shuffle has ended, as before:
+   the test unit casts the tick with the connection's number as the tag and the connection actor as the reference,
+   and answers `done` when it is told 131.
+6. `tempus_node_boot` refuses `driven` on a listen address that is not loopback.
+
+What the hook lets an application do, and what it does not. With `driven` false: nothing; no frame leaves the library,
+`ext` is never read, the connection actor refuses a frame of no kind itself, and messages 130 and 1 behave as the clock
+actor's and the timers' own (a tag is ignored). An application always could cast any message to its own node, since it
+holds the node's actor reference: that is so with or without this hook, and such a cast comes from the application's
+own code, never from the network. With `driven` true, on a loopback listener only: the application's actor sees, and
+answers, frames of no `tempus/1` kind from peers that were admitted (token and proof of possession checked), one per
+connection; it sets the node's clock readings and causes ticks. It cannot see or change a frame of a known kind, see
+anything from a peer that was not admitted, reach a store, or lift a bound. A production application could misuse the
+hook only by choosing to: it would have to pass `driven` true, listen on loopback only, and supply both the clock and
+the ticks itself; the literal draws would then make its shuffles predictable, as they are meant to be in a trial.
+
+The test unit, as that actor. `bees_tempus_test@start(Now)` gives the actor for one node; the test program passes it as
+`ext`. When the node has introduced itself the unit checks the node's listen text (loopback, or it prints `TEST ONLY
+refused: ...` and gives no reading, so the node never listens), prints the banner `TEST ONLY: tick and clock frames are
+accepted`, and gives the node its first reading, `Now`, the trial's fixture. A loopback listener is reached from the
+same machine only, so the frames it is handed come from loopback peers. Everything else a client does (join as
+sentinel, shuffles, samples, calls) uses the frames every node uses.
+
+A node that is not externally driven reads the system clock (section 4, `[B: NQ-11]`) and ticks by its timers.
 
 ### 16.4 The Silica client
 
-- Library, `src/tempus_client/`: `bees_tempus_client` (pure: for every operation of 16.2 the frame to send and the reading
+Moved 2026-11-20 (owner): both clients are in `example_tempus_clients/` (`silica/` and `python/`), out of `src` and
+`tools`. They are examples only, not for production; `example_tempus_clients/README.md` says so and
+`example_tempus_clients/writing-a-tempus-client.md` says what a client in any language has to do.
+
+- Library, `example_tempus_clients/silica/`: `bees_tempus_client` (pure: for every operation of 16.2 the frame to send and the reading
   of the reply, over the node's own frame unit `bees_tempus_frame`; also the deliberately wrong frames, each by a named
   function) and, from C2, `dangerous_bees_tempus_client` (the active part: one actor per connection, dialing or accepting
   through the language's carrier and the TLS link, running admission, sending one request, handing the typed reply to the
   actor the caller named; a `dangerous_` unit because it spawns a carrier). It reads no file: addresses, key bytes, token
   bytes and draws are arguments `[B: N0c, D46]`.
   Built in C2 `[P, forced by the language: the carrier's spawn site stays in the root unit (SD-17) and a root unit may not
-  call a function of a dangerous_ unit (E4042)]`: the active part is not a unit but `src/tempus_client/bees_tempus_client.part`,
+  call a function of a dangerous_ unit (E4042)]`: the active part is not a unit but `example_tempus_clients/silica/bees_tempus_client.part`,
   pasted into the application's root unit by `tools/bees_tempus_gen.py` as the node part is. Each connection is the node's
   own connection actor (`dangerous_bees_tempus_conn@tcon`), so the client and the node share one implementation of
   admission; the Python client is the independent one. Functions: `tempus_client_start(app, ci)`, `tempus_client_dial`,
@@ -892,12 +1024,12 @@ not read. Everything else a client does (join as sentinel, shuffles, samples, ca
 
 ### 16.5 The Python client
 
-`tools/bees_tempus_client.py`: a module and a command line, pure Python, nothing of the Silica library `[B: OQ-19]`. It has
+`example_tempus_clients/python/bees_tempus_client.py`: a module and a command line, pure Python, nothing of the Silica library `[B: OQ-19]`. It has
 its own ETF writer and reader for the subset of section 5 (maps, atoms, binaries, integers, lists), written independently
 of the Silica side, so that agreement between the two is evidence and not a shared mistake. TLS is Python's `ssl` module;
 Ed25519 and SHA-512 are the `cryptography` package and `hashlib` (checked 2026-11-18: `cryptography` 46.0.3 is installed
 for `/opt/homebrew/bin/python3` and signs and verifies Ed25519; nothing was installed for this). The same module makes the
-trial fixtures: test keys, self-signed certificates and tokens. Tests: `tools/test_bees_tempus_client.py`.
+trial fixtures: test keys, self-signed certificates and tokens. Tests: `example_tempus_clients/python/test_bees_tempus_client.py`.
 
 ### 16.6 The clients in trials
 
@@ -1265,11 +1397,36 @@ once a second (the clock is in whole seconds; the literal is `read_every_ms` in 
 is therefore at most about a second old, inside any skew allowance of a second or more. Not shown by a trial: a failing
 clock and a clock going back (a trial cannot set the machine's clock); those two paths are read from the code only.
 Blocks: nothing.
-RULED (owner, 2026-11-20): (2) option (a), the node follows the system clock. The owner's reason was daylight saving time;
-the reading is seconds since 1970 in UTC, which daylight saving time does not change, so that case never produces a step
-back (put to the owner). (1) the other choice: a node whose clock fails after a good reading stops admitting connections
+RULED (owner, 2026-11-20): (2) option (a), the node follows the system clock. Confirmed the same day after the owner was
+told that daylight saving time never produces a step back (the reading is seconds since 1970 in UTC) and was shown what
+each option risks: under (a), a step back of N seconds lets a token that expired in the last N seconds be used again for
+up to N seconds (its holder must still prove possession of the key), and a time source that is not authenticated lets
+somebody on the network path cause the step; under (b) and (c) the same person can stop nodes instead. The token
+lifetime bounds what (a) can admit. (1) the other choice: a node whose clock fails after a good reading stops admitting connections
 and stops ticking until the clock is read again, and tells its application (built: `tn_clock`, `tn_timer`, `tn_accepted`
 and role 4 of `dangerous_bees_tempus_conn`, audit line `clock_refused`). (3) kept: at start and once a second.
+RULED (owner, 2026-11-20, later the same day): "It seems to me that these three choices should be configurable by the user
+along with the times", and then "make 22.2 a configurable choice as well". This replaces "(a) is the behaviour" above
+with "(a), (b) or (c) as configured", and "the other choice" of (1) with "either choice as configured". Built: (2) is
+`clock_back`, one of `follow` (a), `hold` (b) and `stop` (c); the limit of (c) is its own value, `clock_back_limit_s`, and
+no longer the skew allowance; (1) is `clock_fail`, one of `continue` (the node goes on with its last reading, the
+behaviour before the first ruling of this day) and `pause` (it stops admitting and ticking until the clock is read
+again, the behaviour of the first ruling); what a node does with no reading at start is not a choice; (3) is
+`clock_read_ms`, and the literal `read_every_ms` is gone. None has a default: a file without one of them is refused
+(`tools/bees_tempus_conf.py`), `clock_back_limit_s` is required under `stop` and refused under the other two, and the
+node's boot check refuses a choice outside its set. Sections 10 and 11 say what each does and its bounds. Shown by
+`trials/t0_tempus_clock`: the decision for every choice, both sides of the limit, the end of a hold, both choices for a
+failed reading, as a pure function given readings as numbers. Read from the code only, as before: the node acting on
+that decision with a real clock (its lines, the application told, the stop, audit line `clock_stopped`), because a
+trial cannot set the machine's clock or make it fail. The trials' nodes pass `follow`, `pause` and 1000 ms, which is
+what was built before, so their goldens did not change. Not built, for the owner to rule: a test node's `clock` frame
+still sets the node's time to any value and does not go through `clock_back`.
+Built later on 2026-11-20, with the test unit of 16.3 (the ruling under OQ-20): a `clock` frame is now a clock reading.
+It goes through `clock_turn` like the system clock's, with the node's configured choices, and it can say that the clock
+could not be read. `trials/t6_tempus_clock` shows on running nodes what the paragraph above lists as read from the code
+only: the hold, the wait for the clock, going on with the last reading, the stop, the two audit lines, the application
+told with 86 and 87, and the join request that waits. Still read from the code only: the clock actor itself (the native
+reading and its timer) and a clock that cannot be read at start.
 
 NQ-23. Which refused connections make a NEW score entry at a bridge (follows the ruling on NQ-19). The ruling says the
 connection actor's refusals of an edge (token, proof, malformed frame) raise that edge's score. Two things had to be

@@ -1,0 +1,53 @@
+// C3 bridges trial: the Silica client as an EDGE (identity 5, "x2"; its tempus_edge token valid to 3000), against bridges B1
+// and B2 (design 16.2 rows 24, 25, 30 to 32, 34, 35; section 17). It runs after the Python client's first part, which
+// left bridge B2 in B1's bridge store (row 29). The Python client walks the same steps afterwards with its own identity.
+fn me_id() -> int64 { 5 }
+fn deftok() -> int64 { 6 }
+fn port() -> int64 { 24204 }
+fn start_after() -> int64 { 0 }
+fn steps() -> int64 { 20 }
+fn draw() -> int64 { 7 }
+fn no_ints() -> List[int64, mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[int64, mem(normal)] <- empty[int64, mem(normal)]()
+    produces pure e end
+}
+fn ints_cons(h: int64, t: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    sequence proc[mem(normal)]
+        r: List[int64, mem(normal)] <- prepend[int64, mem(normal)](h, t)
+    produces pure r end
+}
+fn args0() -> string { bees_trust_frame@enc_args_ints(no_ints()) }
+fn args1(a: int64) -> string { bees_trust_frame@enc_args_ints(ints_cons(a, no_ints())) }
+fn args2(a: int64, b: int64) -> string { bees_trust_frame@enc_args_ints(ints_cons(a, ints_cons(b, no_ints()))) }
+fn demo() -> atom { bees_atoms@a_demo() }
+fn call2(rid: string, f: atom, a: int64, b: int64) -> string { bees_tempus_client@call_frame(rid, demo(), f, 2, args2(a, b)) }
+fn call1(rid: string, f: atom, a: int64) -> string { bees_tempus_client@call_frame(rid, demo(), f, 1, args1(a)) }
+fn add(rid: string) -> string { call2(rid, bees_atoms@a_add(), 2, 3) }
+// a step to address `to` (0 bridge B1, 1 bridge B2, 9 the bridge pick_bridge chose); flags 2: not waited for (a held call)
+fn stp(what: string, req: string, to: int64, flags: int64) -> $CST$ { { tok: 0, idv: me_id(), kid: kid1(), lkid: "", now: tempus_ids@now(), flags: flags, to: to, req: req, what: what } }
+fn step_of(k: int64) -> $CST$ {
+    case k of {
+        1 -> stp("sample of B1's bridge store (row 30: the application gets a bridge)", bees_tempus_client@sample(2, 2), 0, 0);
+        2 -> stp("call demo:add(2, 3) at the bridge pick_bridge chose (rows 24, 30)", add("s2"), 9, 0);
+        3 -> stp("call demo:add(2, 3) at B1 (row 32)", add("s3"), 0, 0);
+        4 -> stp("call demo:add(2, 3) at B2 (row 32)", add("s4"), 1, 0);
+        5 -> stp("call demo:onward(20, 22) at B1: B1's application calls demo:add on node T (rows 25, 31)", call2("s5", bees_atoms@a_onward(), 20, 22), 0, 0);
+        6 -> stp("call demo:onward(20, 22) at B2 (row 32)", call2("s6", bees_atoms@a_onward(), 20, 22), 1, 0);
+        7 -> stp("cast demo:note(7) at B1 (row 24: a cast is closed with no reply)", bees_tempus_client@cast_frame("s7", demo(), bees_atoms@a_note(), 1, args1(7)), 0, 0);
+        8 -> stp("call demo:crash(1) at B1 (row 24: the function fails; no error body)", call1("s8", bees_atoms@a_crash(), 1), 0, 0);
+        9 -> stp("call demo:add(2, 3) at B1", add("s9"), 0, 0);
+        10 -> stp("call demo:slow(1) at B1 (row 24: the call timeout)", call1("s10", bees_atoms@a_slow(), 1), 0, 0);
+        11 -> stp("call demo:add(2, 3) at B1", add("s11"), 0, 0);
+        12 -> stp("call demo:hold(1) at B1, held open (row 35)", call1("s12", bees_atoms@a_hold(), 1), 0, 2);
+        13 -> stp("call demo:hold(2) at B1, held open (row 35)", call1("s13", bees_atoms@a_hold(), 2), 0, 2);
+        14 -> stp("call demo:add(2, 3) at B1 while two are held: the in-flight bound per peer; then the client waits for the held calls, which the bridge closes at its call timeout (row 35)", add("s14"), 0, 3);
+        15 -> stp("call demo:release() at B1: the application answers the held calls (already closed) and this one (row 35)", bees_tempus_client@call_frame("s15", demo(), bees_atoms@a_release(), 0, args0()), 0, 0);
+        16 -> stp("call erlang:apply() at B1: the forbidden guard (rows 24, 34)", bees_tempus_client@call_frame("s16", bees_atoms@a_erlang(), bees_atoms@a_apply(), 0, args0()), 0, 0);
+        17 -> stp("call demo:secret() at B1: no permission for tempus_edge (rows 24, 34)", bees_tempus_client@call_frame("s17", demo(), bees_atoms@a_secret(), 0, args0()), 0, 0);
+        18 -> stp("a malformed request at B1: arity 3 with two arguments (row 34)", bees_tempus_client@call_frame("s18", demo(), bees_atoms@a_add(), 3, args2(2, 3)), 0, 0);
+        19 -> stp("a malformed request at B1: arity 0 with two arguments; the score passes the limit (row 34)", bees_tempus_client@call_frame("s19", demo(), bees_atoms@a_add(), 0, args2(2, 3)), 0, 0);
+        _: int64 -> stp("call demo:add(2, 3) at B1: refused, the score is above the limit (row 34)", add("s20"), 0, 0)
+    }
+}
+fn on_request(k: int64, body: string) -> $CRA$ { act(21, "closes with no reply") }

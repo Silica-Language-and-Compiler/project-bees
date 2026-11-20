@@ -1,6 +1,8 @@
 // C2 clients trial, the application of every node under test: a thin program that passes the TEST-ONLY values of
 // lib/tempus_ids.silica to tempus_node_start (src/tempus/bees_tempus_node.part) and prints what the node tells its
-// application. The entry's own role file gives port(), sents(), test() and tick_ms().
+// application. The entry's own role file gives port(), sents(), tick_ms(), and the three functions that make it a test
+// program or not: driven() and ext_start(app). N and M are test programs (the test unit of
+// src/tempus_test drives them); O is shaped like a production program: its role file names nothing of the test unit.
 // Every node here is an edge with identity 0 (N and M are the same node on two ports: one is driven by the Python client,
 // the other by the Silica client, and they never meet). Stores: capacity 4, shuffle length 3 (edge) and 2 (bridge,
 // sentinel). inflight_max 2. shuffle_timeout_ms 2000.
@@ -55,10 +57,11 @@ fn main() -> int64 {
         _: atom <- bees_reporter@start();
         a: actor_ref <- spawn(0, app, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
         idn: $NI$ <- { id: hx(tempus_ids@id_hex(0)), pub: hx(tempus_ids@pub_hex(0)), seed: hx(tempus_ids@seed_hex(0)), addr: concat("127.0.0.1:", port()), token: hx(tempus_ids@tok_hex(0, 1)), typ: 1 };
-        net: $NN$ <- { listen: concat("listen:", port()), spec: tempus_spec(tempus_ids@certfile(0), tempus_ids@keyfile(0)), sents: sents(), wl: tempus_ids@fp_hex(2), kid: tempus_ids@kid(), ppub: hx(tempus_ids@producer_pub_hex()), ms: 2000, mst: "2000", max: 2, skew: tempus_ids@skew(), j0: 200, j1: 800 };
+        net: $NN$ <- { listen: concat("listen:", port()), spec: tempus_spec(tempus_ids@certfile(0), tempus_ids@keyfile(0)), sents: sents(), wl: tempus_ids@fp_hex(2), kid: tempus_ids@kid(), ppub: hx(tempus_ids@producer_pub_hex()), ms: 2000, mst: "2000", max: 2, skew: tempus_ids@skew(), j0: 200, j1: 800, back: 1, blim: 0, fail: 2, every: 1000 };
         sz: $NZ$ <- { k1: 4, c1: 3, t1: tick_ms(), k2: 4, c2: 2, t2: tick_ms(), k3: 4, c3: 2, t3: tick_ms() };
-        tst: $NT$ <- { test: test(), now: tempus_ids@now(), draws: case test() of { true -> "0,1,2,3"; false -> "" } };
-        n: actor_ref <- tempus_node_start(a, idn, net, sz, tst);
+        x: actor_ref <- ext_start(a);
+        drv: $NT$ <- { driven: driven(), ext: x, draws: case driven() of { true -> "0,1,2,3"; false -> "" } };
+        n: actor_ref <- tempus_node_start(a, idn, net, sz, drv);
         _: int64 <- wait_for_exit()
     produces pure 0 end
 }

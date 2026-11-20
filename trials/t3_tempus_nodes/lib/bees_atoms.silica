@@ -29,6 +29,7 @@ export a_hello/0;
 export a_id/0;
 export a_key_rotated/0;
 export a_kid/0;
+export a_later/0;
 export a_m/0;
 export a_missing_field/0;
 export a_ms/0;
@@ -72,6 +73,7 @@ export a_unknown_field/0;
 export a_unsupported/0;
 export a_value/0;
 export a_ver/0;
+export a_wait/0;
 export spelling/1;
 export index/1;
 export from_spelling/1;
@@ -105,6 +107,7 @@ fn a_hello() -> atom { :hello }
 fn a_id() -> atom { :id }
 fn a_key_rotated() -> atom { :key_rotated }
 fn a_kid() -> atom { :kid }
+fn a_later() -> atom { :later }
 fn a_m() -> atom { :m }
 fn a_missing_field() -> atom { :missing_field }
 fn a_ms() -> atom { :ms }
@@ -148,6 +151,7 @@ fn a_unknown_field() -> atom { :unknown_field }
 fn a_unsupported() -> atom { :unsupported }
 fn a_value() -> atom { :value }
 fn a_ver() -> atom { :ver }
+fn a_wait() -> atom { :wait }
 
 fn spelling(a: atom) -> string {
     case a of {
@@ -179,6 +183,7 @@ fn spelling(a: atom) -> string {
         :id -> "id";
         :key_rotated -> "key_rotated";
         :kid -> "kid";
+        :later -> "later";
         :m -> "m";
         :missing_field -> "missing_field";
         :ms -> "ms";
@@ -222,6 +227,7 @@ fn spelling(a: atom) -> string {
         :unsupported -> "unsupported";
         :value -> "value";
         :ver -> "ver";
+        :wait -> "wait";
         _: atom -> "?"
     }
 }
@@ -256,63 +262,65 @@ fn index(a: atom) -> int64 {
         :id -> 25;
         :key_rotated -> 26;
         :kid -> 27;
-        :m -> 28;
-        :missing_field -> 29;
-        :ms -> 30;
-        :n -> 31;
-        :nbf -> 32;
-        :nonce -> 33;
-        :ok -> 34;
-        :opts -> 35;
-        :out_of_range -> 36;
-        :pop_challenge -> 37;
-        :pop_response -> 38;
-        :protocol_error -> 39;
-        :pub -> 40;
-        :req_id -> 41;
-        :result -> 42;
-        :sample -> 43;
-        :sample_reply -> 44;
-        :server_not_pinned -> 45;
-        :shuffle -> 46;
-        :shuffle_reply -> 47;
-        :sig -> 48;
-        :store -> 49;
-        :sub -> 50;
-        :t -> 51;
-        :tempus_bridge -> 52;
-        :tempus_edge -> 53;
-        :tempus_sentinel -> 54;
-        :tick -> 55;
-        :timeout -> 56;
-        :token -> 57;
-        :token_issue -> 58;
-        :token_present -> 59;
-        :too_deep -> 60;
-        :too_large -> 61;
-        :too_long -> 62;
-        :trailing_bytes -> 63;
-        :truncated -> 64;
-        :typ -> 65;
-        :unknown_atom -> 66;
-        :unknown_field -> 67;
-        :unsupported -> 68;
-        :value -> 69;
-        :ver -> 70;
+        :later -> 28;
+        :m -> 29;
+        :missing_field -> 30;
+        :ms -> 31;
+        :n -> 32;
+        :nbf -> 33;
+        :nonce -> 34;
+        :ok -> 35;
+        :opts -> 36;
+        :out_of_range -> 37;
+        :pop_challenge -> 38;
+        :pop_response -> 39;
+        :protocol_error -> 40;
+        :pub -> 41;
+        :req_id -> 42;
+        :result -> 43;
+        :sample -> 44;
+        :sample_reply -> 45;
+        :server_not_pinned -> 46;
+        :shuffle -> 47;
+        :shuffle_reply -> 48;
+        :sig -> 49;
+        :store -> 50;
+        :sub -> 51;
+        :t -> 52;
+        :tempus_bridge -> 53;
+        :tempus_edge -> 54;
+        :tempus_sentinel -> 55;
+        :tick -> 56;
+        :timeout -> 57;
+        :token -> 58;
+        :token_issue -> 59;
+        :token_present -> 60;
+        :too_deep -> 61;
+        :too_large -> 62;
+        :too_long -> 63;
+        :trailing_bytes -> 64;
+        :truncated -> 65;
+        :typ -> 66;
+        :unknown_atom -> 67;
+        :unknown_field -> 68;
+        :unsupported -> 69;
+        :value -> 70;
+        :ver -> 71;
+        :wait -> 72;
         _: atom -> -1
     }
 }
 
 fn from_spelling_0(s: string) -> { found: boolean, value: atom } {
-    case s == "a" of { true -> { found: true, value: :a }; false -> case s == "addr" of { true -> { found: true, value: :addr }; false -> case s == "advert" of { true -> { found: true, value: :advert }; false -> case s == "age" of { true -> { found: true, value: :age }; false -> case s == "args" of { true -> { found: true, value: :args }; false -> case s == "bad_tag" of { true -> { found: true, value: :bad_tag }; false -> case s == "bad_variant" of { true -> { found: true, value: :bad_variant }; false -> case s == "bad_version" of { true -> { found: true, value: :bad_version }; false -> case s == "call" of { true -> { found: true, value: :call }; false -> case s == "cast" of { true -> { found: true, value: :cast }; false -> case s == "clock" of { true -> { found: true, value: :clock }; false -> case s == "closed" of { true -> { found: true, value: :closed }; false -> case s == "connect_failed" of { true -> { found: true, value: :connect_failed }; false -> case s == "d" of { true -> { found: true, value: :d }; false -> case s == "deadline_ms" of { true -> { found: true, value: :deadline_ms }; false -> case s == "dns_error" of { true -> { found: true, value: :dns_error }; false -> case s == "done" of { true -> { found: true, value: :done }; false -> case s == "duplicate_field" of { true -> { found: true, value: :duplicate_field }; false -> case s == "entries" of { true -> { found: true, value: :entries }; false -> case s == "erlang" of { true -> { found: true, value: :erlang }; false -> case s == "error" of { true -> { found: true, value: :error }; false -> case s == "exp" of { true -> { found: true, value: :exp }; false -> case s == "f" of { true -> { found: true, value: :f }; false -> case s == "goaway" of { true -> { found: true, value: :goaway }; false -> case s == "hello" of { true -> { found: true, value: :hello }; false -> case s == "id" of { true -> { found: true, value: :id }; false -> case s == "key_rotated" of { true -> { found: true, value: :key_rotated }; false -> case s == "kid" of { true -> { found: true, value: :kid }; false -> case s == "m" of { true -> { found: true, value: :m }; false -> case s == "missing_field" of { true -> { found: true, value: :missing_field }; false -> case s == "ms" of { true -> { found: true, value: :ms }; false -> case s == "n" of { true -> { found: true, value: :n }; false -> case s == "nbf" of { true -> { found: true, value: :nbf }; false -> case s == "nonce" of { true -> { found: true, value: :nonce }; false -> case s == "ok" of { true -> { found: true, value: :ok }; false -> case s == "opts" of { true -> { found: true, value: :opts }; false -> case s == "out_of_range" of { true -> { found: true, value: :out_of_range }; false -> case s == "pop_challenge" of { true -> { found: true, value: :pop_challenge }; false -> case s == "pop_response" of { true -> { found: true, value: :pop_response }; false -> case s == "protocol_error" of { true -> { found: true, value: :protocol_error }; false -> case s == "pub" of { true -> { found: true, value: :pub }; false -> case s == "req_id" of { true -> { found: true, value: :req_id }; false -> case s == "result" of { true -> { found: true, value: :result }; false -> case s == "sample" of { true -> { found: true, value: :sample }; false -> case s == "sample_reply" of { true -> { found: true, value: :sample_reply }; false -> case s == "server_not_pinned" of { true -> { found: true, value: :server_not_pinned }; false -> case s == "shuffle" of { true -> { found: true, value: :shuffle }; false -> case s == "shuffle_reply" of { true -> { found: true, value: :shuffle_reply }; false -> case s == "sig" of { true -> { found: true, value: :sig }; false -> case s == "store" of { true -> { found: true, value: :store }; false -> case s == "sub" of { true -> { found: true, value: :sub }; false -> case s == "t" of { true -> { found: true, value: :t }; false -> case s == "tempus_bridge" of { true -> { found: true, value: :tempus_bridge }; false -> case s == "tempus_edge" of { true -> { found: true, value: :tempus_edge }; false -> case s == "tempus_sentinel" of { true -> { found: true, value: :tempus_sentinel }; false -> case s == "tick" of { true -> { found: true, value: :tick }; false -> case s == "timeout" of { true -> { found: true, value: :timeout }; false -> case s == "token" of { true -> { found: true, value: :token }; false -> case s == "token_issue" of { true -> { found: true, value: :token_issue }; false -> case s == "token_present" of { true -> { found: true, value: :token_present }; false -> case s == "too_deep" of { true -> { found: true, value: :too_deep }; false -> case s == "too_large" of { true -> { found: true, value: :too_large }; false -> case s == "too_long" of { true -> { found: true, value: :too_long }; false -> case s == "trailing_bytes" of { true -> { found: true, value: :trailing_bytes }; false -> { found: false, value: :unknown } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } }
+    case s == "a" of { true -> { found: true, value: :a }; false -> case s == "addr" of { true -> { found: true, value: :addr }; false -> case s == "advert" of { true -> { found: true, value: :advert }; false -> case s == "age" of { true -> { found: true, value: :age }; false -> case s == "args" of { true -> { found: true, value: :args }; false -> case s == "bad_tag" of { true -> { found: true, value: :bad_tag }; false -> case s == "bad_variant" of { true -> { found: true, value: :bad_variant }; false -> case s == "bad_version" of { true -> { found: true, value: :bad_version }; false -> case s == "call" of { true -> { found: true, value: :call }; false -> case s == "cast" of { true -> { found: true, value: :cast }; false -> case s == "clock" of { true -> { found: true, value: :clock }; false -> case s == "closed" of { true -> { found: true, value: :closed }; false -> case s == "connect_failed" of { true -> { found: true, value: :connect_failed }; false -> case s == "d" of { true -> { found: true, value: :d }; false -> case s == "deadline_ms" of { true -> { found: true, value: :deadline_ms }; false -> case s == "dns_error" of { true -> { found: true, value: :dns_error }; false -> case s == "done" of { true -> { found: true, value: :done }; false -> case s == "duplicate_field" of { true -> { found: true, value: :duplicate_field }; false -> case s == "entries" of { true -> { found: true, value: :entries }; false -> case s == "erlang" of { true -> { found: true, value: :erlang }; false -> case s == "error" of { true -> { found: true, value: :error }; false -> case s == "exp" of { true -> { found: true, value: :exp }; false -> case s == "f" of { true -> { found: true, value: :f }; false -> case s == "goaway" of { true -> { found: true, value: :goaway }; false -> case s == "hello" of { true -> { found: true, value: :hello }; false -> case s == "id" of { true -> { found: true, value: :id }; false -> case s == "key_rotated" of { true -> { found: true, value: :key_rotated }; false -> case s == "kid" of { true -> { found: true, value: :kid }; false -> case s == "later" of { true -> { found: true, value: :later }; false -> case s == "m" of { true -> { found: true, value: :m }; false -> case s == "missing_field" of { true -> { found: true, value: :missing_field }; false -> case s == "ms" of { true -> { found: true, value: :ms }; false -> case s == "n" of { true -> { found: true, value: :n }; false -> case s == "nbf" of { true -> { found: true, value: :nbf }; false -> case s == "nonce" of { true -> { found: true, value: :nonce }; false -> case s == "ok" of { true -> { found: true, value: :ok }; false -> case s == "opts" of { true -> { found: true, value: :opts }; false -> case s == "out_of_range" of { true -> { found: true, value: :out_of_range }; false -> case s == "pop_challenge" of { true -> { found: true, value: :pop_challenge }; false -> case s == "pop_response" of { true -> { found: true, value: :pop_response }; false -> case s == "protocol_error" of { true -> { found: true, value: :protocol_error }; false -> case s == "pub" of { true -> { found: true, value: :pub }; false -> case s == "req_id" of { true -> { found: true, value: :req_id }; false -> case s == "result" of { true -> { found: true, value: :result }; false -> case s == "sample" of { true -> { found: true, value: :sample }; false -> case s == "sample_reply" of { true -> { found: true, value: :sample_reply }; false -> case s == "server_not_pinned" of { true -> { found: true, value: :server_not_pinned }; false -> case s == "shuffle" of { true -> { found: true, value: :shuffle }; false -> case s == "shuffle_reply" of { true -> { found: true, value: :shuffle_reply }; false -> case s == "sig" of { true -> { found: true, value: :sig }; false -> case s == "store" of { true -> { found: true, value: :store }; false -> case s == "sub" of { true -> { found: true, value: :sub }; false -> case s == "t" of { true -> { found: true, value: :t }; false -> case s == "tempus_bridge" of { true -> { found: true, value: :tempus_bridge }; false -> case s == "tempus_edge" of { true -> { found: true, value: :tempus_edge }; false -> case s == "tempus_sentinel" of { true -> { found: true, value: :tempus_sentinel }; false -> case s == "tick" of { true -> { found: true, value: :tick }; false -> case s == "timeout" of { true -> { found: true, value: :timeout }; false -> case s == "token" of { true -> { found: true, value: :token }; false -> case s == "token_issue" of { true -> { found: true, value: :token_issue }; false -> case s == "token_present" of { true -> { found: true, value: :token_present }; false -> case s == "too_deep" of { true -> { found: true, value: :too_deep }; false -> case s == "too_large" of { true -> { found: true, value: :too_large }; false -> case s == "too_long" of { true -> { found: true, value: :too_long }; false -> { found: false, value: :unknown } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } }
 }
 
 fn from_spelling_1(s: string) -> { found: boolean, value: atom } {
-    case s == "truncated" of { true -> { found: true, value: :truncated }; false -> case s == "typ" of { true -> { found: true, value: :typ }; false -> case s == "unknown_atom" of { true -> { found: true, value: :unknown_atom }; false -> case s == "unknown_field" of { true -> { found: true, value: :unknown_field }; false -> case s == "unsupported" of { true -> { found: true, value: :unsupported }; false -> case s == "value" of { true -> { found: true, value: :value }; false -> case s == "ver" of { true -> { found: true, value: :ver }; false -> { found: false, value: :unknown } } } } } } } }
+    case s == "trailing_bytes" of { true -> { found: true, value: :trailing_bytes }; false -> case s == "truncated" of { true -> { found: true, value: :truncated }; false -> case s == "typ" of { true -> { found: true, value: :typ }; false -> case s == "unknown_atom" of { true -> { found: true, value: :unknown_atom }; false -> case s == "unknown_field" of { true -> { found: true, value: :unknown_field }; false -> case s == "unsupported" of { true -> { found: true, value: :unsupported }; false -> case s == "value" of { true -> { found: true, value: :value }; false -> case s == "ver" of { true -> { found: true, value: :ver }; false -> case s == "wait" of { true -> { found: true, value: :wait }; false -> { found: false, value: :unknown } } } } } } } } } }
 }
 
 fn from_spelling(s: string) -> { found: boolean, value: atom } {
     case from_spelling_0(s).found of { true -> from_spelling_0(s); false -> from_spelling_1(s) }
 }
 
-fn count() -> int64 { 71 }
+fn count() -> int64 { 73 }

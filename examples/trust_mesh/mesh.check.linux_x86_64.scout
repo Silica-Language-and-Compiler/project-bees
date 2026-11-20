@@ -1,0 +1,18 @@
+examples/trust_mesh: five TRUST nodes over mutual TLS 1.3, every node a server and a client of the other four
+calls answered by the right node, caller in rows, server in columns (2 laps, so 2 for every pair):
+     n1  n2  n3  n4  n5
+n1    -   2   2   2   2
+n2    2   -   2   2   2
+n3    2   2   -   2   2
+n4    2   2   2   -   2
+n5    2   2   2   2   -
+directed pairs with every call answered: 20 of 20
+calls answered: 40 of 40
+hops in order, none twice, none missing: yes
+calls with another outcome: 0
+TLS connections opened as a client, n1 to n5: 4 4 4 4 4
+TLS connections accepted as a server, n1 to n5: 4 4 4 4 4
+sessions ended before a node's done line: 0
+failure lines before a node's done line: 0
+nodes that printed their done line: 5 of 5
+nodes that ended with exit=0: 5 of 5

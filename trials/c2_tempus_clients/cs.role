@@ -12,11 +12,11 @@ fn step_of(k: int64) -> $CST$ {
     case k of {
         1 -> s("sample of the sentinel store (row 2: what the client answered at the join is there)", bees_tempus_client@sample(3, 2));
         2 -> s("the same sample again (row 23: a sample changes nothing)", bees_tempus_client@sample(3, 2));
-        3 -> s("a tick of the sentinel store: the client is the oldest entry and is dialed (rows 4, 5, 10)", bees_tempus_client@tick(3));
+        3 -> s("a tick of the sentinel store: the client is the oldest entry and is dialed (rows 4, 5, 10)", bees_tempus_test@tick(3));
         4 -> s("sample of the sentinel store", bees_tempus_client@sample(3, 2));
         5 -> s("shuffle of the sentinel store as the initiator: itself at age 0 and x3 as a sentinel at age 7 (row 8)", bees_tempus_client@shuffle(3, l2(ent(2, 11, 23905, 0), ent(6, 3, 23907, 7))));
-        6 -> s("a tick of the bridge store, which is empty: the node asks its sentinel again (row 22)", bees_tempus_client@tick(2));
-        7 -> sa("with a tempus_bridge token: a tick of the bridge store, the client is dialed (rows 4, 5, 10)", bees_tempus_client@tick(2), 13, 2, 0);
+        6 -> s("a tick of the bridge store, which is empty: the node asks its sentinel again (row 22)", bees_tempus_test@tick(2));
+        7 -> sa("with a tempus_bridge token: a tick of the bridge store, the client is dialed (rows 4, 5, 10)", bees_tempus_test@tick(2), 13, 2, 0);
         8 -> sa("with a tempus_bridge token: shuffle of the bridge store as the initiator (row 8)", bees_tempus_client@shuffle(2, l1(ent(2, 13, 23905, 0))), 13, 2, 0);
         9 -> s("sample of the bridge store", bees_tempus_client@sample(2, 2));
         _: int64 -> s("a shuffle of the sentinel store with an entry whose token says tempus_edge (row 9: no mixing)", bees_tempus_client@shuffle(3, l1(ent(4, 1, 23907, 0))))

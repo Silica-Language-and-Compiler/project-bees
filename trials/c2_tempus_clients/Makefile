@@ -1,10 +1,11 @@
 # C2: both TEMPUS clients drive the behaviour list of development-plan/tempus-design.md section 16.2 (COVERAGE.md beside
 # this file says which row is driven by which client, where its result is seen, and by which step).
-#   dangerous_n  node N, a test node (control_test_only): driven by the pure-Python client (tools/bees_tempus_client.py)
+#   dangerous_n  node N, a test program (externally driven, with the test unit of src/tempus_test): driven by the
+#                pure-Python client (example_tempus_clients/python/bees_tempus_client.py)
 #   dangerous_m  node M, the same node on another port: driven by the Silica client
-#   dangerous_o  node O, not a test node: both clients send it a tick (row 37)
+#   dangerous_o  node O, not a test program (its root unit does not use the test unit): both clients send it a tick (row 37)
 #   dangerous_cs the Silica client as a sentinel (M joins through it); dangerous_ce the Silica client as an edge
-# The Silica client is the library of src/tempus_client (bees_tempus_client.silica, bees_tempus_client.part) under the thin
+# The Silica client is the library of example_tempus_clients/silica (bees_tempus_client.silica, bees_tempus_client.part) under the thin
 # application client.role; each role's scenario is compiled in (cs.role, ce.role; ruling OQ-21).
 # tools/bees_tempus_trial.py c2 starts the processes, walks the Python client's steps against N and O, waits for the
 # Silica clients' `done`, and stops everything. What a client cannot see (a node's view, the reason of a refusal) is in
@@ -14,14 +15,15 @@ BEES_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../..)
 LEAF_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 GEN := $(BEES_ROOT)/tools/bees_tempus_gen.py
 SRC_T := $(BEES_ROOT)/src/tempus
-SRC_C := $(BEES_ROOT)/src/tempus_client
+SRC_C := $(BEES_ROOT)/example_tempus_clients/silica
 NODE_USES := --use tempus_ids --use bees_tempus_store --use bees_tempus_store_actor --use bees_tempus_node --use dangerous_bees_tempus_draws
 # the generated units are made by the rule of .gen.mk, an included makefile (make 3.81 lists a directory once)
 -include $(LEAF_DIR)/.gen.mk
 $(LEAF_DIR)/.gen.mk: $(wildcard $(LEAF_DIR)/*.role) $(GEN) $(SRC_T)/bees_tempus_node.silica.in $(SRC_T)/bees_tempus_node.part $(SRC_T)/bees_tempus_link.part $(SRC_C)/bees_tempus_client.part $(BEES_ROOT)/src/shim/bees_tcp_edge.part
 	@cd "$(LEAF_DIR)" && python3 "$(GEN)" unit "$(SRC_T)/bees_tempus_node.silica.in" lib/bees_tempus_node.silica && \
-	for n in n m o; do python3 "$(GEN)" edge dangerous_$$n dangerous_$$n.silica $(NODE_USES) --part bees_tempus_node.part $$n.role node.role || exit 1; done && \
-	for n in cs ce; do python3 "$(GEN)" edge dangerous_$$n dangerous_$$n.silica --use tempus_ids --use bees_tempus_client --part tempus_client/bees_tempus_client.part $$n.role client.role || exit 1; done && \
+	for n in n m; do python3 "$(GEN)" edge dangerous_$$n dangerous_$$n.silica $(NODE_USES) --use bees_tempus_test --part bees_tempus_node.part $$n.role node.role || exit 1; done && \
+	python3 "$(GEN)" edge dangerous_o dangerous_o.silica $(NODE_USES) --part bees_tempus_node.part o.role node.role && \
+	for n in cs ce; do python3 "$(GEN)" edge dangerous_$$n dangerous_$$n.silica --use tempus_ids --use bees_tempus_client --use bees_tempus_test --part example_tempus_clients/silica/bees_tempus_client.part $$n.role client.role || exit 1; done && \
 	echo "# written by the rule of this file in the Makefile: the generated units are current" > .gen.mk
 include $(BEES_ROOT)/tools/trial.mk
 # the processes run together, started and stopped by the trial tool: none runs alone

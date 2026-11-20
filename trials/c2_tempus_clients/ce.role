@@ -10,7 +10,7 @@ fn steps() -> int64 { 54 }
 fn me_at(age: int64) -> $E$ { ent(1, 6, 23906, age) }
 fn x(i: int64, age: int64) -> $E$ { ent(3 + i, 1, 23907, age) }
 fn smp() -> string { bees_tempus_client@sample(1, 3) }
-fn tck() -> string { bees_tempus_client@tick(1) }
+fn tck() -> string { bees_tempus_test@tick(1) }
 fn old() -> string { bees_tempus_client@shuffle(1, l1(me_at(50))) }
 fn old_what() -> string { "shuffle as the initiator: itself at age 50, so that it is the oldest entry" }
 fn short_id() -> $E$ {
@@ -66,14 +66,14 @@ fn step_b(k: int64) -> $CST$ {
         42 -> s("row 9: a shuffle of the edge store with an entry whose token says tempus_sentinel", bees_tempus_client@shuffle(1, l1(ent(2, 3, 23907, 0))));
         43 -> { tok: 14, idv: 1, kid: kid1(), lkid: "", now: tempus_ids@now(), flags: 0, to: 1, req: tck(), what: "row 37: a tick to node O, which is not a test node (its clock runs: the client's token for it ends far away)" };
         44 -> s("shuffle as the initiator: one entry whose token ends at 1600 (row 16)", bees_tempus_client@shuffle(1, l1(ent(3, 10, 23907, 1))));
-        45 -> s("the node's clock is set to 1700 s", bees_tempus_client@clock(1700000));
+        45 -> s("the node's clock is set to 1700 s", bees_tempus_test@clock(1700000));
         46 -> sn("a tick: the entry whose token has ended leaves the view (row 16)", tck(), 1700);
         47 -> sn("sample of the edge store", smp(), 1700);
         48 -> sn(old_what(), old(), 1700);
         49 -> { tok: 0, idv: 1, kid: kid1(), lkid: "k9", now: 1700, flags: 0, to: 0, req: tck(), what: "a tick while the client holds k9 as the current kid: it answers the node's advert with key_rotated (row 15: the node's application passes a new token)" };
         50 -> sn(old_what(), old(), 1700);
         51 -> sn("a tick: the node's own entry carries the new token, which ends at 2500 (row 15)", tck(), 1700);
-        52 -> sn("the node's clock is set to 2600 s, past its own token", bees_tempus_client@clock(2600000), 1700);
+        52 -> sn("the node's clock is set to 2600 s, past its own token", bees_tempus_test@clock(2600000), 1700);
         53 -> sn("a tick: the node finds its own token expired and stops ticking (row 15)", tck(), 1700);
         _: int64 -> sn("sample, with the client's own clock at 2600 s: the client refuses the node's advert (row 15)", smp(), 2600)
     }

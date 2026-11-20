@@ -1,0 +1,1 @@
+# C1 codec trial against stock Erlang: no pid is handed out (no pid line): the stock node addresses registered names only

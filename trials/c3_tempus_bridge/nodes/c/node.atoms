@@ -1,0 +1,13 @@
+# the Silica client's own atoms: the names of the functions it calls on the bridges (and the forbidden and unpermitted ones)
+demo
+add
+crash
+note
+onward
+bad
+hold
+release
+slow
+secret
+badarith
+apply

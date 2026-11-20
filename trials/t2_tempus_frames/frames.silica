@@ -1,14 +1,15 @@
 // T2 and C1: the tempus/1 frames (src/tempus/bees_tempus_frame.silica) and the client library's pure part
-// (src/tempus_client/bees_tempus_client.silica), in memory: no carrier, no key, no clock. Part 1: every frame a node or a
+// (example_tempus_clients/silica/bees_tempus_client.silica), in memory: no carrier, no key, no clock. Part 1: every frame a node or a
 // client writes, as hex, and read back. Part 2: the token's structure. Part 3: frames a node must refuse, each with the
 // reason. Part 4: a view through a shuffle frame and back. Part 5: 20,000 refused frames (memory is measured outside,
-// tempus-progress.md). tools/test_bees_tempus_client.py builds every frame of parts 1 to 3 again with the Python client's
+// tempus-progress.md). example_tempus_clients/python/test_bees_tempus_client.py builds every frame of parts 1 to 3 again with the Python client's
 // own codec, compares the bytes with this program's hex, and checks that the Python reader accepts and refuses the same.
 use bees_atoms;
 use bees_trust_frame;
 use bees_tempus_view;
 use bees_tempus_frame;
 use bees_tempus_client;
+use bees_tempus_test;
 use bees_reporter;
 
 fn say(s: string) -> atom {
@@ -65,11 +66,32 @@ fn show_from(v: List[{ id: string, d: string, age: int64 }, mem(normal)], acc: s
 fn show(v: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> string { case bees_tempus_view@size(v) == 0 of { true -> "(empty)"; false -> show_from(v, "") } }
 fn verdict(ok: boolean, why: string) -> string { case ok of { true -> "accepted"; false -> concat("refused: ", why) } }
 
+// A body of no tempus/1 kind: a node's library refuses it (the first reason below is the library's). The two test-only
+// frames are read by the test unit alone (src/tempus_test/bees_tempus_test.silica; owner's ruling of 2026-11-20), which
+// this trial lists as a test program does.
+fn clock_text(r: { ok: boolean, why: string, ms: int64, wait: int64, later: int64 }) -> string {
+    case r.ok of {
+        false -> concat("refused: ", r.why);
+        true -> case r.wait > 0 of {
+            false -> concat("accepted ms ", snum(r.ms));
+            true -> concat(concat(concat("accepted ms ", snum(r.ms)), concat(" wait ", num(r.wait))), concat(" later ", snum(r.later)))
+        }
+    }
+}
+fn snum(n: int64) -> string { case n < 0 of { true -> concat("-", num(0 - n)); false -> num(n) } }
+fn read_test(body: string) -> string {
+    lib: string <- concat("the library refuses it (", concat(bees_tempus_frame@why_refused(body), "); the test unit: "));
+    case bees_tempus_test@kind(body) of {
+        9 -> { r: { ok: boolean, why: string, store: int64 } <- bees_tempus_test@dec_tick(body); concat(lib, concat("tick ", case r.ok of { true -> concat("accepted store ", num(r.store)); false -> concat("refused: ", r.why) })) };
+        10 -> { r: { ok: boolean, why: string, ms: int64, wait: int64, later: int64 } <- bees_tempus_test@dec_clock(body); concat(lib, concat("clock ", clock_text(r))) };
+        _: int64 -> concat("refused: ", bees_tempus_frame@why_refused(body))
+    }
+}
 // what a node reads from a body: its kind, then that kind's reader (shuffle length 3)
 fn read(body: string) -> string {
     k: int64 <- bees_tempus_frame@kind(body);
     case k of {
-        0 -> concat("refused: ", bees_tempus_frame@why_refused(body));
+        0 -> read_test(body);
         1 -> {
             r: { ok: boolean, why: string, d: { addr: string, id: string, pub: string, token: string } } <- bees_tempus_frame@dec_advert(body);
             concat("advert ", case r.ok of {
@@ -84,8 +106,6 @@ fn read(body: string) -> string {
             r: { ok: boolean, why: string, store: int64, n: int64 } <- bees_tempus_frame@dec_sample(body, 3);
             concat("sample ", case r.ok of { true -> concat(concat("accepted store ", num(r.store)), concat(" n ", num(r.n))); false -> concat("refused: ", r.why) })
         };
-        9 -> { r: { ok: boolean, why: string, store: int64 } <- bees_tempus_frame@dec_tick(body); concat("tick ", case r.ok of { true -> concat("accepted store ", num(r.store)); false -> concat("refused: ", r.why) }) };
-        10 -> { r: { ok: boolean, why: string, ms: int64 } <- bees_tempus_frame@dec_clock(body); concat("clock ", case r.ok of { true -> concat("accepted ms ", num(r.ms)); false -> concat("refused: ", r.why) }) };
         11 -> { r: { ok: boolean, why: string } <- bees_tempus_frame@dec_done(body); concat("done ", verdict(r.ok, r.why)) };
         12 -> "call (TRUST's frame)";
         13 -> "cast (TRUST's frame)";
@@ -95,6 +115,19 @@ fn read(body: string) -> string {
             concat(concat(concat("entries kind ", num(k)), " "), case r.ok of { true -> concat(concat("accepted store ", num(r.store)), concat(" ", show(r.entries))); false -> concat("refused: ", r.why) })
         }
     }
+}
+// the test unit's safeguard: it drives a node on a loopback listen address only (the carrier's listen text)
+fn drives(listen: string) -> atom {
+    why: string <- bees_tempus_test@boot_why(listen);
+    say(concat(concat("the test unit and a node on ", listen), case length_bytes(why) == 0 of { true -> ": it drives the node"; false -> concat(": refused: ", why) }))
+}
+fn safeguard() -> atom {
+    sequence
+        _: atom <- drives("listen:24300");
+        _: atom <- drives("listen:127.0.0.1:24300");
+        _: atom <- drives("listen:any:24300");
+        _: atom <- drives("listen:10.0.0.7:24300")
+    produces pure :ok end
 }
 fn frame(name: string, body: string) -> atom {
     sequence
@@ -113,8 +146,10 @@ fn written() -> atom {
         _: atom <- frame("shuffle_reply", bees_tempus_client@shuffle_answer(2, v0()));
         _: atom <- frame("sample", bees_tempus_client@sample(3, 2));
         _: atom <- frame("sample_reply", bees_tempus_client@sample_answer(3, c(peer("B", 7), v0())));
-        _: atom <- frame("tick", bees_tempus_client@tick(1));
-        _: atom <- frame("clock", bees_tempus_client@clock(1763424000000));
+        _: atom <- frame("tick", bees_tempus_test@tick(1));
+        _: atom <- frame("clock", bees_tempus_test@clock(1763424000000));
+        _: atom <- frame("clock of no time", bees_tempus_test@clock(0 - 1));
+        _: atom <- frame("clock with a later reading", bees_tempus_test@clock_later(0 - 1, 3000, 1763424000000));
         _: atom <- frame("done", bees_tempus_frame@enc_done())
     produces pure :ok end
 }
@@ -168,14 +203,15 @@ fn hostile() -> atom {
         _: atom <- refusal("advert with a 65-byte id", bees_tempus_client@advert(rep("A", 65, ""), pub_of("p"), addr(), tok()));
         _: atom <- refusal("sample of 0", bees_tempus_client@sample(1, 0));
         _: atom <- refusal("sample of 4, shuffle length three", bees_tempus_client@sample(1, 4));
-        _: atom <- refusal("clock before 0", bees_tempus_client@clock(0 - 1));
+        _: atom <- refusal("clock before -1", bees_tempus_test@clock(0 - 2));
+        _: atom <- refusal("clock whose wait is 0", bees_tempus_test@clock_later(5, 0, 6));
         _: atom <- refusal("nonce of 31 bytes", bees_tempus_client@challenge(rep("N", 31, "")));
         _: atom <- refusal("sig of 65 bytes", bees_tempus_client@response(rep("G", 65, "")));
         _: atom <- refusal("kid of no bytes", bees_tempus_frame@enc_rotated(""));
         // a frame read with another kind's reader
         r: { ok: boolean, why: string, v: string } <- bees_tempus_frame@dec_field(bees_tempus_client@challenge(rep("N", 32, "")), 3);
         _: atom <- say(concat("a challenge read as a response: ", verdict(r.ok, r.why)));
-        r2: { ok: boolean, why: string, store: int64, n: int64 } <- bees_tempus_frame@dec_sample(bees_tempus_client@tick(1), 3);
+        r2: { ok: boolean, why: string, store: int64, n: int64 } <- bees_tempus_frame@dec_sample(bees_tempus_test@tick(1), 3);
         _: atom <- say(concat("a tick read as a sample: ", verdict(r2.ok, r2.why)))
     produces pure :ok end
 }
@@ -241,6 +277,7 @@ fn main() -> int64 {
         _: atom <- written();
         _: atom <- tokens();
         _: atom <- hostile();
+        _: atom <- safeguard();
         _: atom <- round_trip();
         _: atom <- many()
     produces pure 0 end

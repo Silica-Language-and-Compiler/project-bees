@@ -46,7 +46,7 @@ fn tempus_deadline(ms: uint64) -> uint64 {
     produces pure to_uint64(m / 1000000) + ms end
 }
 fn tempus_conn_at(cfg: $CFG$, l: dangerous_actor_ref, role: int64, cid: int64, req: string, addr: string, dl: uint64) -> boolean {
-    c2: $CFG$ <- { node: cfg.node, sig: cfg.sig, edge: cfg.edge, rnd: cfg.rnd, mine: cfg.mine, mtok: cfg.mtok, kid: cfg.kid, ppub: cfg.ppub, wl: cfg.wl, now: cfg.now, skew: cfg.skew, count: cfg.count, ms: dl };
+    c2: $CFG$ <- { node: cfg.node, sig: cfg.sig, edge: cfg.edge, rnd: cfg.rnd, mine: cfg.mine, mtok: cfg.mtok, kid: cfg.kid, ppub: cfg.ppub, wl: cfg.wl, now: cfg.now, skew: cfg.skew, count: cfg.count, ms: dl, ext: cfg.ext };
     sequence proc[concurrency]
         t: actor_ref <- spawn({ c: l, n: 0 }, dangerous_bees_tempus_conn@ttx, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
         k: actor_ref <- spawn({ c: l, tx: t, role: role, cid: cid, req: req, cfg: c2, v: { asm: t, phase: 0, live: false, down: false, pend: 0, ckey: "", cfp: "", pd: "", nonce: "", k: 0, body: "" } }, dangerous_bees_tempus_conn@tcon, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));

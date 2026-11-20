@@ -27,6 +27,7 @@ TEMPUS = """{tempus, [
     {shuffle_timeout_ms, 2000},
     {inflight_max, 4},
     {clock_skew_ms, 10000},
+    %(clock)s
     {join_retry_initial_ms, 200},
     {join_retry_max_ms, %(jmax)d}%(test)s
   ]}"""
@@ -40,9 +41,28 @@ TRUST = """{trust, [
 
 
 def tempus(role="edge", addr="127.0.0.1", sentinels='{sentinels, [{"127.0.0.1", 24310, "s.pem"}]},', cap=4, length=3,
-           key=KEY, jmax=800, test=""):
+           key=KEY, jmax=800, test="", clock=None):
+    if clock is None:
+        clock = CLOCK
     return TEMPUS % {"role": role, "addr": addr, "sentinels": sentinels, "cap": cap, "len": length, "key": key,
-                     "jmax": jmax, "test": test}
+                     "jmax": jmax, "test": test, "clock": clock}
+
+
+# the clock's choices as the trials pass them (ruling NQ-22 of 2026-11-20): follow, pause, read once a second
+CLOCK = "{clock_back, follow}, {clock_fail, pause}, {clock_read_ms, 1000},"
+
+
+def clock(back="follow", fail="pause", read="1000", limit=None):
+    parts = []
+    if back is not None:
+        parts.append("{clock_back, %s}" % back)
+    if limit is not None:
+        parts.append("{clock_back_limit_s, %s}" % limit)
+    if fail is not None:
+        parts.append("{clock_fail, %s}" % fail)
+    if read is not None:
+        parts.append("{clock_read_ms, %s}" % read)
+    return "".join(p + ", " for p in parts)
 
 
 class TempusConf(unittest.TestCase):
@@ -100,11 +120,61 @@ class TempusConf(unittest.TestCase):
         v = T.validate(self.write("[{mode, tempus}, %s]." % tempus(role="sentinel", sentinels="")))
         self.assertEqual(v["tempus"]["sentinels"], [])
 
-    def test_control_test_only_loopback(self):
-        v = T.validate(self.write("[{mode, tempus}, %s]." % tempus(test=",\n    {control_test_only, true}")))
-        self.assertTrue(v["tempus"]["control_test_only"])
-        self.refused("[{mode, tempus}, %s]." % tempus(addr="0.0.0.0", test=",\n    {control_test_only, true}"),
-                     "true only with a loopback listen_address")
+    def test_control_test_only_is_no_key_any_more(self):
+        # owner's ruling of 2026-11-20 on OQ-20: the test frames are in a unit only a test program lists in its build;
+        # no configuration turns them on, so the old key is refused with either value, on any address
+        for value in ("true", "false"):
+            for addr in ("127.0.0.1", "0.0.0.0"):
+                self.refused("[{mode, tempus}, %s]." % tempus(addr=addr, test=",\n    {control_test_only, %s}" % value),
+                             "tempus.control_test_only: no such key any more")
+        self.assertNotIn("control_test_only", T.validate(self.write("[{mode, tempus}, %s]." % tempus()))["tempus"])
+
+    def conf(self, **kw):
+        return "[{mode, tempus}, %s]." % tempus(clock=clock(**kw))
+
+    def test_clock_choices_are_read(self):
+        v = T.validate(self.write(self.conf()))["tempus"]
+        self.assertEqual((v["clock_back"], v["clock_fail"], v["clock_read_ms"]), ("follow", "pause", 1000))
+        self.assertNotIn("clock_back_limit_s", v)
+        for back in ("follow", "hold"):
+            for fail in ("continue", "pause"):
+                v = T.validate(self.write(self.conf(back=back, fail=fail)))["tempus"]
+                self.assertEqual((v["clock_back"], v["clock_fail"]), (back, fail))
+        v = T.validate(self.write(self.conf(back="stop", limit=30, fail="continue", read=250)))["tempus"]
+        self.assertEqual((v["clock_back"], v["clock_back_limit_s"], v["clock_fail"], v["clock_read_ms"]),
+                         ("stop", 30, "continue", 250))
+
+    def test_clock_choices_have_no_default(self):
+        self.refused(self.conf(back=None), "tempus.clock_back: required (no default)")
+        self.refused(self.conf(fail=None), "tempus.clock_fail: required (no default)")
+        self.refused(self.conf(read=None), "tempus.clock_read_ms: required (no default)")
+        self.refused(self.conf(back="stop"), "tempus.clock_back_limit_s: required when clock_back is stop")
+
+    def test_clock_choices_closed_sets(self):
+        self.refused(self.conf(back="ignore"), "expected one of follow, hold, stop")
+        self.refused(self.conf(back='"follow"'), "expected one of follow, hold, stop")
+        self.refused(self.conf(back="1"), "expected one of follow, hold, stop")
+        self.refused(self.conf(fail="stop"), "expected one of continue, pause")
+        self.refused(self.conf(fail="true"), "expected one of continue, pause")
+
+    def test_clock_limit_only_under_stop(self):
+        for back in ("follow", "hold"):
+            self.refused(self.conf(back=back, limit=30), "remove clock_back_limit_s")
+        for limit in (0, 86400):
+            v = T.validate(self.write(self.conf(back="stop", limit=limit)))["tempus"]
+            self.assertEqual(v["clock_back_limit_s"], limit)
+        self.refused(self.conf(back="stop", limit=-1), "clock_back_limit_s")
+        self.refused(self.conf(back="stop", limit=86401), "clock_back_limit_s")
+        self.refused(self.conf(back="stop", limit="none"), "clock_back_limit_s")
+
+    def test_clock_read_bounds(self):
+        for ms in (100, 60000):
+            self.assertEqual(T.validate(self.write(self.conf(read=ms)))["tempus"]["clock_read_ms"], ms)
+        self.refused(self.conf(read=99), "clock_read_ms")
+        self.refused(self.conf(read=60001), "clock_read_ms")
+
+    def test_clock_keys_given_twice(self):
+        self.refused("[{mode, tempus}, %s]." % tempus(clock=CLOCK + " {clock_back, hold},"), "clock_back")
 
 
 if __name__ == "__main__":

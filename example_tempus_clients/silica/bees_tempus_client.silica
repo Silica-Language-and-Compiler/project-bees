@@ -1,0 +1,246 @@
+// BEES TEMPUS client library, pure part (C1; development-plan/tempus-design.md section 16.4). A TEMPUS client is an
+// ordinary TEMPUS peer on the wire: this unit gives, for every operation a client can issue against a node, the frame body
+// to send and the reading of what comes back, over the node's own frame unit (bees_tempus_frame); and the deliberately
+// wrong frames a client sends to reach a node's refusals, each by a named function. It is a source-only library unit: an
+// application lists it (and the units it uses) by path in its own silica.config; it reads no file, opens no carrier and
+// holds no key. The active part (connections, TLS, admission) is dangerous_bees_tempus_client, a later milestone (C2).
+//
+// Operations (what a client sends once it is admitted, and first of all its advert and proof):
+//   advert(id, pub, addr, token)     challenge(nonce)     response(sig)
+//   shuffle(store, entries)          the client as initiator; shuffle_answer(store, entries): the client as partner
+//   sample(store, n)                 sample_answer(store, entries): the client as the sentinel a joiner asks
+//   (the test-only tick and clock frames are not here: src/tempus_test/bees_tempus_test.silica has tick(store),
+//   clock(ms) and clock_later(ms, wait, later), for a test program that lists that unit)
+// Reading: reply_kind(body) (bees_tempus_frame's kinds; 0 refused) and the node unit's dec_ functions.
+// A token for trials: token(sig, payload) and token_payload(kid, sub, typ, nbf, exp) build the bytes; a client never signs
+// here (the signature is made outside and passed in).
+// Wrong frames (each is one way a node must refuse; the comment says which bound it breaks):
+//   bad_version(f)  the first byte is not 131          bad_truncated(f)  the last byte is missing
+//   bad_trailing(f) one byte after the term            bad_not_a_map()   a tuple, not a map
+//   bad_kind()      t is an atom that is no kind       bad_extra_key()   a done frame with a second key
+//   bad_store()     a sample whose store is no peer type
+//   bad_nested()    a list in a list, eight deep (the structure check allows six)
+// Reading for a thin application's lines (C2): show(body, count) is one line for any frame a client receives: its kind,
+// and for a shuffle, shuffle_reply or sample_reply the store and every entry as id8@age/exp (the first eight hex digits
+// of the peer id, the age, the second at which the entry's token ends), for a sample the store and n.
+// request_store(body, count) is the store a request names (0 when it names none).
+// For a bridge (C3; design 17.3 and 17.4): call_frame(req_id, m, f, arity, args) and cast_frame(...) are TRUST's request frames as
+// a bridge reads them (bees_trust_frame@enc_request; args is an ETF span of a list, bees_trust_frame@enc_args_ints);
+// show(body, count) shows a result as `result REQ_ID value V` (V an integer or a string, else its size); pick_bridge(body,
+// count, draw) is the one library function that chooses a bridge with no policy of its own: the address of the entry
+// draw mod n of a sample_reply's n entries ("" when there is none). The draw is the application's (a random draw, or a
+// literal in a trial): this unit holds no randomness.
+// Frames that are well formed and break a bound (an age above 65535, a short id, too many entries, n out of range) are
+// made with the ordinary functions and the offending value.
+module bees_tempus_client;
+use bees_atoms;
+use bees_trust_frame;
+use bees_tempus_view;
+use bees_tempus_frame;
+
+export advert/4;
+export challenge/1;
+export response/1;
+export shuffle/2;
+export shuffle_answer/2;
+export sample/2;
+export sample_answer/2;
+export reply_kind/1;
+export entry/5;
+export token/2;
+export token_payload/5;
+export bad_version/1;
+export bad_truncated/1;
+export bad_trailing/1;
+export bad_not_a_map/0;
+export bad_kind/0;
+export bad_extra_key/0;
+export bad_store/0;
+export bad_nested/0;
+export show/2;
+export request_store/2;
+export call_frame/5;
+export cast_frame/5;
+export pick_bridge/3;
+
+fn advert(id: string, pub: string, addr: string, tok: string) -> string {
+    d: { addr: string, id: string, pub: string, token: string } <- bees_tempus_frame@desc(id, pub, addr, tok);
+    bees_tempus_frame@enc_advert(d)
+}
+fn challenge(nonce: string) -> string { bees_tempus_frame@enc_challenge(nonce) }
+fn response(sig: string) -> string { bees_tempus_frame@enc_response(sig) }
+fn shuffle(store: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> string { bees_tempus_frame@enc_entries(5, store, entries) }
+fn shuffle_answer(store: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> string { bees_tempus_frame@enc_entries(6, store, entries) }
+fn sample(store: int64, n: int64) -> string { bees_tempus_frame@enc_sample(store, n) }
+fn sample_answer(store: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)]) -> string { bees_tempus_frame@enc_entries(8, store, entries) }
+fn reply_kind(body: string) -> int64 { bees_tempus_frame@kind(body) }
+
+// a view entry for a peer: what a client puts in the shuffles it sends
+fn entry(id: string, pub: string, addr: string, tok: string, age: int64) -> { id: string, d: string, age: int64 } {
+    d: { addr: string, id: string, pub: string, token: string } <- bees_tempus_frame@desc(id, pub, addr, tok);
+    db: string <- bees_tempus_frame@desc_bytes(d);
+    bees_tempus_view@entry(id, db, age)
+}
+
+// ---- token bytes ----
+fn enc_str(v: string) -> string {
+    sequence proc[mem(normal), transport]
+        s: string <- encode((:etf), v)
+    produces pure bees_trust_frame@cut(s, 1, length_bytes(s)) end
+}
+fn enc_int(n: int64) -> string {
+    sequence proc[mem(normal), transport]
+        s: string <- encode((:etf), n)
+    produces pure bees_trust_frame@cut(s, 1, length_bytes(s)) end
+}
+fn enc_atom(a: atom) -> string {
+    sequence proc[mem(normal), transport]
+        s: string <- encode((:etf), a)
+    produces pure bees_trust_frame@cut(s, 1, length_bytes(s)) end
+}
+fn cat(a: string, b: string) -> string { bees_trust_frame@cat2(a, b) }
+fn kv(k: atom, v: string) -> string { cat(enc_atom(k), v) }
+fn typ_atom(typ: int64) -> atom {
+    case typ of { 1 -> bees_atoms@a_tempus_edge(); 2 -> bees_atoms@a_tempus_bridge(); _: int64 -> bees_atoms@a_tempus_sentinel() }
+}
+fn map_head(n: int64) -> string {
+    cat(cat(bees_trust_frame@b1(131), bees_trust_frame@b1(116)), cat(cat(bees_trust_frame@b1(0), bees_trust_frame@b1(0)), cat(bees_trust_frame@b1(0), bees_trust_frame@b1(n))))
+}
+// the payload a producer signs: the map #{exp, kid, nbf, sub, typ}, keys in name order; typ 1 edge, 2 bridge, 3 sentinel
+fn token_payload(kid: string, sub: string, typ: int64, nbf: int64, exp: int64) -> string {
+    p1: string <- kv(bees_atoms@a_exp(), enc_int(exp));
+    p2: string <- kv(bees_atoms@a_kid(), enc_str(kid));
+    p3: string <- kv(bees_atoms@a_nbf(), enc_int(nbf));
+    p4: string <- kv(bees_atoms@a_sub(), enc_str(sub));
+    p5: string <- kv(bees_atoms@a_typ(), enc_atom(typ_atom(typ)));
+    h: string <- map_head(5);
+    cat(cat(h, cat(p1, p2)), cat(p3, cat(p4, p5)))
+}
+fn token(sig: string, payload: string) -> string { cat(sig, payload) }
+
+// ---- wrong frames ----
+fn bad_version(f: string) -> string { cat(bees_trust_frame@b1(130), bees_trust_frame@cut(f, 1, length_bytes(f))) }
+fn bad_truncated(f: string) -> string { bees_trust_frame@cut(f, 0, length_bytes(f) - 1) }
+fn bad_trailing(f: string) -> string { cat(f, bees_trust_frame@b1(0)) }
+// {done}: a tuple of one atom
+fn bad_not_a_map() -> string {
+    cat(cat(bees_trust_frame@b1(131), bees_trust_frame@b1(104)), cat(bees_trust_frame@b1(1), enc_atom(bees_atoms@a_done())))
+}
+// #{t => tempus_edge}
+fn bad_kind() -> string { cat(map_head(1), kv(bees_atoms@a_t(), enc_atom(bees_atoms@a_tempus_edge()))) }
+// #{t => done, ver => 1}
+fn bad_extra_key() -> string {
+    cat(map_head(2), cat(kv(bees_atoms@a_t(), enc_atom(bees_atoms@a_done())), kv(bees_atoms@a_ver(), enc_int(1))))
+}
+// #{n => 1, store => done, t => sample}
+fn bad_store() -> string {
+    cat(map_head(3), cat(kv(bees_atoms@a_n(), enc_int(1)), cat(kv(bees_atoms@a_store(), enc_atom(bees_atoms@a_done())), kv(bees_atoms@a_t(), enc_atom(bees_atoms@a_sample())))))
+}
+// [[[[[[[[ [] ]]]]]]]]: eight lists, each holding the next
+fn nest(n: int64, inner: string) -> string {
+    case n <= 0 of {
+        true -> inner;
+        false -> {
+            head: string <- cat(cat(bees_trust_frame@b1(108), bees_trust_frame@b1(0)), cat(cat(bees_trust_frame@b1(0), bees_trust_frame@b1(0)), bees_trust_frame@b1(1)));
+            nest(n - 1, cat(cat(head, inner), bees_trust_frame@b1(106)))
+        }
+    }
+}
+fn bad_nested() -> string { cat(bees_trust_frame@b1(131), nest(8, bees_trust_frame@b1(106))) }
+
+// ---- reading, as text ----
+fn num(n: int64) -> string { bees_trust_frame@int_text(n) }
+fn typ_text(t: int64) -> string { case t of { 1 -> "tempus_edge"; 2 -> "tempus_bridge"; 3 -> "tempus_sentinel"; _: int64 -> "?" } }
+fn kind_text(k: int64) -> string {
+    case k of {
+        1 -> "advert"; 2 -> "pop_challenge"; 3 -> "pop_response"; 4 -> "key_rotated"; 5 -> "shuffle"; 6 -> "shuffle_reply";
+        7 -> "sample"; 8 -> "sample_reply"; 11 -> "done"; 12 -> "call"; 13 -> "cast"; 14 -> "result";
+        _: int64 -> "refused"
+    }
+}
+fn exp_of(e: { id: string, d: string, age: int64 }) -> int64 {
+    r: { ok: boolean, d: { addr: string, id: string, pub: string, token: string } } <- bees_tempus_frame@desc_of(e.d);
+    d: { addr: string, id: string, pub: string, token: string } <- r.d;
+    t: { ok: boolean, why: string, kid: string, sub: string, typ: int64, nbf: int64, exp: int64, payload: string, sig: string } <- bees_tempus_frame@tok(d.token);
+    case r.ok and t.ok of { true -> t.exp; false -> 0 }
+}
+fn entries_text(v: List[{ id: string, d: string, age: int64 }, mem(normal)], acc: string) -> string {
+    case v of {
+        []: List[{ id: string, d: string, age: int64 }, mem(normal)] -> acc;
+        [h: { id: string, d: string, age: int64 }, t: List[{ id: string, d: string, age: int64 }, mem(normal)]] -> entries_text(t, concat(concat(concat(acc, " "), concat(bees_trust_frame@cut(bees_trust_frame@hex(h.id), 0, 8), "@")), concat(concat(num(h.age), "/"), num(exp_of(h)))))
+    }
+}
+fn show_entries(k: int64, body: string, count: int64) -> string {
+    r: { ok: boolean, why: string, store: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_frame@dec_entries(body, count);
+    case r.ok of {
+        false -> concat(concat(kind_text(k), " refused here: "), r.why);
+        true -> concat(concat(concat(kind_text(k), " "), typ_text(r.store)), concat(" entries:", case bees_tempus_view@size(r.entries) == 0 of { true -> " (none)"; false -> entries_text(r.entries, "") }))
+    }
+}
+fn show_sample(body: string, count: int64) -> string {
+    r: { ok: boolean, why: string, store: int64, n: int64 } <- bees_tempus_frame@dec_sample(body, count);
+    case r.ok of {
+        false -> concat("sample refused here: ", r.why);
+        true -> concat(concat("sample ", typ_text(r.store)), concat(" n ", num(r.n)))
+    }
+}
+fn show_value(sp: string) -> string {
+    i: (:ok, int64) | (:rejected, atom) <- bees_trust_frame@dec_int(sp);
+    t: (:ok, string) | (:rejected, atom) <- bees_trust_frame@dec_str(sp);
+    case i of {
+        (:ok, n: int64) -> num(n);
+        (:rejected, _a: atom) -> case t of {
+            (:ok, v: string) -> concat(concat("\"", v), "\"");
+            (:rejected, _b: atom) -> concat(num(length_bytes(sp)), " bytes")
+        }
+    }
+}
+fn show_result(body: string) -> string {
+    r: (:ok, string) | (:rejected, atom) <- bees_trust_frame@dec_str(bees_trust_frame@span(body, "req_id"));
+    rid: string <- case r of { (:ok, v: string) -> v; (:rejected, _a: atom) -> "?" };
+    concat(concat("result ", rid), concat(" value ", show_value(bees_trust_frame@span(body, "value"))))
+}
+fn show(body: string, count: int64) -> string {
+    k: int64 <- bees_tempus_frame@kind(body);
+    case k of {
+        14 -> show_result(body);
+        5 -> show_entries(k, body, count);
+        6 -> show_entries(k, body, count);
+        8 -> show_entries(k, body, count);
+        7 -> show_sample(body, count);
+        _: int64 -> kind_text(k)
+    }
+}
+fn request_store(body: string, count: int64) -> int64 {
+    k: int64 <- bees_tempus_frame@kind(body);
+    case k of {
+        5 -> { r: { ok: boolean, why: string, store: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_frame@dec_entries(body, count); r.store };
+        7 -> { q: { ok: boolean, why: string, store: int64, n: int64 } <- bees_tempus_frame@dec_sample(body, count); q.store };
+        _: int64 -> 0
+    }
+}
+
+// ---- for a bridge (C3) ----
+fn call_frame(req_id: string, m: atom, f: atom, arity: int64, args: string) -> string { bees_trust_frame@enc_request(bees_atoms@a_call(), req_id, m, f, arity, args) }
+fn cast_frame(req_id: string, m: atom, f: atom, arity: int64, args: string) -> string { bees_trust_frame@enc_request(bees_atoms@a_cast(), req_id, m, f, arity, args) }
+fn nth_addr(v: List[{ id: string, d: string, age: int64 }, mem(normal)], i: int64) -> string {
+    case v of {
+        []: List[{ id: string, d: string, age: int64 }, mem(normal)] -> "";
+        [h: { id: string, d: string, age: int64 }, t: List[{ id: string, d: string, age: int64 }, mem(normal)]] -> case i == 0 of {
+            true -> {
+                r: { ok: boolean, d: { addr: string, id: string, pub: string, token: string } } <- bees_tempus_frame@desc_of(h.d);
+                d: { addr: string, id: string, pub: string, token: string } <- r.d;
+                d.addr
+            };
+            false -> nth_addr(t, i - 1)
+        }
+    }
+}
+fn pick_bridge(body: string, count: int64, draw: int64) -> string {
+    r: { ok: boolean, why: string, store: int64, entries: List[{ id: string, d: string, age: int64 }, mem(normal)] } <- bees_tempus_frame@dec_entries(body, count);
+    n: int64 <- bees_tempus_view@size(r.entries);
+    case r.ok and n > 0 of {
+        false -> "";
+        true -> nth_addr(r.entries, (case draw < 0 of { true -> 0 - draw; false -> draw }) % n)
+    }
+}

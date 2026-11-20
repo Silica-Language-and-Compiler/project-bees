@@ -13,8 +13,15 @@ What it decides:
                before handing the text to that reader (one place, the value of mode only).
   tempus       required under tempus and tempus-trust, refused under trust and beam; role bridge needs tempus-trust.
   the options  section 11's table: every bound is a literal here, nothing is clamped, nothing has a default except
-               control_test_only (false) and the three specs (none). control_test_only true needs a loopback
-               listen_address (ruling OQ-20).
+               the three specs (none).
+  control_test_only   NOT a key any more (owner's ruling of 2026-11-20 on OQ-20): the test-only tick and clock frames
+               are in a unit only a test program lists in its build (src/tempus_test/bees_tempus_test.silica), so no
+               configuration can turn them on. The key is refused with either value, with a line that says so.
+  the clock    ruling NQ-22 of 2026-11-20: clock_back (follow, hold or stop: what a reading of the system clock earlier
+               than the node's time does), clock_fail (continue or pause: what a reading that fails after a good one
+               does) and clock_read_ms (how often the system clock is read) are required, no default.
+               clock_back_limit_s (the greatest step back in seconds that stop still follows) is required under stop and
+               refused under follow and hold, where it would mean nothing.
 Not here (they need D46's store reader and packer, development-plan/spikes/N0d-store-config.md): turning these values into
 the store's records and the node's arguments; file contents as bytes (N0c). The trust section of a tempus-trust file is
 validated by tools/bees_conf.py itself, given the file with mode trust and without the tempus section (until that reader
@@ -33,12 +40,18 @@ MODES = ("beam", "trust", "tempus", "tempus-trust")
 ROLES = ("edge", "bridge", "sentinel")
 STORE = {"capacity": (1, 256), "shuffle_length": (1, 64), "tick_ms": (100, 3600000)}
 INTS = {"port": (1, 65535), "shuffle_timeout_ms": (100, 60000), "inflight_max": (1, 64), "clock_skew_ms": (0, 300000),
-        "join_retry_initial_ms": (100, 3600000), "join_retry_max_ms": (100, 3600000)}
+        "join_retry_initial_ms": (100, 3600000), "join_retry_max_ms": (100, 3600000), "clock_read_ms": (100, 60000)}
+CLOCK_BACK = ("follow", "hold", "stop")     # the node is passed 1, 2, 3 (src/tempus/bees_tempus_node.part, net.back)
+CLOCK_FAIL = ("continue", "pause")          # the node is passed 1, 2 (net.fail)
+CLOCK_BACK_LIMIT_S = (0, 86400)
 REQUIRED = ("role", "listen_address", "port", "edge", "bridge", "sentinel", "producer_key", "identity_keyfile",
             "identity_certfile", "shuffle_timeout_ms", "inflight_max", "clock_skew_ms", "join_retry_initial_ms",
-            "join_retry_max_ms")
-KEYS = REQUIRED + ("sentinels", "whitelist_file", "whitelist_cert_dir", "edge_spec", "bridge_spec", "sentinel_spec",
-                   "control_test_only")
+            "join_retry_max_ms", "clock_back", "clock_fail", "clock_read_ms")
+KEYS = REQUIRED + ("clock_back_limit_s", "sentinels", "whitelist_file", "whitelist_cert_dir", "edge_spec", "bridge_spec", "sentinel_spec")
+# a key of earlier builds, refused by name so that the refusal says where the test frames went
+REMOVED = {"control_test_only": "no such key any more: the test-only tick and clock frames are not in the library; a test "
+           "program lists the test unit (src/tempus_test/bees_tempus_test.silica) in its build, and no configuration turns "
+           "them on (ruling of 2026-11-20 on OQ-20)"}
 BARE = re.compile(r"(\{\s*mode\s*,\s*)tempus-trust(\s*\})")
 
 
@@ -117,7 +130,10 @@ def tempus_section(top, mode, fname):
     if not runs:
         return None
     node, line = top["tempus"]
-    t = C.proplist(node, "tempus", KEYS)
+    t = C.proplist(node, "tempus", KEYS + tuple(REMOVED))
+    for k, why in REMOVED.items():
+        if k in t:
+            raise C.ConfError(t[k][1], "tempus." + k, why, fname)
     for k in REQUIRED:
         if k not in t:
             raise C.ConfError(line, "tempus." + k, "required (no default)", fname)
@@ -134,6 +150,15 @@ def tempus_section(top, mode, fname):
     v["listener"] = "%s%d" % (form, v["port"])
     if v["join_retry_max_ms"] < v["join_retry_initial_ms"]:
         raise C.ConfError(t["join_retry_max_ms"][1], "tempus.join_retry_max_ms", "below join_retry_initial_ms", fname)
+    v["clock_back"] = C.want_atom(t["clock_back"][0], "tempus.clock_back", CLOCK_BACK)
+    v["clock_fail"] = C.want_atom(t["clock_fail"][0], "tempus.clock_fail", CLOCK_FAIL)
+    if v["clock_back"] == "stop":
+        if "clock_back_limit_s" not in t:
+            raise C.ConfError(t["clock_back"][1], "tempus.clock_back_limit_s", "required when clock_back is stop (no default)", fname)
+        v["clock_back_limit_s"] = C.want_int(t["clock_back_limit_s"][0], "tempus.clock_back_limit_s", *CLOCK_BACK_LIMIT_S)
+    elif "clock_back_limit_s" in t:
+        raise C.ConfError(t["clock_back_limit_s"][1], "tempus.clock_back_limit_s", "clock_back is %s, so no step back stops "
+                          "the node: remove clock_back_limit_s (it is for clock_back stop only)" % v["clock_back"], fname)
     for s in ("edge", "bridge", "sentinel"):
         v[s] = store(t[s][0], "tempus." + s, fname)
     v["producer_key"] = producer(t["producer_key"][0], "tempus.producer_key", fname)
@@ -148,9 +173,6 @@ def tempus_section(top, mode, fname):
         v["sentinels"] = []
     for k in ("edge_spec", "bridge_spec", "sentinel_spec"):
         v[k] = C.parse_spec(t[k][0], "tempus." + k) if k in t else "none"
-    v["control_test_only"] = C.want_bool(t["control_test_only"][0], "tempus.control_test_only") if "control_test_only" in t else False
-    if v["control_test_only"] and not C.is_loopback(v["listen_address"]):
-        raise C.ConfError(t["control_test_only"][1], "tempus.control_test_only", "true only with a loopback listen_address (ruling OQ-20)", fname)
     return v
 
 

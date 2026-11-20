@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run a TEMPUS trial in which node processes and the Python client (tools/bees_tempus_client.py) act together.
+"""Run a TEMPUS trial in which node processes and the Python client (example_tempus_clients/python/bees_tempus_client.py) act together.
 
     bees_tempus_trial.py SCENARIO LEAF_DIR
 
@@ -14,7 +14,8 @@ Nothing of the wall clock is printed. Ports come from tools/trial_ports.py.
 
 Scenarios: t3 (trials/t3_tempus_nodes), c2 (trials/c2_tempus_clients; C2_ONLY=python or C2_ONLY=silica in the
 environment walks one client's half, for work on a scenario by hand), c3 (trials/c3_tempus_bridge; its nodes run in their
-own directories under nodes/, each writing its NAME.sout there; C3_ONLY as C2_ONLY).
+own directories under nodes/, each writing its NAME.sout there; C3_ONLY as C2_ONLY), t6 (trials/t6_tempus_clock; nodes
+under nodes/ as c3).
 """
 import os
 import pty
@@ -28,6 +29,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(HERE, "..", "example_tempus_clients", "python"))  # the example Python client
 import bees_tempus_client as c  # noqa: E402
 from bees_tempus_reports import BENIGN, REASON, REPORT  # noqa: E402
 import trial_ports  # noqa: E402
@@ -752,7 +754,134 @@ def c3(leaf):
     return 0
 
 
-SCENARIOS = {"t3": t3, "c2": c2, "c3": c3}
+def t6(leaf):
+    """T6 (trials/t6_tempus_clock): what a node does with a clock that fails or goes back, on running nodes, and that a
+    program built without the test unit refuses the test frames. Three programs, each in its own directory under nodes/:
+    H and S are test programs (externally driven, with the test unit of src/tempus_test: a clock frame is a clock
+    reading, judged by the node's configured choices); P is shaped like a production program. Every step waits for the
+    node line that ends it. Two steps wait for a real time to pass (the join's retry of 3 s, and the later reading of a
+    clock frame); nothing of the wall clock is printed."""
+    base = trial_ports.TABLE["t6_tempus_clock"][0]
+    h_addr, s_addr, p_addr, sent_addr, c_addr = ("127.0.0.1:%d" % (base + k) for k in (0, 1, 2, 3, 4))
+    h_dir, s_dir, p_dir = (os.path.join(leaf, "nodes", n) for n in ("h", "s", "p"))
+    E = c.fixture_identity(64, "tempus_edge", 1000, 3000, addr=c_addr)
+    short = c.fixture_identity(64, "tempus_edge", 1000, 1480, addr=c_addr)       # ends at 1480
+    far = c.fixture_identity(64, "tempus_edge", 1000, 4000000000, addr=c_addr)   # valid by the machine's clock
+    i = c.fixture_identity(128, "tempus_sentinel", 1000, 3000, addr=sent_addr)
+    SENT = c.Identity(i.seed, i.token, sent_addr, cert_pem=cert("sentinel"))
+    smp, tck = c.sample("tempus_edge", 3), c.tick("tempus_edge")
+    p = Peer()
+    asked = []
+
+    def sentinel(rq):
+        asked.append((rq.kind, str(rq.fields.get("store"))))
+        return c.sample_reply(rq.fields["store"], []) if rq.kind == "sample" else c.CLOSE
+
+    def ask(addr, who, body, want="reply", kind=None, wait=0.7):
+        out = p.ask(addr, who, body, want=want, kind=kind)
+        quiet(wait)
+        return out
+
+    def shut(addr, who, body):
+        """the node closes the connection at once, before any frame: the dial ends closed or with a failed handshake"""
+        out = c.dial(addr, who, p.verifier, body, timeout=4.0)
+        p.log.append(out.line())
+        check(out.what in ("closed", "tls_failed"), "a connection to %s was not closed: %s" % (addr, out.line()))
+        quiet()
+        return out
+
+    nodes = {}
+    try:
+        # ---- H: clock_back hold, clock_fail continue
+        h = nodes["h"] = Node(h_dir, "dangerous_h")
+        h.wait(r"^join: no sentinel is configured$")
+        quiet()
+        # H1. the clock goes back by 50 s: the node holds its time (1500)
+        ask(h_addr, E, c.clock(1450000), kind="done")
+        h.wait(r"the node holds its time")
+        # H2. it goes on admitting by the held time: a token that ended at 1480 is refused (it has expired at 1500; by
+        #     the clock's own 1450 it would be valid), a good one is served, and a tick is taken
+        ask(h_addr, short, smp, want="closed")
+        ask(h_addr, E, smp, kind="sample_reply")
+        ask(h_addr, E, tck, kind="done")
+        #     ... and what the test unit does not serve is refused as on a node without it: a frame of no kind, and
+        #     a clock frame that breaks a bound (the reason is in H's output)
+        ask(h_addr, E, c.etf_encode({c.Atom("t"): c.Atom("tempus_edge")}), want="closed")
+        ask(h_addr, E, c.clock(5, 0, 6), want="closed")
+        # H3. a reading that is still behind changes nothing and prints nothing
+        ask(h_addr, E, c.clock(1460000), kind="done")
+        ask(h_addr, short, smp, want="closed")
+        # H4. the clock reaches the held time: the hold ends
+        ask(h_addr, E, c.clock(1500000), kind="done")
+        h.wait(r"has reached the held time")
+        # H5. a reading fails: the node goes on with its last reading, admits and ticks
+        ask(h_addr, E, c.clock(c.NO_TIME), kind="done")
+        h.wait(r"goes on with its last reading$")
+        h.wait(r"^application: told \(86\)")
+        ask(h_addr, E, smp, kind="sample_reply")
+        ask(h_addr, E, tck, kind="done")
+        # H6. the next good reading is taken without a line; a second failure is told again
+        ask(h_addr, E, c.clock(1510000), kind="done")
+        ask(h_addr, E, c.clock(c.NO_TIME), kind="done")
+        h.wait(r"goes on with its last reading$")
+        quiet()
+        nodes.pop("h").stop()
+
+        # ---- S: clock_back stop with a limit of 60 s, clock_fail pause; its sentinel does not listen yet
+        s = nodes["s"] = Node(s_dir, "dangerous_s")
+        s.wait(r"^join: no sentinel answered for tempus_edge; waiting to try again$")
+        # S1. the reading fails: the node waits for its clock. The frame also holds the reading that ends the wait, 7 s
+        #     later (no frame can bring it: the waiting node closes every connection)
+        ask(s_addr, E, c.clock(c.NO_TIME, 7000, 1500000), kind="done", wait=0.2)
+        s.wait(r"admits no connection and does not tick until it is read again$")
+        s.wait(r"^application: told \(86\)")
+        # S2. an accepted connection is closed at once (audit line clock_refused)
+        shut(s_addr, E, smp)
+        s.wait(r"clock_refused")
+        # S3. the join's retry falls due (3 s after the failed dial): it is not dialed, it waits for the clock
+        s.wait(r"^join: the request for tempus_edge waits until the system clock is read again$")
+        with c.Listener(SENT, p.verifier, sentinel, [cert("node")], port=base + 3, timeout=5.0):
+            # S4. the clock is read again: one line, and the waiting request is dialed at once
+            s.wait(r"^clock: the system clock is read again$")
+            s.wait(r"^join: done$")
+            quiet()
+            check([k for k, _st in asked] == ["sample"] * 3, "the join after the wait did not ask the sentinel for the three stores: %r" % asked)
+        ask(s_addr, E, smp, kind="sample_reply")
+        # S5. a step back of 30 s, inside the limit: followed
+        ask(s_addr, E, c.clock(1470000), kind="done")
+        s.wait(r"went back by 30 s; the node follows it$")
+        ask(s_addr, E, smp, kind="sample_reply")
+        # S6. a step back of 100 s, above the limit: the node stops. The frame holds a later, good reading too.
+        ask(s_addr, E, c.clock(1370000, 2500, 2000000), kind="done", wait=0.2)
+        s.wait(r"the node has stopped")
+        s.wait(r"^application: told \(87\)")
+        # S7. an accepted connection is closed at once (audit line clock_stopped)
+        shut(s_addr, E, smp)
+        s.wait(r"clock_stopped")
+        # S8. the later reading comes and changes nothing: the node stays stopped
+        s.wait(r"^clock: 2000 s \(the later reading of a clock frame\)$")
+        quiet()
+        shut(s_addr, E, smp)
+        s.wait(r"clock_stopped")
+        quiet()
+        nodes.pop("s").stop()
+
+        # ---- P: built without the test unit; its clock is the machine's
+        pn = nodes["p"] = Node(p_dir, "dangerous_p")
+        pn.wait(r"^join: no sentinel is configured$")
+        quiet()
+        ask(p_addr, far, smp, kind="sample_reply")
+        for body in (tck, c.clock(1700000), c.clock(c.NO_TIME, 1000, 1700000)):
+            ask(p_addr, far, body, want="closed")
+        ask(p_addr, far, smp, kind="sample_reply")
+    finally:
+        for n in list(nodes.values()):
+            n.stop()
+    print("[t6] the client's steps passed (%d requests)" % len(p.log))
+    return 0
+
+
+SCENARIOS = {"t3": t3, "c2": c2, "c3": c3, "t6": t6}
 
 
 def main(argv):

@@ -4,7 +4,7 @@
 #   nodes/t   node T, a plain TRUST node over mutual TLS 1.3 (port +0), whitelisting the two bridges' TRUST certificates
 #   nodes/b1  bridge B1, nodes/b2 bridge B2: the TRUST node as built (a TRUST client of T, pinned to a.pem) and a TEMPUS
 #             node of role bridge (tempus/1 on +1 and +2) in one program (src/tempus/bees_tempus_bridge.part)
-#   nodes/c   the Silica client (src/tempus_client) under the thin application roles/client.role with the scenario c.role
+#   nodes/c   the Silica client (example_tempus_clients/silica) under the thin application roles/client.role with the scenario c.role
 # tools/bees_tempus_trial.py c3 starts T, B1 and B2, walks the Python client's first part, waits for the Silica client's
 # `done`, walks the Python client's second part (it stops B2 for row 33 and has T quarantine B1 at the end), and stops
 # everything. Each program's output is copied here as t.sout, b1.sout, b2.sout, c.sout and compared with its golden.

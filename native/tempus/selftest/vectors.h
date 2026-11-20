@@ -1,4 +1,4 @@
-/* TEST ONLY vectors, made by tools/bees_tempus_client.py and the Python `cryptography` package (an implementation
+/* TEST ONLY vectors, made by example_tempus_clients/python/bees_tempus_client.py and the Python `cryptography` package (an implementation
  * independent of OpenSSL's EVP calls under test): fixed seeds 00..1f (producer) and 20..3f (node); keys that belong to
  * nobody. Regenerate: see the header of bees_tempus_selftest.c. */
 static const uint8_t producer_seed[32] = {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31};

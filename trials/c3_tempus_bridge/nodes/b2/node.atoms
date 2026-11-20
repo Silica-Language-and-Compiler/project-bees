@@ -1,0 +1,14 @@
+# a bridge's own atoms: the names of the functions it exports to edges and calls on node T, the failure reason, and the
+# names of the trial's forbidden and unpermitted requests (held, so that the guard and the spec refuse them, not the atom policy)
+demo
+add
+crash
+note
+onward
+bad
+hold
+release
+slow
+secret
+badarith
+apply

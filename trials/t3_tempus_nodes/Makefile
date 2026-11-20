@@ -1,6 +1,6 @@
 # T3: TEMPUS nodes over real TLS on 127.0.0.1 (development-plan/tempus-design.md sections 3 to 6, 8 to 10, 16.3): three node
-# processes under control_test_only, the sentinel S (dangerous_s), the edges A and B (dangerous_a, dangerous_b), and the
-# Python client (tools/bees_tempus_client.py) as the peer that sends the tick and clock frames, shuffles, listens and
+# test programs (externally driven nodes with the test unit of src/tempus_test), the sentinel S (dangerous_s), the edges A and B (dangerous_a, dangerous_b), and the
+# Python client (example_tempus_clients/python/bees_tempus_client.py) as the peer that sends the tick and clock frames, shuffles, listens and
 # misbehaves. tools/bees_tempus_trial.py t3 starts the nodes one after another, walks the steps (each waits for its reply
 # and for the node lines that end it, so the nodes' outputs are in one order), checks what the client can see, and stops
 # the nodes. What the client cannot see (a node's view after a step) is in the nodes' goldens.
@@ -19,7 +19,7 @@ SRC_T := $(BEES_ROOT)/src/tempus
 -include $(LEAF_DIR)/.gen.mk
 $(LEAF_DIR)/.gen.mk: $(LEAF_DIR)/s.role $(LEAF_DIR)/a.role $(LEAF_DIR)/b.role $(LEAF_DIR)/node.role $(GEN) $(SRC_T)/bees_tempus_node.silica.in $(SRC_T)/bees_tempus_node.part $(SRC_T)/bees_tempus_link.part $(BEES_ROOT)/src/shim/bees_tcp_edge.part
 	@cd "$(LEAF_DIR)" && python3 "$(GEN)" unit "$(SRC_T)/bees_tempus_node.silica.in" lib/bees_tempus_node.silica && \
-	for n in s a b; do python3 "$(GEN)" edge dangerous_$$n dangerous_$$n.silica --use tempus_ids --use bees_tempus_store --use bees_tempus_store_actor --use bees_tempus_node --use dangerous_bees_tempus_draws --part bees_tempus_node.part $$n.role node.role || exit 1; done && \
+	for n in s a b; do python3 "$(GEN)" edge dangerous_$$n dangerous_$$n.silica --use tempus_ids --use bees_tempus_store --use bees_tempus_store_actor --use bees_tempus_node --use dangerous_bees_tempus_draws --use bees_tempus_test --part bees_tempus_node.part $$n.role node.role || exit 1; done && \
 	echo "# written by the rule of this file in the Makefile: the generated units are current" > .gen.mk
 include $(BEES_ROOT)/tools/trial.mk
 # the nodes run together, started and stopped by the trial tool: none runs alone

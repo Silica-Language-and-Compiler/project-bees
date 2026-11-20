@@ -1,7 +1,9 @@
-// control_test_only on a listen address that is not loopback (ruling OQ-20: a test node listens on loopback only)
+// an externally driven node on a listen address that is not loopback (ruling OQ-20: a node that test frames can reach
+// listens on loopback only; the test unit checks the same, trials/t2_tempus_frames)
 fn listen() -> string { "listen:any:24300" }
 fn test() -> boolean { true }
 fn cap1() -> int64 { 4 }
 fn count1() -> int64 { 3 }
 fn tok() -> int64 { 1 }
 fn ppub() -> string { tempus_ids@unhex(tempus_ids@producer_pub_hex()) }
+fn back() -> int64 { 1 }

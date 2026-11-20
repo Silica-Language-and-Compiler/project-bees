@@ -65,8 +65,9 @@ TABLE = {
     "c3_tempus_bridge": (24200, "TEMPUS bridges (T6, C3): +0 the TRUST node T's listener, +1 and +2 the tempus/1 listeners of bridges B1 and B2, +3 the Python client's listener, +4 the Silica client's listener, +5 an address nobody listens on, +6 and +7 the TRUST ports in the bridges' bees.config (no whitelist: nothing listens)"),
     "c4_tempus_boot": (24300, "TEMPUS boot refusals (T7): +0 the listen address in every entry's values; no entry starts, nothing listens"),
     "n5_trust_mesh": (24400, "the five-node TRUST mesh over TLS (examples/trust_mesh, run by trials/n5_trust_mesh): +1 node n1, +2 n2, +3 n3, +4 n4, +5 n5 (each node's TLS listener; every node dials the other four)"),
+    "t6_tempus_clock": (24500, "TEMPUS clock choices on running nodes, and a node built without the test unit (T6): +0 node H, +1 node S, +2 node P, +3 the Python client's sentinel listener (tools/bees_tempus_trial.py), +4 the client's own address, a value only"),
 }
-NEXT_BASE = 24500
+NEXT_BASE = 24600
 
 # leaves that never bind a port but whose files may carry a port number as DATA (a frame's field): not checked for literals
 DATA_ONLY = {"n2_frames": "the EPMD ALIVE2 frame carries port 47500 as a value; nothing listens",

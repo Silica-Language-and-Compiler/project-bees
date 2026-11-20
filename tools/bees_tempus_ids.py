@@ -21,6 +21,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(HERE, "..", "example_tempus_clients", "python"))  # the example Python client
 import bees_tempus_certs as certs  # noqa: E402
 import bees_tempus_client as c  # noqa: E402
 import bees_tempus_fixtures as fx  # noqa: E402

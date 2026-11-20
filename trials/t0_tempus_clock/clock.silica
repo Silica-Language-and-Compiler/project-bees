@@ -1,0 +1,206 @@
+// T0 (clock): the decision a TEMPUS node makes on each reading of its system clock (src/tempus/bees_tempus_node.silica.in:
+// clock_back, clock_turn; development-plan/tempus-design.md section 10, ruling NQ-22 of 2026-11-20). In memory: every
+// reading is a literal of this file (a trial cannot set the machine's clock). Part 1 is clock_back alone, one case a
+// line. Part 2 gives clock_turn a run of readings for each pair of choices and prints the node's time, its state and
+// what the node part would do after each. A reading of -1 is "the operating system gave no time".
+use bees_tempus_node;
+use bees_reporter;
+
+fn say(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+fn digits(n: int64, acc: string) -> string {
+    case n < 10 of {
+        true -> concat(substring("0123456789", n, n + 1), acc);
+        false -> digits(n / 10, concat(substring("0123456789", n % 10, n % 10 + 1), acc))
+    }
+}
+fn num(n: int64) -> string { case n < 0 of { true -> concat("-", digits(0 - n, "")); false -> digits(n, "") } }
+fn back_text(b: int64) -> string { case b of { 1 -> "follow"; 2 -> "hold"; 3 -> "stop"; _: int64 -> "?" } }
+fn fail_text(f: int64) -> string { case f of { 1 -> "continue"; 2 -> "pause"; _: int64 -> "?" } }
+fn act_text(a: int64) -> string {
+    case a of { 0 -> "not earlier"; 1 -> "earlier, followed"; 2 -> "earlier, held"; 3 -> "earlier, the node stops"; _: int64 -> "?" }
+}
+fn ck_text(k: int64) -> string {
+    case k of {
+        0 -> "no reading yet"; 3 -> "no reading yet, application told"; 1 -> "good"; 2 -> "paused, waits for the clock";
+        6 -> "goes on with its last reading"; 5 -> "holds its time"; 4 -> "stopped"; _: int64 -> "?"
+    }
+}
+fn say_text(s: int64) -> string {
+    case s of {
+        0 -> "nothing"; 1 -> "first reading: one line, listen"; 2 -> "no time at start: one line, application told";
+        3 -> "no time, pause: one line, application told"; 4 -> "no time, continue: one line, application told";
+        6 -> "step back followed: one line"; 7 -> "step back, hold begins: one line"; 8 -> "the held time is reached: one line";
+        9 -> "step back above the limit: one line, application told, stop"; _: int64 -> "?"
+    }
+}
+fn ticks(k: int64) -> string { case bees_tempus_node@clock_ticks(k) of { true -> "ticks"; false -> "no ticks" } }
+// before the first reading the node has not called tempus_listen (the node part does that at `first reading`)
+fn accepts(k: int64) -> string {
+    case k == 0 or k == 3 of { true -> "does not listen yet"; false -> accepts2(k) }
+}
+fn accepts2(k: int64) -> string {
+    case bees_tempus_node@clock_closes(k) of { 4 -> "closes accepted connections (role 4, clock_refused)"; 5 -> "closes accepted connections (role 5, clock_stopped)"; _: int64 -> "accepts" }
+}
+
+// ---- part 1
+fn b1(last: int64, n: int64, back: int64, limit: int64) -> atom {
+    r: { now: int64, act: int64 } <- bees_tempus_node@clock_back(last, n, back, limit);
+    lim: string <- case back == 3 of { true -> concat(" limit ", num(limit)); false -> "" };
+    hd: string <- concat(concat(concat(back_text(back), lim), concat(": time ", num(last))), concat(", reading ", num(n)));
+    say(concat(concat(concat(hd, " -> time "), num(r.now)), concat(", ", act_text(r.act))))
+}
+fn part1() -> atom {
+    sequence
+        _: atom <- say("part 1: clock_back, one good reading after the node's time");
+        _: atom <- b1(1000, 1001, 1, 0);
+        _: atom <- b1(1000, 1000, 1, 0);
+        _: atom <- b1(1000, 999, 1, 0);
+        _: atom <- b1(1000, 0, 1, 0);
+        _: atom <- b1(1000, 1001, 2, 0);
+        _: atom <- b1(1000, 1000, 2, 0);
+        _: atom <- b1(1000, 999, 2, 0);
+        _: atom <- b1(1000, 0, 2, 0);
+        _: atom <- b1(1000, 1001, 3, 30);
+        _: atom <- b1(1000, 1000, 3, 30);
+        _: atom <- b1(1000, 999, 3, 30);
+        _: atom <- b1(1000, 971, 3, 30);
+        _: atom <- b1(1000, 970, 3, 30);
+        _: atom <- b1(1000, 969, 3, 30);
+        _: atom <- b1(1000, 0, 3, 30);
+        _: atom <- b1(1000, 1000, 3, 0);
+        _: atom <- b1(1000, 999, 3, 0);
+        // the limit is not read under follow and hold
+        _: atom <- b1(1000, 0, 1, 30);
+        _: atom <- b1(1000, 0, 2, 30)
+    produces pure :ok end
+}
+
+// ---- part 2
+fn t1(s: { now: int64, ck: int64 }, n: int64, z: { back: int64, limit: int64, fail: int64 }) -> { now: int64, ck: int64 } {
+    r: { now: int64, ck: int64, say: int64, again: boolean } <- bees_tempus_node@clock_turn(s.ck, s.now, n, z);
+    rd: string <- case n < 0 of { true -> "no time"; false -> num(n) };
+    ag: string <- case r.again of { true -> "read again: one line; then "; false -> "" };
+    l1: string <- concat(concat("  reading ", rd), concat(" -> time ", num(r.now)));
+    l2: string <- concat(concat("; ", ck_text(r.ck)), concat(concat("; ", ticks(r.ck)), concat("; ", accepts(r.ck))));
+    l3: string <- concat(concat("; does: ", ag), say_text(r.say));
+    sequence
+        _: atom <- say(concat(l1, concat(l2, l3)))
+    produces pure { now: r.now, ck: r.ck } end
+}
+fn title(z: { back: int64, limit: int64, fail: int64 }) -> atom {
+    lim: string <- case z.back == 3 of { true -> concat(" limit ", num(z.limit)); false -> "" };
+    say(concat(concat(concat("clock_back ", back_text(z.back)), lim), concat(", clock_fail ", fail_text(z.fail))))
+}
+fn s0() -> { now: int64, ck: int64 } { { now: 0, ck: 0 } }
+fn run_follow_pause() -> atom {
+    z: { back: int64, limit: int64, fail: int64 } <- { back: 1, limit: 0, fail: 2 };
+    sequence
+        _: atom <- title(z);
+        a: { now: int64, ck: int64 } <- t1(s0(), 0 - 1, z);
+        b: { now: int64, ck: int64 } <- t1(a, 0 - 1, z);
+        c: { now: int64, ck: int64 } <- t1(b, 1000, z);
+        d: { now: int64, ck: int64 } <- t1(c, 1001, z);
+        e: { now: int64, ck: int64 } <- t1(d, 1001, z);
+        f: { now: int64, ck: int64 } <- t1(e, 990, z);
+        g: { now: int64, ck: int64 } <- t1(f, 0 - 1, z);
+        h: { now: int64, ck: int64 } <- t1(g, 0 - 1, z);
+        i: { now: int64, ck: int64 } <- t1(h, 995, z);
+        j: { now: int64, ck: int64 } <- t1(i, 0 - 1, z);
+        k: { now: int64, ck: int64 } <- t1(j, 980, z);
+        l: { now: int64, ck: int64 } <- t1(k, 981, z)
+    produces pure :ok end
+}
+fn run_follow_continue() -> atom {
+    z: { back: int64, limit: int64, fail: int64 } <- { back: 1, limit: 0, fail: 1 };
+    sequence
+        _: atom <- title(z);
+        a: { now: int64, ck: int64 } <- t1(s0(), 0 - 1, z);
+        b: { now: int64, ck: int64 } <- t1(a, 1000, z);
+        c: { now: int64, ck: int64 } <- t1(b, 0 - 1, z);
+        d: { now: int64, ck: int64 } <- t1(c, 0 - 1, z);
+        e: { now: int64, ck: int64 } <- t1(d, 1003, z);
+        f: { now: int64, ck: int64 } <- t1(e, 0 - 1, z);
+        g: { now: int64, ck: int64 } <- t1(f, 990, z)
+    produces pure :ok end
+}
+fn run_hold_continue() -> atom {
+    z: { back: int64, limit: int64, fail: int64 } <- { back: 2, limit: 0, fail: 1 };
+    sequence
+        _: atom <- title(z);
+        a: { now: int64, ck: int64 } <- t1(s0(), 1000, z);
+        b: { now: int64, ck: int64 } <- t1(a, 1005, z);
+        c: { now: int64, ck: int64 } <- t1(b, 990, z);
+        d: { now: int64, ck: int64 } <- t1(c, 991, z);
+        e: { now: int64, ck: int64 } <- t1(d, 985, z);
+        f: { now: int64, ck: int64 } <- t1(e, 1004, z);
+        g: { now: int64, ck: int64 } <- t1(f, 1005, z);
+        h: { now: int64, ck: int64 } <- t1(g, 1006, z);
+        i: { now: int64, ck: int64 } <- t1(h, 1000, z);
+        j: { now: int64, ck: int64 } <- t1(i, 0 - 1, z);
+        k: { now: int64, ck: int64 } <- t1(j, 1001, z);
+        l: { now: int64, ck: int64 } <- t1(k, 1007, z)
+    produces pure :ok end
+}
+fn run_hold_pause() -> atom {
+    z: { back: int64, limit: int64, fail: int64 } <- { back: 2, limit: 0, fail: 2 };
+    sequence
+        _: atom <- title(z);
+        a: { now: int64, ck: int64 } <- t1(s0(), 1000, z);
+        b: { now: int64, ck: int64 } <- t1(a, 990, z);
+        c: { now: int64, ck: int64 } <- t1(b, 0 - 1, z);
+        d: { now: int64, ck: int64 } <- t1(c, 992, z);
+        e: { now: int64, ck: int64 } <- t1(d, 0 - 1, z);
+        f: { now: int64, ck: int64 } <- t1(e, 1001, z)
+    produces pure :ok end
+}
+fn run_stop_pause() -> atom {
+    z: { back: int64, limit: int64, fail: int64 } <- { back: 3, limit: 10, fail: 2 };
+    sequence
+        _: atom <- title(z);
+        a: { now: int64, ck: int64 } <- t1(s0(), 1000, z);
+        b: { now: int64, ck: int64 } <- t1(a, 995, z);
+        c: { now: int64, ck: int64 } <- t1(b, 985, z);
+        d: { now: int64, ck: int64 } <- t1(c, 974, z);
+        e: { now: int64, ck: int64 } <- t1(d, 2000, z);
+        f: { now: int64, ck: int64 } <- t1(e, 0 - 1, z);
+        g: { now: int64, ck: int64 } <- t1(f, 2001, z)
+    produces pure :ok end
+}
+fn run_stop_continue() -> atom {
+    z: { back: int64, limit: int64, fail: int64 } <- { back: 3, limit: 10, fail: 1 };
+    sequence
+        _: atom <- title(z);
+        a: { now: int64, ck: int64 } <- t1(s0(), 1000, z);
+        b: { now: int64, ck: int64 } <- t1(a, 0 - 1, z);
+        c: { now: int64, ck: int64 } <- t1(b, 900, z);
+        d: { now: int64, ck: int64 } <- t1(c, 1000, z)
+    produces pure :ok end
+}
+fn run_stop_after_pause() -> atom {
+    z: { back: int64, limit: int64, fail: int64 } <- { back: 3, limit: 0, fail: 2 };
+    sequence
+        _: atom <- title(z);
+        a: { now: int64, ck: int64 } <- t1(s0(), 1000, z);
+        b: { now: int64, ck: int64 } <- t1(a, 0 - 1, z);
+        c: { now: int64, ck: int64 } <- t1(b, 999, z);
+        d: { now: int64, ck: int64 } <- t1(c, 0 - 1, z)
+    produces pure :ok end
+}
+fn main() -> int64 {
+    sequence
+        _: atom <- bees_reporter@start();
+        _: atom <- part1();
+        _: atom <- say("part 2: clock_turn, a run of readings for each pair of choices");
+        _: atom <- run_follow_pause();
+        _: atom <- run_follow_continue();
+        _: atom <- run_hold_continue();
+        _: atom <- run_hold_pause();
+        _: atom <- run_stop_pause();
+        _: atom <- run_stop_continue();
+        _: atom <- run_stop_after_pause()
+    produces pure 0 end
+}

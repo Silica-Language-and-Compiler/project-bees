@@ -661,4 +661,114 @@ eight TEMPUS trials pass with it on the Mac; no golden changed, because no trial
 is still read from the code only. Also ruled that day: a file that configures BEAM together with TRUST or with TEMPUS
 is refused (`tools/bees_conf.py`, `tools/bees_tempus_conf.py`, development-plan/bees-config-file.md section 3).
 
+Ruled later on 2026-11-20 and built: the clock's behaviour is configured (design sections 10 and 11, NQ-22). Four new
+keys of the `tempus` section, none with a default: `clock_back` (`follow`, `hold`, `stop`: a reading earlier than the
+node's time), `clock_back_limit_s` (0 to 86400; required under `stop`, refused otherwise), `clock_fail` (`continue`,
+`pause`: a reading that fails after a good one) and `clock_read_ms` (100 to 60000; the literal `read_every_ms` is gone).
+- The path: `tools/bees_tempus_conf.py` validates them; the application passes them in the node's `net` record as
+  `back` (1, 2, 3), `blim`, `fail` (1, 2) and `every` (`$NN$` and `$NC$` in `tools/bees_tempus_gen.py`);
+  `bees_tempus_node@boot_why` refuses a choice outside its set; the clock actor's state carries `every`.
+- The decision is pure: `bees_tempus_node@clock_back(last, reading, choice, limit)` and
+  `bees_tempus_node@clock_turn(state, last, reading, choices)` in `src/tempus/bees_tempus_node.silica.in`; `tn_clock`
+  prints the lines and does what they say. Clock states (`v.ck`): 5 holds its time, 6 goes on with its last reading, 4
+  stopped, added to 0, 1, 2, 3. A stopped node closes accepted connections through role 5 of the connection actor, audit
+  line `clock_stopped`, and tells its application with op 87.
+- Shown by a trial: `trials/t0_tempus_clock` (new, Mac golden): every choice, both sides of the limit, the end of a hold,
+  both choices for a failed reading, with readings as numbers; `trials/c4_tempus_boot`, new entry
+  `dangerous_clockback` (Mac golden): a node with no `clock_back` choice is refused at boot;
+  `tools/test_bees_tempus_conf.py`: six new tests of the keys. Read from the code only: the node acting on the
+  decision with a real clock (`tn_clock`, `tn_timer`, `tn_accepted`, role 5), because a trial cannot set the machine's
+  clock or make it fail.
+- The trials' nodes pass `follow`, `pause`, 1000 ms (what was built before): no existing golden changed on the Mac. The
+  Linux goldens of the two new outputs are not recorded.
+- Rules a successor needs: a plain binding may not stand between a sequence's steps and its `produces` (E1040); `head`
+  is a builtin name (E2020). Application ops 86 and 87 reach a bridge's application through the table actor's
+  `pass_on`. A test node's `clock` frame does not go through `clock_back` (open, not ruled).
+
+Ruled later still on 2026-11-20 and built: the test frames are out of the library (design 16.3, the new RULED line
+under OQ-20). The owner saw that the `tick` and `clock` handlers were compiled into every node behind the start value
+`control_test_only`, and ruled: "Move the test frames out of the library into a unit only test programs list in their
+build. A production build does not contain the handlers at all."
+- The test unit: `src/tempus_test/bees_tempus_test.silica` and `src/tempus_test/bees_tempus_test.atoms` (the atoms
+  `tick`, `clock`, `ms`, `wait`, `later`). It holds the frames' encoders and decoders, the actor `tdrv` that acts on
+  them, the banner and the loopback check. `src/tempus_test` is not a directory a production application lists. A
+  test program lists the unit and the atoms file (in a trial: two links in `lib/` and `--use bees_tempus_test`).
+- Gone from the library: kinds 9 and 10, `enc_tick`, `enc_clock`, `dec_tick`, `dec_clock` (`bees_tempus_frame`); the
+  atoms `tick`, `clock`, `ms` (`bees_tempus.atoms`); `tn_rq_tick`, `tn_rq_clock`, the banner, the audit event
+  `test_only_refused`, the start record `{ test, now, draws }` (`bees_tempus_node.part`); `tick/1` and `clock/1` of
+  `bees_tempus_client` (the scenarios call `bees_tempus_test@tick`, `@clock`, `@clock_later`).
+- The hook: the node's last start argument is `drv`, `{ driven, ext, draws }` (`$NT$`). `driven` true: no clock
+  actor, no store timers, literal draws and view lines (what `test` did), and three things for `ext`: the node
+  introduces itself (133); a well-formed frame of no kind from an admitted peer is handed over (the connection actor
+  sends it to the node as 68 only when its `cfg.ext` is true, which is the node's `driven`); a tick or a reading that
+  carried a tag is reported when it has ended or is taken (131, 132, with the actor reference that came with it). The
+  driver casts the node the clock actor's and the timers' own messages: 130 (n: seconds or -1; m: a tag) and 1 (n: a
+  tag; m: the store). `ext` answers the connection actor 20, 21 or the new 22 (refuse as a frame that is not a
+  request: the same audit line and the same score at a bridge as on a production node). `boot_why` refuses `driven`
+  on a listen address that is not loopback; the test unit checks the listen text the node gives it as well.
+- The `done` of a tick keeps its timing: the test unit casts the tick with the connection's number as the tag, the
+  node reports 131 where it answered `done` before (`tn_done`: at the end of the shuffle, or at once), and the unit
+  answers the connection. One more actor hop, the same moment.
+- A `clock` frame is now a clock reading: it goes through `clock_turn` with the node's choices, `ms` -1 says the clock
+  could not be read, and the form with `wait` and `later` carries a second reading for later (a node that waits for
+  its clock closes every connection, so the reading that ends the wait cannot come in a frame).
+- The configuration key `control_test_only` is removed. `tools/bees_tempus_conf.py` refuses it with either value and
+  says where the test frames went.
+- New trial `trials/t6_tempus_clock` (Mac golden; port block 24500; scenario `t6` of `tools/bees_tempus_trial.py`), three
+  programs each in its own directory with its own unit list. H (hold, continue): the hold begins, a token that ended
+  inside the held span is refused, a reading still behind prints nothing, the hold ends; a failed reading, the node
+  goes on, 86. S (stop with limit 60, pause): the wait for the clock with its line, 86, a connection closed
+  `clock_refused`, the join retry that falls due and waits, `read again` and the dial at once; a step back of 30 s
+  followed; a step back of 100 s: the stop line, 87, a connection closed `clock_stopped`, and no resume at a later
+  good reading. P (no unit and no atom of the test unit in its build, the machine's clock): `tick` and both `clock`
+  forms refused `protocol_error ... not a request: unknown_atom`. `make production-check` (part of integrate) searches
+  P's compiled units (.sams), atom table, unit list and linked program for the unit's name, functions, atoms and
+  banner, finds none, and finds them in H.
+- Goldens re-recorded on the Mac, each after reading the difference. One line more and the banner moved up (the
+  banner is printed by the test unit before the node's first reading; the node then says `clock: the system clock is
+  read` and listens): `t3_tempus_nodes/dangerous_{a,b,s}`, `c2_tempus_clients/dangerous_{n,m}`, `c3_tempus_bridge/b1`,
+  `b2`. The refusal text: `c2_tempus_clients/dangerous_o` (two lines), `c4_tempus_boot/dangerous_any` (`an externally
+  driven node on a listen address that is not loopback`). `t2_tempus_frames/frames`: the tick and clock lines now say
+  that the library refuses the frame and the test unit reads it, four new frames (no time, a later reading, before
+  -1, a wait of 0) in place of `clock before 0`, and four lines of the unit's loopback check. New: t6's `h`, `s`, `p`.
+  The Linux twins of all of these are stale until re-recorded there; until then `tools/test_bees_tempus_client.py`
+  fails twice on `frames.linux_x86_64.scout` (it reads every platform's golden; with the Mac golden alone it passes).
+- Still read from the code only: the clock actor itself (the native reading, its timer) and a system clock that cannot
+  be read at start.
+- Node O of `trials/c2_tempus_clients` is not the proof of absence: that trial builds five programs in one directory
+  with one unit list, which holds the test unit for N and M, and the build links every listed unit into every program.
+  O's root unit does not use the unit and O is not driven, so O refuses a tick as a frame of no kind (its golden's two
+  lines changed from `test_only_refused` to `protocol_error ... not a request: unknown kind`), but the unit's code is
+  in O's linked program. The proof of absence is node P of t6, built in a directory of its own.
+- Rules a successor needs: a trial node that needs ticks or a set clock is a test program: `x <- bees_tempus_test@start(now)`,
+  `drv { driven: true, ext: x, draws }`. Message numbers taken at the node: 68, 131, 132, 133 (and 22 as an answer to
+  the connection actor). A program whose leaf lists the test atoms holds the atom `tick`, so its refusal of a tick
+  frame reads `unknown kind`; a program without them reads `unknown_atom`. A connection actor's `cfg` has one field
+  more, `ext` (a client passes false).
+
 What remains is the plan of the entry above (T7's store-carrier part, the edits in tools/bees_conf.py by its owner, T8).
+
+## 2026-11-20, the two clients moved to example_tempus_clients (owner's request)
+
+The owner asked for the Python and Silica clients to leave the library and the tools: they are examples, not production
+code. Moved with `git mv`, nothing in them changed but the paths they name:
+
+- `src/tempus_client/bees_tempus_client.silica` and `bees_tempus_client.part` to `example_tempus_clients/silica/`;
+  `src/tempus_client` is gone.
+- `tools/bees_tempus_client.py` and `tools/test_bees_tempus_client.py` to `example_tempus_clients/python/`.
+- New: `example_tempus_clients/README.md` (examples only, not for production; what each directory holds; how the trials
+  use them) and `example_tempus_clients/writing-a-tempus-client.md` (what a client in any language has to do, each
+  statement checked against the node's code and the two examples; its last section lists what was not checked).
+- What follows the move: the three `lib/bees_tempus_client.silica` links (`trials/t2_tempus_frames`,
+  `trials/c2_tempus_clients`, `trials/c3_tempus_bridge/nodes/c`) point to the new place; `tools/bees_tempus_gen.py`
+  takes a `--part` with a slash as a path from the BEES root (it was a path under `src`), and the two Makefiles that
+  paste the client part name `example_tempus_clients/silica/bees_tempus_client.part`; `tools/bees_tempus_trial.py`,
+  `bees_tempus_fixtures.py`, `bees_tempus_ids.py` and `test_bees_tempus_admission.py` add
+  `example_tempus_clients/python` to their import path; the top-level `Makefile` runs the client's tests from the new
+  place; comments and documents that named the old paths name the new ones. Earlier entries of this file keep the
+  paths as they were on their day.
+- No golden changed: the generated root units are the same text (the generator names a part by its file name only),
+  and the twelve TEMPUS trials pass on the Mac against the goldens as they were. The test unit `src/tempus_test` did
+  not move.
+- Still true of the tools: the trial driver and the fixture tools import the Python example, so the trials depend on
+  `example_tempus_clients/python`.

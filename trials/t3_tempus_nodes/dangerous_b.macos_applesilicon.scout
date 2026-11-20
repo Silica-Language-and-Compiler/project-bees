@@ -1,5 +1,6 @@
-tempus_edge node 1fae2ad7 listening on 127.0.0.1:23802
 TEST ONLY: tick and clock frames are accepted
+clock: the system clock is read
+tempus_edge node 1fae2ad7 listening on 127.0.0.1:23802
 store tempus_edge: capacity 4, shuffle length 3
 store tempus_bridge: capacity 4, shuffle length 2
 store tempus_sentinel: capacity 4, shuffle length 2
