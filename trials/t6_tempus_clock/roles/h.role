@@ -1,0 +1,10 @@
+// T6 clock trial: node H, a test program (externally driven, by the test unit of src/tempus_test). clock_back hold,
+// clock_fail continue. It has no sentinel.
+fn port() -> string { "24500" }
+fn sents() -> string { "" }
+fn tok() -> int64 { 1 }
+fn back() -> int64 { 2 }
+fn blim() -> int64 { 0 }
+fn fail() -> int64 { 1 }
+fn driven() -> boolean { true }
+fn ext_start(app: actor_ref) -> actor_ref { bees_tempus_test@start(tempus_ids@now()) }

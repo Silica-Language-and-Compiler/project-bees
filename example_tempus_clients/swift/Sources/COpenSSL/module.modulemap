@@ -1,0 +1,7 @@
+// The OpenSSL installed on the machine, as a Swift module. Nothing is compiled here: this names headers and libraries.
+module COpenSSL [system] {
+    header "shim.h"
+    link "ssl"
+    link "crypto"
+    export *
+}

@@ -4,7 +4,7 @@ This document is for a programmer who needs a TEMPUS client in an application, i
 client has to do on the wire. It was derived from the ruled design, `development-plan/tempus-design.md`, and each
 statement was checked against the code of the BEES TEMPUS node (`src/tempus/`) and of the two example clients in this
 directory. Section numbers below, such as "design section 5", refer to that design document. Where something could
-not be checked against the code, the last section says so.
+not be checked against the code, section 14 says so.
 
 The two example clients are examples only and must not be used in production. See [README.md](README.md).
 
@@ -367,3 +367,65 @@ Give your client a time bound of its own for a whole connection. A node may stay
   was not traced through the code for this document.
 - The bridge's behaviour in section 8 was checked against the header of `src/tempus/bees_tempus_bridge.silica` and
   the design's section 17, not against every line of that unit.
+
+## 15. What to install for a Swift or a Kotlin client on a Mac
+
+This section lists what a Mac with Apple Silicon needs before a client written in Swift or in Kotlin can be compiled
+and run. The versions are the ones on the machine where the examples in this directory were written, on 2026-11-20.
+They are what was used, not a stated minimum. Other languages need the same three kinds of thing: a compiler, a TLS
+library that can meet section 3, and Ed25519 signatures.
+
+Whatever the language, check the TLS library against section 3 before writing anything else. The two requirements a
+library most often lacks are the key exchange group X25519MLKEM768 and certificates whose key is Ed25519. A library
+that cannot offer both cannot connect to a TEMPUS node, and no setting of the node changes that.
+
+### Swift
+
+- Apple's Command Line Tools. Install them with `xcode-select --install`. They supply the Swift compiler (`swiftc`),
+  the Swift Package Manager (`swift build`), the linker and the macOS SDK with its frameworks. Version used: Command
+  Line Tools 26.6, Swift 6.3.3.
+- Xcode is not needed. The application called Xcode is a separate, much larger install, and nothing in a
+  command-line Swift client depends on it.
+- One thing the Command Line Tools alone do not reliably supply is the XCTest test framework. Plan to write tests as
+  an ordinary program with a `main` function, or confirm that your test framework is present before relying on it.
+- OpenSSL 4.1.0 or later. Install it with `brew install openssl@4`; that needs Homebrew (https://brew.sh). Swift
+  calls it as a C library through a module map, with no C code of your own. Apple's own frameworks were tried first
+  on macOS 26 and could not be used, for these reasons:
+  - The Network framework offers the group X25519MLKEM768 but does not offer Ed25519 as a signature algorithm in its
+    handshake, and has no public call to change that. A node's certificate has an Ed25519 key, so the handshake
+    fails.
+  - The Security framework did not load an Ed25519 identity from a PKCS12 file (`SecPKCS12Import` returned -26275).
+    One other way of loading the key was tried and also failed; that does not prove no way exists.
+  - CryptoKit's Ed25519 signatures differ from one call to the next for the same message. They verify correctly, but
+    they cannot be compared byte for byte with the signatures another library makes, which is how the examples are
+    tested.
+- The file `swift/README.md` gives the details and the build commands.
+
+### Kotlin
+
+- A Java Development Kit of feature release 27 or later. Install one with `brew install openjdk`. Version used:
+  OpenJDK 27.0.1.1. The JDK supplies the TLS library (JSSE), Ed25519 signatures (the algorithm named `Ed25519`) and
+  SHA-512, so no other library is needed. JDK 25 was tried and cannot connect: its TLS library does not have the
+  group X25519MLKEM768.
+- The Kotlin compiler. Install it with `brew install kotlin`. Version used: Kotlin 2.4.21 (about 97 MB). It supplies
+  `kotlinc`. Homebrew installs or updates its `openjdk` package as part of this.
+- Homebrew's JDK is not registered with macOS: `/usr/libexec/java_home` does not find it. Put
+  `/opt/homebrew/opt/openjdk/bin` on the `PATH`, or call `java` by that full path.
+- A build tool such as Gradle or Maven is not needed for a client of this size. `kotlinc` can compile the sources into
+  one jar file, and `java -jar` runs it.
+- Three things to know about the JDK's TLS library before you start:
+  - The group must be chosen with `SSLParameters.setNamedGroups`. The library cannot report which group a
+    connection negotiated, so offer only X25519MLKEM768.
+  - The default trust manager checks a certificate against authorities and must be replaced. The replacement is
+    where the checks of section 3 belong: the key is Ed25519, the issuer equals the subject, and the certificate's
+    own signature verifies.
+  - The JDK has no supported call that makes an X.509 certificate. Make the client's certificate with another tool
+    and give the client the certificate and key files.
+- The file `kotlin/README.md` gives the details and the build commands.
+
+### What neither needs
+
+- The Silica compiler and the BEES sources are needed only to run a TEMPUS node to test against. A client needs
+  neither to be compiled.
+- Python and its `cryptography` package are needed only for the Python example and for the tools that make the test
+  certificates and tokens.

@@ -1,0 +1,38 @@
+ok    frames golden: there is a recorded output to compare with
+ok    frames golden frames.linux_x86_64.scout: the same bytes from the same inputs (27 frames and tokens)
+ok    frames golden frames.linux_x86_64.scout: the same verdict on every frame the library reads
+ok    frames golden frames.linux_x86_64.scout: the test unit's frames (tick, clock) and their answer (done) are frames of no kind to this client
+ok    frames golden frames.linux_x86_64.scout: the same fields read
+ok    frames golden frames.macos_applesilicon.scout: the same bytes from the same inputs (27 frames and tokens)
+ok    frames golden frames.macos_applesilicon.scout: the same verdict on every frame the library reads
+ok    frames golden frames.macos_applesilicon.scout: the test unit's frames (tick, clock) and their answer (done) are frames of no kind to this client
+ok    frames golden frames.macos_applesilicon.scout: the same fields read
+ok    codec: every frame decodes and encodes to the same bytes
+ok    codec: map keys are written in the byte order of their names
+ok    codec: integers 0 to 255 as tag 97, larger ones that fit 32 bits as tag 98, an empty list as tag 106 alone
+ok    codec: a frame is its body after a 4-byte length, most significant byte first
+ok    codec: the reader's refusals
+ok    codec: TRUST's call and cast frames are the bytes the Python example writes, and its result is read
+ok    codec: the identifier of a key is its SHA-512
+ok    identities: the eight TEST ONLY certificates are Ed25519 and self-signed, and their keys, identifiers and fingerprints are those of tools/bees_tempus_ids.py
+ok    identities: each key file is the key of its seed and of its certificate
+ok    identities: the 112 tokens of tools/bees_tempus_ids.py, made here from the same seeds, are the same bytes
+ok    identities: a real token is verified, and refused outside its time, under another kid, under another key and when changed
+ok    identities: the channel binding and the whitelist rule
+ok    admission cases dangerous_admit.linux_x86_64.scout: the 20 cases get the verdict, and the reason, the Silica node gave
+ok    admission cases dangerous_admit.macos_applesilicon.scout: the 20 cases get the verdict, and the reason, the Silica node gave
+ok    loopback: admission both ways, a sample and its reply
+ok    loopback: a shuffle and its reply, entry for entry
+ok    loopback: a handler that answers nothing closes with no reply
+ok    loopback: a call and a cast are not sent to a peer that is no bridge; a peer with a bridge token gets them, and this client's listener answers neither
+ok    loopback: each cause of refusing a dialer's token, seen by the listener; the dialer sees only the close
+ok    loopback: the dialer refuses a listener whose token has expired or was signed by another key
+ok    loopback: key_rotated, in both directions, and before every other fault of the token
+ok    loopback: a sentinel is admitted only with its certificate in the whitelist
+ok    loopback: a reply is refused whole when one entry does not verify, is of another store's type, or the reply is not what was asked for
+ok    loopback: a listener refuses a shuffle whose entry does not verify, and its handler is not asked
+ok    loopback: a listener serves several connections in order
+ok    loopback: nobody listens: unreachable; a peer that never answers: timeout at the one bound of the connection
+ok    loopback: a request this client cannot make is refused before anything is sent
+[kotlin client tests] 36 passed, 0 failed
+exit=0

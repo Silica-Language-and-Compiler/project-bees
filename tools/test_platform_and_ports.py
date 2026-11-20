@@ -16,7 +16,17 @@ import trial_ports as T  # noqa: E402
 
 
 # Linux goldens that do not exist, each with its reason (a Silica defect of development-plan/silica-defects.md, or a missing tool)
-LINUX_GOLDEN_EXCEPTIONS = {}
+LINUX_GOLDEN_EXCEPTIONS = {
+    # a missing tool: trials/c5_tempus_swift runs the Swift example client, and there is no Swift toolchain on the Linux machine
+    "trials/c5_tempus_swift/dangerous_n.linux_x86_64.scout": "no Swift toolchain on Linux: the trial is skipped there",
+    "trials/c5_tempus_swift/dangerous_p.linux_x86_64.scout": "no Swift toolchain on Linux: the trial is skipped there",
+    "trials/c5_tempus_swift/swift.linux_x86_64.scout": "no Swift toolchain on Linux: the trial is skipped there",
+    # a missing tool: trials/c6_tempus_kotlin runs the Kotlin example client, and there is no Kotlin compiler on the Linux machine
+    "trials/c6_tempus_kotlin/tests.linux_x86_64.scout": "no Kotlin compiler on Linux: the trial fails there and says so",
+    "trials/c6_tempus_kotlin/dangerous_k.linux_x86_64.scout": "no Kotlin compiler on Linux: the trial fails there and says so",
+    "trials/c6_tempus_kotlin/dangerous_q.linux_x86_64.scout": "no Kotlin compiler on Linux: the trial fails there and says so",
+    "trials/c6_tempus_kotlin/kotlin.linux_x86_64.scout": "no Kotlin compiler on Linux: the trial fails there and says so",
+}
 
 
 # The two-machine interchange trials (tools/bees_interchange.py): each scenario runs ONE node on each machine, so its goldens are

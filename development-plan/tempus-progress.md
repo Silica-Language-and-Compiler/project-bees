@@ -772,3 +772,16 @@ code. Moved with `git mv`, nothing in them changed but the paths they name:
   not move.
 - Still true of the tools: the trial driver and the fixture tools import the Python example, so the trials depend on
   `example_tempus_clients/python`.
+
+2026-11-20, a Swift example client (owner's request): `example_tempus_clients/swift` (a Swift package over the installed
+OpenSSL, no Xcode and nothing fetched; an example only, with no misbehaviour and no tick or clock frame), its unit tests
+against the goldens of `trials/t2_tempus_frames`, and the trial `trials/c5_tempus_swift` (nodes N and P and the Python
+example, driven by `tools/bees_tempus_swift_trial.py`; Mac goldens only, because there is no Swift on the Linux machine).
+
+2026-11-20, a Kotlin example client (owner's request): `example_tempus_clients/kotlin` (Kotlin on the JDK's own TLS and
+Ed25519, no other library and nothing fetched; it needs OpenJDK 27, because the TLS of OpenJDK 25 has no X25519MLKEM768;
+an example only, with no misbehaviour and no tick or clock frame), its 36 tests against the goldens of
+`trials/t2_tempus_frames` and `trials/t4_tempus_admission` and the tokens of `tools/bees_tempus_ids.py`, and the trial
+`trials/c6_tempus_kotlin` (nodes K and Q and the Python example as the misbehaving peer, walked by `Walk.kt` with
+`walk.py`; Mac goldens only, because there is no Kotlin compiler on the Linux machine, where the trial fails and says so;
+not run against a bridge).

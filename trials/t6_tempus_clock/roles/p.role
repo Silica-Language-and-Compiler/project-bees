@@ -1,0 +1,12 @@
+// T6 clock trial: node P, shaped like a PRODUCTION program: its build lists no unit and no atom of src/tempus_test
+// (nodes/p/lib), it is not externally driven, it reads the machine's clock and its stores have their own timers (once an
+// hour, so nothing in its output depends on time). Its own token is valid by any present clock (variant 14). A tick or
+// a clock frame is to it a frame of no kind. No line of this node prints a time.
+fn port() -> string { "24502" }
+fn sents() -> string { "" }
+fn tok() -> int64 { 14 }
+fn back() -> int64 { 1 }
+fn blim() -> int64 { 0 }
+fn fail() -> int64 { 2 }
+fn driven() -> boolean { false }
+fn ext_start(app: actor_ref) -> actor_ref { app }

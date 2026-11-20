@@ -1,0 +1,48 @@
+// T6 clock trial, the application of every node: a thin program that passes the TEST-ONLY values of lib/tempus_ids.silica
+// to tempus_node_start (src/tempus/bees_tempus_node.part) and prints what the node tells its application: 86 (the clock
+// could not be read) and 87 (the node stopped after a step back above its limit), besides 80 and 81.
+// The entry's own role file gives port(), sents(), tok() (the variant of the node's own token), the clock's choices back(),
+// blim() and fail(), and what makes the program a test program or not: driven() and ext_start(app).
+// Every node is an edge with identity 0 (they never meet). Stores: capacity 4, shuffle length 3 (edge) and 2 (bridge,
+// sentinel). inflight_max 2. shuffle_timeout_ms 2000. The join's retry waits 3000 ms, always (initial and maximum).
+fn say(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+fn hx(s: string) -> string { tempus_ids@unhex(s) }
+fn app_line(op: int64, s1: string) -> atom {
+    case op of {
+        80 -> say(concat("application: told that the node's own token is not valid any more: ", s1));
+        81 -> say(concat("application: told that a peer answered key_rotated, its current kid is ", s1));
+        86 -> say(concat("application: told (86) that ", s1));
+        87 -> say(concat("application: told (87) that ", s1));
+        _: int64 -> :ok
+    }
+}
+fn app(msg: $NM$, st: int64) -> (:no_reply, int64) {
+    sequence
+        _: atom <- case msg of {
+            (:accepted, _l: dangerous_actor_ref, _i: string) -> :ok;
+            (:link_up, _info: string) -> :ok;
+            (:rx, _s: string) -> :ok;
+            (:tx_credit, _n: int64) -> :ok;
+            (:tx_failed, _w: atom) -> :ok;
+            (:link_down, _w2: atom) -> :ok;
+            (:bees, op: int64, s1: string, _s2: string, _n2: int64, _m: int64, _who: actor_ref) -> app_line(op, s1)
+        }
+    produces pure (:no_reply, st + 1) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- bees_reporter@start();
+        a: actor_ref <- spawn(0, app, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        idn: $NI$ <- { id: hx(tempus_ids@id_hex(0)), pub: hx(tempus_ids@pub_hex(0)), seed: hx(tempus_ids@seed_hex(0)), addr: concat("127.0.0.1:", port()), token: hx(tempus_ids@tok_hex(0, tok())), typ: 1 };
+        net: $NN$ <- { listen: concat("listen:", port()), spec: tempus_spec(tempus_ids@certfile(0), tempus_ids@keyfile(0)), sents: sents(), wl: tempus_ids@fp_hex(2), kid: tempus_ids@kid(), ppub: hx(tempus_ids@producer_pub_hex()), ms: 2000, mst: "2000", max: 2, skew: tempus_ids@skew(), j0: 3000, j1: 3000, back: back(), blim: blim(), fail: fail(), every: 1000 };
+        sz: $NZ$ <- { k1: 4, c1: 3, t1: 3600000, k2: 4, c2: 2, t2: 3600000, k3: 4, c3: 2, t3: 3600000 };
+        x: actor_ref <- ext_start(a);
+        drv: $NT$ <- { driven: driven(), ext: x, draws: case driven() of { true -> "0,1,2,3"; false -> "" } };
+        n: actor_ref <- tempus_node_start(a, idn, net, sz, drv);
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

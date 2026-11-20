@@ -520,8 +520,27 @@ trials/c3_tempus_bridge/nodes/*/*
 trials/c1_codec_live/nodes/*/silica.atoms
 trials/c1_codec_nodes/nodes/*/silica.atoms
 trials/c3_tempus_bridge/nodes/*/silica.config
+# t6_tempus_clock: the roles and the node leaves, as the three above (found missing on 2026-11-20, after commit 1e9d7f6)
+!trials/t6_tempus_clock/roles/
+!trials/t6_tempus_clock/nodes/
+trials/t6_tempus_clock/nodes/*/*
+!trials/t6_tempus_clock/nodes/*/Makefile
+!trials/t6_tempus_clock/nodes/*/lib/
+trials/t6_tempus_clock/nodes/*/lib/bees_atoms.*
 trials/t6_tempus_clock/nodes/*/dangerous_*.silica
 trials/t6_tempus_clock/nodes/*/.gen.mk
 trials/t6_tempus_clock/nodes/*/lib/bees_tempus_node.silica
 trials/t6_tempus_clock/nodes/*/lib/tempus_ids.silica
 !trials/t6_tempus_clock/nodes/*/dangerous_exposure_source
+# C5, the Swift example TEMPUS client: its build directory, and the trial's generated units
+example_tempus_clients/swift/.build/
+!trials/c5_tempus_swift/dangerous_exposure_source
+trials/c5_tempus_swift/dangerous_[np].silica
+trials/c5_tempus_swift/lib/bees_tempus_node.silica
+trials/c5_tempus_swift/.gen.mk
+# C6, the Kotlin example TEMPUS client: its build directory, and the trial's generated units
+example_tempus_clients/kotlin/build/
+!trials/c6_tempus_kotlin/dangerous_exposure_source
+trials/c6_tempus_kotlin/dangerous_[kq].silica
+trials/c6_tempus_kotlin/lib/bees_tempus_node.silica
+trials/c6_tempus_kotlin/.gen.mk

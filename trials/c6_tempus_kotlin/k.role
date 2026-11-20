@@ -1,0 +1,11 @@
+// C6 Kotlin client trial: node K, the test node the Kotlin example client meets; its sentinel is the Kotlin client's
+// listener.
+fn port() -> string { "24600" }
+fn sents() -> string { "127.0.0.1:24602" }
+// a test program: externally driven, by the test unit (src/tempus_test/bees_tempus_test.silica). The Kotlin client sends
+// none of the test frames; the trial tool sends them with the Python example client (walk.py).
+fn driven() -> boolean { true }
+fn ext_start(app: actor_ref) -> actor_ref { bees_tempus_test@start(tempus_ids@now()) }
+fn tick_ms() -> uint64 { 1000 }
+// the node's own token: tempus_edge, valid 1000 to 2000 (the node's clock is the trial's value, 1500)
+fn own_tok() -> int64 { 1 }

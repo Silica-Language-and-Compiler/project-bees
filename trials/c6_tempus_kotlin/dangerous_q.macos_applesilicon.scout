@@ -1,0 +1,19 @@
+clock: the system clock is read
+tempus_edge node b19edad2 listening on 127.0.0.1:24601
+store tempus_edge: capacity 4, shuffle length 3
+store tempus_bridge: capacity 4, shuffle length 2
+store tempus_sentinel: capacity 4, shuffle length 2
+join: no sentinel is configured
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a1
+[tempus audit] admitted peer=1fae2ad7f75a0ded tempus_edge, token and proof of possession a1
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a2
+[tempus audit] admitted peer=1fae2ad7f75a0ded tempus_edge, token and proof of possession a2
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a3
+[tempus audit] admitted peer=1fae2ad7f75a0ded tempus_edge, token and proof of possession a3
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a4
+[tempus audit] admission_refused peer=1fae2ad7f75a0ded the token has expired a4
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a5
+[tempus audit] admission_refused peer=1fae2ad7f75a0ded the token is not valid yet a5
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a6
+[tempus audit] admitted peer=1fae2ad7f75a0ded tempus_edge, token and proof of possession a6
+exit=0

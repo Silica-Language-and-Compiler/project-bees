@@ -1,0 +1,115 @@
+== A. node K joins through this client, which listens as a sentinel
+A1 the join, request 1, served: served sample n=3 store=tempus_edge sent=reply peer=b19edad2958934e1 typ=tempus_edge
+A1 the join, request 2, served: served sample n=2 store=tempus_bridge sent=reply peer=b19edad2958934e1 typ=tempus_edge
+A1 the join, request 3, served: served sample n=2 store=tempus_sentinel sent=reply peer=b19edad2958934e1 typ=tempus_edge
+A2 sample of K's sentinel store: reply sample_reply entries=[0:9e1113ab416dc197] store=tempus_sentinel peer=b19edad2958934e1 typ=tempus_edge
+A3 a tick of K's sentinel store, served: served shuffle entries=[] store=tempus_sentinel sent=reply peer=b19edad2958934e1 typ=tempus_edge
+A4 sample of K's sentinel store: reply sample_reply entries=[0:9e1113ab416dc197,1:e4188f0a2cee5a46] store=tempus_sentinel peer=b19edad2958934e1 typ=tempus_edge
+A5 sample of K's bridge store: reply sample_reply entries=[] store=tempus_bridge peer=b19edad2958934e1 typ=tempus_edge
+== B. this client as an edge: sample, shuffle, and being dialed by K
+B1 sample: reply sample_reply entries=[1:9200d2990c3e9eb7] store=tempus_edge peer=b19edad2958934e1 typ=tempus_edge
+B2 shuffle, own entry first at age 0: reply shuffle_reply entries=[1:9200d2990c3e9eb7] store=tempus_edge peer=b19edad2958934e1 typ=tempus_edge
+B3 sample: reply sample_reply entries=[0:1fae2ad7f75a0ded,2:12eb7f449478f2aa,1:9200d2990c3e9eb7] store=tempus_edge peer=b19edad2958934e1 typ=tempus_edge
+B4 tick 1 of K's edge store: K did not dial this client
+B4 tick 2 of K's edge store: K did not dial this client
+B4 tick 3 of K's edge store, served: served shuffle entries=[0:b19edad2958934e1] store=tempus_edge sent=reply peer=b19edad2958934e1 typ=tempus_edge
+B5 sample: reply sample_reply entries=[4:958cff49930885d2,1:cb133950f3232872] store=tempus_edge peer=b19edad2958934e1 typ=tempus_edge
+== C. what K refuses, and what this client refuses of K
+C1 a token another key signed: closed at=challenge peer=b19edad2958934e1 typ=tempus_edge
+C2 an expired token: closed at=challenge peer=b19edad2958934e1 typ=tempus_edge
+C3 a token not valid yet: closed at=challenge peer=b19edad2958934e1 typ=tempus_edge
+C4 a token issued for another key: closed at=challenge peer=b19edad2958934e1 typ=tempus_edge
+C5 a bridge token with a certificate K does not list: closed at=challenge peer=b19edad2958934e1 typ=tempus_edge
+C6 a token under an old kid: key_rotated at=challenge kid=6b31 peer=b19edad2958934e1 typ=tempus_edge
+C7 a sample of 9 where K's shuffle length is 3: closed at=reply peer=b19edad2958934e1 typ=tempus_edge
+C8 an edge's entry offered to the sentinel store: closed at=reply peer=b19edad2958934e1 typ=tempus_edge
+C9 four entries where K's shuffle length is 3: closed at=reply peer=b19edad2958934e1 typ=tempus_edge
+C10 a call, to a peer that is not a bridge: refused at=request peer=b19edad2958934e1 typ=tempus_edge reason="the peer is not a bridge"
+C11 this client's clock at 2600: K's token has expired: refused at=advert peer=b19edad2958934e1 reason="the token has expired"
+C12 this client's clock at 500: K's token is not valid yet: refused at=advert peer=b19edad2958934e1 reason="the token is not valid yet"
+C13 K's certificate in this client's whitelist, K's token an edge's: refused at=advert peer=b19edad2958934e1 reason="a certificate of the tempus whitelist with a tempus_edge token"
+C14 nobody listens: unreachable at=tls
+C15 this client holds another producer key as current (k9): it answers K's advert with key_rotated: refused at=advert peer=b19edad2958934e1 reason="key_rotated"
+C16 sample: reply sample_reply entries=[4:958cff49930885d2,1:cb133950f3232872] store=tempus_edge peer=b19edad2958934e1 typ=tempus_edge
+== D. this client dials a peer that misbehaves (the Python example client, listening)
+D1 a call to a peer with a bridge token and a whitelisted certificate: reply result req_id=6431 value=5 peer=cb133950f3232872 typ=tempus_bridge
+D1 a call to a peer with a bridge token and a whitelisted certificate, the peer: served call a=2 args=[2,3] f=add m=demo opts={} req_id=6431 ver=1 sent=reply peer=1fae2ad7f75a0ded typ=tempus_edge
+D2 a result that names another req_id: refused at=reply peer=cb133950f3232872 typ=tempus_bridge reason="the result names another req_id"
+D2 a result that names another req_id, the peer: served call a=2 args=[2,3] f=add m=demo opts={} req_id=6431 ver=1 sent=reply peer=1fae2ad7f75a0ded typ=tempus_edge
+D3 a cast: closed at=reply peer=cb133950f3232872 typ=tempus_bridge
+D3 a cast, the peer: served cast a=1 args=[7] f=note m=demo opts={} req_id=6433 ver=1 sent=nothing peer=1fae2ad7f75a0ded typ=tempus_edge
+D4 a bridge token, the certificate not in this client's whitelist: refused at=advert peer=cb133950f3232872 reason="a tempus_bridge whose certificate is not in the tempus whitelist"
+D4 a bridge token, the certificate not in this client's whitelist, the peer: closed
+D5 another peer's advert (the channel binding): refused at=advert peer=12eb7f449478f2aa reason="the certificate's key is not the advert's pub"
+D5 another peer's advert (the channel binding), the peer: closed
+D6 a proof of possession over another nonce: refused at=response peer=958cff49930885d2 typ=tempus_edge reason="the proof of possession does not verify"
+D6 a proof of possession over another nonce, the peer: closed
+D7 the peer answers this client's advert with key_rotated, naming k9: key_rotated at=challenge kid=6b39 peer=958cff49930885d2 typ=tempus_edge
+D7 the peer answers this client's advert with key_rotated, naming k9, the peer: refused at=advert peer=1fae2ad7f75a0ded reason="key_rotated"
+D8 the peer's token is under an old kid: this client answers key_rotated: refused at=advert peer=958cff49930885d2 reason="key_rotated"
+D8 the peer's token is under an old kid: this client answers key_rotated, the peer: key_rotated at=challenge kid=6b31 peer=1fae2ad7f75a0ded typ=tempus_edge
+D9 a reply with an entry another key signed, beside a good one: refused at=reply peer=958cff49930885d2 typ=tempus_edge reason="entry 1 does not verify: the signature does not verify"
+D9 a reply with an entry another key signed, beside a good one, the peer: served sample n=3 store=tempus_edge sent=reply peer=1fae2ad7f75a0ded typ=tempus_edge
+D10 a reply that names another store: refused at=reply peer=958cff49930885d2 typ=tempus_edge reason="the reply names another store"
+D10 a reply that names another store, the peer: served sample n=3 store=tempus_edge sent=reply peer=1fae2ad7f75a0ded typ=tempus_edge
+D11 a shuffle_reply where a sample_reply was due: refused at=reply peer=958cff49930885d2 typ=tempus_edge reason="shuffle_reply where sample_reply was due"
+D11 a shuffle_reply where a sample_reply was due, the peer: served sample n=3 store=tempus_edge sent=reply peer=1fae2ad7f75a0ded typ=tempus_edge
+D12 more entries than were asked for: refused at=reply peer=958cff49930885d2 typ=tempus_edge reason="more entries than were asked for"
+D12 more entries than were asked for, the peer: served sample n=1 store=tempus_edge sent=reply peer=1fae2ad7f75a0ded typ=tempus_edge
+D13 a reply above the frame ceiling: refused at=reply peer=958cff49930885d2 typ=tempus_edge reason="a frame above the ceiling"
+D13 a reply above the frame ceiling, the peer: served sample n=3 store=tempus_edge sent=raw peer=1fae2ad7f75a0ded typ=tempus_edge
+D14 the peer closes with no reply: closed at=reply peer=958cff49930885d2 typ=tempus_edge
+D14 the peer closes with no reply, the peer: served sample n=3 store=tempus_edge sent=close peer=1fae2ad7f75a0ded typ=tempus_edge
+D15 the peer stays silent: this client's one time bound ends the connection: timeout at=reply peer=958cff49930885d2 typ=tempus_edge
+D15 the peer stays silent: this client's one time bound ends the connection, the peer: served sample n=3 store=tempus_edge sent=silent peer=1fae2ad7f75a0ded typ=tempus_edge
+D16 a sample where the peer's challenge was due: refused at=challenge peer=958cff49930885d2 typ=tempus_edge reason="sample where pop_challenge or key_rotated was due"
+D16 a sample where the peer's challenge was due, the peer: closed
+D17 the answer of the test unit's frames (done) as a reply: refused at=reply peer=958cff49930885d2 typ=tempus_edge reason="unknown kind"
+D17 the answer of the test unit's frames (done) as a reply, the peer: served sample n=3 store=tempus_edge sent=reply peer=1fae2ad7f75a0ded typ=tempus_edge
+D18 a certificate another key issued: refused at=tls reason="the certificate is not self-signed"
+D18 a certificate another key issued, the peer: tls_failed
+D19 a P-256 certificate: tls_failed at=tls
+D19 a P-256 certificate, the peer: tls_failed
+D20 a peer that speaks TLS 1.2 only: tls_failed at=tls
+D20 a peer that speaks TLS 1.2 only, the peer: tls_failed
+D21 a peer with another ALPN protocol: refused at=tls reason="the ALPN protocol is not tempus/1"
+D21 a peer with another ALPN protocol, the peer: refused at=tls reason="the ALPN protocol is not tempus/1"
+== E. this client listens and is dialed by a peer that misbehaves (the Python example client, dialing)
+E1 a sample, from a peer whose certificate this client has never seen: served sample n=2 store=tempus_edge sent=reply peer=224c0c0c5b08df0f typ=tempus_edge
+E1 a sample, from a peer whose certificate this client has never seen, the peer: reply sample_reply entries=[1:9200d2990c3e9eb7] store=tempus_edge peer=1fae2ad7f75a0ded typ=tempus_edge
+E2 a shuffle: served shuffle entries=[0:224c0c0c5b08df0f] store=tempus_edge sent=reply peer=224c0c0c5b08df0f typ=tempus_edge
+E2 a shuffle, the peer: reply shuffle_reply entries=[4:958cff49930885d2,1:cb133950f3232872] store=tempus_edge peer=1fae2ad7f75a0ded typ=tempus_edge
+E3 another peer's advert (the channel binding): refused at=advert peer=12eb7f449478f2aa reason="the certificate's key is not the advert's pub"
+E3 another peer's advert (the channel binding), the peer: closed
+E4 a proof of possession by another key: refused at=response peer=224c0c0c5b08df0f typ=tempus_edge reason="the proof of possession does not verify"
+E4 a proof of possession by another key, the peer: closed
+E5 no proof of possession: the request where it was due: refused at=response peer=224c0c0c5b08df0f typ=tempus_edge reason="sample where pop_response was due"
+E5 no proof of possession: the request where it was due, the peer: closed
+E6 an advert above the frame ceiling: refused at=advert reason="a frame above the ceiling"
+E6 an advert above the frame ceiling, the peer: closed
+E7 an expired token: refused at=advert peer=224c0c0c5b08df0f reason="the token has expired"
+E7 an expired token, the peer: closed
+E8 a token under an old kid: this client answers key_rotated: refused at=advert peer=224c0c0c5b08df0f reason="key_rotated"
+E8 a token under an old kid: this client answers key_rotated, the peer: key_rotated at=challenge kid=6b31 peer=1fae2ad7f75a0ded typ=tempus_edge
+E9 a sentinel token, the certificate not in this client's whitelist: refused at=advert peer=224c0c0c5b08df0f reason="a tempus_sentinel whose certificate is not in the tempus whitelist"
+E9 a sentinel token, the certificate not in this client's whitelist, the peer: closed
+E10 the test unit's tick frame as the request: refused at=request peer=224c0c0c5b08df0f typ=tempus_edge reason="unknown kind"
+E10 the test unit's tick frame as the request, the peer: closed
+E11 a shuffle with an entry another key signed: refused at=request peer=224c0c0c5b08df0f typ=tempus_edge reason="entry 1 does not verify: the signature does not verify"
+E11 a shuffle with an entry another key signed, the peer: closed
+E12 a sample of 9 where this client's shuffle length is 3: refused at=request peer=224c0c0c5b08df0f typ=tempus_edge reason="n is not 1 to the shuffle length"
+E12 a sample of 9 where this client's shuffle length is 3, the peer: closed
+E13 the peer closes after its advert: closed at=challenge peer=224c0c0c5b08df0f typ=tempus_edge
+E13 the peer closes after its advert, the peer: closed, on purpose
+E14 a P-256 certificate: tls_failed at=tls
+E14 a P-256 certificate, the peer: tls_failed
+== Q. node Q, which is not a test node, and this client, both by the machine's clock
+Q1 sample: reply sample_reply entries=[] store=tempus_edge peer=b19edad2958934e1 typ=tempus_edge
+Q2 shuffle, own entry at age 0: reply shuffle_reply entries=[] store=tempus_edge peer=b19edad2958934e1 typ=tempus_edge
+Q3 sample: reply sample_reply entries=[0:1fae2ad7f75a0ded] store=tempus_edge peer=b19edad2958934e1 typ=tempus_edge
+Q4 a token that ended at 3000 seconds after 1970: closed at=challenge peer=b19edad2958934e1 typ=tempus_edge
+Q5 a token that begins at 3900000000 seconds after 1970: closed at=challenge peer=b19edad2958934e1 typ=tempus_edge
+Q6 the command line, dial: reply sample_reply entries=[0:1fae2ad7f75a0ded] store=tempus_edge peer=b19edad2958934e1 typ=tempus_edge
+Q7 the command line, listen: served shuffle entries=[0:224c0c0c5b08df0f] store=tempus_edge sent=reply peer=224c0c0c5b08df0f typ=tempus_edge; the peer: reply shuffle_reply entries=[0:1fae2ad7f75a0ded] store=tempus_edge peer=1fae2ad7f75a0ded typ=tempus_edge
+[c6] the Kotlin client's walk passed
+exit=0
