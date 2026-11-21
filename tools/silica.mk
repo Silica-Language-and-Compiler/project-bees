@@ -5,8 +5,10 @@
 # The compiler is the newest macOS fixed-point selfhost in the sibling Silica checkout,
 # reached through its binaries/silica-compiler link. Override on the command line:
 #   make SILICA_COMPILER=/path/to/silica-compiler
-# The generation BEES was last verified against is pinned in tools/silica.generation and
-# checked by `make check-compiler` (roadmap §4.9).
+# The generation BEES was last verified against is pinned in tools/silica.generation, one
+# line per platform (macos-applesilicon, linux-x86_64, linux-aarch64), and checked by
+# `make check-compiler` (roadmap §4.9), which compares the compiler in use with the line
+# of its own platform.
 
 SILICA_ROOT ?= $(abspath $(BEES_ROOT)/../silica)
 ifeq ($(filter command line,$(origin SILICA_COMPILER)),)
@@ -94,7 +96,10 @@ TRUST_LATE_RESULT_LAST = perl -0pi -e 's/^(\[trust audit\] late_result_dropped [
 check-compiler:
 	@if [ ! -x "$(SILICA_COMPILER)" ]; then echo "FAIL: no silica-compiler at $(SILICA_COMPILER)"; exit 1; fi
 	@gen=$$(basename "$$(readlink "$(SILICA_COMPILER)" || echo "$(SILICA_COMPILER)")"); \
-	pinned=$$(cat "$(BEES_ROOT)/tools/silica.generation" 2>/dev/null); \
-	if [ "$$gen" != "$$pinned" ]; then \
-		echo "NOTE: compiler generation is $$gen; BEES was last verified with $${pinned:-<none>}"; \
+	platform=$$(printf '%s\n' "$$gen" | sed -n 's/^silica-[0-9]*-//p'); \
+	pinned=$$(grep -x "silica-[0-9]*-$$platform" "$(BEES_ROOT)/tools/silica.generation" 2>/dev/null | head -1); \
+	if [ -z "$$platform" ] || [ -z "$$pinned" ]; then \
+		echo "NOTE: compiler generation is $$gen; tools/silica.generation has no pin for its platform"; \
+	elif [ "$$gen" != "$$pinned" ]; then \
+		echo "NOTE: compiler generation is $$gen; BEES was last verified with $$pinned"; \
 	else echo "compiler generation $$gen (verified)"; fi
