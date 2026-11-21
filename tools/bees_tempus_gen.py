@@ -11,7 +11,7 @@
 
 The unit is: the `use` lines; `module NAME;`; src/shim/bees_tcp_edge.part (carrier_new); src/tempus/bees_tempus_link.part
 (the TEMPUS link edge); any further parts named with --part (a file name of src/tempus, or a path from the BEES root,
-as example_tempus_clients/silica/bees_tempus_client.part); then the role files, the
+as example_tempus_clients/silica/lib/bees_tempus_client.part); then the role files, the
 program's own code, in order. As tools/bees_edge_gen.py does for BEAM mode and tools/bees_trust_gen.py for TRUST.
 
 Silica has no type names, so the parts and roles may write the long record types of the TEMPUS units as $NAME$; they are
@@ -57,7 +57,7 @@ NN = ("{ listen: string, spec: string, sents: string, wl: string, kid: string, p
       "max: int64, skew: int64, j0: uint64, j1: uint64, back: int64, blim: int64, fail: int64, every: uint64 }")
 NZ = "{ k1: int64, c1: int64, t1: uint64, k2: int64, c2: int64, t2: uint64, k3: int64, c3: int64, t3: uint64 }"
 NT = "{ driven: boolean, ext: actor_ref, draws: string }"
-# the client (C2): example_tempus_clients/silica/bees_tempus_client.part says what each is
+# the client (C2): example_tempus_clients/silica/lib/bees_tempus_client.part says what each is
 CI = ("{ id: string, pub: string, seed: string, seed2: string, addr: string, token: string, listen: string, spec: string, "
       "wl: string, kid: string, ppub: string, now: int64, skew: int64, count: int64, ms: uint64, mst: string }")
 CS = "{ app: actor_ref, sig: actor_ref, sig2: actor_ref, edge: dangerous_actor_ref, rnd: dangerous_actor_ref, na: int64, c: $CI$ }"
@@ -98,7 +98,7 @@ def expand(text, where, more=None):
 
 def part_path(name):
     """a part of src/tempus by its file name; any other part by its path from the BEES root (the example clients' part
-    is example_tempus_clients/silica/bees_tempus_client.part)"""
+    is example_tempus_clients/silica/lib/bees_tempus_client.part)"""
     return os.path.join(HERE, "..", name) if "/" in name else os.path.join(SRC, "tempus", name)
 
 

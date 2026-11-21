@@ -4,9 +4,6 @@
 fn trust_link(c: dangerous_actor_ref) -> dangerous_actor_ref { c }
 // the carrier's dial form is "host:port:timeout_ms" (silica 39b6a5a50b); the plain link is the carrier, so it is added here
 fn trust_dial_address(addr: string) -> string { concat(concat(addr, ":"), bees_trust_conf@dial_text()) }
-// the listening link is the listening carrier itself
-fn trust_listen_link(c: dangerous_actor_ref, l: actor_ref, spec: string) -> boolean {
-    sequence proc[concurrency]
-        ok: boolean <- cast(c, (:open, l, spec) impl ActorMessage {})
-    produces pure ok end
-}
+// the listening link is the listening carrier itself, opened through the carrier edge (carrier_listen), which starts each
+// accepted connection's carrier
+fn trust_listen_link(c: dangerous_actor_ref, l: actor_ref, spec: string) -> boolean { carrier_listen(c, l, spec) }

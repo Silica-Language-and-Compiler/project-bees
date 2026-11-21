@@ -1,0 +1,14 @@
+TEMPUS gossip example `silica`: 4 instances on 127.0.0.1, one network; every edge was given the sentinel's address only
+  s   tempus_sentinel  silica driver  identity sentinel  9e1113ab416dc197  127.0.0.1:24800
+  e1  tempus_edge      silica driver  identity node      b19edad2958934e1  127.0.0.1:24801
+  e2  tempus_edge      silica driver  identity other     1fae2ad7f75a0ded  127.0.0.1:24802
+  e3  tempus_edge      silica driver  identity x1        9200d2990c3e9eb7  127.0.0.1:24803
+s learned of, in its edge store: e1 e2 e3
+e1 learned of, in its edge store: e2 e3; in its sentinel store: s
+e2 learned of, in its edge store: e1 e3; in its sentinel store: s
+e3 learned of, in its edge store: e1 e2; in its sentinel store: s
+every instance learned of every edge: yes
+every edge learned of the sentinel: yes
+every instance merged a shuffle of its edge store that it started: yes
+no shuffle failed while all instances ran: yes
+every instance ran until it was stopped: yes

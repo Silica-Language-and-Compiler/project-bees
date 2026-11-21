@@ -282,6 +282,9 @@ challenge each other and answer. After admission your client reads one request a
 Your client must make the checks of sections 4 and 6 on what it receives, and must close with no reply on any
 violation, as the node does.
 
+A client that only listens and answers with its own entry is reachable, but it is not yet a member that finds other
+peers. Section 16 says what a member has to keep and do.
+
 ## 10. Limits and timeouts the node enforces
 
 - One time bound covers a whole connection, from the moment the node dialed or accepted it to the close. It is not a
@@ -429,3 +432,99 @@ that cannot offer both cannot connect to a TEMPUS node, and no setting of the no
   neither to be compiled.
 - Python and its `cryptography` package are needed only for the Python example and for the tools that make the test
   certificates and tokens.
+
+## 16. A client that takes part in gossip
+
+Sections 1 to 13 are enough for a client that sends one request to an address it was given. A client that has to
+find other peers by itself must also be a member of the network. A member keeps stores, shuffles them on a timer,
+joins through a sentinel and answers from its stores. The rules below are the node's own, from the design's sections
+3, 6 and 10 and from `src/tempus/bees_tempus_view.silica`, `bees_tempus_store.silica` and `bees_tempus_node.part`.
+Each example in this directory has them in its library, and `gossip/` runs them.
+
+### What a member is configured with
+
+None of these has a default. They are values of the network your client joins.
+
+- For each of the three stores (`tempus_edge`, `tempus_bridge`, `tempus_sentinel`): a capacity (1 to 256), a shuffle
+  length (1 to 64, and at most the capacity) and a tick in milliseconds (100 to 3600000).
+- The time bound of a whole connection (section 10).
+- The sentinels' addresses, and the certificates of the sentinels and bridges your client accepts (item 7 of
+  section 2). A first sentinel has no sentinel.
+- The first and the greatest delay between two attempts to join.
+
+### The stores
+
+- A store holds entries. An entry is a peer's identifier, its descriptor and an age, which counts ticks.
+- A store never holds two entries for one peer, never holds your client itself, and never holds more entries than
+  its capacity.
+- An entry enters a store only after its descriptor verified for that store, by the rule of section 8: the checks of
+  section 6 that need no connection, and a token whose `typ` is the store's type.
+- Before each tick of a store, drop every entry whose token has expired by your clock and your skew.
+
+### One tick of one store
+
+1. If your client's own token would not be admitted now (the same check as for a peer), do not tick. Tell your
+   application once; it owns the refresh.
+2. Every age in the store rises by one. An age stops at 65535.
+3. If a shuffle that this store started has not ended yet, stop here.
+4. If the store is empty, stop here. If the join has finished, ask a sentinel for a `sample` of this store again.
+5. The partner is the oldest entry. If several are equally old, choose one of them at random.
+6. Choose at random, without choosing one twice, the other entries to send. In the store of your client's own type
+   send the shuffle length minus one of them, after your own entry at age 0. In the other two stores send the shuffle
+   length of them and do not send your own entry. If the store holds fewer, send all it holds.
+7. Take the partner and the chosen entries out of the store and remember them.
+8. Dial the partner's address, send the `shuffle` and read the `shuffle_reply`.
+
+Use a secure random source for every choice.
+
+### When the reply arrives
+
+Verify every entry of the reply for the store. If one fails, or the reply holds more entries than the shuffle length,
+treat the shuffle as failed. Otherwise merge:
+
+1. If a received entry is for a peer you just sent, and the entry you sent is strictly younger, use the entry you
+   sent in its place.
+2. Drop received entries that name your client.
+3. If a peer appears twice among the received entries, keep the younger one. If the ages are equal, keep the first.
+4. A received entry replaces the store's entry for the same peer only if it is strictly younger. A received entry
+   for a peer the store does not hold is added. Put the received entries that were taken in front of the others.
+5. While the store is above its capacity, remove the oldest entry. If several are equally old, remove the last one
+   in the store's order.
+6. In a store that is not of your client's own type, put the partner back at age 0. The partner cannot hold your
+   client in that store, so nothing else would bring it back.
+7. Put the entries you sent back at the end, in the order you sent them, while there is room. Skip a peer the store
+   holds again already.
+
+### When the shuffle fails
+
+The partner could not be reached, closed early, did not answer within the time bound, or answered with something
+that does not verify. Leave the partner out of the store. Put the other entries you sent back, by rule 7. Do not try
+again within the same tick.
+
+### Answering
+
+- A `shuffle` for a store: verify every entry for that store, and refuse the whole frame if one fails or if there are
+  more than the shuffle length. Choose at random up to the shuffle length of your entries for the reply, never the
+  asking peer's own entry. Take them out, merge what you received by rules 1 to 5, then put the entries you answered
+  with back by rule 7.
+- A `sample` of `n` entries for a store: refuse `n` above the store's shuffle length. Answer with up to `n` entries
+  chosen at random. The store does not change.
+- If your client's token says `tempus_sentinel`: after it has taken the sample, it puts the asking peer into its
+  store of that peer's type at age 0. This is how a joining peer becomes known.
+
+### The join
+
+1. For each store in turn (edge, bridge, sentinel), dial a sentinel and ask for a `sample` of that store, with `n`
+   equal to the store's shuffle length.
+2. Verify every entry of the reply and put each into the store with the age it came with, by merge rules 2 to 5.
+3. If the peer that answered was admitted with a `tempus_sentinel` token, put its descriptor into your sentinel store
+   at age 0.
+4. If no sentinel answered for a store, wait and try again. Start with the first delay and double it up to the
+   greatest delay.
+
+Your client's listener and its tick timers start with the join. They do not wait for it.
+
+### What the examples show
+
+`gossip/` runs four instances of each example's driver as one network on one machine, and networks that mix the
+languages. Its README says what the check of such a run shows and what it does not.

@@ -3,7 +3,8 @@
 This client is an example only. It must not be used in production.
 
 It is a worked example, in Swift, of what a TEMPUS client has to do: connect to a TEMPUS node as an ordinary peer over
-mutual TLS 1.3, be admitted, make one request and read the answer, and answer a node that dials it. If you need a
+mutual TLS 1.3, be admitted, make one request and read the answer, and answer a node that dials it. It can also be a
+member of a network: keep the three stores, shuffle each on its own timer, and join through a sentinel. If you need a
 TEMPUS client in a Swift application, write it as part of that application and read this one as an example. The
 document [What do I need to do to write a TEMPUS client?](../writing-a-tempus-client.md) lists the requirements in a
 form that does not depend on any example. The reasons in [the directory's README](../README.md) for not using an
@@ -15,20 +16,25 @@ reference for behaviour on the wire. It shares no code with the Python example, 
 
 ## What is in this directory
 
+The directory has two main parts: a library, and a driver application that uses it.
+
 - `Package.swift` describes a Swift package with no remote dependency.
-- `Sources/TempusClient/` is the library.
+- `lib/TempusClient/` is the client library. An application would start from these files.
   - `ETF.swift` writes and reads the part of the Erlang external term format that TEMPUS uses.
   - `Frames.swift` writes and reads the frames and the token, and checks every bound on their fields.
   - `Crypto.swift` holds Ed25519 signatures, SHA-512 and the certificate functions.
   - `Admission.swift` holds an identity, the verifier that checks another peer, and the outcome of a connection.
   - `Connection.swift` holds the TLS connection, the order of a connection, and `dial`.
   - `Listener.swift` holds the listening position: a node dials the client, and the client answers one request.
-  - `Fixtures.swift` makes test tokens and test identities from fixed seeds. It is for tests only.
-- `Sources/tempus-client/` is a command line over the library.
-- `Sources/tempus-client-tests/` is the unit tests, as a plain program.
-- `Sources/COpenSSL/` is a module map that names the headers and libraries of the OpenSSL installed on the machine.
+  - `Gossip.swift` holds the view rules, `Store` and `Peer`: the three stores, the shuffle on a timer, and the join.
+- `lib/COpenSSL/` is a module map that names the headers and libraries of the OpenSSL installed on the machine.
   It contains declarations only. There is no C code in this directory.
-- `Makefile` builds the package and runs the unit tests.
+- `driver/tempus-client/` is the driver application: a command line over the library.
+- `testing/TempusClientTesting/` makes test tokens and test identities from fixed seeds. It is a module of its own, so
+  the library holds nothing of it. It is for the tests and the trial only. The driver uses it for the commands the
+  trial needs (`test-token`, `--test-token`, `--test-entry`).
+- `test/tempus-client-tests/` is the unit tests, as a plain program.
+- `Makefile` builds the package, runs the unit tests, and runs the gossip example.
 
 ## What you need
 
@@ -131,6 +137,38 @@ Several OpenSSL settings are C macros, which Swift cannot call. The client calls
 | Making its own self-signed certificate | yes | yes. With the names, serial numbers and dates of `tools/bees_tempus_certs.py` it makes the same bytes |
 | Deliberate misbehaviour (wrong proofs, wrong frames, silence, oversize frames, other TLS settings) | yes, because the trials need it | no. A client has no use for it |
 
+## The gossip part
+
+`lib/TempusClient/Gossip.swift` adds what a client needs to find other peers by itself:
+
+- The view rules of the design's section 3: ageing, the choice of a partner, the merge, the eviction.
+- `Store`, one of a peer's three stores, with its steps: tick, reply, failed, request, sample, insert, drop.
+- `Peer`, which listens, joins through its sentinels, ticks each store on its own timer, and answers the shuffles and
+  samples of admitted peers from its stores. A peer whose token says `tempus_sentinel` also puts every peer that asks
+  it for a sample into its store of that peer's type.
+
+Nothing in it has a default. The capacity, shuffle length and tick of each store, the time bound of a connection, the
+sentinels and the retry delays of the join are values the application passes.
+
+```
+.build/debug/tempus-client gossip \
+    --cert CERT.pem --key KEY.pem --token TOKEN.hex --addr 127.0.0.1:24801 \
+    --producer-pub HEX --kid k1 --skew 10 --timeout-ms 3000 \
+    --store-edge 8:4:500 --store-bridge 8:4:5000 --store-sentinel 8:4:1000 --join-retry-ms 500:2000 \
+    --sentinel 127.0.0.1:24800 --whitelist-cert SENTINEL.pem
+```
+
+`--key` is the private key as an unencrypted PKCS#8 PEM file, and `--token` is a file that holds the token as hex
+digits. The peer listens on the address of `--addr`. It prints its own lines (the join, each tick) and a line
+`learned STORE ID16 HOST:PORT` for each peer it comes to know. It runs until it is interrupted, or for `--run-ms`.
+A peer started this way always applies the whitelist rule: with no `--whitelist-cert` it accepts no bridge and no
+sentinel.
+
+`make gossip` starts four such instances on this machine, one sentinel and three edges, and stops them when every
+instance has learned of every edge. Each edge is given the sentinel's address and nothing else.
+[The gossip README](../gossip/README.md) says what the printed check means. It needs Python 3 with the `cryptography`
+package, because the runner and the test tokens are made with the Python example.
+
 ## What it does that the Python example does not
 
 - It verifies every entry of a reply before it reports the reply. One entry that does not verify refuses the whole
@@ -157,7 +195,12 @@ The unit tests (`make test`, which prints how many checks passed) compare the cl
 - call, cast and result frames and a set of integers must be the bytes the Python example writes;
 - the client is run against itself over mutual TLS 1.3 on the loopback address: every request, each cause of
   refusal that a token can carry, key_rotated both ways, the whitelist rule, bad replies, a close, silence, several
-  connections in order, and an address where nothing listens.
+  connections in order, and an address where nothing listens;
+- the view rules and the store's steps give the answers worked by hand for a set of cases, and a sentinel and two
+  edges of this library in one process, over TLS on the loopback address, come to hold each other.
+
+The trial `trials/c7_tempus_gossip` runs four instances of the driver as one network, and one instance in a network
+with the Silica, Python and Kotlin drivers. Both were run and their checks are recorded.
 
 The trial `trials/c5_tempus_swift` runs the command line against real nodes on this machine, and against the Python
 example. `tools/bees_tempus_swift_trial.py` walks the steps and checks each result, and the client's lines are
@@ -195,8 +238,12 @@ Run the trial from the BEES root directory with `tools/run_all_trials.sh --local
 - It was built and run on macOS on Apple Silicon only. There is no Swift toolchain on the Linux machine the other
   trials also run on, so the trial has Mac goldens only, and on a machine without Swift it reports that it was
   skipped.
-- It keeps no stores of its own and runs no shuffle timer. It makes one request per run, or answers requests with
-  entries it was given. It does not refresh its token, and it does not take part in gossip by itself.
+- It does not refresh its token. `Peer.newToken` takes a new token from the application.
+- A `Peer` does not serve `call` or `cast`, keeps no score of peers and has no limit on accepted connections. Its
+  clock is the function the application gives the `Verifier`; it has none of a node's rules for a clock that fails
+  or goes back.
+- The gossip part was run only on one machine, with test keys, for a few seconds at a time. It was not run for a long
+  time, with expiring tokens, with peers that stop, or against the limits of its stores.
 - A failed TLS handshake is reported with the text OpenSSL gives for it. That text belongs to the OpenSSL version, so
   the trial leaves it out of its golden.
 - The whitelist rule is one-sided here: it is the edge's rule. The rule a bridge or sentinel applies to its own kind

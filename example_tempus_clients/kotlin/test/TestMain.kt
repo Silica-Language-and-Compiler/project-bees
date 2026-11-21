@@ -333,7 +333,7 @@ private fun loopback(root: Path) {
     /** one connection: the dialer's Outcome and the listener's */
     fun exchange(request: Request, listener: Identity = edge, me: Identity = dialer, dialVerifier: Verifier = verifier(), listenVerifier: Verifier = verifier(),
                  dialSettings: Settings = settings, handler: (Incoming) -> List<Entry>? = { emptyList() }): Pair<Outcome, Outcome> =
-        Listener(listener, listenVerifier, settings, "127.0.0.1", 0, handler).use { lis ->
+        Listener(listener, listenVerifier, settings, "127.0.0.1", 0, handler = handler).use { lis ->
             val out = dial(lis.address, me, dialVerifier, request, dialSettings)
             out to lis.outcomes(1, 6000).single()
         }

@@ -5,6 +5,8 @@
 #   make build   the library, tempus-client and tempus-client-tests, in .build/
 #   make test    build, then the unit tests (they read the goldens of trials/t2_tempus_frames and the TEST ONLY
 #                certificates of trials/t5_tempus_tls/certs)
+#   make gossip  build, then four instances of the driver (tempus-client gossip) as one TEMPUS network on this machine
+#                (../gossip/gossip_run.py run swift; it needs python3 with the `cryptography` package for the test tokens)
 #   make clean   remove .build/
 HERE := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 BEES_ROOT := $(abspath $(HERE)/../..)
@@ -16,12 +18,14 @@ BIN := $(HERE)/.build/debug
 # plugin and no dependency for it to guard
 SWIFT_BUILD := $(SWIFT) build --package-path "$(HERE)" --disable-sandbox -Xcc -I$(OPENSSL_PREFIX)/include -Xlinker -L$(OPENSSL_PREFIX)/lib
 
-.PHONY: build test clean
+.PHONY: build test gossip clean
 build:
 	@command -v $(SWIFT) > /dev/null || { echo "FAIL: [swift client] no swift on this machine"; exit 1; }
 	@[ -n "$(OPENSSL_PREFIX)" ] || { echo "FAIL: [swift client] no OpenSSL found (set OPENSSL_PREFIX)"; exit 1; }
 	@out=$$($(SWIFT_BUILD) 2>&1); rc=$$?; [ "$$rc" = 0 ] || { printf '%s\n' "$$out"; echo "FAIL: [swift client] swift build"; exit 1; }
 test: build
 	@"$(BIN)/tempus-client-tests" "$(BEES_ROOT)"
+gossip: build
+	@python3 "$(HERE)/../gossip/gossip_run.py" run swift
 clean:
 	@rm -rf "$(HERE)/.build"

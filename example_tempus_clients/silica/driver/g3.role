@@ -1,0 +1,10 @@
+// The Silica example TEMPUS client, driver instance g3: an edge (identity x1). EXAMPLE ONLY; TEST ONLY keys and tokens.
+fn me_id() -> int64 { 4 }
+fn typ() -> int64 { 1 }
+fn port() -> int64 { 24803 }
+fn sents() -> string { "127.0.0.1:24800" }
+fn token() -> string { tempus_ids@tok_hex(4, 14) }
+fn t_edge() -> uint64 { 500 }
+fn t_bridge() -> uint64 { 5000 }
+fn t_sentinel() -> uint64 { 1000 }
+fn inflight() -> int64 { 16 }

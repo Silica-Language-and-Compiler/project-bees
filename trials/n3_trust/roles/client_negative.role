@@ -38,7 +38,7 @@ fn label(step: int64) -> string {
         11 -> "call bees_trust_admin:reset/1 (forbidden: the reset is local only)";
         12 -> "call demo:secret/0 (not in b.cert's spec)";
         13 -> "call demo:crash/1 (the user code fails)";
-        14 -> "call demo:slow([300000000]) (call timeout)";
+        14 -> "call demo:slow([1200]) (call timeout)";
         15 -> "call demo:add([1, 2]) while quarantined";
         16 -> "call demo:add([1, 2]) after the operator reset";
         _: int64 -> "?"
@@ -59,7 +59,7 @@ fn start(step: int64, me: actor_ref) -> atom {
         11 -> trpc_call(server(), bees_atoms@a_bees_trust_admin(), bees_atoms@a_reset(), 1, ints1(0), me, 11);
         12 -> trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_secret(), 0, no_args(), me, 12);
         13 -> trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_crash(), 1, ints1(1), me, 13);
-        14 -> trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_slow(), 1, ints1(300000000), me, 14);
+        14 -> trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_slow(), 1, ints1(1200), me, 14);
         15 -> trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_add(), 2, ints2(1, 2), me, 15);
         16 -> trpc_call(server(), bees_atoms@a_demo(), bees_atoms@a_add(), 2, ints2(1, 2), me, 16);
         _: int64 -> say("negative suite done")

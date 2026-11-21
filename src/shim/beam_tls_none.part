@@ -2,8 +2,5 @@
 // `--use dangerous_beam_tls` (a {transport, tcp} node). The link and listener carriers are the language's (:tcp) carriers,
 // untouched, and the program uses no TLS unit and links no TLS engine.
 fn beam_tls_link(c: dangerous_actor_ref, peer: int64) -> dangerous_actor_ref { c }
-fn beam_tls_listen(c: dangerous_actor_ref, owner: actor_ref, address: string) -> boolean {
-    sequence proc[concurrency]
-        ok: boolean <- cast(c, (:open, owner, address) impl ActorMessage {})
-    produces pure ok end
-}
+// the listening carrier is opened through the carrier edge (carrier_listen), which starts each accepted connection's carrier
+fn beam_tls_listen(c: dangerous_actor_ref, owner: actor_ref, address: string) -> boolean { carrier_listen(c, owner, address) }

@@ -743,7 +743,9 @@ fn conn(
 }
 
 // ======================================================================== lsn
-// The owner of the listening carrier. Once bound ((:link_up, "port:N")) it registers the node with EPMD when beam_conf says so
+// The listening carrier's owner (through the carrier edge's carrier_listen on a {transport, tcp} node, through the BEAM TLS
+// listener on a {transport, tls} node; either starts each accepted connection's carrier from the descriptor the standard
+// library's listener hands over). Once bound ((:link_up, "port:N")) it registers the node with EPMD when beam_conf says so
 // (an epm actor on the EPMD carrier ec); on each (:accepted, car, info) it starts a link on car.
 fn at(s: string, i: int64) -> int64 {
     sequence proc[transport]

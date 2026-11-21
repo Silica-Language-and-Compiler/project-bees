@@ -1,0 +1,10 @@
+// The Silica example TEMPUS client, driver instance gs: the sentinel (identity sentinel), which every other instance joins through. EXAMPLE ONLY; TEST ONLY keys and tokens.
+fn me_id() -> int64 { 2 }
+fn typ() -> int64 { 3 }
+fn port() -> int64 { 24800 }
+fn sents() -> string { "" }
+fn token() -> string { gossip_tokens@sentinel_hex() }
+fn t_edge() -> uint64 { 500 }
+fn t_bridge() -> uint64 { 5000 }
+fn t_sentinel() -> uint64 { 1000 }
+fn inflight() -> int64 { 16 }

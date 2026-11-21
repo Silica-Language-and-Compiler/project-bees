@@ -1,6 +1,9 @@
 # The Kotlin example TEMPUS client. EXAMPLE ONLY, not for production: see README.md.
 #
-#   make build   compiles src/*.kt into build/bees-tempus-client.jar (the client and the Kotlin runtime it needs)
+#   make build   compiles lib/*.kt (the client library) and driver/*.kt (the driver application) into
+#                build/bees-tempus-client.jar, with the Kotlin runtime they need
+#   make gossip  build, then four instances of the driver as one TEMPUS network on this machine
+#                (../gossip/gossip_run.py run kotlin)
 #   make test    compiles the client and test/*.kt into build/bees-tempus-client-test.jar and runs the tests
 #                (make test-build compiles that file and runs nothing)
 #   make clean   removes build/
@@ -13,12 +16,12 @@ KOTLINC ?= kotlinc
 JAVA ?= java
 JAR := $(HERE)/build/bees-tempus-client.jar
 TEST_JAR := $(HERE)/build/bees-tempus-client-test.jar
-SRC := $(wildcard $(HERE)/src/*.kt)
+SRC := $(wildcard $(HERE)/lib/*.kt) $(wildcard $(HERE)/driver/*.kt)
 TEST_SRC := $(wildcard $(HERE)/test/*.kt)
 # kotlinc prints warnings about the JDK's own restricted methods on a new JDK; they are not about this code
 KFLAGS := -nowarn -include-runtime
 
-.PHONY: build test-build test clean tools
+.PHONY: build test-build test clean tools gossip
 build: $(JAR)
 test-build: $(TEST_JAR)
 tools:
@@ -32,5 +35,8 @@ $(TEST_JAR): $(SRC) $(TEST_SRC) | tools
 	"$(KOTLINC)" $(KFLAGS) -d "$@" $(SRC) $(TEST_SRC)
 test: $(TEST_JAR)
 	@cd "$(BEES_ROOT)" && "$(JAVA)" -cp "$(TEST_JAR)" bees.tempus.test.TestMainKt "$(BEES_ROOT)"
+	@cd "$(BEES_ROOT)" && "$(JAVA)" -cp "$(TEST_JAR)" bees.tempus.test.GossipTestKt "$(BEES_ROOT)"
+gossip: build
+	@JAVA="$(JAVA)" python3 "$(HERE)/../gossip/gossip_run.py" run kotlin
 clean:
 	@rm -rf "$(HERE)/build"

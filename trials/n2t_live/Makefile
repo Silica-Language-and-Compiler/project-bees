@@ -1,18 +1,19 @@
-# N2T: the live test of BEAM mode INSIDE TLS against a stock Erlang node started with `erl -proto_dist inet_tls` (the installed OTP 28's
-# erl); development-plan/spikes/N2T-beam-tls.md. tools/bees_beam_tls_live.py (n2_live.py's mechanics) starts a private EPMD on
+# N2T: the live test of BEAM mode INSIDE TLS against a stock Erlang node started with `erl -proto_dist inet_tls` (the installed
+# erl: OTP 28 when the trial was written, OTP 29 since 2026-11-20); development-plan/spikes/N2T-beam-tls.md. tools/bees_beam_tls_live.py (n2_live.py's mechanics) starts a private EPMD on
 # 127.0.0.1:23390 (EPMD stays plaintext, as for stock Erlang), compiles trials/n2_live/stock_driver.erl and stock_tls.erl into build/,
 # writes the stock node's ssl_dist_optfile files there, and runs the scenarios, each a BEES node (nodes/l: beesl@localhost, a TLS
 # listener registered with EPMD; nodes/d: beesd@localhost, dialing through EPMD) against a stock node. The stock node's option file
-# says {versions, ['tlsv1.3']} (OTP 28's inet_tls_dist offers TLS 1.2 only unless told), verify_peer and fail_if_no_peer_cert. The
+# says {versions, ['tlsv1.3']} and {supported_groups, [x25519]} (said, not left to the installed OTP's defaults, which differ:
+# OTP 28 offers TLS 1.2 only and has no X25519MLKEM768, OTP 29 offers TLS 1.3 with x25519mlkem768 first), verify_peer and fail_if_no_peer_cert. The
 # certificates are the TEST-ONLY ones of trials/n2t_pair/certs (tools/bees_beam_tls_certs.py; never real keys).
 #   stock_dials        n2_live's stock_dials inside TLS: ping (pong), nodes(), a message each way, SEND through a handed-out pid, link,
 #                      unlink, monitor, 26 s idle with ticks, BEES killed: nodedown, noconnection (the link negotiates classical X25519:
-#                      OTP 28 has no X25519MLKEM768)
+#                      the stock node's option file offers that group only)
 #   bees_dials         BEES finds the stock node in EPMD, dials it inside TLS (SNI localhost, the certificate checked against it), casts to
 #                      its inbox; the stock node answers to outbox
 #   stock_rsa_dials    a stock node with an RSA 2048 certificate dials BEES: pong, the link's protocol is tls, a message each way
 #   bees_dials_rsa     BEES dials a stock node with an RSA 2048 certificate: a message each way
-#   stock_tls12        a stock node with the DEFAULT settings of inet_tls_dist (TLS 1.2 only) pings BEES: refused at the handshake, pang
+#   stock_tls12        a stock node whose option file says TLS 1.2 only pings BEES: refused at the handshake, pang
 #   stock_plain        a stock node without -proto_dist inet_tls pings BEES's TLS listener: refused, pang
 #   stock_wrong_ca     a stock node with a certificate of another CA pings BEES: refused (tls_verify_failed), pang
 #   wrong_cookie       a stock node with good TLS and another cookie pings BEES: TLS established, the digest refused, pang

@@ -1,5 +1,7 @@
 # N1 node l (M3-style, auth none): dials the NAME localhost, which the resolver's test stub answers with an address outside loopback
 node   l@localhost
 peer   a@localhost localhost 21600 dial
+# no bees.config here, so the manifest says it (required of a node that dials; user ruling 2026-11-17): a lost link stays down
+redial off
 remote inbox @ a@localhost cast { op: atom, n: int64 }
 local  outbox cast { op: atom, n: int64 }

@@ -1,7 +1,8 @@
 // ---- the peer program: the owner of one (:tcp) carrier, the language's (transport design 6.2, 6.3). It grants receive
 // credits, sends one frame (a string, length-prefixed by wireframe) once the link is up, prints the frame that arrives, and
 // closes after it has received the peer's frame and its own write completed. The listening side waits for the listener's
-// (:accepted, conn, info) and adopts the connection with (:open, me, ""), as the design's listener contract says.
+// (:accepted, fd, info), starts the connection's carrier from the descriptor and adopts it with (:open, me, ""), as the
+// standard library's listener contract says since 2026-11-20 (until then the listener handed over the carrier actor).
 
 fn b2i(b: boolean) -> int64 {
     case b of { true -> 1; false -> 0 }
@@ -68,7 +69,7 @@ fn maybe_close(c: dangerous_actor_ref, got: int64, txc: int64, closed: boolean) 
 }
 
 fn owner(
-    msg: (:link_up, string) | (:accepted, dangerous_actor_ref, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom),
+    msg: (:link_up, string) | (:accepted, int64, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom),
     st: { c: dangerous_actor_ref, rx: { mode: atom, expected: int64, pending: string }, got: int64, txc: int64, up: boolean, closed: boolean }
 ) -> (:no_reply, { c: dangerous_actor_ref, rx: { mode: atom, expected: int64, pending: string }, got: int64, txc: int64, up: boolean, closed: boolean }) {
     case msg of {
@@ -81,8 +82,11 @@ fn owner(
                 produces pure (:no_reply, { c: st.c, rx: st.rx, got: st.got, txc: st.txc, up: true, closed: st.closed }) end
             }
         };
-        (:accepted, conn: dangerous_actor_ref, _info: string) -> {
+        // the listener hands over the accepted descriptor and starts no actor (the standard library's contract since
+        // 2026-11-20): the owner starts the connection's carrier, here unsupervised, and opens it
+        (:accepted, fd: int64, _info: string) -> {
             sequence proc[concurrency]
+                conn: dangerous_actor_ref <- spawn_dangerous({ owner: actor_ref_of_word(0), fd: fd, rx_credit: 0, up: false, listening: false, link_spec: "" }, dangerous_tcp_carrier@carrier, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
                 _: boolean <- cast(conn, (:open, self(), "") impl ActorMessage {})
             produces pure (:no_reply, { c: conn, rx: st.rx, got: st.got, txc: st.txc, up: st.up, closed: st.closed }) end
         };

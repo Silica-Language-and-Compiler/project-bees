@@ -68,8 +68,9 @@ TABLE = {
     "t6_tempus_clock": (24500, "TEMPUS clock choices on running nodes, and a node built without the test unit (T6): +0 node H, +1 node S, +2 node P, +3 the Python client's sentinel listener (tools/bees_tempus_trial.py), +4 the client's own address, a value only"),
     "c6_tempus_kotlin": (24600, "the Kotlin example TEMPUS client (C6): +0 node K (a test node), +1 node Q (not a test node), +2 the Kotlin client's sentinel listener, +3 its edge listener, +4 the trial tool's Python peer that the Kotlin client dials, +5 an address nobody listens on (the Kotlin client's own tests listen on a port the system assigns)"),
     "c5_tempus_swift": (24700, "the Swift example TEMPUS client (C5): +0 node N (a test node), +1 node P (not a test node: it reads the system clock), +2 the Swift client's sentinel listener that N joins through, +3 the Swift client's edge listener, +4 the Swift client's sentinel listener that P joins through, +5 the trial tool's Python peer that the Swift client dials, +6 the Swift client's listener that the Python peer dials, +7 an address nobody listens on"),
+    "c7_tempus_gossip": (24800, "the gossip examples of the example TEMPUS clients (example_tempus_clients/gossip, run by trials/c7_tempus_gossip), one network at a time: +0 the sentinel, +1 to +4 the edges (the Silica driver's instances have +0 to +3 compiled in: example_tempus_clients/silica/driver)"),
 }
-NEXT_BASE = 24800
+NEXT_BASE = 24900
 
 # leaves that never bind a port but whose files may carry a port number as DATA (a frame's field): not checked for literals
 DATA_ONLY = {"n2_frames": "the EPMD ALIVE2 frame carries port 47500 as a value; nothing listens",

@@ -1,0 +1,124 @@
+// The driver application of the Silica example TEMPUS client. EXAMPLE ONLY, not for production.
+// A thin program over the library in ../lib: it passes values to tempus_peer_start (bees_tempus_peer.part: the member
+// of the network, with its stores, timers and join) and to tempus_client_start (bees_tempus_client.part: single
+// connections), and prints what they report. Silica programs read no command line here: the values of one instance are
+// compiled in, from the instance's own role file (gs.role, g1.role, ...), which gives me_id() (the identity of
+// lib/tempus_ids.silica), typ() (1 edge, 3 sentinel), port(), sents() (the sentinels, "" for a first sentinel), token(),
+// the tick of each store in ms (t_edge(), t_bridge(), t_sentinel()) and inflight() (inflight_max). The keys,
+// certificates and tokens are TEST ONLY fixtures.
+//
+// How the application learns who its peer knows. A store is reached over tempus/1 only, so the application asks as any
+// admitted peer may: every ask_ms() it dials its own peer's listen address, over loopback, with a `sample` of one store
+// (edge, sentinel, bridge in turn), and prints `learned STORE ID16 HOST:PORT` for each peer it had not seen in that
+// store. The peer's own lines (the join, each tick) are printed by the library.
+//
+// Stores: capacity 8, shuffle length 4. In the four instances of this directory the edge store ticks every 500 ms,
+// the sentinel store every 1000 ms and the bridge store every 5000 ms, and inflight_max is 16. shuffle_timeout_ms
+// 3000, the join's retry 500 ms to 2000 ms. A reading of the system clock that fails after a good one: the peer goes on
+// with its last reading; a clock that goes back is followed. The peer reads the system clock. The single-connection
+// part takes the time as a value, and the application passes 1500, which is inside every token of the example (1000
+// to 4000000000).
+//$ GA = { cl: actor_ref, known: string, turn: int64 }
+fn say(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+fn hx(s: string) -> string { tempus_ids@unhex(s) }
+fn num(n: int64) -> string { bees_trust_frame@int_text(n) }
+fn at(p: int64) -> string { concat("127.0.0.1:", num(p)) }
+fn ask_ms() -> uint64 { 700 }
+fn count() -> int64 { 4 }
+// whether `known` (keys of 17 bytes, one after another: the store's number and 16 hex digits) holds the key
+fn has(known: string, key: string, i: int64) -> boolean {
+    case i + 17 > length_bytes(known) of {
+        true -> false;
+        false -> case bees_trust_frame@cut(known, i, i + 17) == key of { true -> true; false -> has(known, key, i + 17) }
+    }
+}
+// one line for each entry of a sample that is new to its store; the keys of all that were seen
+fn learn(known: string, st: int64, v: $L$) -> string {
+    case v of {
+        []: $L$ -> known;
+        [h: $E$, t: $L$] -> {
+            id16: string <- bees_trust_frame@cut(bees_trust_frame@hex(h.id), 0, 16);
+            key: string <- concat(num(st), id16);
+            case has(known, key, 0) of {
+                true -> learn(known, st, t);
+                false -> {
+                    r: { ok: boolean, d: $D$ } <- bees_tempus_frame@desc_of(h.d);
+                    d: $D$ <- r.d;
+                    sequence
+                        _: atom <- say(concat(concat(concat("learned ", bees_tempus_node@typ_text(st)), concat(" ", id16)), concat(" ", d.addr)))
+                    produces pure learn(concat(known, key), st, t) end
+                }
+            }
+        }
+    }
+}
+fn sampled(a: $GA$, body: string) -> $GA$ {
+    r: { ok: boolean, why: string, store: int64, entries: $L$ } <- bees_tempus_frame@dec_entries(body, count());
+    case r.ok and bees_tempus_frame@kind(body) == 8 of {
+        false -> a;
+        true -> { cl: a.cl, known: learn(a.known, r.store, r.entries), turn: a.turn }
+    }
+}
+fn arm(me: actor_ref) -> boolean {
+    sequence proc[concurrency]
+        t: timer_ref <- send_after(ask_ms(), me, (:bees, 91, "", "", 0, 0, me) impl ActorMessage {})
+    produces pure true end
+}
+// the next store to ask for: edge, sentinel, bridge, and again
+fn after(turn: int64) -> int64 { case turn of { 1 -> 3; 3 -> 2; _: int64 -> 1 } }
+fn ask(a: $GA$, me: actor_ref) -> $GA$ {
+    sequence
+        _: boolean <- tempus_client_dial(a.cl, at(port()), bees_tempus_client@sample(a.turn, count()), a.turn, 0);
+        _: boolean <- arm(me)
+    produces pure { cl: a.cl, known: a.known, turn: after(a.turn) } end
+}
+fn app_line(op: int64, s1: string) -> atom {
+    case op of {
+        80 -> say(concat("application: told that the peer's own token is not valid any more: ", s1));
+        81 -> say(concat("application: told that a peer answered key_rotated, its current kid is ", s1));
+        85 -> say(concat("application: told that the peer did not start: ", s1));
+        86 -> say(concat("application: told (86) that ", s1));
+        87 -> say(concat("application: told (87) that ", s1));
+        _: int64 -> :ok
+    }
+}
+fn g_bees(a: $GA$, me: actor_ref, b: $NB$) -> $GA$ {
+    case b.op of {
+        0 -> { sequence _: boolean <- arm(me) produces pure { cl: b.who, known: a.known, turn: a.turn } end };
+        60 -> sampled(a, b.s1);
+        91 -> ask(a, me);
+        _: int64 -> { sequence _: atom <- app_line(b.op, b.s1) produces pure a end }
+    }
+}
+fn gapp(msg: $NM$, a: $GA$) -> (:no_reply, $GA$) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        a2: $GA$ <- case msg of {
+            (:accepted, _l: dangerous_actor_ref, _i: string) -> a;
+            (:link_up, _info: string) -> a;
+            (:rx, _s: string) -> a;
+            (:tx_credit, _n: int64) -> a;
+            (:tx_failed, _w: atom) -> a;
+            (:link_down, _w2: atom) -> a;
+            (:bees, op: int64, s1: string, sb: string, n: int64, m: int64, who: actor_ref) -> g_bees(a, me, { op: op, s1: s1, s2: sb, n: n, m: m, who: who })
+        }
+    produces pure (:no_reply, a2) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- bees_reporter@start();
+        a: actor_ref <- spawn({ cl: actor_ref_of_word(0), known: "", turn: 1 }, gapp, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        idn: $NI$ <- { id: hx(tempus_ids@id_hex(me_id())), pub: hx(tempus_ids@pub_hex(me_id())), seed: hx(tempus_ids@seed_hex(me_id())), addr: at(port()), token: hx(token()), typ: typ() };
+        net: $NN$ <- { listen: concat("listen:", num(port())), spec: tempus_spec(tempus_ids@certfile(me_id()), tempus_ids@keyfile(me_id())), sents: sents(), wl: tempus_ids@fp_hex(2), kid: tempus_ids@kid(), ppub: hx(tempus_ids@producer_pub_hex()), ms: 3000, mst: "3000", max: inflight(), skew: tempus_ids@skew(), j0: 500, j1: 2000, back: 1, blim: 0, fail: 1, every: 1000 };
+        sz: $NZ$ <- { k1: 8, c1: count(), t1: t_edge(), k2: 8, c2: count(), t2: t_bridge(), k3: 8, c3: count(), t3: t_sentinel() };
+        n: actor_ref <- tempus_peer_start(a, idn, net, sz);
+        ci: $CI$ <- { id: idn.id, pub: idn.pub, seed: idn.seed, seed2: "", addr: idn.addr, token: idn.token, listen: "", spec: net.spec, wl: net.wl, kid: net.kid, ppub: net.ppub, now: 1500, skew: net.skew, count: count(), ms: 3000, mst: "3000" };
+        cl: actor_ref <- tempus_client_start(a, ci);
+        _: boolean <- cast(a, (:bees, 0, "", "", 0, 0, cl) impl ActorMessage {});
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

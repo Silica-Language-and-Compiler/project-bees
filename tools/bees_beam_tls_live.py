@@ -7,12 +7,17 @@ trials/n2t_pair/certs (tools/bees_beam_tls_certs.py).
 
     bees_beam_tls_live.py LEAF_DIR SCENARIO...
 
-The stock node's option files (what a stock node needs to talk to a BEES node: TLS 1.3, since OTP 28's inet_tls_dist offers
-TLS 1.2 only unless told; verify_peer on both halves and fail_if_no_peer_cert on the server half for mutual TLS):
-    good     certificate stock (Ed25519), {versions, ['tlsv1.3']}
-    rsa      certificate stock_rsa (RSA 2048), {versions, ['tlsv1.3']}
-    tls12    certificate stock, NO versions option: the stock default, TLS 1.2 only
-    rogue    certificate rogue (another CA), {versions, ['tlsv1.3']}
+The stock node's option files (what a stock node needs to talk to a BEES node: TLS 1.3; verify_peer on both halves and
+fail_if_no_peer_cert on the server half for mutual TLS). Every file SAYS its versions and, for TLS 1.3, its key exchange
+group, so that a scenario shows the same thing whatever the installed OTP offers by default: OTP 28's inet_tls_dist
+offers TLS 1.2 only unless told and has no X25519MLKEM768; OTP 29 (ssl 11.x on OpenSSL 4.1, seen 2026-11-20) offers
+TLS 1.3 and puts x25519mlkem768 first. The group named is classical x25519: these scenarios are the ones that show a
+stock node on the classical exchange BEAM mode accepts (spikes/N2T-beam-tls.md, profile). The hybrid exchange is shown
+between two BEES nodes by trials/n2t_pair.
+    good     certificate stock (Ed25519), {versions, ['tlsv1.3']}, {supported_groups, [x25519]}
+    rsa      certificate stock_rsa (RSA 2048), the same
+    tls12    certificate stock, {versions, ['tlsv1.2']}: a stock node that offers TLS 1.2 only
+    rogue    certificate rogue (another CA), as good
 Scenarios (BEES node l listens and registers with EPMD; BEES node d dials through EPMD):
     stock_dials        n2_live's stock_dials over TLS: ping (pong), nodes(), a message each way, SEND to a handed-out pid, link,
                        unlink, monitor, 26 s idle with ticks, BEES killed: nodedown and noconnection
@@ -20,7 +25,7 @@ Scenarios (BEES node l listens and registers with EPMD; BEES node d dials throug
                        localhost), casts to its inbox; the stock node answers to outbox
     stock_rsa_dials    a stock node with an RSA certificate dials BEES: pong, a message each way (N2T Q4)
     bees_dials_rsa     BEES dials a stock node with an RSA certificate: a message each way
-    stock_tls12        a stock node with the default TLS 1.2 pings BEES: refused at the TLS handshake, pang
+    stock_tls12        a stock node that offers TLS 1.2 only pings BEES: refused at the TLS handshake, pang
     stock_plain        a stock node WITHOUT -proto_dist inet_tls pings BEES's TLS listener: refused, pang
     stock_wrong_ca     a stock node with a certificate of another CA pings BEES: refused, pang
     wrong_cookie       a stock node with good TLS and another cookie pings BEES: TLS established, the digest refused, pang
@@ -54,7 +59,7 @@ def write_optfiles(leaf):
     ca = os.path.join(CERTS, "ca.pem")
     for name, (cert, v13) in OPTFILES.items():
         common = f'{{certfile, "{CERTS}/{cert}.pem"}}, {{keyfile, "{CERTS}/{cert}-key.pem"}}, {{cacertfile, "{ca}"}}, {{verify, verify_peer}}'
-        ver = ", {versions, ['tlsv1.3']}" if v13 else ""
+        ver = ", {versions, ['tlsv1.3']}, {supported_groups, [x25519]}" if v13 else ", {versions, ['tlsv1.2']}"
         with open(os.path.join(leaf, "build", f"{name}.optfile"), "w") as fh:
             fh.write(f"[{{server, [{common}, {{fail_if_no_peer_cert, true}}{ver}]}},\n {{client, [{common}{ver}]}}].\n")
 

@@ -15,7 +15,7 @@ BEES_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../..)
 LEAF_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 GEN := $(BEES_ROOT)/tools/bees_tempus_gen.py
 SRC_T := $(BEES_ROOT)/src/tempus
-SRC_C := $(BEES_ROOT)/example_tempus_clients/silica
+SRC_C := $(BEES_ROOT)/example_tempus_clients/silica/lib
 NODE_USES := --use tempus_ids --use bees_tempus_store --use bees_tempus_store_actor --use bees_tempus_node --use dangerous_bees_tempus_draws
 # the generated units are made by the rule of .gen.mk, an included makefile (make 3.81 lists a directory once)
 -include $(LEAF_DIR)/.gen.mk
@@ -23,7 +23,7 @@ $(LEAF_DIR)/.gen.mk: $(wildcard $(LEAF_DIR)/*.role) $(GEN) $(SRC_T)/bees_tempus_
 	@cd "$(LEAF_DIR)" && python3 "$(GEN)" unit "$(SRC_T)/bees_tempus_node.silica.in" lib/bees_tempus_node.silica && \
 	for n in n m; do python3 "$(GEN)" edge dangerous_$$n dangerous_$$n.silica $(NODE_USES) --use bees_tempus_test --part bees_tempus_node.part $$n.role node.role || exit 1; done && \
 	python3 "$(GEN)" edge dangerous_o dangerous_o.silica $(NODE_USES) --part bees_tempus_node.part o.role node.role && \
-	for n in cs ce; do python3 "$(GEN)" edge dangerous_$$n dangerous_$$n.silica --use tempus_ids --use bees_tempus_client --use bees_tempus_test --part example_tempus_clients/silica/bees_tempus_client.part $$n.role client.role || exit 1; done && \
+	for n in cs ce; do python3 "$(GEN)" edge dangerous_$$n dangerous_$$n.silica --use tempus_ids --use bees_tempus_client --use bees_tempus_test --part example_tempus_clients/silica/lib/bees_tempus_client.part $$n.role client.role || exit 1; done && \
 	echo "# written by the rule of this file in the Makefile: the generated units are current" > .gen.mk
 include $(BEES_ROOT)/tools/trial.mk
 # the processes run together, started and stopped by the trial tool: none runs alone

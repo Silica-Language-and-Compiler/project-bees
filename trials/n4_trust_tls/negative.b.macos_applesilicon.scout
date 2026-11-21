@@ -26,7 +26,7 @@ step 12 call demo:secret/0 (not in b.cert's spec): {error, closed}
 [trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as client 13
 step 13 call demo:crash/1 (the user code fails): {error, closed}
 [trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as client 14
-step 14 call demo:slow([300000000]) (call timeout): {error, closed}
+step 14 call demo:slow([1200]) (call timeout): {error, closed}
 [trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as client 15
 step 15 call demo:add([1, 2]) while quarantined: {error, closed}
 [trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as client 16

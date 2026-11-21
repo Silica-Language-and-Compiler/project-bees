@@ -39,7 +39,7 @@ nodes: tools natives fixtures
 kotlin: tools
 	@$(MAKE) --no-print-directory -C "$(CLIENT)" build test-build KOTLINC="$(KOTLINC)" JAVA="$(JAVA)" > /dev/null || { echo "FAIL: [c6_tempus_kotlin] the Kotlin client did not compile (make -C example_tempus_clients/kotlin build test-build)"; exit 1; }
 	@mkdir -p "$(HERE)/build" && cd "$(HERE)" && if [ ! -f "$(WALK_JAR)" ] || [ Walk.kt -nt "$(WALK_JAR)" ] || [ "$(CLIENT_JAR)" -nt "$(WALK_JAR)" ] || [ "$(CLIENT)/test/Fixtures.kt" -nt "$(WALK_JAR)" ]; then \
-		"$(KOTLINC)" -nowarn -include-runtime -d "$(WALK_JAR)" "$(CLIENT)"/src/*.kt "$(CLIENT)/test/Fixtures.kt" Walk.kt || { echo "FAIL: [c6_tempus_kotlin] Walk.kt did not compile"; exit 1; }; fi
+		"$(KOTLINC)" -nowarn -include-runtime -d "$(WALK_JAR)" "$(CLIENT)"/lib/*.kt "$(CLIENT)/test/Fixtures.kt" Walk.kt || { echo "FAIL: [c6_tempus_kotlin] Walk.kt did not compile"; exit 1; }; fi
 	@echo "[c6_tempus_kotlin] built: the Kotlin client, its tests and the walk"
 build: tools nodes kotlin
 run: build

@@ -15,9 +15,11 @@
 //   tx    the SEND ACTOR, the one writer of the link: it takes framed segments (strings) and casts each to the carrier as
 //         (:tx, segment, self()), so frames of several proxies never interleave. It also sends the net tick when the link has
 //         been idle for a tick interval, and, when the link is lost, ends every proxy through the reaper (the message (:bees, 1, 0, tx, tx)).
-//   lsn   the LISTEN ACTOR of a listening node: the owner of the listening carrier. The carrier is opened with "listen:PORT" and
-//         answers (:link_up, "port:N") once bound; for every connection it accepts it sends (:accepted, connection_carrier, info),
-//         and lsn starts a link on that connection (tx, conn) and adopts it for conn with (:open, conn, ""): the connection then
+//   lsn   the LISTEN ACTOR of a listening node: the listening carrier's owner as far as this unit goes. The carrier is opened
+//         with "listen:PORT" by the carrier edge (src/shim/bees_tcp_edge.part, carrier_listen), whose small actor stands between:
+//         the standard library's listener hands over the accepted DESCRIPTOR since 2026-11-20, and that actor starts the
+//         connection's carrier from it. lsn is told (:link_up, "port:N") once bound and, for every connection accepted,
+//         (:accepted, connection_carrier, info), and lsn starts a link on that connection (tx, conn) and adopts it for conn with (:open, conn, ""): the connection then
 //         answers its own :link_up and the handshake starts. N2c: every accepted connection is served; the node has several links (one per
 //         peer line) and a peer that connects again replaces its old link (slot, below). tx and conn are spawned only once their
 //         carrier is known, so neither ever changes its carrier (SD-39: a replaced dangerous_actor_ref in state makes the compiler
@@ -530,7 +532,7 @@ fn conn(
 }
 
 // ======================================================================== lsn
-// The owner of the listening carrier. On every (:accepted, car, info) it starts a link on car exactly as the root unit's net_launch does on
+// The listening carrier's owner, through the carrier edge's carrier_listen. On every (:accepted, car, info) it starts a link on car exactly as the root unit's net_launch does on
 // a dialer's carrier (the same state literals), and opens car with conn as its owner (N2c: every accepted connection is served; a
 // peer that connects again replaces its old link through the slots below). Everything else the listener says ((:link_up, "port:N"), its
 // :link_down) changes nothing. The tx's first reaper is the slot chain: a link that ends before any proxies exist tells the slot itself
