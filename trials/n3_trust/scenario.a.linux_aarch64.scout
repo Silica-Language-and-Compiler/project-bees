@@ -1,0 +1,14 @@
+[trust] TEST ONLY: plaintext transport, peer identity is a test-supplied stand-in for the certificate fingerprint
+[trust] mode trust, listen 127.0.0.1:22400, whitelist 2 entries, pinned servers 0, frame_size_max 4096, args_len_max 4096, term_depth_max 32, call_timeout_ms 400, first_frame_timeout_ms 500, suspicion_limit 8, token_bytes 48, token_ttl_sec 300, one request per connection (B1)
+[trust] whitelist: certificate z.cert is missing or unreadable, entry skipped (as SEMP does)
+[trust] listening on 127.0.0.1:22400
+[trust audit] token_issued fp=9fecef522decaee2ee95bcf1e0fb3db6b186fe92191395877af91ec2ff0968aafbf246a408690da60dac84c68ccbf6fe51b31016138b425985fe3d21b592c344 new token for this fingerprint (the token itself is never logged) 0
+[trust audit] admitted fp=9fecef522decaee2ee95bcf1e0fb3db6b186fe92191395877af91ec2ff0968aafbf246a408690da60dac84c68ccbf6fe51b31016138b425985fe3d21b592c344 call demo:add/2 0
+[trust audit] token_accepted fp=9fecef522decaee2ee95bcf1e0fb3db6b186fe92191395877af91ec2ff0968aafbf246a408690da60dac84c68ccbf6fe51b31016138b425985fe3d21b592c344 fast path, no token_issue 1
+[trust audit] admitted fp=9fecef522decaee2ee95bcf1e0fb3db6b186fe92191395877af91ec2ff0968aafbf246a408690da60dac84c68ccbf6fe51b31016138b425985fe3d21b592c344 call demo:add/2 1
+[trust audit] token_accepted fp=9fecef522decaee2ee95bcf1e0fb3db6b186fe92191395877af91ec2ff0968aafbf246a408690da60dac84c68ccbf6fe51b31016138b425985fe3d21b592c344 fast path, no token_issue 2
+[trust audit] admitted fp=9fecef522decaee2ee95bcf1e0fb3db6b186fe92191395877af91ec2ff0968aafbf246a408690da60dac84c68ccbf6fe51b31016138b425985fe3d21b592c344 cast demo:note/1 2
+[demo] note got 7
+[trust audit] token_accepted fp=9fecef522decaee2ee95bcf1e0fb3db6b186fe92191395877af91ec2ff0968aafbf246a408690da60dac84c68ccbf6fe51b31016138b425985fe3d21b592c344 fast path, no token_issue 3
+[trust audit] admitted fp=9fecef522decaee2ee95bcf1e0fb3db6b186fe92191395877af91ec2ff0968aafbf246a408690da60dac84c68ccbf6fe51b31016138b425985fe3d21b592c344 call demo:echo/1 3
+exit=0

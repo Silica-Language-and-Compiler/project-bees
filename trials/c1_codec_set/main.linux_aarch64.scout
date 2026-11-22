@@ -1,0 +1,82 @@
+-- Set[int64]: List[int64, mem(normal)], the map #{E => []} on the wire
+sets:from_list([]) 837400000000  = erl
+  decoded: ok {}
+  erl's bytes decoded: ok {}
+sets:from_list([3,1,2]) 83740000000361016a61026a61036a  = erl
+  decoded: ok {1,2,3}
+  erl's bytes decoded: ok {1,2,3}
+the same set written 3, 1, 2 (the list's order is kept; erl sorts) 83740000000361036a61016a61026a  (erl's bytes are decoded, not compared)
+  decoded: ok {3,1,2}
+  erl's bytes decoded: ok {1,2,3}
+40 elements 1..40 (erl's order above 32 keys is its hash order) 83740000002861016a61026a61036a61046a61056a61066a... (126 bytes)  (erl's bytes are decoded, not compared)
+  decoded: ok 40 elements that add up to 820
+  erl's bytes decoded: ok 40 elements that add up to 820
+-- Set[(:pt, int64, int64)]: a set of tagged tuples
+sets:from_list([{pt,1,2},{pt,3,4}]) 837400000002680377027074610161026a680377027074610361046a  = erl
+  decoded: ok {{pt,1,2}, {pt,3,4}}
+  erl's bytes decoded: ok {{pt,1,2}, {pt,3,4}}
+-- Set[string]
+sets:from_list([<<a>>,<<b>>]) 8374000000026d00000001616a6d00000001626a  = erl
+  decoded: ok {a,b}
+  erl's bytes decoded: ok {a,b}
+-- Set[(:i, int64) | :none]: a set of a sum
+sets:from_list([{i,1},none]) 83740000000277046e6f6e656a680277016961016a  = erl
+  decoded: ok {none, {i,1}}
+  erl's bytes decoded: ok {none, {i,1}}
+-- (:tags, int64, Set[string]): a set in a tagged tuple
+{tags,9,sets:from_list([<<x>>,<<y>>])} 836803770474616773610974000000026d00000001786a6d00000001796a  = erl
+  decoded: ok (tags, 9, {x,y})
+  erl's bytes decoded: ok (tags, 9, {x,y})
+-- Map[int64, Set[int64]]: sets as the values of a map
+#{1=>sets:from_list([1,2]),2=>sets:new()} 8374000000026101740000000261016a61026a61027400000000  = erl
+  decoded: ok #{1=>{1,2}, 2=>{}}
+  erl's bytes decoded: ok #{1=>{1,2}, 2=>{}}
+-- the limit of 1024 elements, both directions
+encode, 1024 elements: a frame of 5385 bytes
+  decoded: ok 1024 elements that add up to 524800
+encode, 1025 elements: not sent (no frame)
+decode, a frame of 1024 elements written by hand (6150 bytes): ok 1024 elements that add up to 524800
+decode, a frame of 1025 elements written by hand (6156 bytes): rejected too_long
+encode, the element 1 twice: not sent (no frame)
+encode, the element {pt,1,2} twice: not sent (no frame)
+encode, a map whose value is a set with an element twice: not sent (no frame)
+-- refusals, decoded as Set[int64]
+empty frame: rejected truncated
+only the version byte: rejected truncated
+truncated inside the count: rejected truncated
+truncated after the count (3 elements said, none there): rejected truncated
+truncated after an element, before its []: rejected truncated
+truncated after the first element and its []: rejected truncated
+a value that is not []: #{1=>2}: rejected bad_tag
+a value that is not []: #{1=>[],2=>true}: rejected bad_tag
+a value that is an empty binary, not []: rejected bad_tag
+an ordsets list, not the sets map: [1,2,3] as STRING_EXT: rejected bad_tag
+a list: []: rejected bad_tag
+a tuple: rejected bad_tag
+the element 5 twice, both SMALL_INTEGER_EXT: rejected duplicate_field
+the element 5 twice, as SMALL_INTEGER_EXT (61 05) and SMALL_BIG_EXT (6e 01 00 05): rejected duplicate_field
+a count of 4294967295 and one element: rejected too_long
+a count of 1025 and one element: rejected too_long
+a count of 5 and one element: rejected truncated
+a trailing byte: rejected trailing_bytes
+an element of another type: sets:from_list([<<a>>]): rejected bad_tag
+a frame of 70012 bytes, above the cap of 65536: rejected too_large
+-- refusals inside other types
+pts, an element with another tag: {zz,1,2} (zz is not held): rejected bad_tag
+pts, an element of another arity: {pt,1}: rejected bad_tag
+pts, the element {pt,1,2} twice, the second with INTEGER_EXT: rejected duplicate_field
+enums, an element the sum does not have: tags: rejected bad_variant
+enums, an atom the program does not hold: zzqx: rejected bad_variant
+tags, the set holds a value that is not []: rejected bad_tag
+tags, the set holds <<x>> twice: rejected duplicate_field
+tags, the third element is a list of binaries (ordsets): rejected bad_tag
+tags, truncated inside the set: rejected truncated
+sets, the inner set has the element 1 twice: rejected duplicate_field
+sets, the inner set has a value that is not []: rejected bad_tag
+sets, the key 1 twice: rejected duplicate_field
+-- 5000 decodes in a row of each (validate_named)
+a count of 4294967295, refused too_long: 5000
+1025 elements, refused too_long: 5000
+70012 bytes, refused too_large: 5000
+64 elements, accepted: 5000
+exit=0

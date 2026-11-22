@@ -54,11 +54,14 @@ endef
 SILICA_RUN_TIMEOUT ?= 120
 # A trial whose main ends in wait_for_exit() has a NAME.wait_for_exit file holding the marker line
 # after which "exit" is fed to it (tools/run_trial.py); every other trial runs with stdin closed.
+# A leaf whose program needs more main-thread stack than a platform's default sets NEEDS_MAIN_STACK := 1 before including
+# trial.mk. Where the platform sizes that stack by the process limit (PLATFORM_MAIN_STACK_KB, Linux), the entry is run under
+# `ulimit -s`; where the link sizes it (macOS, -stack_size in PLATFORM_LDFLAGS), every program has it already.
 define RUN_TRIAL
 	if [ -f "$(1).wait_for_exit" ]; then \
 		"$(BEES_ROOT)/tools/run_trial.py" "$(1)" "$(2)" "$$(cat "$(1).wait_for_exit")"; \
 	else \
-		perl -e 'alarm shift @ARGV; exec @ARGV' $(SILICA_RUN_TIMEOUT) "$(1)" < /dev/null > "$(2)" 2>&1; rc=$$?; \
+		( $(if $(and $(NEEDS_MAIN_STACK),$(PLATFORM_MAIN_STACK_KB)),ulimit -s $(PLATFORM_MAIN_STACK_KB) && )exec perl -e 'alarm shift @ARGV; exec @ARGV' $(SILICA_RUN_TIMEOUT) "$(1)" ) < /dev/null > "$(2)" 2>&1; rc=$$?; \
 		printf 'exit=%s\n' "$$rc" >> "$(2)"; \
 	fi; \
 	$(SED_I) -E 's/0x[0-9a-f]{6,}/0xADDR/g' "$(2)"
@@ -82,6 +85,14 @@ STRIP_ROOT_EXIT = perl -0pi -e 's/\[silica\] root actor exited \(no supervisor\)
 # the carrier's own `:normal` end; its place among the stdout lines varies. STRIP_CARRIER_END removes exactly that report (reason
 # :normal, call stack in dangerous_tcp_carrier_carrier) and the root-actor line; any other report stays in the output.
 STRIP_CARRIER_END = perl -0pi -e 's/\[silica\] root actor exited \(no supervisor\)\n//g; s/\n?=== Silica Actor Failure ===\n(?:(?!=== End).)*?reason:\s+:normal\n(?:(?!=== End).)*?dangerous_tcp_carrier_carrier\n(?:(?!=== End).)*?=== End Silica Actor Failure ===\n\n?//gs'
+
+# A (:tcp) carrier whose connection the peer closes while bytes sent to it are unread ends with `(:explicit, :link_lost)` when the
+# kernel answers the write with a reset, and the runtime reports that end as an actor failure (development-plan/silica-defects.md,
+# the note "A connection the server closes while the client's bytes are unread"). Whether the reset arrives before the
+# program ends depends on the kernel and the load: macOS did not show it, Linux x86-64 and AArch64 show it in some runs (a root
+# carrier, call stack dangerous_tcp_carrier_carrier). The trials that close a connection on purpose (TRUST refusals) remove that
+# one report; the owner's own `(:link_down, _)` line stays in the output, and any other report stays too.
+STRIP_CARRIER_LINK_LOST = perl -0pi -e 's/\n?=== Silica Actor Failure ===\n(?:(?!=== End).)*?reason:\s+\(:explicit, :link_lost\)\n(?:(?!=== End).)*?dangerous_tcp_carrier_carrier\n(?:(?!=== End).)*?=== End Silica Actor Failure ===\n\n?//gs'
 
 # TRUST negative suite (trials/n3_trust, trials/n4_trust_tls), the server's output: the call demo:slow times out, which (1) makes the
 # connection actor report the late result when the abandoned worker's answer arrives and (2) makes the fingerprint's actor print

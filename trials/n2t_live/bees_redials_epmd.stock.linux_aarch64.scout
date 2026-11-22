@@ -1,0 +1,5 @@
+stock: registered, waiting for BEES to dial again
+stock: nodeup beesr@localhost; the link's protocol is tls
+stock: sent {outbox, BEES} ! #{op => inc, n => 42}
+stock: done
+exit=0

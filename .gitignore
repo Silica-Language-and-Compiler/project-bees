@@ -14,6 +14,8 @@ trials/*/*
 # n2_auth (found missing on 2026-11-20: a fresh clone could not build the leaf, E4030, the sidecar was not found)
 !trials/n2_auth/dangerous_exposure_source
 !trials/*/sout.sed
+# the platforms a leaf runs on, read by tools/run_all_trials.py (no extension, so named here)
+!trials/*/platforms
 # M3: the roles and the node leaves (their generated files are ignored again below)
 !trials/m3_dist/roles/
 !trials/m3_dist/nodes/

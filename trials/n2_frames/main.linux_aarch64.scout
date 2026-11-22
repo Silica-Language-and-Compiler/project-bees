@@ -1,0 +1,92 @@
+n_init 001d4e0000000403070f9d00000001000e62656573406c6f63616c686f7374
+n_acc 00214e0000000403070f9db2d05e0000000007000e62656573406c6f63616c686f7374
+n_acc challenge 3000000000
+s_ok 0003736f6b
+s_not_allowed 000c736e6f745f616c6c6f776564
+status of s_not_allowed not_allowed
+r 001572b2d05e00000102030405060708090a0b0c0d0e0f
+r challenge 3000000000
+r digest 000102030405060708090a0b0c0d0e0f
+a 001161000102030405060708090a0b0c0d0e0f
+a digest 000102030405060708090a0b0c0d0e0f
+a short digest 0
+digest word 3 202182159
+short name bees
+alive2_req 001178b98c4d00000600060004626565730000
+alive2_x_resp ok creation 658188
+alive2_x_resp ok code 0
+alive2_x_resp partial code 1
+alive2_x_resp taken code 2
+alive2_resp ok creation 3
+alive2 garbage code 4
+port_please2_req 00067a73746f636b
+port2_resp port 47500
+port2_resp code 0
+port2_resp unknown code 2
+port2_resp partial code 1
+pid 58770e62656573406c6f63616c686f7374000000000000000000000001
+exit_noproc 70836804610358770e62656573406c6f63616c686f737400000005000000000000000158770d67656e406c6f63616c686f73740000000a000000006af3675777066e6f70726f63
+unlink_id_ack 7083680461246e0500907856341258770e62656573406c6f63616c686f737400000000000000000000000158770d67656e406c6f63616c686f73740000000a000000006af36757
+send 708368036102770058770d67656e406c6f63616c686f73740000000a000000006af367578368026c000000017705616c6961735a0005770d67656e406c6f63616c686f73746af36757000397fa7df100043f3b7d4000000503000000007703796573
+with_pid 83680258770e62656573406c6f63616c686f7374000000000000000000000001770161
+link code 0
+link tag 1
+link arity 3
+link ends 34063063
+link payload at 63
+link length 63
+link from node gen@localhost
+link from code 0
+link from id 10
+link from creation 1794336599
+link to node bees@localhost
+link to code 0
+link to id 0
+link to creation 1
+monitor code 0
+monitor tag 19
+monitor arity 4
+monitor ends 34063097
+monitor payload at 97
+monitor length 97
+unlink_id code 0
+unlink_id tag 35
+unlink_id arity 4
+unlink_id ends 14042071
+unlink_id payload at 71
+unlink_id length 71
+exit2 code 0
+exit2 tag 8
+exit2 arity 4
+exit2 ends 34063109
+exit2 payload at 109
+exit2 length 109
+regsend_auth code 0
+regsend_auth tag 6
+regsend_auth arity 4
+regsend_auth ends 34036048
+regsend_auth payload at 48
+regsend_auth length 172
+regsend_auth name net_kernel
+is_auth code 0
+is_auth tag end 98
+not is_auth code 2
+truncated code 2
+truncated tag 8
+truncated arity 4
+truncated ends 0
+truncated payload at 0
+truncated length 12
+bad tag code 4
+bad tag tag 8
+bad tag arity 4
+bad tag ends 0
+bad tag payload at 0
+bad tag length 7
+too deep code 6
+too deep tag 1
+too deep arity 2
+too deep ends 0
+too deep payload at 0
+too deep length 47
+exit=0

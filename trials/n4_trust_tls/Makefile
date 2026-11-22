@@ -39,7 +39,7 @@ SCENARIOS := \
  noca|s/dangerous_s_main|q/dangerous_q_noca|noca_done||1
 SCEN_QUOTED := $(foreach s,$(SCENARIOS),'$(s)')
 # an output is cleaned of addresses and the runtime's root-actor lines
-CLEAN_OUT = clean_out() { $(SED_I) -E -e 's/0x[0-9a-f]{6,}/0xADDR/g' "$$@" && $(STRIP_ROOT_EXIT) "$$@"; }; clean_out
+CLEAN_OUT = clean_out() { $(SED_I) -E -e 's/0x[0-9a-f]{6,}/0xADDR/g' "$$@" && $(STRIP_ROOT_EXIT) "$$@" && $(STRIP_CARRIER_LINK_LOST) "$$@"; }; clean_out
 .PHONY: build run integrate record-golden clean measure tls
 # the engine, or the leaf fails here with native/Makefile's refusal (the OpenSSL found, and the 4.1.0 minimum)
 tls:

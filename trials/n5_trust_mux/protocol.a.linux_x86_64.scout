@@ -1,0 +1,79 @@
+[trust] TEST ONLY: plaintext transport, peer identity is a test-supplied stand-in for the certificate fingerprint
+[trust] mode trust, listen 127.0.0.1:23000, whitelist 2 entries, pinned servers 0, frame_size_max 4096, args_len_max 4096, term_depth_max 32, call_timeout_ms 3000, first_frame_timeout_ms 500, suspicion_limit 3, token_bytes 48, token_ttl_sec 300, sessions (B2): max_inflight 2, max_calls 8, max_age_ms 60000, idle_ms 2000, drain_ms 1000
+[trust] listening on 127.0.0.1:23000
+[trust audit] token_issued fp=9fecef522decaee2ee95bcf1e0fb3db6b186fe92191395877af91ec2ff0968aafbf246a408690da60dac84c68ccbf6fe51b31016138b425985fe3d21b592c344 new token for this fingerprint (the token itself is never logged) 0
+[trust telemetry] session.start client_id=fp:9fecef522decaee2 conn=0
+[trust audit] admitted fp=9fecef522decaee2ee95bcf1e0fb3db6b186fe92191395877af91ec2ff0968aafbf246a408690da60dac84c68ccbf6fe51b31016138b425985fe3d21b592c344 call demo:slow/1 0
+[trust telemetry] request.accept type=call req_id=647570 conn=0
+[trust audit] admitted fp=9fecef522decaee2ee95bcf1e0fb3db6b186fe92191395877af91ec2ff0968aafbf246a408690da60dac84c68ccbf6fe51b31016138b425985fe3d21b592c344 call demo:add/2 0
+[trust telemetry] request.refuse reason=duplicate conn=0
+[trust audit] admitted fp=9fecef522decaee2ee95bcf1e0fb3db6b186fe92191395877af91ec2ff0968aafbf246a408690da60dac84c68ccbf6fe51b31016138b425985fe3d21b592c344 call demo:add/2 0
+[trust telemetry] request.accept type=call req_id=6f6b32 conn=0
+[trust telemetry] pause inflight=2 conn=0
+[trust telemetry] request.finish req_id=6f6b32 outcome=ok duration_ms=N conn=0
+[trust telemetry] resume paused_ms=N conn=0
+[trust telemetry] request.finish req_id=647570 outcome=ok duration_ms=N conn=0
+[trust telemetry] goaway reason=limit_reached drain_ms=1000 inflight=0 conn=0
+[trust telemetry] session.end reason=limit_reached age_ms=N calls_total=2 inflight_peak=2 refused=0 duplicates=1 conn=0
+[trust audit] token_issued fp=9fecef522decaee2ee95bcf1e0fb3db6b186fe92191395877af91ec2ff0968aafbf246a408690da60dac84c68ccbf6fe51b31016138b425985fe3d21b592c344 new token for this fingerprint (the token itself is never logged) 1
+[trust telemetry] session.start client_id=fp:9fecef522decaee2 conn=1
+[trust audit] admitted fp=9fecef522decaee2ee95bcf1e0fb3db6b186fe92191395877af91ec2ff0968aafbf246a408690da60dac84c68ccbf6fe51b31016138b425985fe3d21b592c344 call demo:slow/1 1
+[trust telemetry] request.accept type=call req_id=7031 conn=1
+[trust telemetry] request.refuse reason=malformed conn=1
+[trust audit] protocol_error fp=9fecef522decaee2ee95bcf1e0fb3db6b186fe92191395877af91ec2ff0968aafbf246a408690da60dac84c68ccbf6fe51b31016138b425985fe3d21b592c344 truncated 1
+[trust telemetry] goaway reason=protocol drain_ms=0 inflight=1 conn=1
+[trust telemetry] session.end reason=protocol age_ms=N calls_total=1 inflight_peak=1 refused=0 duplicates=0 conn=1
+[trust audit] suspicion fp=9fecef522decaee2ee95bcf1e0fb3db6b186fe92191395877af91ec2ff0968aafbf246a408690da60dac84c68ccbf6fe51b31016138b425985fe3d21b592c344 raised by protocol_error 1
+[trust audit] token_issued fp=9fecef522decaee2ee95bcf1e0fb3db6b186fe92191395877af91ec2ff0968aafbf246a408690da60dac84c68ccbf6fe51b31016138b425985fe3d21b592c344 new token for this fingerprint (the token itself is never logged) 2
+[trust telemetry] session.start client_id=fp:9fecef522decaee2 conn=2
+[trust telemetry] request.refuse reason=malformed conn=2
+[trust audit] protocol_error fp=9fecef522decaee2ee95bcf1e0fb3db6b186fe92191395877af91ec2ff0968aafbf246a408690da60dac84c68ccbf6fe51b31016138b425985fe3d21b592c344 frame refused before decoding: too_large 5 2
+[trust telemetry] goaway reason=protocol drain_ms=0 inflight=0 conn=2
+[trust telemetry] session.end reason=protocol age_ms=N calls_total=0 inflight_peak=0 refused=0 duplicates=0 conn=2
+[trust audit] suspicion fp=9fecef522decaee2ee95bcf1e0fb3db6b186fe92191395877af91ec2ff0968aafbf246a408690da60dac84c68ccbf6fe51b31016138b425985fe3d21b592c344 raised by protocol_error 2
+[trust audit] token_reject fp=9fecef522decaee2ee95bcf1e0fb3db6b186fe92191395877af91ec2ff0968aafbf246a408690da60dac84c68ccbf6fe51b31016138b425985fe3d21b592c344 token invalid, expired or revoked 3
+[trust telemetry] goaway reason=deny drain_ms=0 inflight=0 conn=3
+[trust audit] suspicion fp=9fecef522decaee2ee95bcf1e0fb3db6b186fe92191395877af91ec2ff0968aafbf246a408690da60dac84c68ccbf6fe51b31016138b425985fe3d21b592c344 raised by token_reject 3
+[trust audit] token_issued fp=9fecef522decaee2ee95bcf1e0fb3db6b186fe92191395877af91ec2ff0968aafbf246a408690da60dac84c68ccbf6fe51b31016138b425985fe3d21b592c344 new token for this fingerprint (the token itself is never logged) 4
+[trust telemetry] session.start client_id=fp:9fecef522decaee2 conn=4
+[trust audit] admitted fp=9fecef522decaee2ee95bcf1e0fb3db6b186fe92191395877af91ec2ff0968aafbf246a408690da60dac84c68ccbf6fe51b31016138b425985fe3d21b592c344 call demo:add/2 4
+[trust telemetry] request.accept type=call req_id=0000000000000000000000000001 conn=4
+[trust telemetry] request.finish req_id=0000000000000000000000000001 outcome=ok duration_ms=N conn=4
+[trust audit] suspicion fp=9fecef522decaee2ee95bcf1e0fb3db6b186fe92191395877af91ec2ff0968aafbf246a408690da60dac84c68ccbf6fe51b31016138b425985fe3d21b592c344 lowered by a permitted request 2
+[trust audit] admitted fp=9fecef522decaee2ee95bcf1e0fb3db6b186fe92191395877af91ec2ff0968aafbf246a408690da60dac84c68ccbf6fe51b31016138b425985fe3d21b592c344 cast demo:stats/0 4
+[trust telemetry] request.accept type=cast req_id=0000000000000400000000000002 conn=4
+[trust telemetry] request.finish req_id=0000000000000400000000000002 outcome=ok duration_ms=N conn=4
+[trust audit] suspicion fp=9fecef522decaee2ee95bcf1e0fb3db6b186fe92191395877af91ec2ff0968aafbf246a408690da60dac84c68ccbf6fe51b31016138b425985fe3d21b592c344 lowered by a permitted request 1
+[trust metrics] trust_sessions_started_total 4
+[trust metrics] trust_sessions_active 1
+[trust metrics] trust_sessions_ended_total{reason="limit_reached"} 1
+[trust metrics] trust_sessions_ended_total{reason="shutdown"} 0
+[trust metrics] trust_sessions_ended_total{reason="deny"} 0
+[trust metrics] trust_sessions_ended_total{reason="protocol"} 2
+[trust metrics] trust_sessions_ended_total{reason="client_cancel"} 0
+[trust metrics] trust_sessions_ended_total{reason="other"} 0
+[trust metrics] trust_goaway_total{reason="limit_reached"} 1
+[trust metrics] trust_goaway_total{reason="shutdown"} 0
+[trust metrics] trust_goaway_total{reason="deny"} 1
+[trust metrics] trust_goaway_total{reason="protocol"} 2
+[trust metrics] trust_requests_total{type="call",outcome="ok"} 3
+[trust metrics] trust_requests_total{type="call",outcome="error"} 0
+[trust metrics] trust_requests_total{type="cast",outcome="ok"} 1
+[trust metrics] trust_requests_total{type="cast",outcome="error"} 0
+[trust metrics] trust_requests_refused_total{reason="draining"} 0
+[trust metrics] trust_requests_refused_total{reason="duplicate"} 1
+[trust metrics] trust_requests_refused_total{reason="malformed"} 2
+[trust metrics] trust_requests_refused_total{reason="max_inflight"} 0
+[trust metrics] trust_duplicates_total 1
+[trust metrics] trust_client_cancels_total 0
+[trust metrics] trust_worker_crashes_total{class="error"} 0
+[trust metrics] trust_protocol_close_total 2
+[trust metrics] trust_resume_reads_total 1
+[trust metrics] trust_session_age_ms_sum N
+[trust metrics] trust_result_latency_ms_sum N
+[trust metrics] trust_paused_duration_ms_sum N
+[trust metrics] trust_session_age_ms_count 3
+[trust metrics] trust_result_latency_ms_count 4
+[trust metrics] trust_paused_duration_ms_count 1
+[trust telemetry] session.end reason=client_close age_ms=N calls_total=2 inflight_peak=1 refused=0 duplicates=0 conn=4
+exit=0

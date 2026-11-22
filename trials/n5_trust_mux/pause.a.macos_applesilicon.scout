@@ -58,4 +58,4 @@
 [trust metrics] trust_paused_duration_ms_count 2
 [trust telemetry] session.end reason=client_close age_ms=N calls_total=1 inflight_peak=1 refused=0 duplicates=0 conn=1
 exit=0
-[pause] the server's resident set one second into the pause: within 1024 KiB of its size when it paused (megabytes of requests unread)
+[pause] the server's resident set half a second into the pause: within 1024 KiB of its size when it paused (megabytes of requests unread)

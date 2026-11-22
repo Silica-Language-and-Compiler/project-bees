@@ -1,0 +1,7 @@
+[bees] mode=beam node=e@localhost transport=tcp auth=cookie creation=1 epmd=none epmd_port=4369 net_tick io_ms=60000 tick_ms=15000 link=h@localhost role=dial frame_size_max=4294967295
+[bees] BEAM mode: Erlang cookie authentication, no encryption (transport tcp, 127.0.0.1); a downgrade from TRUST
+[bees audit] cookie digest accepted from h@localhost 0
+[bees audit] handshake complete with h@localhost 0
+edge e2: request sent
+edge e2: got answer 68
+exit=0

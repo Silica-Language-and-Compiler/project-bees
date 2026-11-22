@@ -1,0 +1,52 @@
+[trust] transport: mutual TLS 1.3 over the programmer-installed OpenSSL; peer identity: the SHA-512 of its certificate
+[trust] mode trust, transport mutual TLS 1.3 (ALPN trust/1, X25519MLKEM768, peers by the SHA-512 of their certificate, pins only, no cacertfile), listen 127.0.0.1:23100, whitelist 2 entries, pinned servers 0, frame_size_max 4096, args_len_max 4096, term_depth_max 32, call_timeout_ms 3000, first_frame_timeout_ms 500, suspicion_limit 3, token_bytes 48, token_ttl_sec 300, sessions (B2): max_inflight 2, max_calls 8, max_age_ms 60000, idle_ms 2000, drain_ms 1000
+[trust] listening on 127.0.0.1:23100
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 0
+[trust audit] token_issued fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f new token for this fingerprint (the token itself is never logged) 0
+[trust telemetry] session.start client_id=fp:7e6dfd8484a57a96 conn=0
+[trust audit] admitted fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f call demo:add/2 0
+[trust telemetry] request.accept type=call req_id=0000000000000000000000000001 conn=0
+[trust telemetry] request.finish req_id=0000000000000000000000000001 outcome=ok duration_ms=N conn=0
+[trust audit] forbidden_mfa fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f erlang:apply/3 0
+[trust telemetry] goaway reason=deny drain_ms=0 inflight=0 conn=0
+[trust telemetry] session.end reason=deny age_ms=N calls_total=1 inflight_peak=1 refused=0 duplicates=0 conn=0
+[trust audit] suspicion fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f raised by forbidden_mfa 1
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 1
+[trust audit] token_issued fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f new token for this fingerprint (the token itself is never logged) 1
+[trust telemetry] session.start client_id=fp:7e6dfd8484a57a96 conn=1
+[trust audit] permission_denied fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f demo:secret/0 1
+[trust telemetry] goaway reason=deny drain_ms=0 inflight=0 conn=1
+[trust telemetry] session.end reason=deny age_ms=N calls_total=0 inflight_peak=0 refused=0 duplicates=0 conn=1
+[trust audit] suspicion fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f raised by permission_denied 2
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 2
+[trust audit] token_issued fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f new token for this fingerprint (the token itself is never logged) 2
+[trust telemetry] session.start client_id=fp:7e6dfd8484a57a96 conn=2
+[trust audit] admitted fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f call demo:add/2 2
+[trust telemetry] request.accept type=call req_id=0000000000000000000000000001 conn=2
+[trust telemetry] request.finish req_id=0000000000000000000000000001 outcome=ok duration_ms=N conn=2
+[trust audit] suspicion fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f lowered by a permitted request 1
+[trust audit] admitted fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f call demo:crash/1 2
+[trust telemetry] request.accept type=call req_id=0000000000000000000000000002 conn=2
+[trust audit] user_code_error fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f badarith 2
+[trust telemetry] worker.crash req_id=0000000000000000000000000002 class=error reason=badarith conn=2
+[trust telemetry] request.finish req_id=0000000000000000000000000002 outcome=error duration_ms=N conn=2
+[trust audit] suspicion fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f raised by user_code_error 2
+[trust audit] admitted fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f cast demo:crash/1 2
+[trust telemetry] request.accept type=cast req_id=0000000000000400000000000003 conn=2
+[trust audit] user_code_error fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f badarith 2
+[trust telemetry] worker.crash req_id=0000000000000400000000000003 class=error reason=badarith conn=2
+[trust telemetry] request.finish req_id=0000000000000400000000000003 outcome=error duration_ms=N conn=2
+[trust audit] suspicion fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f raised by user_code_error 3
+[trust audit] admitted fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f cast demo:crash/1 2
+[trust telemetry] request.accept type=cast req_id=0000000000000400000000000004 conn=2
+[trust audit] user_code_error fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f badarith 2
+[trust telemetry] worker.crash req_id=0000000000000400000000000004 class=error reason=badarith conn=2
+[trust telemetry] request.finish req_id=0000000000000400000000000004 outcome=error duration_ms=N conn=2
+[trust audit] suspicion fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f raised by user_code_error 4
+[trust audit] quarantined fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f above suspicion_limit; token revoked, connections refused until an operator reset 4
+[trust audit] quarantined fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f session closed 2
+[trust telemetry] goaway reason=deny drain_ms=0 inflight=0 conn=2
+[trust telemetry] session.end reason=deny age_ms=N calls_total=4 inflight_peak=1 refused=0 duplicates=0 conn=2
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 3
+[trust audit] quarantined fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f connection refused 3
+exit=0

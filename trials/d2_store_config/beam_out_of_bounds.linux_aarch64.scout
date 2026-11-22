@@ -1,0 +1,3 @@
+configuration refused: record 2 schema 10: beam.net.listen_port: outside 0..65535
+done
+exit=0

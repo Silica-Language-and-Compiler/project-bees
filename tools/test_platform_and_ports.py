@@ -15,18 +15,24 @@ import platform_id as P  # noqa: E402
 import trial_ports as T  # noqa: E402
 
 
-# Linux goldens that do not exist, each with its reason (a Silica defect of development-plan/silica-defects.md, or a missing tool)
-LINUX_GOLDEN_EXCEPTIONS = {
-    # a missing tool: trials/c5_tempus_swift runs the Swift example client, and there is no Swift toolchain on the Linux machine
-    "trials/c5_tempus_swift/dangerous_n.linux_x86_64.scout": "no Swift toolchain on Linux: the trial is skipped there",
-    "trials/c5_tempus_swift/dangerous_p.linux_x86_64.scout": "no Swift toolchain on Linux: the trial is skipped there",
-    "trials/c5_tempus_swift/swift.linux_x86_64.scout": "no Swift toolchain on Linux: the trial is skipped there",
-    # a missing tool: trials/c6_tempus_kotlin runs the Kotlin example client, and there is no Kotlin compiler on the Linux machine
-    "trials/c6_tempus_kotlin/tests.linux_x86_64.scout": "no Kotlin compiler on Linux: the trial fails there and says so",
-    "trials/c6_tempus_kotlin/dangerous_k.linux_x86_64.scout": "no Kotlin compiler on Linux: the trial fails there and says so",
-    "trials/c6_tempus_kotlin/dangerous_q.linux_x86_64.scout": "no Kotlin compiler on Linux: the trial fails there and says so",
-    "trials/c6_tempus_kotlin/kotlin.linux_x86_64.scout": "no Kotlin compiler on Linux: the trial fails there and says so",
-}
+# A trial that cannot run on a platform says so in trials/LEAF/platforms (the ids it is declared for; tools/run_all_trials.py
+# leaf_platforms): the runner reports it N/A there, and this test asks no golden of that platform for it.
+def declared_platforms(leaf):
+    f = os.path.join(ROOT, "trials", leaf, "platforms")
+    if not os.path.isfile(f):
+        return None
+    return " ".join(l.split("#", 1)[0] for l in open(f).read().splitlines()).split()
+
+
+# Linux goldens that do not exist, each with its reason (a Silica defect of development-plan/silica-defects.md, or an output that is not
+# the same from run to run on Linux). An entry here is a leaf that fails on that platform until the cause is gone; the test fails when
+# a listed golden appears, so the entry must be taken off then.
+_RACE = "its server's audit lines or admissions come in a different order or number from run to run on Linux (SD-47: a busy request stops the other actors of the server), so no golden can hold: four runs on Linux x86-64 on 2026-11-21 gave different outputs for pause.a and for interleave.a"
+GOLDEN_EXCEPTIONS = {}
+
+
+# Platforms whose goldens must exist beside every Mac golden (the Linux ones; the boards have no build yet)
+TWIN_PLATFORMS = ("linux_x86_64", "linux_aarch64")
 
 
 # The two-machine interchange trials (tools/bees_interchange.py): each scenario runs ONE node on each machine, so its goldens are
@@ -58,11 +64,12 @@ def interchange_problems(goldens):
 
 def golden_files():
     """The goldens under trials/: git's list, or, in a tree without .git (a remote machine's synced copy), the files there."""
-    files = subprocess.run(["git", "-C", ROOT, "ls-files", "trials"], capture_output=True, text=True).stdout.split()
+    files = subprocess.run(["git", "-C", ROOT, "ls-files", "trials", "examples"], capture_output=True, text=True).stdout.split()
     if not files:
-        for dp, dn, fn in os.walk(os.path.join(ROOT, "trials")):
-            dn[:] = [d for d in dn if d != ".fail"]
-            files.extend(os.path.relpath(os.path.join(dp, f), ROOT) for f in fn)
+        for top in ("trials", "examples"):
+            for dp, dn, fn in os.walk(os.path.join(ROOT, top)):
+                dn[:] = [d for d in dn if d != ".fail"]
+                files.extend(os.path.relpath(os.path.join(dp, f), ROOT) for f in fn)
     return [f for f in files if f.endswith(P.GOLDEN_EXTENSIONS)]
 
 
@@ -111,6 +118,7 @@ class GoldenNames(unittest.TestCase):
     def test_build_switches(self):
         self.assertTrue(P.build_supported("macos_applesilicon"))
         self.assertTrue(P.build_supported("linux_x86_64"))   # the Linux port landed 2026-11-18
+        self.assertTrue(P.build_supported("linux_aarch64"))  # the Raspberry Pi 5, same native/linux, added 2026-11-21
         self.assertFalse(P.build_supported("esp32s3"))
         self.assertFalse(P.build_supported("nucleo"))
         self.assertFalse(P.build_supported("plan9"))
@@ -127,7 +135,8 @@ class GoldenNames(unittest.TestCase):
     def test_selection_from_uname(self):
         saved, env = (platform.system, platform.machine), os.environ.pop("BEES_PLATFORM_ID", None)
         try:
-            for s_, m_, pid, d in (("Darwin", "arm64", "macos_applesilicon", "macos"), ("Linux", "x86_64", "linux_x86_64", "linux")):
+            for s_, m_, pid, d in (("Darwin", "arm64", "macos_applesilicon", "macos"), ("Linux", "x86_64", "linux_x86_64", "linux"),
+                                ("Linux", "aarch64", "linux_aarch64", "linux")):
                 platform.system, platform.machine = (lambda s_=s_: s_), (lambda m_=m_: m_)
                 self.assertEqual(P.current_id(), pid)
                 self.assertEqual(P.native_dir(), d)
@@ -164,19 +173,33 @@ class GoldenNames(unittest.TestCase):
                         self.assertNotIn(w, text, os.path.join(dp, f))
 
     def test_a_platform_golden_exists_beside_each_mac_golden(self):
-        # every golden recorded on the Mac has its Linux counterpart, except those listed (with the reason) in LINUX_GOLDEN_EXCEPTIONS
-        # (the two-machine interchange trials have one platform per side: test_interchange_goldens_pair_the_two_machines)
+        # every golden recorded on the Mac has its twin for each platform of TWIN_PLATFORMS (linux_x86_64, linux_aarch64), unless the
+        # trial is declared (trials/LEAF/platforms) for platforms that leave that one out; a golden of a platform a trial is not
+        # declared for must not exist either (the two-machine interchange trials have one platform per side:
+        # test_interchange_goldens_pair_the_two_machines)
         mac = [g for g in golden_files() if P.golden_platform(g) == "macos_applesilicon" and not INTERCHANGE_LEAF.match(g)]
         self.assertTrue(mac)
         missing = []
         for g in mac:
-            twin = g.replace(".macos_applesilicon.", ".linux_x86_64.")
-            if not os.path.exists(os.path.join(ROOT, twin)) and twin not in LINUX_GOLDEN_EXCEPTIONS:
-                missing.append(twin)
+            leaf = g.split("/")[1]
+            decl = declared_platforms(leaf)
+            for pid in TWIN_PLATFORMS:
+                twin = g.replace(".macos_applesilicon.", "." + pid + ".")
+                if decl is not None and pid not in decl:
+                    self.assertFalse(os.path.exists(os.path.join(ROOT, twin)), f"{twin} exists, but {leaf} is not declared for {pid}")
+                elif not os.path.exists(os.path.join(ROOT, twin)) and g.replace(".macos_applesilicon.", ".%s.") not in GOLDEN_EXCEPTIONS:
+                    missing.append(twin)
         self.assertEqual(missing, [])
-        for twin in LINUX_GOLDEN_EXCEPTIONS:
-            self.assertFalse(os.path.exists(os.path.join(ROOT, twin)), f"{twin} exists now: take it off LINUX_GOLDEN_EXCEPTIONS")
+        for pat in GOLDEN_EXCEPTIONS:
+            for pid in TWIN_PLATFORMS:
+                self.assertFalse(os.path.exists(os.path.join(ROOT, pat % pid)), f"{pat % pid} exists now: take it off GOLDEN_EXCEPTIONS")
 
+    def test_declared_platforms_are_known_ids(self):
+        for leaf in os.listdir(os.path.join(ROOT, "trials")):
+            d = declared_platforms(leaf)
+            if d is not None:
+                self.assertTrue(d and all(i in P.PLATFORMS and P.build_supported(i) for i in d), f"trials/{leaf}/platforms: {d}")
+                self.assertIn("macos_applesilicon", d)
 
     def test_interchange_goldens_pair_the_two_machines(self):
         self.assertEqual(interchange_problems([g for g in golden_files() if INTERCHANGE_LEAF.match(g)]), [])

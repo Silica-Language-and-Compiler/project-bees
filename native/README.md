@@ -12,7 +12,7 @@ native/
   dangerous_exposure_source/      the wrapper headers and .meta files Silica reads (bees/ beam/ trust/ tls/ resolve/), lib/ (built
                                   archives, ignored by git) and the sockets link into the Silica tree
   macos/                          platform: Apple Silicon (built and tested)
-  linux/                          platform: Linux x86_64 (built and tested)
+  linux/                          platform: Linux x86_64 and aarch64, one directory (built and tested)
   esp32s3/                        platform: ESP32-S3 (placeholder, README only)
   nucleo/                         platform: NUCLEO-L476RG (placeholder, README only)
 ```
@@ -49,8 +49,8 @@ trial leaves stay where they were: Silica reads them from there and they are pla
 
 ## Selecting a platform
 
-`BEES_PLATFORM` (the directory) and `BEES_PLATFORM_ID` (the identifier in golden names, `macos_applesilicon`, `linux_x86_64`) default
-from `uname -s`/`uname -m` (`tools/platform.mk`, `tools/platform_id.py`): Darwin/arm64 gives `macos`, Linux/x86_64 gives `linux`
+`BEES_PLATFORM` (the directory) and `BEES_PLATFORM_ID` (the identifier in golden names, `macos_applesilicon`, `linux_x86_64`, `linux_aarch64`) default
+from `uname -s`/`uname -m` (`tools/platform.mk`, `tools/platform_id.py`): Darwin/arm64 gives `macos`, Linux/x86_64 and Linux/aarch64 give `linux`
 (`make -C native BEES_PLATFORM=macos` says it by hand). A platform whose `platform.mk` is missing (`esp32s3`, `nucleo`) stops the
 build with a message naming the directory. On Linux `OPENSSL_PREFIX` matters to every archive that holds MD5, not only to the TLS
 engine: see `native/linux/README.md`.

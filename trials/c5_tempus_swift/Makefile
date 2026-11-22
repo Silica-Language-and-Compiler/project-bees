@@ -9,8 +9,8 @@
 # line, and stops everything. The Swift client sends no test-only frame: the ticks that make node N shuffle are sent by
 # the trial tool through the Python example client. What a client cannot see (a node's view, the reason of a refusal) is
 # in the nodes' goldens (ruling NQ-1).
-# Swift exists on the Mac only. On a platform without a Swift toolchain the trial says so and passes with nothing run;
-# the goldens are Mac goldens with no Linux twin (tools/test_platform_and_ports.py, LINUX_GOLDEN_EXCEPTIONS).
+# Swift exists on the Mac only. Without a Swift toolchain the leaf fails and says so; the runner does not run it on a platform it is not
+# declared for (the file `platforms` of this directory: N/A there), and its goldens are Mac goldens with no Linux twin.
 # Post-processing: tools/bees_tempus_reports.py (the runtime's reports of actors that ended normally land anywhere).
 BEES_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../..)
 LEAF_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
@@ -56,9 +56,10 @@ integrate: together
 record-golden: together
 	@cd "$(LEAF_DIR)" && for o in $(OUTS); do cp "$$o.sout" "$$o$(GOLD_SUFFIX).scout"; done; echo "[c5_tempus_swift] goldens recorded"
 else
-# no Swift toolchain on this machine: nothing is built or run, and the trial says so
+# no Swift toolchain on this machine: the leaf FAILS and says so (a trial never skips by itself). tools/run_all_trials.py does not run it
+# on a platform it is not declared for (trials/c5_tempus_swift/platforms), where it is reported N/A.
 build run integrate record-golden:
-	@cd "$(LEAF_DIR)" && printf '0 0\n' > .integrate_counts; echo "[c5_tempus_swift] SKIPPED: no Swift toolchain on this machine (the Swift client is built and run on the Mac only); 0 passed, 0 failed"
+	@echo "FAIL: [c5_tempus_swift] no Swift toolchain (swift) on this machine; this trial needs it (example_tempus_clients/swift/README.md)"; exit 1
 endif
 clean: clean-generated
 clean-generated:

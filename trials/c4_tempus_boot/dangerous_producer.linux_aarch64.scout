@@ -1,0 +1,3 @@
+tempus: boot refused: the producer key is not a kid of 1 to 64 bytes and a 32-byte key
+boot: refused, nothing started
+exit=1

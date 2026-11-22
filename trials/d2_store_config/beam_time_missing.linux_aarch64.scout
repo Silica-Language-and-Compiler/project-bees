@@ -1,0 +1,3 @@
+configuration refused: record 6 schema 0: beam.time: missing
+done
+exit=0

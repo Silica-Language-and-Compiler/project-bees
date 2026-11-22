@@ -25,7 +25,7 @@ def hosts_file(text):
 class HostsFile(unittest.TestCase):
     def test_example_parses(self):
         hs = R.read_hosts(os.path.join(os.path.dirname(HERE), ".bees_build_hosts.example"))
-        self.assertEqual(len(hs), 1)
+        self.assertEqual(len(hs), 2)
         h = hs[0]
         self.assertEqual((h.platform, h.conn, h.path, h.openssl, h.jobs), ("linux_x86_64", "manager@aalang.org", "/opt/bees", "/opt/openssl", "2"))
         self.assertEqual(h.env()["OPENSSL_PREFIX"], "/opt/openssl")
@@ -56,9 +56,34 @@ class HostsFile(unittest.TestCase):
 class Skips(unittest.TestCase):
     def test_linux_runs_and_the_boards_are_skipped_with_a_reason(self):
         self.assertTrue(P.build_supported("linux_x86_64"))
+        self.assertTrue(P.build_supported("linux_aarch64"))
         for pid in ("esp32s3", "nucleo"):
             self.assertFalse(P.build_supported(pid))
             self.assertIn("not supported yet", R.unsupported_reason(pid))
+
+
+class DeclaredPlatforms(unittest.TestCase):
+    def test_a_trial_declared_for_the_mac_is_not_applicable_elsewhere(self):
+        self.assertIsNone(R.not_applicable_reason("n1_addr", "linux_aarch64"))          # no platforms file: every platform
+        self.assertIsNone(R.not_applicable_reason("c6_tempus_kotlin", "macos_applesilicon"))
+        for pid in ("linux_x86_64", "linux_aarch64"):
+            self.assertIn("declared only for macos_applesilicon", R.not_applicable_reason("c6_tempus_kotlin", pid))
+
+    def test_the_file_is_read_with_comments_and_checked(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "trials", "t"))
+            f = os.path.join(root, "trials", "t", "platforms")
+            open(f, "w").write("# why\nmacos_applesilicon linux_x86_64  # both\n")
+            self.assertEqual(R.leaf_platforms("t", root), ["macos_applesilicon", "linux_x86_64"])
+            self.assertIsNone(R.not_applicable_reason("t", "linux_x86_64", root))
+            self.assertTrue(R.not_applicable_reason("t", "linux_aarch64", root))
+            open(f, "w").write("plan9\n")
+            with self.assertRaises(SystemExit):
+                R.leaf_platforms("t", root)
+
+    def test_n_a_is_not_a_failure_in_the_totals(self):
+        rows = [R.Row("linux_aarch64", "a", "PASS"), R.Row("linux_aarch64", "b", "N/A", note="x")]
+        self.assertIn("1 of 1 trials passed; 1 N/A", R.totals(rows, []))
 
 
 class CompilerChoice(unittest.TestCase):

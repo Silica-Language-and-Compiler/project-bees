@@ -1,2 +1,2 @@
-8000
-exit=0
+[silica] abort: stack reservation failed at 0xADDR
+exit=71

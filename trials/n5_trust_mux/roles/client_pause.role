@@ -1,8 +1,11 @@
 // pause (acceptance criterion 3): read-pause backpressure with no queue, against node a (max_inflight 2). One raw peer writes,
-// in one go: the session offer, a call that is busy 1200 ms (A), a call that is busy 2500 ms (B), a cast (C), and then about
+// in one go: the session offer, a call that is in work 700 ms (A), a call that is in work 2000 ms (B), a cast (C), and then about
 // 6 MiB of further request frames (65536 casts of the forbidden erlang:apply/3). The server takes A and B and PAUSES: it reads
 // nothing more, so the megabytes stay in the kernel's buffers and in this peer. tools/run_trust_pair.py samples the server's
-// resident set when `pause` is printed and one second later (the Makefile prints whether it stayed flat). When A ends the
+// resident set when `pause` is printed and half a second later (the Makefile prints whether it stayed flat). The first pause
+// lasts as long as A, and it must stay below 1000 ms: Silica's TCP carrier waits at most 1000 ms for the socket to take a piece
+// it writes, then ends the link, and on Linux the 6 MiB do not fit in the kernel's buffers (on macOS they do), so this
+// peer's write waits for the whole pause. With A at 1200 ms the peer lost its link on Linux before the server resumed. When A ends the
 // server resumes, takes C (and pauses and resumes again, B still being in work), then reads the first forbidden request:
 // audit, goaway deny, closed at once. None of the 65535 frames behind it was ever read.
 fn label(step: int64) -> string {
@@ -18,7 +21,7 @@ fn forbidden_frame() -> string { f4(bees_trust_frame@enc_request(bees_atoms@a_ca
 // Linux box the 6 MiB string faulted the client: N5-multiplexing.md 11.2)
 fn pause_head() -> string {
     cat3(bees_trust_conf@self_fp(), offer_hello(),
-        cat3(call_frame("A", bees_atoms@a_slow(), 1, ints1(1200)), call_frame("B", bees_atoms@a_slow(), 1, ints1(2500)),
+        cat3(call_frame("A", bees_atoms@a_slow(), 1, ints1(700)), call_frame("B", bees_atoms@a_slow(), 1, ints1(2000)),
             cast_frame("C", bees_atoms@a_note(), 1, ints1(7))))
 }
 fn send_pieces(tx: actor_ref, piece: string, n: int64) -> boolean {

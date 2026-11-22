@@ -1,4 +1,8 @@
 ok    frames golden: there is a recorded output to compare with
+ok    frames golden frames.linux_aarch64.scout: the same bytes from the same inputs (27 frames and tokens)
+ok    frames golden frames.linux_aarch64.scout: the same verdict on every frame the library reads
+ok    frames golden frames.linux_aarch64.scout: the test unit's frames (tick, clock) and their answer (done) are frames of no kind to this client
+ok    frames golden frames.linux_aarch64.scout: the same fields read
 ok    frames golden frames.linux_x86_64.scout: the same bytes from the same inputs (27 frames and tokens)
 ok    frames golden frames.linux_x86_64.scout: the same verdict on every frame the library reads
 ok    frames golden frames.linux_x86_64.scout: the test unit's frames (tick, clock) and their answer (done) are frames of no kind to this client
@@ -19,6 +23,7 @@ ok    identities: each key file is the key of its seed and of its certificate
 ok    identities: the 112 tokens of tools/bees_tempus_ids.py, made here from the same seeds, are the same bytes
 ok    identities: a real token is verified, and refused outside its time, under another kid, under another key and when changed
 ok    identities: the channel binding and the whitelist rule
+ok    admission cases dangerous_admit.linux_aarch64.scout: the 20 cases get the verdict, and the reason, the Silica node gave
 ok    admission cases dangerous_admit.linux_x86_64.scout: the 20 cases get the verdict, and the reason, the Silica node gave
 ok    admission cases dangerous_admit.macos_applesilicon.scout: the 20 cases get the verdict, and the reason, the Silica node gave
 ok    loopback: admission both ways, a sample and its reply
@@ -34,5 +39,5 @@ ok    loopback: a listener refuses a shuffle whose entry does not verify, and it
 ok    loopback: a listener serves several connections in order
 ok    loopback: nobody listens: unreachable; a peer that never answers: timeout at the one bound of the connection
 ok    loopback: a request this client cannot make is refused before anything is sent
-[kotlin client tests] 36 passed, 0 failed
+[kotlin client tests] 41 passed, 0 failed
 exit=0

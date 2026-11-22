@@ -1,0 +1,5 @@
+[bees] mode=beam node=hub@localhost transport=tcp auth=cookie creation=1 epmd=none epmd_port=4369 net_tick io_ms=60000 tick_ms=15000 links=3 ea@localhost:listen,ec@localhost:listen,d@localhost:listen frame_size_max=4294967295
+[bees] BEAM mode: Erlang cookie authentication, no encryption (transport tcp, 127.0.0.1); a downgrade from TRUST
+[bees audit] frame before handshake dropped, link closed too_large 5
+[bees audit] link down, proxies ended; reason closed 0
+exit=0

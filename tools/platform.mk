@@ -4,7 +4,7 @@
 #   BEES_PLATFORM_ID  the identifier put in every golden's file name before its extension
 #                     (NAME.macos_applesilicon.scout); the same spelling Silica uses (test.macos_applesilicon.sout)
 #
-# Default from uname: Darwin/arm64 -> macos, macos_applesilicon; Linux/x86_64 -> linux, linux_x86_64. Override on the
+# Default from uname: Darwin/arm64 -> macos, macos_applesilicon; Linux/x86_64 -> linux, linux_x86_64; Linux/aarch64 -> linux, linux_aarch64. Override on the
 # command line or in the environment. tools/platform_id.py is the same table for Python.
 _BEES_UNAME_S := $(shell uname -s)
 _BEES_UNAME_M := $(shell uname -m)
@@ -14,11 +14,14 @@ BEES_PLATFORM_ID ?= macos_applesilicon
 else ifeq ($(_BEES_UNAME_S)/$(_BEES_UNAME_M),Linux/x86_64)
 BEES_PLATFORM ?= linux
 BEES_PLATFORM_ID ?= linux_x86_64
+else ifeq ($(_BEES_UNAME_S)/$(_BEES_UNAME_M),Linux/aarch64)
+BEES_PLATFORM ?= linux
+BEES_PLATFORM_ID ?= linux_aarch64
 endif
 ifeq ($(BEES_PLATFORM)$(BEES_PLATFORM_ID),)
 $(error no BEES platform for $(_BEES_UNAME_S)/$(_BEES_UNAME_M): set BEES_PLATFORM (macos|linux|esp32s3|nucleo) and BEES_PLATFORM_ID)
 endif
-BEES_PLATFORM_ID ?= $(error BEES_PLATFORM is $(BEES_PLATFORM) but BEES_PLATFORM_ID is not set (macos_applesilicon, linux_x86_64, ...))
+BEES_PLATFORM_ID ?= $(error BEES_PLATFORM is $(BEES_PLATFORM) but BEES_PLATFORM_ID is not set (macos_applesilicon, linux_x86_64, linux_aarch64, ...))
 BEES_PLATFORM ?= $(error BEES_PLATFORM_ID is $(BEES_PLATFORM_ID) but BEES_PLATFORM is not set (macos, linux, ...))
 export BEES_PLATFORM BEES_PLATFORM_ID
 

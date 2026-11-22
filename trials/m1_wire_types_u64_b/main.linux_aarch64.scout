@@ -1,0 +1,15 @@
+m1_wire_types_u64.14 n=3 hex=83610a :ok rt
+m1_wire_types_u64.15 dec :ok rt
+m1_wire_types_u64.16 dec :ok rt
+m1_wire_types_u64.17 dec :ok rt
+m1_wire_types_u64.18 dec :ok rt
+m1_wire_types_u64.19 dec :out_of_range -
+m1_wire_types_u64.20 dec :out_of_range -
+m1_wire_types_u64.21 dec :out_of_range -
+m1_wire_types_u64.22 dec :out_of_range -
+m1_wire_types_u64.23 dec :out_of_range -
+m1_wire_types_u64.24 dec :ok rt
+m1_wire_types_u64.25 dec :ok rt
+m1_wire_types_u64.26 dec :bad_tag -
+m1_wire_types_u64 done
+exit=0

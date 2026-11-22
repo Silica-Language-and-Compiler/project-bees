@@ -1,0 +1,19 @@
+mtu 4064
+link_up backing
+log oldest=0 next=0 capacity=16384
+small etf bytes=27
+tx record bytes=34
+big etf bytes=10006
+tx record bytes=4064
+tx record bytes=4064
+tx record bytes=1893
+mixed etf bytes=96
+tx record bytes=103
+tx_credit 8
+tx_credit 5
+synced 5
+link_down :closed
+done
+exit=0
+backing: 16384 bytes, 5 records, 3 frames
+backing bytes equal to the packer's image: yes

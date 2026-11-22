@@ -1,0 +1,26 @@
+link_up backing
+log oldest=1 next=5 capacity=16384
+tx_credit 8
+rx bytes=4064
+rx bytes=4064
+rx bytes=1893
+frame format :etf
+  schema 2
+  bytes 10006
+  string bytes=10000
+rx bytes=103
+frame format :etf
+  schema 3
+  bytes 96
+  flag=true
+  item a=1
+  item s=one
+  item a=2
+  item s=two
+  neg=-70000
+  wide=4294967295
+rx_end 5
+link_down :closed
+done
+exit=0
+backing: 16384 bytes, 0 records, 0 frames

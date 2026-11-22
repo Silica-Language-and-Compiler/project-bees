@@ -1,0 +1,52 @@
+15
+
+=== Silica Actor Failure ===
+actor_id:        4294967296
+agent_type_atom: 27
+reason:          (:explicit, :badarg)
+reason_tag:      4
+supervisor_acb:  0xADDR
+call_stack:
+  #0  bif_failure_restarts_child_worker
+  #1  actor_thread_main
+=== End Silica Actor Failure ===
+
+
+=== Silica Actor Failure ===
+actor_id:        3
+agent_type_atom: 0
+reason:          (:explicit, :actor_not_found)
+reason_tag:      4
+supervisor_acb:  (nil)
+call_stack:
+  #0  bif_failure_restarts_child_relay
+  #1  actor_thread_main
+=== End Silica Actor Failure ===
+
+16
+
+=== Silica Actor Failure ===
+actor_id:        4294967297
+agent_type_atom: 27
+reason:          :language_error — integer division by zero
+reason_tag:      2
+supervisor_acb:  0xADDR
+call_stack:
+  #0  bif_failure_restarts_child_worker
+  #1  actor_thread_main
+=== End Silica Actor Failure ===
+
+
+=== Silica Actor Failure ===
+actor_id:        5
+agent_type_atom: 0
+reason:          (:explicit, :actor_not_found)
+reason_tag:      4
+supervisor_acb:  (nil)
+call_stack:
+  #0  bif_failure_restarts_child_relay
+  #1  actor_thread_main
+=== End Silica Actor Failure ===
+
+17
+exit=0

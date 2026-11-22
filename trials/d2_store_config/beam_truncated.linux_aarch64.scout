@@ -1,0 +1,3 @@
+configuration refused: record 6 schema 0: (store): fewer records than the index states (a truncated or damaged store)
+done
+exit=0

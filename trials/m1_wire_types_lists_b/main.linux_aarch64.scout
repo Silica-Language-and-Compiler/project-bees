@@ -1,0 +1,15 @@
+m1_wire_types_lists.14 dec :ok rt
+m1_wire_types_lists.15 dec :ok rt
+m1_wire_types_lists.16 dec :ok rt
+m1_wire_types_lists.17 dec :ok rt
+m1_wire_types_lists.18 dec :bad_tag -
+m1_wire_types_lists.19 dec :truncated -
+m1_wire_types_lists.20 dec :bad_tag -
+m1_wire_types_lists.21 dec :out_of_range -
+m1_wire_types_lists.22 dec :out_of_range -
+m1_wire_types_lists.23 dec :out_of_range -
+m1_wire_types_lists.24 dec :too_long -
+m1_wire_types_lists.25 dec :truncated -
+m1_wire_types_lists.26 dec :too_long -
+m1_wire_types_lists done
+exit=0

@@ -1,0 +1,7 @@
+sink set
+reports 5000
+all restarted: true
+all new identity: true
+all language_error: true
+0
+exit=0

@@ -1,0 +1,8 @@
+listening on 127.0.0.1:23701
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a1
+[tempus audit] admitted peer=e4188f0a2cee5a46 tempus_bridge, tempus whitelist entry 0 a1
+request: frame kind 7 from an admitted tempus_bridge, whitelist entry 0 a1
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a2
+[tempus audit] whitelist_reject peer=e4188f0a2cee5a46 a certificate of the tempus whitelist with a token whose typ is not tempus_bridge or tempus_sentinel a2
+done
+exit=0

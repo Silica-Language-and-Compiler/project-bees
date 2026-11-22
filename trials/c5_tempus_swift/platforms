@@ -1,0 +1,2 @@
+# c5_tempus_swift needs the Swift and/or Kotlin toolchains (and a JDK 27), installed on the Mac only: declared for the Mac, N/A elsewhere
+macos_applesilicon

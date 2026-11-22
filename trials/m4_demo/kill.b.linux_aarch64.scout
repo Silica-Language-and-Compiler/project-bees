@@ -1,0 +1,14 @@
+[bees] TEST ONLY: no authentication, no encryption on this transport (127.0.0.1); TRUST's TLS is not built yet
+[bees audit] handshake complete with a@127.0.0.1 0
+client: sending
+client: answer n=1 seq=1 intact=true payload ints=true floats=true scalars=true lists=true
+client: answer n=2 seq=2 intact=true payload ints=true floats=true scalars=true lists=true
+client: answer n=3 seq=3 intact=true payload ints=true floats=true scalars=true lists=true
+client: negative control, a changed value is detected: true
+client: all answered, 3 requests, payload not intact in 0
+[bees audit] link down, proxies ended; reason closed 3
+[bees audit] frames delivered - 3
+[bees audit] frames dropped - 0
+proxy ended (killed)
+ticker failed: actor_not_found
+exit=0

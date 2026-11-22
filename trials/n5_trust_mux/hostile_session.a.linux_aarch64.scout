@@ -1,0 +1,21 @@
+listening on 127.0.0.1:23000 (a hostile TRUST server, 18 scripted answers)
+conn 1: hello with the session offer, then a request; answered token_not_binary
+conn 2: hello with the session offer, then a request; answered no_token_issue
+conn 3: hello with the session offer, then a request; answered over_length
+conn 4: hello with the session offer, then a request; answered not_a_map
+conn 5: hello with the session offer, then a request; answered token_not_binary
+conn 6: hello with the session offer, then a request; answered no_token_issue
+conn 7: hello with the session offer, then a request; answered over_length
+conn 8: hello with the session offer, then a request; answered not_a_map
+conn 9: hello with the session offer, then a request; answered token_not_binary
+conn 10: hello with the session offer, then a request; answered no_token_issue
+conn 11: hello with the session offer, then a request; answered over_length
+conn 12: hello with the session offer, then a request; answered not_a_map
+conn 13: hello with the session offer, then a request; answered good
+conn 14: token_present with the session offer, then a request; answered token_not_binary
+conn 15: hello with the session offer, then a request; answered no_token_issue
+conn 16: hello with the session offer, then a request; answered over_length
+conn 17: hello with the session offer, then a request; answered not_a_map
+conn 18: hello with the session offer, then a request; answered good
+hostile server: 18 connections
+exit=0

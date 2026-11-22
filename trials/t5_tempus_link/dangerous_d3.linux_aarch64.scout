@@ -1,0 +1,6 @@
+step 1: a certificate whose key is P-256
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d1
+[tempus audit] closed_by_peer peer=(any) stage (any) d1
+step 1 outcome: the connection failed: closed_by_peer
+done
+exit=0

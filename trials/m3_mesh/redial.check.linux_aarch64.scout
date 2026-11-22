@@ -1,0 +1,5 @@
+failure lines in any node output: 0
+a logged a redial attempt: yes
+b logged a redial attempt: yes
+a first delay 250 ms to c: yes
+b first delay 250 ms to c: yes
