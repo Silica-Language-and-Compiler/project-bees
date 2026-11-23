@@ -405,9 +405,9 @@ Give your client a time bound of its own for a whole connection. A node may stay
 - The bridge's behaviour in section 8 was checked against the header of `src/tempus/bees_tempus_bridge.silica` and
   the design's section 17, not against every line of that unit.
 
-## 15. What to install for a Swift or a Kotlin client on a Mac
+## 15. What to install for a Swift, a Kotlin or a C# client on a Mac
 
-This section lists what a Mac with Apple Silicon needs before a client written in Swift or in Kotlin can be compiled
+This section lists what a Mac with Apple Silicon needs before a client written in Swift, in Kotlin or in C# can be compiled
 and run. The versions are the ones on the machine where the examples in this directory were written, on 2026-11-20.
 They are what was used, not a stated minimum. Other languages need the same three kinds of thing: a compiler, a TLS
 library that can meet section 3, and Ed25519 signatures.
@@ -460,7 +460,24 @@ that cannot offer both cannot connect to a TEMPUS node, and no setting of the no
     and give the client the certificate and key files.
 - The file `kotlin/README.md` gives the details and the build commands.
 
-### What neither needs
+### C#
+
+- The .NET SDK, release 11. Install it with `brew install dotnet`. Version used: 11.0.100.
+- OpenSSL 4.1.0 or later. Install it with `brew install openssl@4`. C# calls it as a C library through P/Invoke, with
+  no C code of your own. .NET's own TLS and cryptography were tried first on macOS 26 and could not be used:
+  - `X509Certificate2.CreateFromPemFile` does not load an Ed25519 key (`'1.3.101.112' is not a known key algorithm`),
+    so a client cannot present its certificate.
+  - `SslStream` asked for TLS 1.3 alone fails with `The requested security protocol is not supported`; with Apple's
+    Network framework as its engine the handshake fails with error -9824, as the Swift attempt did.
+  - .NET 11 has no Ed25519 signature type.
+- No NuGet package and no test framework are needed. A project with no package reference builds with no network when
+  its `nuget.config` clears the package sources.
+- Three things to know about OpenSSL from C#: several settings are C macros and must be called as `SSL_CTX_ctrl` with
+  the macro's number; the two callbacks are static methods marked `UnmanagedCallersOnly`; and memory BIOs with a .NET
+  `Socket` keep every wait under one deadline.
+- The file `csharp/README.md` gives the details and the build commands.
+
+### What none of them needs
 
 - The Silica compiler and the BEES sources are needed only to run a TEMPUS node to test against. A client needs
   neither to be compiled.

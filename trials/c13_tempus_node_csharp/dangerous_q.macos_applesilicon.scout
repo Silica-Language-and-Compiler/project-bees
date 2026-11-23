@@ -1,0 +1,32 @@
+clock: the system clock is read
+tempus_edge node 12eb7f44 listening on 127.0.0.1:25505
+store tempus_edge: capacity 4, shuffle length 3
+store tempus_bridge: capacity 4, shuffle length 2
+store tempus_sentinel: capacity 4, shuffle length 2
+join: asking the sentinel at 127.0.0.1:25504 for tempus_edge d1
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d1
+[tempus audit] admitted peer=9200d2990c3e9eb7 tempus_sentinel, tempus whitelist entry 2 d1
+join: the sentinel answered for tempus_edge d1
+join: asking the sentinel at 127.0.0.1:25504 for tempus_bridge d2
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d2
+[tempus audit] admitted peer=9200d2990c3e9eb7 tempus_sentinel, tempus whitelist entry 2 d2
+join: the sentinel answered for tempus_bridge d2
+join: asking the sentinel at 127.0.0.1:25504 for tempus_sentinel d3
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d3
+[tempus audit] admitted peer=9200d2990c3e9eb7 tempus_sentinel, tempus whitelist entry 2 d3
+join: the sentinel answered for tempus_sentinel d3
+join: done
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a1
+[tempus audit] admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession a1
+[tempus audit] protocol_error peer=224c0c0c5b08df0f not a request: unknown kind a1
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a2
+[tempus audit] admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession a2
+[tempus audit] protocol_error peer=224c0c0c5b08df0f not a request: unknown kind a2
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a3
+[tempus audit] admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession a3
+[tempus audit] protocol_error peer=224c0c0c5b08df0f not a request: unknown kind a3
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a4
+[tempus audit] admitted peer=9200d2990c3e9eb7 tempus_sentinel, tempus whitelist entry 2 a4
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a5
+[tempus audit] admitted peer=958cff49930885d2 tempus_edge, token and proof of possession a5
+exit=0

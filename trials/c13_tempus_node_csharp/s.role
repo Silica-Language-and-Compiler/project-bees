@@ -1,0 +1,12 @@
+// C13 C# node trial: node S, a Silica sentinel (identity 2), the first one: it has no sentinel of its own. A test
+// program: externally driven, by the test unit (src/tempus_test/bees_tempus_test.silica). The C# node KE joins
+// through it.
+fn ident() -> int64 { 2 }
+fn typ() -> int64 { 3 }
+fn port() -> string { "25500" }
+fn sents() -> string { "" }
+fn driven() -> boolean { true }
+fn ext_start(app: actor_ref) -> actor_ref { bees_tempus_test@start(tempus_ids@now()) }
+fn tick_ms() -> uint64 { 1000 }
+// the node's own token: tempus_sentinel, valid 1000 to 3000 (the node's clock is the trial's value, 1500)
+fn own_tok() -> int64 { 11 }

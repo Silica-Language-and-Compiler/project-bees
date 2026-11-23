@@ -1,0 +1,24 @@
+<!-- Settings shared by the four projects of the C# extension for TEMPUS. EXAMPLE ONLY, not for production: see README.md. -->
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- everything that is built goes under build/, beside this file -->
+    <BaseIntermediateOutputPath>$(MSBuildThisFileDirectory)build/obj/$(MSBuildProjectName)/</BaseIntermediateOutputPath>
+    <OutputPath>$(MSBuildThisFileDirectory)build/bin/$(MSBuildProjectName)/</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <!-- a program is run as `dotnet NAME.dll`: no host executable is copied or downloaded -->
+    <UseAppHost>false</UseAppHost>
+    <!-- no package is referenced, so there is nothing to audit; the audit would ask a package source for its data -->
+    <NuGetAudit>false</NuGetAudit>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <Deterministic>true</Deterministic>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+</Project>

@@ -1054,3 +1054,17 @@ case). Open for the owner: which to keep, or how to make one that has both sets 
 Building. main pins silica-999899-macos-applesilicon and uses Silica's new TCP listener contract. The merge was built
 and run against a read-only export of Silica's main with that compiler, because the Silica checkout beside the BEES
 checkout on this machine held neither.
+
+## 2026-11-23, the C# extension
+
+example_tempus_clients/csharp: a client half and a node half (edge and sentinel; bridge refused), one implementation,
+in main's layout (lib, driver, testing, test). .NET SDK 11.0.100, no package. TLS, Ed25519 and SHA-512 through
+Homebrew OpenSSL 4.1.0 by P/Invoke, because SslStream on macOS cannot load an Ed25519 key or complete a handshake with
+a node (the README records each failure). One node thread owns all node state. 44 client tests and 25 node tests.
+Trials, Mac goldens only (platforms files): c12_tempus_csharp (client, 4 outputs), c13_tempus_node_csharp (mixed
+network; 42 hostile cases, the inflight limit and four TLS refusals with audit lines equal to a Silica node's, the
+P-256 case included; 11 outputs), c16_tempus_bridge_csharp (the client against real bridges, 40 steps, 4 outputs;
+COVERAGE.md). The tests and the three trials were also run from a clean export of the index, and pass there. Found: a
+call that names an atom the node does not hold is refused as protocol_error unknown_atom, not request_refused; the
+Kotlin node's atom list lacks `erlang` and the error atoms. Not ruled: the four configuration differences the Kotlin
+extension also has, the Dialed flag of key_rotated, where OpenSSL is looked for.

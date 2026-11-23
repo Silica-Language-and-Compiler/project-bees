@@ -1,0 +1,97 @@
+== A. the C# node CE joins through the Silica sentinel S
+A1 CE asked S for its three stores and S holds CE in its edge store: yes
+A2 CE keeps the sentinel it joined through; its sentinel store: 9e1113ab@0
+== B. the Silica node A joins through the C# sentinel CS
+B1 A asked CS for its three stores and CS holds A in its edge store: yes
+B2 A keeps the sentinel it joined through; its sentinel store: e4188f0a@0
+== C. shuffles started by each side and answered by the other
+C1 a peer shuffles an entry for x2 (age 3) into CE; CE's edge store: 12eb7f44@3
+C2 a peer shuffles CE's entry (age 5) into A; A's edge store: 1fae2ad7@5
+C3 A ticks: it shuffles with CE, which answers with x2; A's edge store: 12eb7f44@3
+C3 CE holds A, whose entry came in the shuffle; CE's edge store: b19edad2@0 12eb7f44@3
+C4 CE ticks: its oldest entry is x2, where nobody listens; the partner is dropped, the entry sent is put back; CE's edge store: b19edad2@1
+C5 CE ticks: it shuffles with A, which answers; A's edge store: 1fae2ad7@0 12eb7f44@3
+C5 CE's edge store: 12eb7f44@3
+C6 S ticks its edge store, which is not of its own type: it shuffles with CE without an entry of its own and keeps CE: merged
+C7 CS ticks its edge store: it shuffles with A and puts A back at age 0 (ruling NQ-15); CS's edge view: b19edad2@0 12eb7f44@3 1fae2ad7@0
+C8 CE ticks its sentinel store: it shuffles with S, a sentinel of its whitelist: merged
+C9 A ticks its sentinel store: it shuffles with CS, a sentinel of its whitelist: merged
+== D. what the Silica node A refuses, the C# node CE refuses, with the same audit lines
+D1 a good peer's sample: the peer sees: reply sample_reply; both nodes: admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession
+D2 an expired token: the peer sees: closed; both nodes: admission_refused peer=224c0c0c5b08df0f the token has expired
+D3 a token not valid yet: the peer sees: closed; both nodes: admission_refused peer=224c0c0c5b08df0f the token is not valid yet
+D4 a token under an old kid: the peer sees: key_rotated at=challenge kid=6b31; both nodes: key_rotated peer=224c0c0c5b08df0f the peer's token is under another kid; it was told the current one
+D5 a token under an old kid that has also expired: the peer sees: key_rotated at=challenge kid=6b31; both nodes: key_rotated peer=224c0c0c5b08df0f the peer's token is under another kid; it was told the current one
+D6 a token another key signed: the peer sees: closed; both nodes: admission_refused peer=224c0c0c5b08df0f the signature does not verify
+D7 a token issued for another key: the peer sees: closed; both nodes: admission_refused peer=224c0c0c5b08df0f sub is not the peer's key
+D8 a token that is not a token: the peer sees: closed; both nodes: admission_refused peer=224c0c0c5b08df0f truncated
+D9 a sentinel token under a certificate that is not in the whitelist: the peer sees: closed; both nodes: whitelist_reject peer=224c0c0c5b08df0f a tempus_bridge or tempus_sentinel token under a certificate that is not in the tempus whitelist
+D10 a bridge token under a certificate that is not in the whitelist: the peer sees: closed; both nodes: whitelist_reject peer=224c0c0c5b08df0f a tempus_bridge or tempus_sentinel token under a certificate that is not in the tempus whitelist
+D11 a certificate of the whitelist with an edge token: the peer sees: closed; both nodes: whitelist_reject peer=9e1113ab416dc197 a certificate of the tempus whitelist with a token whose typ is not tempus_bridge or tempus_sentinel
+D12 an advert for another key than the certificate's: the peer sees: closed; both nodes: binding_refused peer=12eb7f449478f2aa the advert's pub is not the key of the peer's TLS certificate
+D13 an advert whose id is not the hash of its pub: the peer sees: closed; both nodes: admission_refused peer=12eb7f449478f2aa id is not the SHA-512 of pub
+D14 an advert whose id is 63 bytes: the peer sees: closed; both nodes: protocol_error peer=- id is not 64 bytes
+D15 an advert of version 2: the peer sees: closed; both nodes: protocol_error peer=- ver is not 1
+D16 a sample where the advert is due: the peer sees: closed; both nodes: protocol_error peer=- the first frame is not an advert
+D17 a proof made with another key: the peer sees: closed; both nodes: pop_failed peer=224c0c0c5b08df0f the proof of possession does not verify
+D18 a proof over another nonce: the peer sees: closed; both nodes: pop_failed peer=224c0c0c5b08df0f the proof of possession does not verify
+D19 a proof of 63 bytes: the peer sees: closed; both nodes: pop_failed peer=224c0c0c5b08df0f sig is not 64 bytes
+D20 no proof: the peer sees: closed; both nodes: pop_failed peer=224c0c0c5b08df0f a response was expected
+D21 a sample where the challenge is due: the peer sees: closed; both nodes: protocol_error peer=224c0c0c5b08df0f a challenge was expected
+D22 an advert above the frame ceiling: the peer sees: closed; both nodes: protocol_error peer=- frame refused before decoding: too_large
+D23 a request above the frame ceiling: the peer sees: closed; both nodes: admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession / [tempus audit] protocol_error peer=224c0c0c5b08df0f frame refused before decoding: too_large
+D24 a peer that closes after its advert: the peer sees: closed, on purpose; both nodes: closed_by_peer peer=(any) stage (any)
+D25 a peer that is silent where its challenge is due, past the connection's one bound: the peer sees: closed; both nodes: timeout peer=224c0c0c5b08df0f stage challenge
+D26 a sample of 9 where the shuffle length is 3: the peer sees: closed; both nodes: admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession / [tempus audit] protocol_error peer=224c0c0c5b08df0f n is not 1 to the shuffle length
+D27 a sample of 3 from the bridge store, whose shuffle length is 2: the peer sees: closed; both nodes: admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession / [tempus audit] protocol_error peer=224c0c0c5b08df0f n is not 1 to the shuffle length
+D28 a sample of 0: the peer sees: closed; both nodes: admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession / [tempus audit] protocol_error peer=224c0c0c5b08df0f n is not 1 to the shuffle length
+D29 four entries where the greatest shuffle length is 3: the peer sees: closed; both nodes: admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession / [tempus audit] protocol_error peer=224c0c0c5b08df0f more entries than the shuffle length
+D30 three entries of edges for the bridge store, whose shuffle length is 2: the peer sees: closed; both nodes: admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession / [tempus audit] entry_refused peer=224c0c0c5b08df0f entry 0: typ is not the store's type
+D31 three entries of bridges for the bridge store, whose shuffle length is 2: the peer sees: closed; both nodes: admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession / [tempus audit] shuffle_refused peer=- the store refused the frame
+D32 a shuffle with an entry another key signed: the peer sees: closed; both nodes: admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession / [tempus audit] entry_refused peer=224c0c0c5b08df0f entry 1: the signature does not verify
+D33 a shuffle with an entry whose token has expired: the peer sees: closed; both nodes: admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession / [tempus audit] entry_refused peer=224c0c0c5b08df0f entry 0: the token has expired
+D34 an edge's entry offered to the sentinel store: the peer sees: closed; both nodes: admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession / [tempus audit] entry_refused peer=224c0c0c5b08df0f entry 0: typ is not the store's type
+D35 an entry of age 65536: the peer sees: closed; both nodes: admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession / [tempus audit] protocol_error peer=224c0c0c5b08df0f age is not 0 to 65535
+D36 a frame whose t is no kind: the peer sees: closed; both nodes: admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession / [tempus audit] protocol_error peer=224c0c0c5b08df0f not a request: unknown kind
+D37 an advert where a request is due: the peer sees: closed; both nodes: admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession / [tempus audit] protocol_error peer=224c0c0c5b08df0f not a request: unknown kind
+D38 a reply where a request is due: the peer sees: closed; both nodes: admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession / [tempus audit] protocol_error peer=224c0c0c5b08df0f not a request: unknown kind
+D39 a request that is not a map: the peer sees: closed; both nodes: admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession / [tempus audit] protocol_error peer=224c0c0c5b08df0f not a request: bad_tag
+D40 a call, which only a bridge serves: the peer sees: closed; both nodes: admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession / [tempus audit] request_refused peer=224c0c0c5b08df0f call and cast are served by a bridge only
+D41 a cast, which only a bridge serves: the peer sees: closed; both nodes: admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession / [tempus audit] request_refused peer=224c0c0c5b08df0f call and cast are served by a bridge only
+D42 a call that names a module and a function the node holds no atom for: the peer sees: closed; both nodes: admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession / [tempus audit] protocol_error peer=224c0c0c5b08df0f not a request: unknown_atom
+D43 a request with a byte after it: the peer sees: closed; both nodes: admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession / [tempus audit] protocol_error peer=224c0c0c5b08df0f not a request: trailing_bytes
+D44 two connections held open and a third (inflight_max is 2): the third: closed at once; afterwards: reply; both nodes: inflight_refused peer=- more accepted connections than inflight_max: closed at once / [tempus audit] closed_by_peer peer=(any) stage (any) / [tempus audit] closed_by_peer peer=(any) stage (any) / [tempus audit] admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession
+D45 a peer that offers TLS 1.2 only: the peer sees: tls_failed; both nodes: tls_handshake_failed peer=- the TLS 1.3 handshake failed (alert, version, group, suite or signature outside the tempus/1 profile), as server
+D46 a peer that offers another ALPN protocol: the peer sees: tls_failed; both nodes: alpn_mismatch peer=- the peer did not agree on ALPN tempus/1, as server
+D47 a peer whose certificate has a P-256 key: the peer sees: closed; both nodes: tempus_cert_key peer=- the peer certificate's key is not Ed25519, as server
+D48 a peer that presents no certificate: the peer sees: tls_failed; both nodes: tls_verify_failed peer=- the peer presented no certificate, as server
+D the stores after all of it; A's edge store: 12eb7f44@3 1fae2ad7@0
+D CE's edge store: 12eb7f44@3
+== E. the clock's choices, the node's own token and key_rotated, on C# nodes whose clock the trial sets
+E1 hold: the clock reads 1450 after 1500: the system clock went back by 50 s; the node holds its time until the system clock has reached it
+E2 it admits by the held time: a token that ended at 1480: admission_refused peer=224c0c0c5b08df0f the token has expired
+E2 and it ticks: tick tempus_sentinel: shuffle merged
+E3 a reading still behind (1460) says nothing; 1500 ends the hold: the system clock has reached the held time; the node follows it again
+E4 continue: the clock cannot be read: the system clock could not be read: the node goes on with its last reading
+E5 the next good reading says nothing; a second failure is told again: yes
+E6 the clock reads 2600, past the node's own token (valid to 2000); the next tick: the token has expired; ticking has stopped
+E7 its application passes a new token and it ticks again: tick tempus_sentinel: shuffle merged
+E8 a partner answers CH's advert with key_rotated; the tick: tick tempus_edge: the partner did not answer, key_rotated
+E9 a peer that dialed CH answers CH's advert with key_rotated; CH's audit line, and its application is told: key_rotated peer=958cff49930885d2 the peer says this node's token is under another kid than its current one
+E10 pause: the clock cannot be read: the system clock could not be read: the node admits no connection and does not tick until it is read again
+E11 an accepted connection is closed at once: clock_refused peer=- the system clock cannot be read: closed at once
+E12 the join's retry falls due: the request for tempus_edge waits until the system clock is read again
+E13 the clock is read again: the waiting request is dialed at once and the join is done; a tick meanwhile did nothing: yes
+E14 stop with a limit of 60 s: a step back of 30 s: the system clock went back by 30 s; the node follows it
+E15 a step back of 100 s: the system clock went back by 100 s, more than clock_back_limit_s 60: the node has stopped; it admits no connection and does not tick until its application starts it again
+E16 an accepted connection is closed at once: clock_stopped peer=- the node stopped after its system clock went back: closed at once
+E17 a later good reading changes nothing: no line, no tick, and a connection: clock_stopped peer=- the node stopped after its system clock went back: closed at once
+== F. a C# node that is not a test node: the machine's clock, its own timers, secure random draws
+F1 the Silica node Q, not a test node either, joined through CP by the machine's clock on both sides: yes
+F2 the test unit's tick frame: the peer sees: closed; Q: protocol_error peer=224c0c0c5b08df0f not a request: unknown kind; CP: protocol_error peer=224c0c0c5b08df0f not a request: unknown_atom
+F2 the test unit's clock frame: the peer sees: closed; Q: protocol_error peer=224c0c0c5b08df0f not a request: unknown kind; CP: protocol_error peer=224c0c0c5b08df0f not a request: unknown_atom
+F2 the clock frame with a later reading: the peer sees: closed; Q: protocol_error peer=224c0c0c5b08df0f not a request: unknown kind; CP: protocol_error peer=224c0c0c5b08df0f not a request: unknown_atom
+F3 CP's own timer ticked its edge store: it shuffled with Q: merged
+F4 Q keeps CP in its sentinel store: 9200d299@0
+[c13_tempus_node_csharp] every step passed
+exit=0

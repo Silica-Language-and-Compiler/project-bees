@@ -41,6 +41,8 @@ The Python, Swift and Kotlin directories also hold a node half, added beside the
 be a TEMPUS node that behaves as the Silica node does. It has gossip logic of its own. Until the project owner decides
 between the two, both are kept, and each language's README compares them.
 
+The C# directory holds one implementation only: a client half and a node half, with no second, lighter gossip peer.
+
 `gossip/` runs the drivers. It starts several instances of one language's driver on this machine as one TEMPUS
 network, and one network that mixes all four languages, and checks that the instances discover each other. Its
 [README](gossip/README.md) says how to run it and what its check shows.
@@ -125,6 +127,19 @@ network, and one network that mixes all four languages, and checks that the inst
   Python test support. The trial `trials/c9_tempus_node_kotlin` runs the node tests and then nodes of the extension
   in one network with Silica nodes. `gossip/` and the trial `trials/c7_tempus_gossip` run the driver's `Peer`. All
   are declared for the Mac only.
+
+### csharp/
+
+- The C# extension, for .NET. Its library (`lib/`) holds the client half and the node half, one implementation: it has
+  no second, lighter gossip peer. `driver/` is the command line and an example application that is a node. It needs
+  the .NET SDK 11 and OpenSSL 4.1.0 or later, which it calls through P/Invoke for TLS and Ed25519, because .NET's own
+  TLS and cryptography on macOS can neither load an Ed25519 key nor complete a handshake with a TEMPUS node. Its own
+  [README](csharp/README.md) says what was tried. The statement at the top of this document applies to it as it
+  stands.
+- The trial `trials/c12_tempus_csharp` runs the client tests and then walks the client half against nodes and against
+  the Python test support. The trial `trials/c13_tempus_node_csharp` runs the node tests and then nodes of the
+  extension and Silica nodes in one network. The trial `trials/c16_tempus_bridge_csharp` walks the client half against
+  two real bridges. All three are recorded for the Mac only.
 
 ## How the trials use them
 

@@ -1,0 +1,12 @@
+<!-- TEST CODE of trial c16_tempus_bridge_csharp: the walk of the C# extension's client half against real bridges. It
+     references the extension and its TEST ONLY support. -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>bridge</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../example_tempus_clients/csharp/lib/BeesTempus.csproj" />
+    <ProjectReference Include="../../example_tempus_clients/csharp/testing/BeesTempusTesting.csproj" />
+  </ItemGroup>
+</Project>

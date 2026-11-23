@@ -1,0 +1,66 @@
+// C13 C# node trial, the application of the three Silica nodes: a thin program that passes the TEST-ONLY values of
+// lib/tempus_ids.silica to tempus_node_start (src/tempus/bees_tempus_node.part) and prints what the node tells its
+// application. It is the application of trials/c6_tempus_kotlin/node.role with the identity, the type and the
+// whitelist from the role file. The entry's own role file gives ident() (the identity's number), typ() (1 edge,
+// 3 sentinel), port(), sents(), tick_ms(), own_tok(), and the functions that make it a test program or not: driven()
+// and ext_start(app). S and A are test programs (the test unit of src/tempus_test drives them); Q is shaped like a
+// production program: its role file names nothing of the test unit.
+// Stores: capacity 4, shuffle length 3 (edge) and 2 (bridge, sentinel). inflight_max 2. shuffle_timeout_ms 2000.
+// The tempus whitelist of every node holds three certificates: identity 2 (node S), identity 3 (the C# sentinel
+// KS) and identity 4 (the C# sentinel KP).
+fn say(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+fn wl() -> string { concat(concat(tempus_ids@fp_hex(2), tempus_ids@fp_hex(3)), tempus_ids@fp_hex(4)) }
+fn hx(s: string) -> string { tempus_ids@unhex(s) }
+fn later(me: actor_ref, s1: string, who: actor_ref) -> atom {
+    sequence proc[concurrency]
+        t: timer_ref <- send_after(300, me, (:bees, 82, s1, "", 0, 0, who) impl ActorMessage {})
+    produces pure :ok end
+}
+// the token is bound to a name before the cast: a string-returning call written inline in a cast's message faults the
+// runtime (SD-45)
+fn refresh(me: actor_ref, s1: string, who: actor_ref) -> atom {
+    sequence proc[concurrency]
+        _: atom <- say(concat(concat("application: a peer answered key_rotated and named kid ", s1), "; the application passes the node a new token"));
+        t: string <- hx(tempus_ids@tok_hex(ident(), 12));
+        _: boolean <- cast(who, (:bees, 70, t, "", 0, 0, me) impl ActorMessage {})
+    produces pure :ok end
+}
+fn app_line(me: actor_ref, op: int64, s1: string, who: actor_ref) -> atom {
+    case op of {
+        80 -> say(concat("application: told that the node's own token is not valid any more: ", s1));
+        81 -> later(me, s1, who);
+        82 -> refresh(me, s1, who);
+        _: int64 -> :ok
+    }
+}
+fn app(msg: $NM$, st: int64) -> (:no_reply, int64) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        _: atom <- case msg of {
+            (:accepted, _l: dangerous_actor_ref, _i: string) -> :ok;
+            (:link_up, _info: string) -> :ok;
+            (:rx, _s: string) -> :ok;
+            (:tx_credit, _n: int64) -> :ok;
+            (:tx_failed, _w: atom) -> :ok;
+            (:link_down, _w2: atom) -> :ok;
+            (:bees, op: int64, s1: string, _s2: string, _n2: int64, _m: int64, who: actor_ref) -> app_line(me, op, s1, who)
+        }
+    produces pure (:no_reply, st + 1) end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        _: atom <- bees_reporter@start();
+        a: actor_ref <- spawn(0, app, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        idn: $NI$ <- { id: hx(tempus_ids@id_hex(ident())), pub: hx(tempus_ids@pub_hex(ident())), seed: hx(tempus_ids@seed_hex(ident())), addr: concat("127.0.0.1:", port()), token: hx(tempus_ids@tok_hex(ident(), own_tok())), typ: typ() };
+        net: $NN$ <- { listen: concat("listen:", port()), spec: tempus_spec(tempus_ids@certfile(ident()), tempus_ids@keyfile(ident())), sents: sents(), wl: wl(), kid: tempus_ids@kid(), ppub: hx(tempus_ids@producer_pub_hex()), ms: 2000, mst: "2000", max: 2, skew: tempus_ids@skew(), j0: 200, j1: 800, back: 1, blim: 0, fail: 2, every: 1000 };
+        sz: $NZ$ <- { k1: 4, c1: 3, t1: tick_ms(), k2: 4, c2: 2, t2: tick_ms(), k3: 4, c3: 2, t3: tick_ms() };
+        x: actor_ref <- ext_start(a);
+        drv: $NT$ <- { driven: driven(), ext: x, draws: case driven() of { true -> "0,1,2,3"; false -> "" } };
+        n: actor_ref <- tempus_node_start(a, idn, net, sz, drv);
+        _: int64 <- wait_for_exit()
+    produces pure 0 end
+}

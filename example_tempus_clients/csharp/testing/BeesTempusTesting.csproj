@@ -1,0 +1,12 @@
+<!-- TEST ONLY. Keys from fixed seeds, token making, and a clock, timers and draws that a test sets by hand. The tests
+     and the trials reference this project. The library (lib) and the driver do not, and an application must not. -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <AssemblyName>BeesTempusTesting</AssemblyName>
+    <RootNamespace>Bees.Tempus.Testing</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../lib/BeesTempus.csproj" />
+  </ItemGroup>
+</Project>
