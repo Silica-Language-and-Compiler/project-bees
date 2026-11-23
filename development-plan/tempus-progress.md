@@ -1130,3 +1130,13 @@ erlang:ok/0 the Silica node wrote request_refused and the Kotlin node wrote prot
 unknown_atom. The list is now every atom of src/tempus/bees_tempus.atoms and src/trust/bees_trust.atoms. The case is
 step D32 of c9_tempus_node_kotlin: seven lines added to three of its goldens, none removed or changed. Where the
 entries above say c11 has not run, read this entry.
+
+## 2026-11-23, the Swift node's atom list
+
+The Swift node's list of the atoms a node holds lacked the rejection atoms and the trpc result atoms of
+src/trust/bees_trust.atoms. Shown against a Silica node before the fix: to a frame whose kind is the atom `truncated`
+the Silica node wrote "not a request: unknown kind" and the Swift node wrote "not a request: unknown_atom". The list is
+now every atom of src/tempus/bees_tempus.atoms and src/trust/bees_trust.atoms (68), and a unit test reads the two
+files and requires the list to equal their union. tempus-node-tests is 212 tests (was 207). No golden changed; c5, c8
+and c10 pass. The cases were not added to c8, because its steps are numbered and its audit lines carry connection
+counters, so new cases would change existing golden lines.

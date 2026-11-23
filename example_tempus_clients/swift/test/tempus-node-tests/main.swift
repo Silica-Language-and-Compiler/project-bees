@@ -356,6 +356,29 @@ func admissionTests(_ root: String) {
     }
 }
 
+// ---------------------------------------------------------------- the atoms a node holds
+func atomTests(_ root: String) {
+    var union = Set<String>()
+    for path in ["/src/tempus/bees_tempus.atoms", "/src/trust/bees_trust.atoms"] {
+        guard let text = try? String(contentsOfFile: root + path, encoding: .utf8) else {
+            check(false, "the atoms file \(path) cannot be read")
+            return
+        }
+        for line in text.split(separator: "\n") {
+            let name = line.trimmingCharacters(in: .whitespaces)
+            if !name.isEmpty && !name.hasPrefix("#") { union.insert(name) }
+        }
+    }
+    same("missing: \(union.subtracting(knownAtoms).sorted()) extra: \(knownAtoms.subtracting(union).sorted())", "missing: [] extra: []",
+         "knownAtoms is the union of src/tempus/bees_tempus.atoms and src/trust/bees_trust.atoms")
+    // the node's word for a frame, as a Silica node says it (the three frames were sent to a Silica node on 2026-11-23)
+    func word(_ t: Term) -> String { (try? etfEncode(t)).map { bodyKind($0).why } ?? "not encoded" }
+    same(word(.map(["t": .atom("truncated")])), "unknown kind", "a frame whose t is an atom of the rejection list")
+    same(word(.map(["t": .atom("server_not_pinned")])), "unknown kind", "a frame whose t is an atom of TRUST's results")
+    same(word(.map(["t": .atom("tick")])), "unknown_atom", "a frame whose t is an atom no production node holds")
+    same(word(.map(["t": .atom("sample"), "store": .atom("no_such_atom"), "n": .int(1)])), "unknown_atom", "a value that is an atom no node holds")
+}
+
 let args = CommandLine.arguments
 if args.count == 2 && args[1] == "model" {
     model()
@@ -363,6 +386,7 @@ if args.count == 2 && args[1] == "model" {
     clockTests(args[1])
     configTests()
     admissionTests(args[1])
+    atomTests(args[1])
     print("tempus-node-tests: \(passed) passed, \(failed) failed")
     exit(failed == 0 ? 0 : 1)
 } else {

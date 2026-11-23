@@ -62,12 +62,24 @@ public enum Admission {
 // ---------------------------------------------------------------- what a body is, as the node's connection reads it
 let requestKinds = ["advert", "pop_challenge", "pop_response", "key_rotated", "shuffle", "shuffle_reply", "sample",
                     "sample_reply", "done", "call", "cast", "result"]
-/// Every atom a production BEES node holds for tempus/1 and TRUST's frames (src/tempus/bees_tempus.atoms and the
-/// frame atoms of src/trust/bees_trust.atoms). A body with any other atom is refused as `unknown_atom`, which is
-/// what a Silica node says of the test-only tick and clock frames.
-let knownAtoms: Set<String> = Set(requestKinds + ["tempus_edge", "tempus_bridge", "tempus_sentinel", "d", "id", "pub", "addr",
-    "nonce", "sig", "kid", "store", "entries", "age", "n", "sub", "typ", "nbf", "exp", "t", "ver", "req_id", "m", "f", "a",
-    "args", "opts", "value", "token", "deadline_ms", "hello", "token_present", "token_issue", "goaway", "erlang", "ok", "error"])
+/// Every atom a production BEES node holds: exactly the union of src/tempus/bees_tempus.atoms and
+/// src/trust/bees_trust.atoms (a Silica node is built with both files). A body with any other atom is refused as
+/// `unknown_atom`, which is what a Silica node says of the test-only tick and clock frames. tempus-node-tests reads the
+/// two files and requires this list to equal their union, so the list cannot drift from them.
+package let knownAtoms: Set<String> = [
+    // src/tempus/bees_tempus.atoms: message kinds, peer types, keys of the frames and of the token
+    "advert", "pop_challenge", "pop_response", "key_rotated", "shuffle", "shuffle_reply", "sample", "sample_reply", "done",
+    "tempus_edge", "tempus_bridge", "tempus_sentinel",
+    "d", "id", "pub", "addr", "nonce", "sig", "kid", "store", "entries", "age", "n", "sub", "typ", "nbf", "exp",
+    // src/trust/bees_trust.atoms: frame keys and frame kinds
+    "t", "ver", "req_id", "m", "f", "a", "args", "opts", "value", "token", "deadline_ms", "hello", "token_present",
+    "token_issue", "call", "cast", "result", "goaway", "erlang",
+    // src/trust/bees_trust.atoms: the language's rejection atoms
+    "bad_version", "truncated", "trailing_bytes", "bad_tag", "too_large", "too_deep", "too_long", "out_of_range",
+    "unknown_atom", "bad_variant", "missing_field", "duplicate_field", "unknown_field", "unsupported",
+    // src/trust/bees_trust.atoms: trpc results
+    "ok", "error", "dns_error", "connect_failed", "closed", "timeout", "protocol_error", "server_not_pinned",
+]
 
 private func unknownAtom(_ t: Term) -> Bool {
     switch t {
@@ -80,7 +92,7 @@ private func unknownAtom(_ t: Term) -> Bool {
 
 /// The kind of a body (the atom of its `t`), or nil with the reason when its structure is refused or its `t` is no
 /// kind: the reason is the decoder's word, or "unknown kind" for a well-formed map.
-func bodyKind(_ body: Bytes) -> (kind: String?, why: String) {
+package func bodyKind(_ body: Bytes) -> (kind: String?, why: String) {
     if body.count >= 1 && body[0] != 131 { return (nil, "bad_version") }
     if body.count < 6 { return (nil, "truncated") }
     if body[1] != 116 { return (nil, "bad_tag") }
