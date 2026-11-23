@@ -1,0 +1,175 @@
+TEST ONLY: tick and clock frames are accepted
+clock: the system clock is read
+tempus_edge node b19edad2 listening on 127.0.0.1:24901
+store tempus_edge: capacity 4, shuffle length 3
+store tempus_bridge: capacity 4, shuffle length 2
+store tempus_sentinel: capacity 4, shuffle length 2
+join: asking the sentinel at 127.0.0.1:24900 for tempus_edge d1
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d1
+[tempus audit] admitted peer=9e1113ab416dc197 tempus_sentinel, tempus whitelist entry 0 d1
+join: the sentinel answered for tempus_edge d1
+view tempus_edge: (empty)
+view tempus_sentinel: 9e1113ab@0
+join: asking the sentinel at 127.0.0.1:24900 for tempus_bridge d2
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d2
+[tempus audit] admitted peer=9e1113ab416dc197 tempus_sentinel, tempus whitelist entry 0 d2
+join: the sentinel answered for tempus_bridge d2
+view tempus_bridge: (empty)
+view tempus_sentinel: 9e1113ab@0
+join: asking the sentinel at 127.0.0.1:24900 for tempus_sentinel d3
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d3
+[tempus audit] admitted peer=9e1113ab416dc197 tempus_sentinel, tempus whitelist entry 0 d3
+join: the sentinel answered for tempus_sentinel d3
+view tempus_sentinel: 9e1113ab@0
+view tempus_sentinel: 9e1113ab@0
+join: done
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a1
+[tempus audit] admitted peer=9200d2990c3e9eb7 tempus_edge, token and proof of possession a1
+view tempus_edge: 9200d299@0
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a2
+[tempus audit] admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession a2
+view tempus_edge: (empty)
+tick tempus_edge: shuffle with 9200d299 at 127.0.0.1:24903 d4
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d4
+[tempus audit] admitted peer=9200d2990c3e9eb7 tempus_edge, token and proof of possession d4
+view tempus_edge: (empty)
+tick tempus_edge: shuffle merged
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a3
+[tempus audit] admission_refused peer=958cff49930885d2 the token has expired a3
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a4
+[tempus audit] admission_refused peer=958cff49930885d2 the token is not valid yet a4
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a5
+[tempus audit] admission_refused peer=958cff49930885d2 the signature does not verify a5
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a6
+[tempus audit] key_rotated peer=958cff49930885d2 the peer's token is under another kid; it was told the current one a6
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a7
+[tempus audit] admission_refused peer=958cff49930885d2 sub is not the peer's key a7
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a8
+[tempus audit] binding_refused peer=cb133950f3232872 the advert's pub is not the key of the peer's TLS certificate a8
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a9
+[tempus audit] admission_refused peer=cb133950f3232872 id is not the SHA-512 of pub a9
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a10
+[tempus audit] whitelist_reject peer=958cff49930885d2 a tempus_bridge or tempus_sentinel token under a certificate that is not in the tempus whitelist a10
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a11
+[tempus audit] whitelist_reject peer=9e1113ab416dc197 a certificate of the tempus whitelist with a token whose typ is not tempus_bridge or tempus_sentinel a11
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a12
+[tempus audit] pop_failed peer=958cff49930885d2 the proof of possession does not verify a12
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a13
+[tempus audit] pop_failed peer=958cff49930885d2 the proof of possession does not verify a13
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a14
+[tempus audit] pop_failed peer=958cff49930885d2 sig is not 64 bytes a14
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a15
+[tempus audit] pop_failed peer=958cff49930885d2 a response was expected a15
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a16
+[tempus audit] protocol_error peer=- the first frame is not an advert a16
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a17
+[tempus audit] protocol_error peer=958cff49930885d2 a challenge was expected a17
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a18
+[tempus audit] protocol_error peer=- frame refused before decoding: too_large a18
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a19
+[tempus audit] admitted peer=958cff49930885d2 tempus_edge, token and proof of possession a19
+[tempus audit] protocol_error peer=958cff49930885d2 frame refused before decoding: too_large a19
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a20
+[tempus audit] admitted peer=958cff49930885d2 tempus_edge, token and proof of possession a20
+[tempus audit] protocol_error peer=958cff49930885d2 n is not 1 to the shuffle length a20
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a21
+[tempus audit] admitted peer=958cff49930885d2 tempus_edge, token and proof of possession a21
+[tempus audit] protocol_error peer=958cff49930885d2 n is not 1 to the shuffle length a21
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a22
+[tempus audit] admitted peer=958cff49930885d2 tempus_edge, token and proof of possession a22
+[tempus audit] protocol_error peer=958cff49930885d2 unknown_field a22
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a23
+[tempus audit] admitted peer=958cff49930885d2 tempus_edge, token and proof of possession a23
+[tempus audit] protocol_error peer=958cff49930885d2 store is not a peer type a23
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a24
+[tempus audit] admitted peer=958cff49930885d2 tempus_edge, token and proof of possession a24
+[tempus audit] protocol_error peer=958cff49930885d2 more entries than the shuffle length a24
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a25
+[tempus audit] admitted peer=958cff49930885d2 tempus_edge, token and proof of possession a25
+[tempus audit] protocol_error peer=958cff49930885d2 age is not 0 to 65535 a25
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a26
+[tempus audit] admitted peer=958cff49930885d2 tempus_edge, token and proof of possession a26
+[tempus audit] entry_refused peer=958cff49930885d2 entry 1: the signature does not verify a26
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a27
+[tempus audit] admitted peer=958cff49930885d2 tempus_edge, token and proof of possession a27
+[tempus audit] entry_refused peer=958cff49930885d2 entry 0: typ is not the store's type a27
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a28
+[tempus audit] admitted peer=958cff49930885d2 tempus_edge, token and proof of possession a28
+[tempus audit] shuffle_refused peer=- the store refused the frame a28
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a29
+[tempus audit] admitted peer=958cff49930885d2 tempus_edge, token and proof of possession a29
+[tempus audit] protocol_error peer=958cff49930885d2 not a request: bad_version a29
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a30
+[tempus audit] admitted peer=958cff49930885d2 tempus_edge, token and proof of possession a30
+[tempus audit] protocol_error peer=958cff49930885d2 not a request: unknown kind a30
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a31
+[tempus audit] admitted peer=958cff49930885d2 tempus_edge, token and proof of possession a31
+[tempus audit] request_refused peer=958cff49930885d2 call and cast are served by a bridge only a31
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a32
+[tempus audit] admitted peer=958cff49930885d2 tempus_edge, token and proof of possession a32
+[tempus audit] request_refused peer=958cff49930885d2 call and cast are served by a bridge only a32
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a33
+[tempus audit] closed_by_peer peer=(any) stage (any) a33
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a34
+[tempus audit] admitted peer=958cff49930885d2 tempus_edge, token and proof of possession a34
+[tempus audit] timeout peer=958cff49930885d2 stage request a34
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a35
+[tempus audit] timeout peer=958cff49930885d2 stage response a35
+[tempus audit] alpn_mismatch peer=- the peer did not agree on ALPN tempus/1, as server a36
+[tempus audit] tls_verify_failed peer=- the peer presented no certificate, as server a37
+[tempus audit] tempus_cert_key peer=- the peer certificate's key is not Ed25519, as server a38
+[tempus audit] tls_handshake_failed peer=- the TLS 1.3 handshake failed (alert, version, group, suite or signature outside the tempus/1 profile), as server a39
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a40
+[tempus audit] admitted peer=958cff49930885d2 tempus_edge, token and proof of possession a40
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a41
+[tempus audit] admitted peer=958cff49930885d2 tempus_edge, token and proof of possession a41
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a42
+[tempus audit] inflight_refused peer=- more accepted connections than inflight_max: closed at once a42
+[tempus audit] closed_by_peer peer=(any) stage (any) a40
+[tempus audit] closed_by_peer peer=(any) stage (any) a41
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a43
+[tempus audit] admitted peer=1fae2ad7f75a0ded tempus_edge, token and proof of possession a43
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a44
+[tempus audit] admitted peer=1fae2ad7f75a0ded tempus_edge, token and proof of possession a44
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a45
+[tempus audit] admitted peer=9e1113ab416dc197 tempus_sentinel, tempus whitelist entry 0 a45
+view tempus_edge: 1fae2ad7@3
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a46
+[tempus audit] admitted peer=1fae2ad7f75a0ded tempus_edge, token and proof of possession a46
+[tempus audit] protocol_error peer=1fae2ad7f75a0ded unknown_field a46
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a47
+[tempus audit] admitted peer=1fae2ad7f75a0ded tempus_edge, token and proof of possession a47
+[tempus audit] protocol_error peer=1fae2ad7f75a0ded age is not 0 to 65535 a47
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a48
+[tempus audit] admitted peer=1fae2ad7f75a0ded tempus_edge, token and proof of possession a48
+[tempus audit] protocol_error peer=1fae2ad7f75a0ded not a request: bad_version a48
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a49
+[tempus audit] admission_refused peer=1fae2ad7f75a0ded sub is not the peer's key a49
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a50
+[tempus audit] admitted peer=958cff49930885d2 tempus_edge, token and proof of possession a50
+view tempus_edge: 958cff49@0 1fae2ad7@3
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a51
+[tempus audit] admitted peer=1fae2ad7f75a0ded tempus_edge, token and proof of possession a51
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a52
+[tempus audit] admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession a52
+clock: 2100 s
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a53
+[tempus audit] admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession a53
+expired in tempus_edge: 958cff49
+view tempus_edge: (empty)
+tick tempus_edge: shuffle with 1fae2ad7 at 127.0.0.1:24908 d5
+tick tempus_edge: the partner did not answer, connect_failed d5
+view tempus_edge: (empty)
+tick tempus_edge: shuffle failed
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a54
+[tempus audit] admitted peer=1fae2ad7f75a0ded tempus_edge, token and proof of possession a54
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a55
+[tempus audit] admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession a55
+clock: 3100 s
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a56
+[tempus audit] admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession a56
+own token: the token has expired; ticking has stopped
+application: told that the node's own token is not valid any more: the token has expired
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a57
+[tempus audit] closed_by_peer peer=(any) stage (any) a57
+exit=0

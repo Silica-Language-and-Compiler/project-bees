@@ -15,6 +15,7 @@
 // Keys, certificates and tokens are TEST ONLY, from fixed seeds. The clock is the number 1500, never the machine's.
 import Foundation
 import TempusClient
+import TempusTestSupport
 
 var passed = 0
 var failed = 0

@@ -26,6 +26,28 @@ LINUX_GOLDEN_EXCEPTIONS = {
     "trials/c6_tempus_kotlin/dangerous_k.linux_x86_64.scout": "no Kotlin compiler on Linux: the trial fails there and says so",
     "trials/c6_tempus_kotlin/dangerous_q.linux_x86_64.scout": "no Kotlin compiler on Linux: the trial fails there and says so",
     "trials/c6_tempus_kotlin/kotlin.linux_x86_64.scout": "no Kotlin compiler on Linux: the trial fails there and says so",
+    # a missing tool: trials/c9_tempus_node_kotlin runs nodes of the Kotlin extension, and there is no Kotlin compiler on the Linux machine
+    "trials/c9_tempus_node_kotlin/tests.linux_x86_64.scout": "no Kotlin compiler on Linux: the trial fails there and says so",
+    "trials/c9_tempus_node_kotlin/dangerous_s.linux_x86_64.scout": "no Kotlin compiler on Linux: the trial fails there and says so",
+    "trials/c9_tempus_node_kotlin/dangerous_a.linux_x86_64.scout": "no Kotlin compiler on Linux: the trial fails there and says so",
+    "trials/c9_tempus_node_kotlin/dangerous_q.linux_x86_64.scout": "no Kotlin compiler on Linux: the trial fails there and says so",
+    "trials/c9_tempus_node_kotlin/ke.linux_x86_64.scout": "no Kotlin compiler on Linux: the trial fails there and says so",
+    "trials/c9_tempus_node_kotlin/ks.linux_x86_64.scout": "no Kotlin compiler on Linux: the trial fails there and says so",
+    "trials/c9_tempus_node_kotlin/kh.linux_x86_64.scout": "no Kotlin compiler on Linux: the trial fails there and says so",
+    "trials/c9_tempus_node_kotlin/kc.linux_x86_64.scout": "no Kotlin compiler on Linux: the trial fails there and says so",
+    "trials/c9_tempus_node_kotlin/ks2.linux_x86_64.scout": "no Kotlin compiler on Linux: the trial fails there and says so",
+    "trials/c9_tempus_node_kotlin/kp.linux_x86_64.scout": "no Kotlin compiler on Linux: the trial fails there and says so",
+    "trials/c9_tempus_node_kotlin/kotlin.linux_x86_64.scout": "no Kotlin compiler on Linux: the trial fails there and says so",
+    # a missing tool: trials/c8_tempus_node_swift runs nodes of the Swift extension, and there is no Swift toolchain on the Linux machine
+    "trials/c8_tempus_node_swift/s.linux_x86_64.scout": "no Swift toolchain on Linux: the trial fails there and says so",
+    "trials/c8_tempus_node_swift/e.linux_x86_64.scout": "no Swift toolchain on Linux: the trial fails there and says so",
+    "trials/c8_tempus_node_swift/p.linux_x86_64.scout": "no Swift toolchain on Linux: the trial fails there and says so",
+    "trials/c8_tempus_node_swift/a.linux_x86_64.scout": "no Swift toolchain on Linux: the trial fails there and says so",
+    "trials/c8_tempus_node_swift/t.linux_x86_64.scout": "no Swift toolchain on Linux: the trial fails there and says so",
+    "trials/c8_tempus_node_swift/u.linux_x86_64.scout": "no Swift toolchain on Linux: the trial fails there and says so",
+    "trials/c8_tempus_node_swift/r.linux_x86_64.scout": "no Swift toolchain on Linux: the trial fails there and says so",
+    "trials/c8_tempus_node_swift/walk.linux_x86_64.scout": "no Swift toolchain on Linux: the trial fails there and says so",
+    "trials/c8_tempus_node_swift/client.linux_x86_64.scout": "no Swift toolchain on Linux: the trial fails there and says so",
 }
 
 

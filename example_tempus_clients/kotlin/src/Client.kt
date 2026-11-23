@@ -128,7 +128,7 @@ private class OwnKey(val identity: Identity) : X509ExtendedKeyManager() {
  * itself has by then verified, in the handshake, that the peer holds that certificate's private key. `refused` keeps
  * the reason of a refusal for the Outcome.
  */
-private class SelfSignedEd25519 : X509ExtendedTrustManager() {
+internal class SelfSignedEd25519 : X509ExtendedTrustManager() {
     @Volatile var refused: String? = null
 
     private fun check(chain: Array<out X509Certificate>?) {
@@ -150,13 +150,13 @@ private class SelfSignedEd25519 : X509ExtendedTrustManager() {
     override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
 }
 
-private fun context(identity: Identity, trust: SelfSignedEd25519): SSLContext {
+internal fun context(identity: Identity, trust: SelfSignedEd25519): SSLContext {
     val ctx = SSLContext.getInstance(TLS_VERSION)
     ctx.init(arrayOf<KeyManager>(OwnKey(identity)), arrayOf<TrustManager>(trust), SecureRandom())
     return ctx
 }
 
-private fun restrict(socket: SSLSocket) {
+internal fun restrict(socket: SSLSocket) {
     val p = socket.sslParameters
     p.protocols = arrayOf(TLS_VERSION)
     p.cipherSuites = TLS_SUITES
@@ -168,7 +168,7 @@ private fun restrict(socket: SSLSocket) {
 }
 
 /** After the handshake: what was negotiated, and the peer's certificate. Refused(reason) otherwise. */
-private fun tlsChecks(socket: SSLSocket): X509Certificate {
+internal fun tlsChecks(socket: SSLSocket): X509Certificate {
     val session = socket.session
     if (session.protocol != TLS_VERSION) throw Refused("the TLS version is not 1.3")
     if (session.cipherSuite !in TLS_SUITES) throw Refused("the cipher suite is not one of tempus/1")
@@ -179,17 +179,17 @@ private fun tlsChecks(socket: SSLSocket): X509Certificate {
     return cert
 }
 
-private fun sslReason(e: Exception): String = (e.message ?: e.javaClass.simpleName).lineSequence().first()
+internal fun sslReason(e: Exception): String = (e.message ?: e.javaClass.simpleName).lineSequence().first()
 
 // ---------------------------------------------------------------- one connection
-private sealed class Read {
+internal sealed class Read {
     class Frame(val body: ByteArray) : Read()
     object Oversize : Read()
     class Ended(val what: String, val why: String) : Read()        // closed, timeout, tls_failed
 }
 
 /** A TLS connection with ONE deadline for all of it. */
-private class Conn(val socket: SSLSocket, val deadline: Long) {
+internal class Conn(val socket: SSLSocket, val deadline: Long) {
     var framesRead = 0
     var open = true
     var advert: Descriptor? = null
@@ -326,7 +326,7 @@ private fun admit(conn: Conn, me: Identity, verifier: Verifier, certificate: X50
     return null
 }
 
-private fun hostPort(text: String): InetSocketAddress {
+internal fun hostPort(text: String): InetSocketAddress {
     val at = text.lastIndexOf(':')
     require(at > 0) { "an address is host:port" }
     return InetSocketAddress(text.substring(0, at), text.substring(at + 1).toInt())

@@ -30,7 +30,7 @@ public func randomBytes(_ n: Int) throws -> Bytes {
 
 /// An Ed25519 private key, from its 32-byte seed.
 public final class SigningKey {
-    let pkey: OpaquePointer
+    package let pkey: OpaquePointer
     public let pub: Bytes
 
     public init(seed: Bytes) throws {
@@ -78,7 +78,7 @@ public func ed25519Verify(pub: Bytes, message: Bytes, sig: Bytes) -> Bool {
 }
 
 // ---------------------------------------------------------------- certificates
-func derOf(_ x: OpaquePointer) -> Bytes? {
+package func derOf(_ x: OpaquePointer) -> Bytes? {
     let n = i2d_X509(x, nil)
     guard n > 0 else { return nil }
     var out = Bytes(repeating: 0, count: Int(n))
@@ -89,7 +89,7 @@ func derOf(_ x: OpaquePointer) -> Bytes? {
     return written == n ? out : nil
 }
 
-func x509(der: Bytes) -> OpaquePointer? {
+package func x509(der: Bytes) -> OpaquePointer? {
     der.withUnsafeBufferPointer { buf -> OpaquePointer? in
         var p = buf.baseAddress
         let x = d2i_X509(nil, &p, der.count)

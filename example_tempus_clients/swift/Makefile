@@ -23,5 +23,7 @@ build:
 	@out=$$($(SWIFT_BUILD) 2>&1); rc=$$?; [ "$$rc" = 0 ] || { printf '%s\n' "$$out"; echo "FAIL: [swift client] swift build"; exit 1; }
 test: build
 	@"$(BIN)/tempus-client-tests" "$(BEES_ROOT)"
+	@"$(BIN)/tempus-node-tests" "$(BEES_ROOT)"
+	@python3 "$(HERE)/tests/model_check.py" "$(BIN)/tempus-node-tests"
 clean:
 	@rm -rf "$(HERE)/.build"

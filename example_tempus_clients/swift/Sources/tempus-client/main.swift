@@ -16,6 +16,7 @@
 // Every dial prints its outcome as one line and exits 0; a fault of the command line exits 2.
 import Foundation
 import TempusClient
+import TempusTestSupport
 
 func fail(_ text: String) -> Never {
     FileHandle.standardError.write(Data(("tempus-client: " + text + "\n").utf8))

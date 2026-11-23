@@ -11,7 +11,9 @@ nodes through every behaviour a node has, including every refusal. The second is
 TEMPUS client in your own application, write it as part of that application, in whatever language the application
 uses, and read these as worked examples of what such a client has to do. The document
 [What do I need to do to write a TEMPUS client?](writing-a-tempus-client.md) lists the requirements in a form that does
-not depend on any example or on any one language.
+not depend on any example or on any one language. An application that is to be a member of the network, with stores of its own, is a
+node: [What do I need to do to write a TEMPUS node?](writing-a-tempus-node.md) lists what a node has to do beyond a
+client.
 
 ## Why they are not for production
 
@@ -27,14 +29,22 @@ not depend on any example or on any one language.
 
 ### python/
 
-- `bees_tempus_client.py` is a client written completely in Python. It is both a module and a command line. It has
-  its own writer and reader for the frames, written from the design document and not from the Silica code, so that
-  the two examples agreeing byte for byte is evidence about the wire format. It uses Python's `ssl` module for TLS and
-  the `cryptography` package for Ed25519 signatures. It can dial a node and it can listen for a node to dial it.
-- `test_bees_tempus_client.py` holds its tests. Run them from the BEES root directory with
-  `python3 example_tempus_clients/python/test_bees_tempus_client.py`. Some of the tests compare the Python client's
-  bytes with the recorded output of the trial `trials/t2_tempus_frames`, so they need that trial's recorded output to
-  be current.
+- The Python extension: seven modules an application imports to be a TEMPUS peer or a TEMPUS node (an edge or a
+  sentinel; not a bridge), written completely in Python. It has its own writer and reader for the frames, written
+  from the design document and not from the Silica code, so that the two agreeing byte for byte is evidence about the
+  wire format. It uses Python's `ssl` module for TLS and the `cryptography` package for Ed25519 signatures. Its own
+  [README](python/README.md) says what it is, what to install, how an application starts a node with it, what
+  configuration it takes, what the application is told, what is tested and what is not covered. The trial
+  `trials/c7_tempus_node_python` runs its nodes and Silica nodes in one network.
+- `bees_tempus_testing.py` is the test support: the test-only `tick` and `clock` frames, token making, keys from
+  fixed seeds, and peers that misbehave on purpose. It is what the trials drive nodes with. It is no part of the
+  extension, and no module of the extension imports it. `bees_tempus_client.py` is its old name, kept as a thin
+  module because the trial tools import that name.
+- `test_bees_tempus_client.py` and `test_bees_tempus_node.py` hold the tests. Run them from the BEES root directory
+  with `python3 example_tempus_clients/python/test_bees_tempus_client.py` and
+  `python3 example_tempus_clients/python/test_bees_tempus_node.py`. Some of the tests compare with the recorded
+  outputs of the trials `t0_tempus_view`, `t0_tempus_clock`, `t1_tempus_store`, `t2_tempus_frames`,
+  `t4_tempus_admission` and `c4_tempus_boot`, so they need those recorded outputs to be current.
 
 ### silica/
 
@@ -49,30 +59,41 @@ not depend on any example or on any one language.
 
 ### swift/
 
-- A client written in Swift, as a Swift package: a library, a command line (`tempus-client`) and unit tests. It is
-  also an example only and must not be used in production. Its own [README](swift/README.md) says how to build and
-  run it, which libraries it uses and why, what it covers compared with the Python example, and what it does not
-  cover. It builds with Apple's Command Line Tools and the OpenSSL installed on the machine; it needs no Xcode and
-  downloads nothing.
-- It differs from the two examples above in what it is for. It was written as an example of a client, not to drive the
-  trials: it has no function that misbehaves on purpose, it does not build the test-only `tick` and `clock` frames,
-  and it can read the system clock.
-- The trial `trials/c5_tempus_swift` runs it against nodes and against the Python example. The tool
-  `tools/bees_tempus_swift_trial.py` walks its steps. The trial runs on the Mac only.
+- The Swift extension, as a Swift package with two parts an application can depend on: the wire and client part
+  (target `TempusClient`) and the node part (target `TempusNode`), which lets an application written in Swift be a
+  TEMPUS node, as an edge or as a sentinel. It cannot be a bridge. Its own [README](swift/README.md) says what to
+  install, how an application starts a node, what configuration the node takes, what the application is told, what
+  was tested and by which trial, and what stands between it and production use. Test keys, test tokens and a clock,
+  timers and draws that a test sets by hand are in a separate target (`TempusTestSupport`) that no application links.
+  The statement at the top of this document applies to it as it stands.
+- It builds with Apple's Command Line Tools and the OpenSSL installed on the machine; it needs no Xcode and downloads
+  nothing.
+- Its client part has no function that misbehaves on purpose and does not build the test-only `tick` and `clock`
+  frames. Its node part reads the machine's clock itself.
+- The trial `trials/c5_tempus_swift` runs the client against nodes and against the Python test support; the tool
+  `tools/bees_tempus_swift_trial.py` walks its steps. The trial `trials/c8_tempus_node_swift` runs nodes of the
+  extension in one network with Silica nodes, and the client against two of those; `walk.py` in that directory walks
+  its steps. The trial `trials/c10_tempus_bridge_swift` was written to run the client against real bridges and has
+  not run yet (its `COVERAGE.md` says why). All three are for the Mac only.
 
 ### kotlin/
 
-- A client written in Kotlin for the Java virtual machine: a library, a command line and tests. It is also an example
-  only and must not be used in production. Its own [README](kotlin/README.md) says what must be installed, how to
-  build and run it, what it checks, what it was checked against and what it does not cover. It uses the JDK's own TLS
-  and Ed25519 and no other library. It needs the Kotlin compiler and a JDK whose TLS has the key exchange group
-  X25519MLKEM768 (OpenJDK 27 has it; OpenJDK 25 does not).
-- Like the Swift example it was written as an example of a client, not to drive the trials: it has no function that
-  misbehaves on purpose, it does not build the test-only `tick` and `clock` frames, and it reads the system clock
-  unless it is given a time.
-- The trial `trials/c6_tempus_kotlin` runs its tests and then walks it against nodes and against the Python example.
-  The walk is `Walk.kt` in the trial's directory, with the tool `walk.py` beside it. The trial has recorded output
-  for the Mac only.
+- The Kotlin extension, for the Java virtual machine: a client half (dial and listen as an ordinary peer) and a node
+  half, which lets an application written in Kotlin be a TEMPUS node, as an edge or as a sentinel. It cannot be a
+  bridge. Its own [README](kotlin/README.md) says what to install, what an application depends on (one file,
+  `build/bees-tempus.jar`, beside the Kotlin standard library), how an application starts a node, what configuration
+  the node takes, what the application is told, what was tested and by which trial, and what stands between it and
+  production use. It uses the JDK's own TLS and Ed25519 and no other library. It needs the Kotlin compiler and a JDK
+  of release 27 or later, whose TLS has the key exchange group X25519MLKEM768 (OpenJDK 25 does not). The statement
+  at the top of this document applies to it as it stands.
+- It has no function that misbehaves on purpose and does not build the test-only `tick` and `clock` frames. A node
+  of it reads the machine's clock itself. Test keys, test tokens and a clock, timers and draws that a test sets by
+  hand are under `test/`, which no application compiles. The command line of the client is under `cli/`.
+- The trial `trials/c6_tempus_kotlin` runs the client's tests and then walks the client against nodes and against the
+  Python test support (`Walk.kt` and `walk.py` in that directory). The trial `trials/c9_tempus_node_kotlin` runs the
+  node tests and then nodes of the extension in one network with Silica nodes (`Net.kt` and `walk.py`). The trial
+  `trials/c11_tempus_bridge_kotlin` was written to run the client against real bridges and has not run yet (its
+  `COVERAGE.md` says why, and lists what the client's trials cover). All three are for the Mac only.
 
 ## How the trials use them
 

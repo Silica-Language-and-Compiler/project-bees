@@ -21,6 +21,14 @@ public final class Identity {
         self.certDER = try certDER ?? selfSignedCertificate(key: key, commonName: commonName, serial: serial)
     }
 
+    /// The same identity with another token: the key is shared, no seed is needed again.
+    package init(key: SigningKey, token: Bytes, addr: String?, certDER: Bytes) {
+        self.key = key
+        self.token = token
+        self.addr = addr
+        self.certDER = certDER
+    }
+
     public func descriptor(addr other: String? = nil) throws -> Descriptor {
         guard let a = other ?? addr else {
             throw Unencodable("this identity has no listen address (design OQ-15: every node has one)")

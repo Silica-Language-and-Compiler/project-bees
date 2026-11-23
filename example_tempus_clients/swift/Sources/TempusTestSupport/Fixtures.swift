@@ -2,6 +2,8 @@
 // them. They exist so that the unit tests and the trial can be repeated; a client never makes or signs a token (the
 // producer does), and never takes its key from a fixed seed.
 
+import TempusClient
+
 /// TEST ONLY: the 32 bytes first, first+1, ... (a seed that belongs to nobody).
 public func fixtureSeed(_ first: UInt8) -> Bytes { (0..<32).map { first &+ UInt8($0) } }
 

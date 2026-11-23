@@ -1,6 +1,6 @@
 # C2: coverage of the behaviour list (design 16.2) by the two clients
 
-Trial `trials/c2_tempus_clients`. The Python client (`example_tempus_clients/python/bees_tempus_client.py`, scenario `c2` of
+Trial `trials/c2_tempus_clients`. The Python client (the test support of the Python extension, `example_tempus_clients/python/bees_tempus_testing.py`, which the tools import under its old name `bees_tempus_client`; scenario `c2` of
 `tools/bees_tempus_trial.py`) drives node N; the Silica client (`example_tempus_clients/silica`, thin application `client.role`,
 scenarios `cs.role` as a sentinel and `ce.role` as an edge) drives node M, the same node on another port. Both send one
 tick to node O, which is not a test program's node (it is not externally driven; row 37). Step numbers are those of `cs.role` (written s1 to s10) and `ce.role` (1 to
@@ -36,11 +36,11 @@ frame shows it (ruling NQ-1).
 | 21 | a tick during a shuffle in flight | 17 | 17 | Client: the second tick is answered `done` at once and the client is not dialed again. Node: `aged only (a shuffle is in flight)` |
 | 22 | an empty view: ask a sentinel again | s6 | s6 | Client: the listening sentinel receives a `sample` for the bridge store. Node: `the view is empty`, the join lines |
 | 23 | `sample` as a peer request | s1, s2 | s1, s2 | Client: the same reply twice |
-| 24, 25 | application requests on a bridge | C3 | C3 | not built (T6) |
+| 24, 25 | application requests on a bridge | `trials/c3_tempus_bridge` | `trials/c3_tempus_bridge` | that trial's COVERAGE.md |
 | 26 | TLS 1.3 only, ALPN, the certificate | P7: TLS 1.2 only; another ALPN; no certificate; a P-256 certificate; an RSA certificate; a connection that says nothing | the accepted case, every step | Client: the handshake fails or the connection closes before any frame; the silent connection is closed at the node's bound. Node: `tls_handshake_failed`, `alpn_mismatch`, `tls_verify_failed`, `tempus_cert_key`, `timeout ... stage tls_handshake` |
 | 27 | draws from the platform's source | not a client's act | not a client's act | the trial's goldens are the same on every run (literal draws on a test node) |
-| 28 | boot refusals of a bad configuration | T7 | T7 | not built |
-| 29 to 36 | bridges | C3, T6 | C3, T6 | not built |
+| 28 | boot refusals of a bad configuration | not a client's act | not a client's act | `trials/c4_tempus_boot` (the Silica node's boot lines) and `tools/test_bees_tempus_conf.py` (the configuration tool) |
+| 29 to 36 | bridges | `trials/c3_tempus_bridge` | `trials/c3_tempus_bridge` | that trial's COVERAGE.md |
 | 37 | test-only frames on a node that is not a test program's | 43 | 43 | Client: closed with no reply. Node O: `protocol_error ... not a request: unknown kind`, the refusal of any frame of no kind (until 2026-11-20 `test_only_refused`, from a handler every node held). O is built in this trial's one directory, whose unit list holds the test unit for N and M, so O's linked program contains the unit's code although O's root unit does not use it and O is not externally driven; O therefore shows the refusal, not the absence. The node whose build lists nothing of the test unit, and whose compiled units are searched, is node P of `trials/t6_tempus_clock` |
 
 Rulings of 2026-11-19 that are no row of 16.2, and where this trial shows them:
@@ -64,3 +64,39 @@ Notes.
   `key_rotated`.
 - The Silica client's connections are the node's own connection actor, so the Silica client and the node share one
   implementation of admission. The Python client shares nothing with them.
+
+## Review of 2026-11-23
+
+This file was read again on 2026-11-23 against the rows of design 16.2 and against what changed after it was first
+written: the rulings of 2026-11-19 and 2026-11-20, the clock's configured choices, the test frames moving to
+`src/tempus_test`, and the changes to the Python code of that day. The Python code is now two things. The Python
+extension (`bees_tempus_codec.py`, `bees_tempus_admission.py`, `bees_tempus_peer.py` and the node modules) is what an
+application imports; its `dial` and `Listener` are the extension's own client. The test support
+(`bees_tempus_testing.py`) is the misbehaving peer this trial has always used. "The Python client" in the tables above
+is the test support. No recorded output of this trial changed.
+
+Behaviour that changed or was added, and the trial that shows it for each client:
+
+| Behaviour | Python | Silica client |
+| --- | --- | --- |
+| `clock_fail` pause: a connection closed at once (`clock_refused`); a join request that waits for the clock | `trials/t6_tempus_clock`, node S (the test support as peer and as the sentinel); on a Python node, `trials/c7_tempus_node_python` part 5 | no trial |
+| `clock_back` stop: a connection closed at once (`clock_stopped`), no resume | `trials/t6_tempus_clock`, node S; `trials/c7_tempus_node_python` part 5 | no trial |
+| `clock_back` hold and `clock_fail` continue: admission by the held time and by the last reading | `trials/t6_tempus_clock`, node H; `trials/c7_tempus_node_python` part 5 | no trial |
+| `clock_back` follow: a `clock` frame sets the node's time | steps 44 to 54 here | steps 44 to 54 here |
+| a sentinel node puts the peer that samples it into its store (NQ-13) | `trials/t3_tempus_nodes`; `trials/c7_tempus_node_python` parts 1 and 3 | no trial: the nodes the Silica client meets are edges |
+| the test frames on a node built without the test unit: `not a request: unknown_atom` | `trials/t6_tempus_clock`, node P; `trials/c7_tempus_node_python` part 4 (a Silica node and a Python node, the same line) | no trial: node O here is built with the unit in its directory (row 37) |
+| the extension's own client refuses a reply that is not the reply of its request: another kind, another store, more entries than asked, the `done` frame, a `result` for another `req_id`, a `result` to a cast | `trials/c7_tempus_node_python` part 3 | not applicable: these are checks of the Python extension |
+| the extension's own client verifies every entry of a reply | part 3 there | row 17 here, as the listening side |
+| the extension's own client checks the binding first, applies the `tempus` whitelist rule, and refuses an atom that is not UTF-8 without failing | part 3 there, and `example_tempus_clients/python/test_bees_tempus_node.py` | not applicable |
+| the extension's own listener accepts a peer whose certificate it was not given in advance, and is dialed by a Silica node | part 3 there | not applicable |
+
+What a client can reach and no trial shows for the Silica client, and why it was not added on 2026-11-23: the four
+rows marked "no trial" above, row 20 (`inflight_max`) and ruling NQ-14 (one bound per connection). Each needs a new
+Silica client scenario (a role file, its node's role file with other clock choices or a sentinel role, and recorded
+outputs). Adding them to this trial would change its recorded outputs, and a new trial needs a port block of its own,
+which has to be asked of the coordinator. Rows 20 and NQ-14 also need a client that can hold a connection open without
+speaking, which the Silica client cannot do: its connections are the node's own connection actor, which always sends
+its advert at once. That is a limit of the Silica client, not of the wire.
+
+What no client can reach, by its nature: rows 27, 28 and 36; the system clock's own readings and their timer (a node
+that is not a test node cannot be given a time); a system clock that cannot be read at start.

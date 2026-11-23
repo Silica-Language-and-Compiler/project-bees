@@ -18,7 +18,7 @@ public struct Unencodable: Error, CustomStringConvertible {
 public typealias Bytes = [UInt8]
 
 /// One term. A map's keys are atoms, held by name.
-public indirect enum Term: Equatable {
+public indirect enum Term: Equatable, Sendable {
     case atom(String)
     case int(Int64)
     case binary(Bytes)
@@ -34,7 +34,7 @@ public indirect enum Term: Equatable {
 
 public let frameMax = 131072
 
-func be32(_ n: Int) -> Bytes {
+package func be32(_ n: Int) -> Bytes {
     [UInt8((n >> 24) & 0xFF), UInt8((n >> 16) & 0xFF), UInt8((n >> 8) & 0xFF), UInt8(n & 0xFF)]
 }
 

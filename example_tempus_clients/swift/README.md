@@ -1,59 +1,255 @@
-# Swift example TEMPUS client
+# The Swift TEMPUS extension
 
-This client is an example only. It must not be used in production.
+This directory holds the Swift extension for TEMPUS: Swift code that an application written in Swift uses to be a
+TEMPUS client or a TEMPUS node. TEMPUS is the gossip membership mode of BEES: nodes find each other by exchanging small
+signed records over mutually authenticated TLS 1.3 connections. A node is a program that is a member of a TEMPUS
+network: it listens, keeps three lists of other members (its stores), and exchanges parts of them with other members.
+A client is a peer that connects to a node, makes one request and reads the answer.
 
-It is a worked example, in Swift, of what a TEMPUS client has to do: connect to a TEMPUS node as an ordinary peer over
-mutual TLS 1.3, be admitted, make one request and read the answer, and answer a node that dials it. If you need a
-TEMPUS client in a Swift application, write it as part of that application and read this one as an example. The
-document [What do I need to do to write a TEMPUS client?](../writing-a-tempus-client.md) lists the requirements in a
-form that does not depend on any example. The reasons in [the directory's README](../README.md) for not using an
-example in production apply here as they are: the keys, certificates and tokens it is run with in this repository are
-test fixtures made from fixed seeds that anyone can reproduce, and the code has had no review as production code.
+[The directory's README](../README.md) says that everything in `example_tempus_clients/` is an example only and must
+not be used in production. That statement is the project owner's to change, and it stands. The section "What stands
+between this extension and production use" below lists what has and has not been reviewed and tested.
 
-The client was written from the design document and from the requirements document, with the Python example as the
-reference for behaviour on the wire. It shares no code with the Python example, the Silica example or the node.
+The extension has two parts, and an application chooses by what it depends on:
+
+- `TempusClient` is the wire and the client: the frame codec, TLS, admission in both directions, `dial` and a
+  `Listener`. An application that only makes requests of nodes depends on this target alone. The document
+  [What do I need to do to write a TEMPUS client?](../writing-a-tempus-client.md) says what such a client has to do.
+- `TempusNode` is the node, built on `TempusClient`: the stores, the join, the shuffles, admission as a node judges
+  it, the limits, the clock rules, the configuration. An application that is a node depends on this target.
+
+Neither target holds test material. Fixed test keys, the making of test tokens, and a clock, timers and draws that a
+test sets by hand are in a third target, `TempusTestSupport`, which only the test programs and the trial programs
+link. An application never depends on it. The extension shares no code with the Silica library (`src/tempus/`), the
+Python extension or the Kotlin extension.
+
+The extension cannot be a bridge. A bridge is a node that is a member of both a TEMPUS network and a TRUST network
+(TRUST is the other mode of BEES, for long-lived nodes that know each other in advance), and there is no TRUST
+implementation in Swift. A configuration whose role is `bridge` is refused at the start. A node of this extension can
+be an edge (an ordinary member) or a sentinel (a node whose address is known in advance, which new nodes contact
+first). It holds a bridge store like every node, and its application can ask it for bridges and call one with
+`dial` and `callFrame`.
 
 ## What is in this directory
 
 - `Package.swift` describes a Swift package with no remote dependency.
-- `Sources/TempusClient/` is the library.
+- `Sources/TempusClient/` is the wire and client part of the extension.
   - `ETF.swift` writes and reads the part of the Erlang external term format that TEMPUS uses.
   - `Frames.swift` writes and reads the frames and the token, and checks every bound on their fields.
   - `Crypto.swift` holds Ed25519 signatures, SHA-512 and the certificate functions.
   - `Admission.swift` holds an identity, the verifier that checks another peer, and the outcome of a connection.
   - `Connection.swift` holds the TLS connection, the order of a connection, and `dial`.
   - `Listener.swift` holds the listening position: a node dials the client, and the client answers one request.
-  - `Fixtures.swift` makes test tokens and test identities from fixed seeds. It is for tests only.
-- `Sources/tempus-client/` is a command line over the library.
-- `Sources/tempus-client-tests/` is the unit tests, as a plain program.
+- `Sources/TempusNode/` is the node part of the extension.
+  - `View.swift` holds the view rules and one store's steps, as pure functions and a value type.
+  - `Clock.swift` holds the decision about one reading of the clock, as a pure function, and the reading of the
+    machine's clock.
+  - `Config.swift` holds the configuration value, its bounds and its refusal texts, and the node's identity value.
+  - `Admission.swift` holds admission as a node judges it, with the node's reason texts.
+  - `Sources.swift` holds the three things a node takes from the machine: the clock, timers and random numbers.
+  - `Node.swift` holds the node: the join, the ticks, the shuffles, what the application is told.
+  - `NodeConnection.swift` holds one connection of a node, dialed or accepted, and its audit lines.
+- `Sources/tempus-node-example/` is a complete application that is a node. It links `TempusNode` and nothing else of
+  this package.
+- `Sources/TempusTestSupport/` is for tests only: `Fixtures.swift` makes test tokens and test identities from fixed
+  seeds, and `Sources.swift` holds a clock, timers and draws that a test sets by hand.
+- `Sources/tempus-client/` is a command line over `TempusClient`. The trials drive the client through it. It links the
+  test support, because it can make a test token (`--test-token`, `--test-entry`); it is not something an application
+  uses.
+- `Sources/tempus-client-tests/` and `Sources/tempus-node-tests/` are the unit tests, as plain programs.
+- `Sources/tempus-node-trial/` is the program the trial `trials/c8_tempus_node_swift` runs as a node whose clock,
+  timers and draws the trial sets. It is for that trial only.
+- `tests/model_check.py` compares the store rules with the two Python models of the BEES tools.
 - `Sources/COpenSSL/` is a module map that names the headers and libraries of the OpenSSL installed on the machine.
   It contains declarations only. There is no C code in this directory.
-- `Makefile` builds the package and runs the unit tests.
+
+## Starting a node from an application
+
+An application builds two values, makes the node, and starts it. This is a complete program; the file names and the
+numbers are the application's own choices, and none of them is a default of the extension.
+
+```swift
+import Foundation
+import TempusClient
+import TempusNode
+
+let store = StoreConfig(capacity: 32, shuffleLength: 8, tickMs: 10000)
+let config = TempusConfig(
+    role: .edge, listenAddress: "0.0.0.0", port: 7400,
+    sentinels: [Sentinel(host: "203.0.113.10", port: 7400)],
+    edge: store, bridge: store, sentinel: store,
+    producerKid: Array("k1".utf8),
+    producerKey: Array(try Data(contentsOf: URL(fileURLWithPath: "producer.pub"))),
+    whitelist: [certificateDER(pem: try String(contentsOfFile: "sentinel.pem", encoding: .utf8))!],
+    shuffleTimeoutMs: 5000, inflightMax: 16, clockSkewMs: 10000,
+    clockBack: .follow, clockBackLimitS: nil, clockFail: .pause, clockReadMs: 1000,
+    joinRetryInitialMs: 1000, joinRetryMaxMs: 60000)
+let identity = NodeIdentity(
+    seed: Array(try Data(contentsOf: URL(fileURLWithPath: "identity.seed"))),
+    certificateDER: certificateDER(pem: try String(contentsOfFile: "identity.pem", encoding: .utf8))!,
+    token: Array(try Data(contentsOf: URL(fileURLWithPath: "token.bin"))),
+    address: "198.51.100.7:7400")
+
+let node = try TempusNode(config: config, identity: identity, lines: { print($0) }, events: { event in
+    switch event {
+    case .ownTokenNotValid, .keyRotated:
+        break    // get a new token from the producer, then call node.replaceToken(newToken)
+    case .stopped:
+        break    // the clock went back too far: stop this node and make a new one when the clock is right
+    default:
+        break
+    }
+})
+node.start()
+dispatchMain()
+```
+
+- `lines` is given every line the node writes, its own lines and its audit lines, one call for each line. An audit
+  line is a line a node writes when it admits or refuses something; it is never sent to the peer. The lines have the
+  text of a BEES node's lines, so that an operator can compare the two.
+- `events` is given what the application is told (the list is below). It is called on the node's own queue: it must
+  return quickly, and it must not wait for the node.
+- `node.replaceToken(_:)` passes a new token; the node's own entry carries it from the next shuffle on.
+  `node.replaceProducerKey(kid:publicKey:)` passes a new producer key. `node.peers(of:count:_:)` gives up to `count`
+  peers of one store, drawn at random, which is how an application finds a bridge. `node.stop()` ends the node; a
+  node that has ended is not started again.
+- The node keeps no copy of the private seed: it makes its key from the seed when it is created. It never writes or
+  sends the key.
+- The node reads the machine's clock itself. The initializer above takes no clock, and nothing an application can
+  call sets the node's time.
+
+`Sources/tempus-node-example/main.swift` is the same application with every value taken from its command line.
+
+## The configuration
+
+`TempusConfig` has the keys of the `tempus` section of `bees.config`, with the same meanings and bounds as
+`tools/bees_tempus_conf.py` and design section 11. Nothing has a default. A key that the Silica node requires is a
+property with no default value here, so leaving it out does not compile. A value outside its bounds is never
+clamped: the initializer of `TempusNode` writes the line `tempus: boot refused: WHY` and throws `ConfigRefused`.
+
+| Property | Bounds | Meaning |
+| --- | --- | --- |
+| `role` | `.edge` or `.sentinel`; `.bridge` is refused | the node's own type, and the type its token must carry |
+| `listenAddress`, `port` | an IPv4 literal or `localhost`; 1 to 65535 | where the node listens |
+| `sentinels` | 1 to 16, each an IPv4 literal and a port; may be empty only for role sentinel | the sentinels the node joins through |
+| `edge`, `bridge`, `sentinel` | capacity 1 to 256; shuffle length 1 to 64 and at most the capacity; tick 100 to 3600000 ms | one store each |
+| `producerKid`, `producerKey` | 1 to 64 bytes; 32 bytes | the one current producer key |
+| `whitelist` | certificates as DER, each self-signed over an Ed25519 key | the `tempus` whitelist: the bridges and sentinels this node accepts |
+| `shuffleTimeoutMs` | 100 to 60000 | one bound for a whole connection, from the dial or the accept to the close |
+| `inflightMax` | 1 to 64 | accepted connections at once |
+| `clockSkewMs` | 0 to 300000 | the clock difference allowed when a token's times are judged |
+| `clockBack` | `.follow`, `.hold`, `.stop` | what a reading of the clock earlier than the node's time does |
+| `clockBackLimitS` | 0 to 86400; required with `.stop`, refused otherwise | the greatest step back that `.stop` still follows |
+| `clockFail` | `.continue`, `.pause` | what a reading that fails after a good one does |
+| `clockReadMs` | 100 to 60000 | how often the clock is read |
+| `joinRetryInitialMs`, `joinRetryMaxMs` | 100 to 3600000; the maximum not below the initial | the wait before the join is tried again; it doubles up to the maximum |
+
+`NodeIdentity` holds what the application passes as bytes: the 32-byte Ed25519 private seed, the certificate
+self-signed over that key, the producer's token, and the address other nodes dial. The start is refused when the token
+does not read, is for another peer type or names another key, and when the certificate is not self-signed over the
+identity key.
+
+Where this differs from the Silica node's configuration, and why:
+
+- The three permission specifications (`edge_spec`, `bridge_spec`, `sentinel_spec`) say what a peer may call on a
+  bridge. This extension is no bridge, so it has no such property.
+- The identity and the whitelist are bytes, not file names. The application reads its files.
+- The Silica node's listen address can only be 127.0.0.1 or every interface, a limit of its carrier. This extension
+  listens on any IPv4 address of the machine.
+- A sentinel is an IPv4 literal. The Silica tools also accept a host name there; this extension resolves no name.
+- `clockSkewMs` is given in milliseconds, as in `bees.config`; the node judges tokens in whole seconds and uses the
+  whole seconds of the value.
+
+## What the application is told
+
+| Event | When |
+| --- | --- |
+| `.listening(address:)` | the first reading of the clock succeeded and the node listens |
+| `.view(store:entries:)` | after each step that may have changed a store: a tick, an answered shuffle, an insert |
+| `.joined` | the join through the sentinels is complete |
+| `.ownTokenNotValid(reason:)` | a tick found the node's own token not valid any more; ticking has stopped until `replaceToken` |
+| `.keyRotated(kid:dialed:)` | a peer answered this node's advert with `key_rotated`; the application must get a new token |
+| `.clockNotRead(text)` | the clock could not be read; told once for each failure, with what it means for the node |
+| `.stopped(text)` | the clock went back by more than `clockBackLimitS` under `.stop`: the node has stopped for good |
+| `.peerRefused(event:peerId:tokenVerified:)` | an accepted peer was refused; the identity is the SHA-512 of the key of its TLS certificate |
+| `.listenFailed(text)` | the node could not listen on its address |
+
+## What the node does
+
+It follows the ruled design, `development-plan/tempus-design.md`, and where the design leaves a point open, the
+Silica node of `src/tempus/`.
+
+- The stores. Three, one for each peer type, with the design's rules for capacity, ages, the choice of the partner
+  and of the entries sent, the merge, the eviction, and the putting back of sent entries.
+- The join. One `sample` request for each store to a configured sentinel; the node keeps the sentinel that answered in
+  its sentinel store; with no sentinel answering it waits and tries again, the wait doubling up to its maximum. A join
+  request that falls due while the node waits for its clock is made at once when the clock is read again.
+- Its own shuffles. Each store has its own timer. At a tick every age rises, the oldest entry is the partner, the
+  node's own entry goes first at age 0 in the store of its own type, the reply is merged, and in a store that is not
+  of the node's own type the partner that answered is put back at age 0. A partner that fails is dropped and the sent
+  entries are put back. An empty store makes the node ask a sentinel again.
+- Answers. A `shuffle` and a `sample` of an admitted peer are answered from the stores. A sentinel puts every peer that
+  sends it a `sample` into its store of that peer's type, after the sample is taken. A `call` or a `cast` is refused:
+  only a bridge serves them.
+- Admission. Every check of the Silica node, in its order and with its reason texts: the advert's bounds, the binding
+  of the advert to the TLS certificate, the producer key identifier (answered with the one `key_rotated` frame), the
+  token's time, its subject, the whitelist rule in both directions, the identity hash, the producer's signature, and
+  the proof of possession. Every entry of a received frame is verified before any is used.
+- Limits. The frame ceiling, the entry counts, `inflightMax` (a connection beyond it is closed at once after its
+  handshake), and one time bound for each connection.
+- The clock. The node reads the machine's clock at its start and every `clockReadMs`. `clockBack`, `clockBackLimitS`
+  and `clockFail` decide what a reading that is earlier, or that fails, does, as design section 10 says. While it
+  waits for its clock the node closes every accepted connection with the audit event `clock_refused`; after it has
+  stopped, with `clock_stopped`.
+- The node's own token. A tick that finds it not valid stops the ticking and tells the application; the node goes on
+  listening and answering, and ticks again when the application passes a new token.
+
+What a node of this extension does not do:
+
+- It is not a bridge, and it keeps no score of peers. The score, the score limit and the rule that a refusal makes a
+  new score entry only after the token verified belong to the bridge's table in the Silica library. This node tells
+  its application of every refusal of an accepted peer, with the peer's identity as the TLS handshake proved it and
+  whether the producer's signature had verified, which is what a score would need.
+- The test-only `tick` and `clock` frames do not exist in it. It refuses both as it refuses any frame that is not a
+  request.
+
+## Testing a node with a clock, timers and draws of the test's own
+
+`TempusNode` has a second initializer that takes a `NodeSources` value: a clock (`NodeClockSource`), timers
+(`NodeTimers`) and random numbers (`NodeRandom`). The first initializer uses `NodeSources.system`. A node made with
+the second initializer is refused on a listen address that is not a loopback address, as the Silica node refuses an
+externally driven node there. `TempusTestSupport` has a `ManualClock`, `ManualTimers` and a `ListRandom` for it. No
+frame a peer can send reaches the clock or the timers.
+
+The time bound of a connection is always measured on the machine's monotonic clock, also in a test.
 
 ## What you need
 
-- Apple's Command Line Tools, which provide `swiftc` and the Swift Package Manager. Xcode is not needed. The client was
+- Apple's Command Line Tools, which provide `swiftc` and the Swift Package Manager. Xcode is not needed. The extension was
   built with Swift 6.3.3 for `arm64-apple-macosx26.0`.
-- An installed OpenSSL that offers the key exchange group X25519MLKEM768 and Ed25519. The client was built and run
+- An installed OpenSSL that offers the key exchange group X25519MLKEM768 and Ed25519. The extension was built and run
   with the OpenSSL 4.1.0 that Homebrew installs, which is the one the BEES Makefiles use. The Makefile finds it the way
   they do, through `native/macos/platform.mk`, or takes the directory from `OPENSSL_PREFIX`.
 
-Nothing is downloaded. The package has no dependency that the package manager would fetch.
+An application that uses the extension needs the same two things, and adds the package to its own build with the
+place of OpenSSL's headers and libraries, as the Makefile here does. Nothing is downloaded. The package has no dependency that the package manager would fetch.
 
-## How to build and run it
+## How to build it, and how to run the client
 
 From this directory:
 
-- `make build` builds the library, `tempus-client` and `tempus-client-tests` into `.build/debug/`.
-- `make test` builds and then runs the unit tests. They need the recorded output of the trial
-  `trials/t2_tempus_frames` and the test certificates in `trials/t5_tempus_tls/certs`.
+- `make build` builds both parts of the extension and every program into `.build/debug/`.
+- `make test` builds and then runs the unit tests of the client part (`tempus-client-tests`), the unit tests of the
+  node part (`tempus-node-tests`) and the comparison of the stores with the Python models (`tests/model_check.py`).
+  They need the recorded outputs of the trials `trials/t2_tempus_frames`, `trials/t0_tempus_clock` and
+  `trials/t4_tempus_admission`, the test certificates in `trials/t5_tempus_tls/certs`, and Python 3.
 - `make clean` removes `.build/`.
 
 The Makefile calls `swift build --disable-sandbox` with the place of OpenSSL's headers and libraries. The package
 manager's own sandbox cannot start inside another sandbox, and this package has no plugin and no dependency for it to
 guard.
 
-The command line, with its test fixtures, looks like this. `SEED` is 64 hexadecimal digits and `PUB` is the
+The client's command line, with its test fixtures, looks like this. `SEED` is 64 hexadecimal digits and `PUB` is the
 producer's public key as 64 hexadecimal digits.
 
 ```
@@ -79,7 +275,7 @@ the same form as the Python example's line.
 - `--whitelist-cert FILE`, which may be given more than once, turns on the whitelist rule described below.
 - The skew, the time bound and the shuffle length must always be given. TEMPUS has no default for any of them.
 
-## Which libraries it uses, and why
+## Which libraries the extension uses, and why
 
 The client uses Foundation, the system's POSIX calls for the TCP connection, and OpenSSL for TLS, Ed25519, SHA-512 and
 certificates. It does not use Network.framework, Security.framework or CryptoKit. Each of those was tried first, and
@@ -110,7 +306,7 @@ TLS_CHACHA20_POLY1305_SHA256, the signature algorithm Ed25519 only, and the prot
 Several OpenSSL settings are C macros, which Swift cannot call. The client calls the function each macro stands for,
 `SSL_CTX_ctrl`, with the same arguments. That is why no C code was needed.
 
-## What it covers, compared with the Python example
+## What the client part covers, compared with the Python example
 
 | Subject | Python example | Swift example |
 | --- | --- | --- |
@@ -131,7 +327,7 @@ Several OpenSSL settings are C macros, which Swift cannot call. The client calls
 | Making its own self-signed certificate | yes | yes. With the names, serial numbers and dates of `tools/bees_tempus_certs.py` it makes the same bytes |
 | Deliberate misbehaviour (wrong proofs, wrong frames, silence, oversize frames, other TLS settings) | yes, because the trials need it | no. A client has no use for it |
 
-## What it does that the Python example does not
+## What the client part does that the Python example does not
 
 - It verifies every entry of a reply before it reports the reply. One entry that does not verify refuses the whole
   frame, and the outcome says so. A listening client does the same to the entries of a shuffle it receives. The
@@ -144,7 +340,7 @@ Several OpenSSL settings are C macros, which Swift cannot call. The client calls
   on what its TLS library offers by default.
 - It checks after the handshake that the TLS version is 1.3.
 
-## What it was checked against
+## What the client part was checked against
 
 The unit tests (`make test`, which prints how many checks passed) compare the client with recorded bytes:
 
@@ -183,22 +379,99 @@ them through the Python example.
 Run the trial from the BEES root directory with `tools/run_all_trials.sh --local-only --only c5_tempus_swift`, or with
 `make -C trials/c5_tempus_swift integrate`.
 
-## What it does not cover
+## What the client part does not cover
 
-- It was not run against a bridge. The call, cast and result frames were checked against the Python example's bytes
-  and against a node that is not a bridge, which refuses them. The trial with real bridges, `trials/c3_tempus_bridge`,
-  is driven by the Python and Silica examples only.
+- It has not been run against a bridge yet. The call, cast and result frames were checked against the Python example's
+  bytes and against a node that is not a bridge, which refuses them. A trial with real bridges was written for it,
+  `trials/c10_tempus_bridge_swift` (its `walk.py` holds the steps and its `COVERAGE.md` the rows of the behaviour
+  list), but on 2026-11-23 the bridge programs of that trial did not compile with the pinned Silica compiler (error
+  E4045, the fault noted for the bridge program in `development-plan/silica-defects.md`), so the trial has no recorded
+  output and nothing in it counts as shown.
 - Its reader of TRUST's result frame understands the same subset as the Python example's: maps, atoms, binaries,
   integers and lists. A result that carries a tuple or a float is refused, and its bytes are still in the outcome.
 - It keeps integers in 64 signed bits. The Python example reads an integer of up to 64 bits of magnitude. No number in
   a TEMPUS frame comes near either limit.
 - It was built and run on macOS on Apple Silicon only. There is no Swift toolchain on the Linux machine the other
-  trials also run on, so the trial has Mac goldens only, and on a machine without Swift it reports that it was
-  skipped.
-- It keeps no stores of its own and runs no shuffle timer. It makes one request per run, or answers requests with
-  entries it was given. It does not refresh its token, and it does not take part in gossip by itself.
+  trials also run on, so the trials have Mac goldens only. On a machine without Swift `trials/c5_tempus_swift` reports
+  that it was skipped; `trials/c8_tempus_node_swift` and `trials/c10_tempus_bridge_swift` fail there and say what is
+  missing.
+- The client part keeps no stores and runs no shuffle timer: it makes one request per `dial`, or answers requests
+  with entries it was given. Stores, timers and the refresh of the token are the node part's.
 - A failed TLS handshake is reported with the text OpenSSL gives for it. That text belongs to the OpenSSL version, so
   the trial leaves it out of its golden.
 - The whitelist rule is one-sided here: it is the edge's rule. The rule a bridge or sentinel applies to its own kind
-  is the node's, and is not in this client.
+  is the node's, and is in the node part (`TempusNode`).
 - It was not checked for the time its operations take, for memory use, or under load.
+
+## What the client part was checked against, added on 2026-11-23
+
+The trial `trials/c8_tempus_node_swift` also runs the client's command line, after its node steps, against two Silica
+nodes that are not bridges (steps K1 to K15, recorded as `client`): a sample answered twice the same; a shuffle
+started by a node for a store that is not of its own type, and the client put back at age 0 afterwards; an entry of
+the wrong type in the client's answer, which makes the node refuse the whole frame and drop the client; three frames
+that break a bound, sent as bytes another program wrote; a token issued for another key; an entry that leaves a
+node's view when its token has expired; and a node whose own token has expired, which still answers and whose advert
+the client refuses. `trials/c10_tempus_bridge_swift/COVERAGE.md` lists every row of the behaviour list of design
+section 16.2 with the Swift trial and step that shows it, or the reason no Swift trial does.
+
+## How the node part was tested
+
+Unit level, run by `make test`:
+
+- The clock. `tempus-node-tests` computes every one of the 71 case lines of the recorded output of
+  `trials/t0_tempus_clock` with `clockBack` and `clockTurn` and requires the same text.
+- Admission. 19 of the 20 cases of the recorded output of `trials/t4_tempus_admission` are judged with the same
+  verdict text (the twentieth compares a signature with a fixture of that trial), and the whitelist rule's four cases.
+- The configuration. The cases of `tools/test_bees_tempus_conf.py` that concern values (the others concern the syntax
+  of a file, which this extension does not read), every bound of design section 11 on both sides, and the boot
+  refusals of an identity, each with the line the node writes.
+- The stores. `tests/model_check.py` runs 400 generated calls of the view functions and 60 generated runs of 40 store
+  events each through `View.swift` and through the two independent Python models of the BEES tools
+  (`tools/bees_tempus_view_model.py`, `tools/bees_tempus_store_model.py`), which the BEES tools tests compare with the
+  Silica units and the recorded outputs of `trials/t0_tempus_view` and `trials/t1_tempus_store`. Every answer must be
+  equal.
+
+The trial `trials/c8_tempus_node_swift` runs nodes of this extension with Silica nodes on 127.0.0.1. Its `walk.py`
+holds the steps and checks each one.
+
+- A Silica edge and a Swift edge (node A) join through a Silica sentinel. A starts a shuffle that the Silica edge
+  answers, the Silica edge starts one that A answers, the Silica sentinel shuffles its edge store, and A shuffles its
+  sentinel store with the Silica sentinel. Each side's entries appear in the other's views.
+- One peer that misbehaves on purpose does 38 things to the Silica edge and to A, one after the other: bad tokens,
+  another peer's advert, the whitelist rule in both directions, wrong and missing proofs, frames that break each
+  bound, an entry that does not verify, a call and a cast, silence past the time bound, four TLS settings outside the
+  profile, and a third connection while two are held open. For each, the two nodes must write the same audit lines
+  and the peer must see the same thing.
+- A's clock is set by the trial (`clockBack` hold, `clockFail` continue): the hold beginning and ending, a reading
+  that fails, an entry that expires, A's own token expiring and being replaced.
+- Node T (`clockBack` stop with the limit 60, `clockFail` pause): the wait, a connection closed with `clock_refused`,
+  a join request that waits and is dialed at once when the clock is read again, a step back inside the limit, the
+  stop above it, connections closed with `clock_stopped`, and no resume.
+- Node U: a clock that cannot be read at the start. The node does not listen until a reading succeeds.
+- Node R is `tempus-node-example`, which is no test program: it reads the machine's clock, runs its own timers and
+  draws from the system's random source. A Silica node that is no test program either joins through it, R's own timer
+  starts a shuffle that the Silica node answers, and both refuse a `tick` and a `clock` frame in the same words.
+
+Run it from the BEES root directory with `tools/run_all_trials.sh --local-only --only c8_tempus_node_swift`.
+
+What the tests do not show:
+
+- A node of this extension joining through a sentinel of this extension, and a sentinel of this extension with a
+  clock the trial sets, were run by hand only (two Swift nodes together); the trial's Swift sentinel is node R.
+- More than one sentinel configured, and the doubling of the join's wait, are read from the code only.
+- The node was not run for long, under load, or with many peers, and its memory use was not measured.
+- A failing random source is read from the code only.
+- Nothing was run on any machine but one Mac with Apple Silicon.
+
+## What stands between this extension and production use
+
+- The owner's statement that this directory holds examples only.
+- Review. No person has reviewed the Swift code as production code. In particular the use of OpenSSL from Swift
+  through raw pointers, the threads (one for each connection), and the handling of every error path want a reviewer.
+- A bridge. An application that must reach a TRUST network needs a bridge, and this extension cannot be one.
+- The producer. The extension verifies tokens and carries its own; getting a token, refreshing it at half its
+  lifetime, and storing the private seed safely are the application's work.
+- Operation. There is no measurement of memory or time, no soak run, no run with churn, and no run with a real
+  difference between clocks.
+- Platforms. It was built for macOS on Apple Silicon with Homebrew's OpenSSL 4.1.0 only.
+- Stability. Nothing in the interface is promised to stay the same.

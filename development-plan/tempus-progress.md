@@ -785,3 +785,113 @@ an example only, with no misbehaviour and no tick or clock frame), its 36 tests 
 `trials/c6_tempus_kotlin` (nodes K and Q and the Python example as the misbehaving peer, walked by `Walk.kt` with
 `walk.py`; Mac goldens only, because there is no Kotlin compiler on the Linux machine, where the trial fails and says so;
 not run against a bridge).
+
+2026-11-23, the Python extension as a TEMPUS node (owner's ruling of that day: "nodes on non-silica are the plan"; the
+non-Silica code is called an extension from now on). `example_tempus_clients/python` is now seven modules an
+application imports (`bees_tempus_codec`, `bees_tempus_admission`, `bees_tempus_peer`, `bees_tempus_view`,
+`bees_tempus_store`, `bees_tempus_config`, `bees_tempus_node`) and one test-support module, `bees_tempus_testing.py`
+(the tick and clock frames, token making, fixed seeds and nonces, misbehaving peers, and a clock, timers and draws a
+test steps by hand); `bees_tempus_client.py` is kept as a thin module of the old name, because the trial tools import
+it. A node of the extension is an edge or a sentinel; the role bridge is refused (no TRUST in Python). It has the
+stores, the join, its own shuffles, admission in the node's order with the whitelist rule, the limits, the clock's
+choices, the configuration's keys and refusals, and the Silica node's lines. A test gives a node its clock, timers and
+draws through the constructor; no frame does.
+- Fixed in the extension: an atom that is not UTF-8 is a refusal and not an exception; the channel binding is checked
+  first and the `tempus` whitelist rule is applied; a dialed reply must be the reply of its request (kind, store,
+  entry count, `req_id`) and its entries are verified; the negotiated key exchange group is read from the handshake
+  and anything but X25519MLKEM768 is refused; a listener accepts a peer whose certificate it was not given in advance.
+- Proof: `example_tempus_clients/python/test_bees_tempus_node.py` (the stores against the recorded outputs of
+  `trials/t0_tempus_view` and `trials/t1_tempus_store`, the clock against `trials/t0_tempus_clock`, admission against
+  `trials/t4_tempus_admission`, the configuration against `tools/test_bees_tempus_conf.py` and
+  `trials/c4_tempus_boot`), and the new trial `trials/c7_tempus_node_python` (port block 24800; Mac goldens): Python
+  and Silica nodes in one network, joins and shuffles both ways, 44 hostile cases sent to a Silica sentinel and to a
+  Python sentinel with the audit lines required to be the same, a Python node that is not a test node beside a Silica
+  node built without the test unit, the clock's choices on Python nodes, and the extension's own client.
+- No golden of an earlier trial changed: `t2`, `t3`, `t6`, `c2`, `c5` and `c6` pass through
+  `tools/run_all_trials.sh` on the Mac with the pinned compiler. `c3_tempus_bridge` did not build that day: the
+  compiler refuses the root unit of bridge B1 (E4045 at `carrier_new`, in a file generated on 2026-11-20 from sources
+  that have not changed since), which is not a matter of the Python code. Its scenario, walked by hand with the node
+  programs built on 2026-11-20, gives the four recorded outputs unchanged.
+- New documents: `example_tempus_clients/writing-a-tempus-node.md` and `example_tempus_clients/python/README.md`;
+  `writing-a-tempus-client.md` corrected (the `done` frame, a reply must be the reply of its request, how the
+  whitelist names a certificate, atoms a node holds, what was since traced through the code); the two COVERAGE.md
+  files of `trials/c2_tempus_clients` and `trials/c3_tempus_bridge` reviewed, with what no trial shows for the Silica
+  client listed there.
+- Found and not decided: a Silica node does not tell its application of `key_rotated` on an accepted connection (the
+  extension does, and says which); the comment in `bees_tempus_node.part` that the clock is read once a second is
+  stale (the code reads every `clock_read_ms`); a join answered with a frame that is not a sample reply puts the
+  frame's bytes into the Silica node's line; how `clock_skew_ms` becomes the node's seconds is not built.
+
+## 2026-11-23, the Kotlin extension can run an application as a TEMPUS node (owner: "nodes on non-silica are the plan")
+
+- `example_tempus_clients/kotlin` gained a node half beside its client half: `src/View.kt` (the view and the store's
+  steps), `src/Clock.kt` (`clockTurn`, the machine's clock), `src/Config.kt` (`TempusConfig`, the refusals of
+  `tools/bees_tempus_conf.py` and of `bees_tempus_node@boot_why`), `src/Node.kt` (`TempusNode`: join, ticks, shuffles,
+  answers, admission, limits, the clock's states, what the application is told, the Silica node's lines word for
+  word). A node is an edge or a sentinel; the role `bridge` is refused, because the extension has no TRUST side.
+- One owner of the state: a single node thread holds the stores, the clock state, the token and the counts; timers,
+  the clock reader, the acceptor, connections (one virtual thread each, with copies) and the application post to it.
+- No test code in the extension: the clock, the timers and the draws are a `NodeEnvironment` given at construction
+  (the default is the machine's clock, real timers and the secure random source); the test clock, hand-run timers,
+  literal draws and token making are under `test/`. The command line moved from `src/Main.kt` to `cli/Main.kt`, so
+  `build/bees-tempus.jar` is the extension alone; `build/bees-tempus-client.jar` is as before.
+- Tests (`test/NodeTestMain.kt`, 22): every call of the two Python models behind every line of the goldens of
+  `t0_tempus_view` and `t1_tempus_store` (20623 view calls, 6006 store steps) and 9508 generated ones made again in
+  Kotlin; every line of the golden of `t0_tempus_clock`; the configuration's refusals; five start refusals of
+  `c4_tempus_boot` with the node's line; the entry check on the cases of `t4_tempus_admission`.
+- Trial `trials/c9_tempus_node_kotlin` (port block 25000, Mac goldens, 11 outputs): a Kotlin edge joins through a
+  Silica sentinel and a Silica edge through a Kotlin sentinel; shuffles started by each side and answered by the
+  other; a good peer, 25 kinds of bad peer, the inflight limit and three TLS refusals against a Silica node and a
+  Kotlin node with the audit lines required to be the same; the clock's choices, the node's own token and `key_rotated` on Kotlin nodes whose clock
+  the trial sets; a Kotlin sentinel that is not a test node, through which a Silica node that is not a test node
+  joins by the machine's clock. The golden of `c6_tempus_kotlin` did not change.
+- Trial `trials/c11_tempus_bridge_kotlin` (port block 25200; the Kotlin client against real bridges, and rows 3, 4,
+  7, 16, 20 and 21 of 16.2 with the test frames) is written and has NOT run: its bridge programs, copies of
+  `trials/c3_tempus_bridge/nodes/b1` and `b2`, fail E4045 at the carrier's spawn with the pinned compiler, as that
+  trial's own `nodes/b1` does on this day (the fault noted in silica-defects.md). `COVERAGE.md` there lists what the
+  Kotlin client's trials cover, row by row.
+- Found and not decided: a Silica node does not tell its application of `key_rotated` on an accepted connection (the
+  extension does); a join answered with a frame that is not a sample reply puts the frame's bytes into the Silica
+  node's line (the extension writes `the reply is not a sample_reply`); what a Silica node says of a `tick` frame
+  depends on the atoms its program holds (`unknown_atom` without the test unit's atoms, `unknown kind` with them);
+  how `clock_skew_ms` becomes the node's seconds is not built (the extension divides by 1000 and drops the rest);
+  the three spec keys, the file keys and the advertised address of section 11 have no ruled form for a node that
+  takes its configuration as a value.
+
+2026-11-23, the Swift extension as a TEMPUS node (the same ruling of that day). `example_tempus_clients/swift` is now
+one Swift package with two targets an application depends on, `TempusClient` (the wire and client part, as before)
+and `TempusNode` (new: the stores, the join, the node's own shuffles, admission as a node judges it, the limits, the
+clock's choices, the configuration, the Silica node's lines), a complete application `tempus-node-example`, and a
+target `TempusTestSupport` that only tests and trial programs link (`Fixtures.swift` moved there out of
+`TempusClient`, with a clock, timers and draws a test sets by hand). A node of the extension is an edge or a sentinel;
+the role bridge is refused at the start (no TRUST in Swift). The node part is compiled in the Swift 6 language mode;
+everything that changes is owned by one serial queue, and each connection runs on a thread of its own with a copy of
+the values it needs.
+- Changed in `TempusClient`, for the node: a TLS context can end the handshake when the dialer's protocols do not
+  include `tempus/1` and can let a P-256 certificate through the handshake so that the node refuses it afterwards (a
+  client's context is as it was); an identity can be made from a key already held; the values the node passes between
+  threads are marked as safe to pass.
+- Proof: `make -C example_tempus_clients/swift test` (348 checks of the client part as before; 207 of the node part:
+  the 71 case lines of `trials/t0_tempus_clock`, 19 of the 20 cases of `trials/t4_tempus_admission`, the value cases
+  of `tools/test_bees_tempus_conf.py` and every bound of design section 11, the boot refusals; 2860 generated cases of
+  the view and store rules, each equal to the answer of the two Python models of the BEES tools), and the new trial
+  `trials/c8_tempus_node_swift` (port block 24900; nine Mac goldens): a Silica edge and a Swift edge join through a
+  Silica sentinel; shuffles started by each side and answered by the other; 38 hostile cases done to a Silica edge
+  and to a Swift edge, the audit lines and what the peer saw required to be the same; the clock's choices on Swift
+  nodes (hold, continue, stop inside and above the limit, pause with a connection closed and a join that waits, no
+  reading at the start); a Swift sentinel that is no test program (`tempus-node-example`) through which a Silica
+  node built without the test unit joins, shuffling on its own timer; and both refusing `tick` and `clock` in the same
+  words (`unknown_atom`).
+- The Swift client: the same trial runs its command line against two Silica nodes for rows of 16.2 that
+  `trials/c5_tempus_swift` does not show (steps K1 to K15, golden `client`). `trials/c10_tempus_bridge_swift` (port
+  block 25100) was written to run it against real bridges, with `COVERAGE.md` for the Swift client in the form of
+  C2's; it has NOT run: its bridge programs, the text of `trials/c3_tempus_bridge/nodes/b1` and `b2` with other
+  ports, fail E4045 at the carrier's spawn with the pinned compiler (the fault of the bridge program noted in
+  silica-defects.md), also with C3's own ports and role files. It has no goldens and is not among the committed
+  trials until that is settled.
+- The golden of `trials/c5_tempus_swift` did not change.
+- Found and not decided, beside what the Python entry lists: the design says a peer that fails its proof of
+  possession is removed from the view, and the Silica node does that only for the partner it dialed; a Silica node
+  accepts a P-256 certificate in the handshake and refuses it afterwards (`tempus_cert_key`) although its certificate
+  request names Ed25519 only; the configuration has no key for the address a node advertises when it listens on every
+  interface; the extension listens on any IPv4 address and resolves no sentinel name, both unlike the Silica tools.

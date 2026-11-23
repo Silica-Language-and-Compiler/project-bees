@@ -3,7 +3,7 @@
 Trial `trials/c3_tempus_bridge`. Node T is a plain TRUST node; bridges B1 and B2 are each the TRUST node as built and a
 TEMPUS node of role bridge in one program (`src/tempus/bees_tempus_bridge.part`, `bees_tempus_bridge.silica`). The Silica
 client (`example_tempus_clients/silica`, thin application `roles/client.role`, scenario `roles/c.role`, identity x2) runs first; the
-Python client (`example_tempus_clients/python/bees_tempus_client.py`, scenario `c3` of `tools/bees_tempus_trial.py`) walks the same steps
+Python client (the test support of the Python extension, `example_tempus_clients/python/bees_tempus_testing.py`, imported under its old name `bees_tempus_client`; scenario `c3` of `tools/bees_tempus_trial.py`) walks the same steps
 afterwards with its own identity ("other"), then the steps only it takes (named P below): with a second edge (x3), an
 edge for the rate bound ("sentinel"'s key with an edge token), a bridge identity that listens (x4), the edge of the
 quarantine ("node"), and the two edges of ruling NQ-19 (Q and Z, below the table). Step numbers are those of `c.role` (1 to 20).
@@ -44,3 +44,25 @@ TRUST's own (arity); since ruling NQ-19 a frame that is no TEMPUS request at all
 
 Totals for rows 24, 25, 29 to 36: the Silica client causes 7 of the 9 client rows (24, 25, 30, 31, 32, 34, 35), the Python
 client all 9 (24, 25, 29 to 35); row 36 is the TRUST node's own lines.
+
+## Review of 2026-11-23
+
+This file was read again on 2026-11-23 against rows 24, 25 and 29 to 36 of design 16.2 and against the rulings of
+2026-11-19 and 2026-11-20. No recorded output of this trial changed. The Python code is now the Python extension
+(what an application imports) and its test support (`bees_tempus_testing.py`); "the Python client" above is the test
+support.
+
+- Rulings NQ-19 and NQ-23 (a refusal by the connection actor raises the peer's score; no entry is made before the
+  producer's signature verified) are shown above for the Python client, edges Q and Z.
+- The Python extension's own client (`bees_tempus_peer.dial`) can send a `call` and a `cast`. That a `result` must
+  carry the call's `req_id`, and that a cast has no reply, is shown against a peer of the test support in
+  `trials/c7_tempus_node_python` part 3, and that a node that is not a bridge refuses a `call` is shown there against
+  a Silica node. The extension's own client has not been run against a bridge: no trial does that.
+- A node of the Python extension cannot be a bridge (it has no TRUST), so no row of this file has a Python node.
+
+What a client can reach and this trial does not show for the Silica client: row 29 (its identity is no bridge here),
+row 33 (it has finished when B2 is stopped), the quarantine of 17.7, and the scoring of ruling NQ-19. Each is shown
+for the Python client. Each needs a further Silica client scenario with recorded outputs of its own; none was added on
+2026-11-23, because every one of them changes this trial's recorded outputs or needs a trial and a port block of its
+own. For NQ-19 the Silica client also cannot send a wrong proof or stay silent: its connections are the node's own
+connection actor.

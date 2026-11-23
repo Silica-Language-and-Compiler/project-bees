@@ -258,6 +258,7 @@ trials/n1_frames/nodes/*/*
 !trials/n1_frames/nodes/*/node.wire
 !trials/n1_addr/nodes/*/node.atoms
 !trials/n1_addr/nodes/*/bees.config.in
+!trials/n1_addr/nodes/l/bees.config
 !trials/n1_frames/nodes/*/bees.config
 !trials/n1_addr/nodes/*/lib/
 !trials/n1_frames/nodes/*/lib/
@@ -544,3 +545,37 @@ example_tempus_clients/kotlin/build/
 trials/c6_tempus_kotlin/dangerous_[kq].silica
 trials/c6_tempus_kotlin/lib/bees_tempus_node.silica
 trials/c6_tempus_kotlin/.gen.mk
+# c7_tempus_node_python: the roles and the node leaves, as t6_tempus_clock; and what the trial writes while it runs
+!trials/c7_tempus_node_python/roles/
+!trials/c7_tempus_node_python/nodes/
+trials/c7_tempus_node_python/nodes/*/*
+!trials/c7_tempus_node_python/nodes/*/Makefile
+!trials/c7_tempus_node_python/nodes/*/lib/
+trials/c7_tempus_node_python/nodes/*/lib/bees_atoms.*
+trials/c7_tempus_node_python/nodes/*/dangerous_*.silica
+trials/c7_tempus_node_python/nodes/*/.gen.mk
+trials/c7_tempus_node_python/nodes/*/lib/bees_tempus_node.silica
+trials/c7_tempus_node_python/nodes/*/lib/tempus_ids.silica
+!trials/c7_tempus_node_python/nodes/*/dangerous_exposure_source
+trials/c7_tempus_node_python/whitelist/
+trials/c7_tempus_node_python/r_app.json
+trials/c7_tempus_node_python/r_token.hex
+# c8_tempus_node_swift: the roles and the node leaves, as t6_tempus_clock; and what the trial writes while it runs
+!trials/c8_tempus_node_swift/roles/
+!trials/c8_tempus_node_swift/nodes/
+trials/c8_tempus_node_swift/nodes/*/*
+!trials/c8_tempus_node_swift/nodes/*/Makefile
+!trials/c8_tempus_node_swift/nodes/*/lib/
+trials/c8_tempus_node_swift/nodes/*/lib/bees_atoms.*
+trials/c8_tempus_node_swift/nodes/*/dangerous_*.silica
+trials/c8_tempus_node_swift/nodes/*/.gen.mk
+trials/c8_tempus_node_swift/nodes/*/lib/bees_tempus_node.silica
+trials/c8_tempus_node_swift/nodes/*/lib/tempus_ids.silica
+!trials/c8_tempus_node_swift/nodes/*/dangerous_exposure_source
+trials/c8_tempus_node_swift/r.seed
+trials/c8_tempus_node_swift/r.token
+# C9, nodes of the Kotlin extension among Silica nodes: the trial's generated units
+!trials/c9_tempus_node_kotlin/dangerous_exposure_source
+trials/c9_tempus_node_kotlin/dangerous_[saq].silica
+trials/c9_tempus_node_kotlin/lib/bees_tempus_node.silica
+trials/c9_tempus_node_kotlin/.gen.mk

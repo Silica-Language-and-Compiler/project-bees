@@ -1,0 +1,11 @@
+// C7 Python node trial: node Q, a Silica sentinel (identity 2, the certificate `sentinel`), the first one: it has no
+// sentinel of its own. A test program: externally driven, by the test unit (src/tempus_test/bees_tempus_test.silica);
+// its clock is the trial's value, 1500, and its stores are ticked by the trial tool's tick frames.
+fn me() -> int64 { 2 }
+fn typ() -> int64 { 3 }
+fn tok() -> int64 { 3 }
+fn port() -> string { "24800" }
+fn sents() -> string { "" }
+fn tick_ms() -> uint64 { 1000 }
+fn driven() -> boolean { true }
+fn ext_start(app: actor_ref) -> actor_ref { bees_tempus_test@start(tempus_ids@now()) }
