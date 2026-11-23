@@ -133,13 +133,18 @@ internal fun entryWhy(d: Descriptor, store: String, v: ConnValues): String? {
     return null
 }
 
-// The atoms a program that is a Silica TEMPUS node holds for the wire: those of src/tempus/bees_tempus.atoms and the
-// frame atoms of src/trust/bees_trust.atoms. The Silica reader refuses a map that names any other atom as unknown_atom,
-// which is what a production node says of the test unit's tick and clock frames; this set lets this node say the same.
-private val WIRE_ATOMS = setOf("advert", "pop_challenge", "pop_response", "key_rotated", "shuffle", "shuffle_reply", "sample", "sample_reply", "done",
-    "tempus_edge", "tempus_bridge", "tempus_sentinel", "d", "id", "pub", "addr", "nonce", "sig", "kid", "store", "entries", "age", "n", "sub", "typ",
-    "nbf", "exp", "t", "ver", "token", "call", "cast", "result", "req_id", "m", "f", "a", "args", "opts", "value", "hello", "goaway", "token_issue",
-    "token_present", "deadline_ms", "error", "ok")
+// The atoms a program that is a Silica TEMPUS node holds for the wire: every atom of src/tempus/bees_tempus.atoms and
+// every atom of src/trust/bees_trust.atoms (frame keys and kinds, `erlang`, the language's rejection atoms and the
+// results of a TRUST call), in the order of those two files. The Silica reader refuses a map that names any other atom
+// as unknown_atom, which is what a production node says of the test unit's tick and clock frames; this set lets this
+// node say the same, and lets it read a call such as erlang:ok/0 as a call, which it then refuses as a request.
+private val WIRE_ATOMS = setOf(
+    "advert", "pop_challenge", "pop_response", "key_rotated", "shuffle", "shuffle_reply", "sample", "sample_reply", "done", "tempus_edge",
+    "tempus_bridge", "tempus_sentinel", "d", "id", "pub", "addr", "nonce", "sig", "kid", "store", "entries", "age", "n", "sub", "typ", "nbf", "exp",
+    "t", "ver", "req_id", "m", "f", "a", "args", "opts", "value", "token", "deadline_ms", "hello", "token_present", "token_issue", "call", "cast",
+    "result", "goaway", "erlang", "bad_version", "truncated", "trailing_bytes", "bad_tag", "too_large", "too_deep", "too_long", "out_of_range",
+    "unknown_atom", "bad_variant", "missing_field", "duplicate_field", "unknown_field", "unsupported", "ok", "error", "dns_error", "connect_failed",
+    "closed", "timeout", "protocol_error", "server_not_pinned")
 
 /**
  * The name of a frame's kind (the atom under `t`), or null when the body is not one well-formed map that names a kind.

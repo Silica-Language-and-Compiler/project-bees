@@ -1113,3 +1113,20 @@ change. The walk now also waits for the bridge's or T's own line, with the exact
 close with no reply. Not walked: the per-peer rate bound (row 35 of design 16.2). Mac only (platforms file). Run in the
 working tree, through the runner, and from a clean export of the index. Where the entries above say this trial has not
 run, read this entry.
+
+## 2026-11-23, the Kotlin client against real bridges (c11_tempus_bridge_kotlin), and the Kotlin node's atom list
+
+The trial written on 2026-11-23 and not run then builds with silica-999899 and passes: bridges B1 and B2 and TRUST
+node T, 43 steps, four Mac goldens (t, b1, b2, kotlin). Its nodes and roles are those of c16_tempus_bridge_csharp
+with the ports changed. All 40 expectations of the draft held on the first run and the Kotlin client needed no
+change. Three steps were added because the draft claimed more than it showed: a third request of an edge with two
+calls in flight is closed with the bridge's bridge_inflight line (row 35), the edge calls a bridge at the address of
+an entry it sampled (row 30), and after a bridge is lost the next call succeeds through the other (row 33). The waits
+for held calls now name the peer and the connection. COVERAGE.md is corrected in the rows it had misattributed. Rows
+3, 4, 5, 7, 10, 12, 16, 18, 20, 21, 24, 25, 29 to 35 and section 17.7 are reached by the Kotlin client.
+
+The Kotlin node's list of the atoms a node holds was incomplete (46 of 68). Shown against a Silica node: to a call of
+erlang:ok/0 the Silica node wrote request_refused and the Kotlin node wrote protocol_error, not a request:
+unknown_atom. The list is now every atom of src/tempus/bees_tempus.atoms and src/trust/bees_trust.atoms. The case is
+step D32 of c9_tempus_node_kotlin: seven lines added to three of its goldens, none removed or changed. Where the
+entries above say c11 has not run, read this entry.

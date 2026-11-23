@@ -1,0 +1,4 @@
+// C11 bridges trial: bridge B1, TEMPUS identity 3 ("bridge"), TRUST certificate b.pem
+fn port() -> string { "25201" }
+fn me() -> int64 { 3 }
+fn trust_at() -> string { "127.0.0.1:25200" }

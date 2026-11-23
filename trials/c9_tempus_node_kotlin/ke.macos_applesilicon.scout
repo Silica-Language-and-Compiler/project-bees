@@ -136,4 +136,7 @@ tick tempus_sentinel: shuffle merged
 [tempus audit] tls_verify_failed peer=- the peer presented no certificate, as server a42
 [tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a43
 [tempus audit] admitted peer=958cff49930885d2 tempus_edge, token and proof of possession a43
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a44
+[tempus audit] admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession a44
+[tempus audit] request_refused peer=224c0c0c5b08df0f call and cast are served by a bridge only a44
 exit=0

@@ -679,3 +679,22 @@ trials/c10_tempus_bridge_swift/nodes/*/lib/bees_tempus_spec.silica
 trials/c10_tempus_bridge_swift/nodes/*/lib/bees_tempus_node.silica
 trials/c10_tempus_bridge_swift/nodes/*/lib/tempus_ids.silica
 trials/c10_tempus_bridge_swift/nodes/*/lib/*.derived
+# The Kotlin client against real bridges (C11): the roles and node sources are tracked, what the node builds generate is not
+!trials/c11_tempus_bridge_kotlin/roles/
+!trials/c11_tempus_bridge_kotlin/nodes/
+trials/c11_tempus_bridge_kotlin/nodes/*/*
+!trials/c11_tempus_bridge_kotlin/nodes/*/Makefile
+!trials/c11_tempus_bridge_kotlin/nodes/*/*.config
+!trials/c11_tempus_bridge_kotlin/nodes/*/node.atoms
+!trials/c11_tempus_bridge_kotlin/nodes/*/*.trust
+!trials/c11_tempus_bridge_kotlin/nodes/*/*.spec
+!trials/c11_tempus_bridge_kotlin/nodes/*/lib/
+!trials/c11_tempus_bridge_kotlin/nodes/*/dangerous_exposure_source
+trials/c11_tempus_bridge_kotlin/nodes/*/silica.config
+trials/c11_tempus_bridge_kotlin/nodes/*/lib/bees_atoms.*
+trials/c11_tempus_bridge_kotlin/nodes/*/lib/bees_trust_conf.*
+trials/c11_tempus_bridge_kotlin/nodes/*/lib/bees_trust_mfa.silica
+trials/c11_tempus_bridge_kotlin/nodes/*/lib/bees_tempus_spec.silica
+trials/c11_tempus_bridge_kotlin/nodes/*/lib/bees_tempus_node.silica
+trials/c11_tempus_bridge_kotlin/nodes/*/lib/tempus_ids.silica
+trials/c11_tempus_bridge_kotlin/nodes/*/lib/*.derived

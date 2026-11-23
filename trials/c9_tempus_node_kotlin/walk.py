@@ -143,6 +143,7 @@ class Tool:
             "no-kind": (d, c.etf_encode({A("t"): A("tempus_edge")}), {}),
             "an-advert": (d, d.advert(), {}),
             "call": (d, c.call_frame(b"r1", "demo", "add", [1, 2]), {}),
+            "call-erlang": (d, c.call_frame(b"r2", "erlang", "ok", []), {}),
             "trailing": (d, smp + b"\x00", {}),
             "tick": (d, c.tick("tempus_edge"), {}),
             "clock": (d, c.clock(1700000), {}),

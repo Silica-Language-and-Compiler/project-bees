@@ -50,6 +50,7 @@ D30 a peer whose certificate has a P-256 key: the peer sees: closed of A, tls_fa
 D31 a peer that presents no certificate: the peer sees: tls_failed; both nodes: tls_verify_failed peer=- the peer presented no certificate, as server
 D the stores after all of it; A's edge store: 12eb7f44@3 1fae2ad7@0
 D KE's edge store: 12eb7f44@3
+D32 a call whose every atom a node holds (erlang:ok/0), which only a bridge serves: the peer sees: closed; both nodes: admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession / [tempus audit] request_refused peer=224c0c0c5b08df0f call and cast are served by a bridge only
 == E. the clock's choices, the node's own token and key_rotated, on Kotlin nodes whose clock the trial sets
 E1 hold: the clock reads 1450 after 1500: the system clock went back by 50 s; the node holds its time until the system clock has reached it
 E2 it admits by the held time: a token that ended at 1480: admission_refused peer=224c0c0c5b08df0f the token has expired

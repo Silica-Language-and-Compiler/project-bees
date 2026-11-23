@@ -1,0 +1,51 @@
+== A. calls and a cast through a bridge (rows 24, 25, 31, 32)
+1 a call of demo:add/2 on bridge B1: result 5
+2 the same call on bridge B2: result 5
+3 demo:onward/2 on B1, which the bridge's application sends on to the TRUST node T: result 42
+4 the same through B2: result 42
+5 a cast of demo:note/1 on B1 (a cast has no reply): closed, no reply
+6 the bridge ran the cast: its line `[bridge] note got 7` is in B1's output
+== B. what a bridge refuses of an edge; the edge sees a close and nothing else (rows 24, 34)
+7 a function that fails (demo:crash/1): no error body: closed, no reply
+8 the bridge still serves: result 5
+9 a function that answers after the bridge's call timeout (demo:slow/1): closed, no reply
+10 a function of a forbidden module (erlang:apply/0): closed, no reply
+11 a function the bridge does not let an edge call (demo:secret/0): closed, no reply
+12 six refused requests of another edge, H: each closed, no reply
+13 then a good request of H: refused for its score: closed, no reply
+14 another edge is served meanwhile: result 5
+== C. the bridge's bounds (rows 20, 35)
+15 two calls of this edge are held open by the bridge's application; a third request of the same edge: closed, no reply
+16 two calls of a second edge are held open too: four connections, and a fifth, beyond inflight_max 4: closed at once, before any frame
+17 the four held calls end at the bridge's call timeout: each closed, no reply
+18 demo:release/0 afterwards, called by the second edge: result 2
+19 twenty calls of one edge, R, within the hour: each answered
+20 the twenty-first: the rate bound: closed, no reply
+21 another edge is served: result 5
+== D. the whitelist rule for a bridge's certificate (rows 11, 12)
+22 a client whose whitelist does not hold B1's certificate refuses B1: refused at=advert reason="a tempus_bridge whose certificate is not in the tempus whitelist"
+23 the same when it lists only B2's certificate: refused at=advert reason="a tempus_bridge whose certificate is not in the tempus whitelist"
+24 this client with a bridge token, under a certificate B1 does not list: closed, no reply
+25 with a bridge token under a certificate B1 lists (x4): a sample of B1's bridge store: (empty)
+== E. the node's steps a client reaches with the test frames, and finding a bridge (rows 4, 5, 7, 10, 16, 18, 21, 29, 30)
+26 this client shuffles two entries into B2's edge store: its own at age 5 and one for x2 at age 2; the store: 1fae2ad7@5 12eb7f44@2
+27 a tick: B2 dials its oldest entry, this client, with the other entry one tick older, and none of its own (the store is not of its type): 12eb7f44@3
+28 this client answered with x2 at age 1: the younger entry is kept, and the partner that answered is back at age 0; the store: 12eb7f44@1 1fae2ad7@0
+29 a tick: the oldest entry is x2, where nobody listens: it is forgotten; the store: 1fae2ad7@1
+30 a tick while this client holds the tick's shuffle open: a second tick only ages: B2 dialed once; its line `aged only` is in its output
+31 x2 (token valid to 1600) is shuffled in again; the store: 1fae2ad7@0 12eb7f44@2
+32 B2's clock is set to 1700 and its store ticks: the entry whose token expired has left; the store: 1fae2ad7@0
+33 a bridge peer shuffles B1's entry into B2's bridge store; an edge samples that store (every entry of the reply verified): e4188f0a@5
+34 the edge dials the address of the entry it was given and calls demo:add/2 there: result 42
+== F. what a client sees when the TRUST side refuses or cannot be reached, and a bridge that is lost (design 17.7, rows 3, 33)
+35 three calls of demo:bad/0 on B1, which sends on a call T does not permit: T quarantines B1: each closed, no reply
+36 then demo:onward/2 on B1: T refuses the quarantined bridge: closed, no reply
+37 B1 itself still answers what needs no TRUST node: result 5
+38 and B2 still reaches T: result 42
+39 T is stopped: demo:onward/2 on B2: closed, no reply
+40 B2 itself still answers: result 5
+41 B1 is stopped: a call to it: unreachable at=tls
+42 a tick of B2's bridge store, whose only entry is B1: the shuffle fails and B1 is forgotten; the store: (empty)
+43 a call through the other bridge, B2: result 5
+[c11_tempus_bridge_kotlin] every step passed (43 steps)
+exit=0

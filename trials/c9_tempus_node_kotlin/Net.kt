@@ -284,6 +284,11 @@ private fun net(argv: Array<String>) {
     both("no-cert", "a peer that presents no certificate")
     step("D the stores after all of it; A's edge store", sampled(aAddr, "tempus_edge"))
     step("D KE's edge store", sampled(keAddr, "tempus_edge"))
+    // Placed after the samples so that no earlier line of a recorded output moves. Every atom of this frame is one a
+    // Silica TEMPUS program holds (erlang and ok are in src/trust/bees_trust.atoms), so it is read as a call and refused
+    // as a request; the call of D25 names demo and add, which no node holds, and is refused by the reader.
+    tool("audit a"); ke.audit()                     // the lines of the two samples above are not this step's
+    both("call-erlang", "a call whose every atom a node holds (erlang:ok/0), which only a bridge serves")
     ke.node.close(); ks.node.close()
     quiet(1000)
 

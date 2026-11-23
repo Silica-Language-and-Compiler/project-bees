@@ -1,0 +1,2 @@
+# c11_tempus_bridge_kotlin needs the Kotlin toolchain (kotlinc and a JDK 27), installed on the Mac only: declared for the Mac, N/A elsewhere
+macos_applesilicon

@@ -386,9 +386,10 @@ sends no such message.
   that is not Ed25519 is reported as presenting no certificate (`tls_verify_failed`), where the Silica node says
   `tempus_cert_key`: such a peer's TLS library sends no certificate when the node offers the signature scheme
   ed25519 alone, so the node never sees the key.
-- A node says `not a request: unknown_atom` of a frame that names an atom outside `tempus/1` and TRUST's frames, as
-  a Silica program built without the test unit does. A Silica program that holds more atoms says `unknown kind` of
-  some of those frames.
+- A node says `not a request: unknown_atom` of a frame that names an atom outside the two files
+  `src/tempus/bees_tempus.atoms` and `src/trust/bees_trust.atoms`, as a Silica program built without the test unit
+  does. The node holds the atoms of those two files as a fixed list in `lib/Node.kt`; when a file gains an atom the
+  list must gain it too. A Silica program that holds more atoms says `unknown kind` of some of those frames.
 
 ## What the client checks
 
@@ -459,6 +460,29 @@ The trial `trials/c6_tempus_kotlin` runs the first 41 tests and then walks the c
 
 Run it from the BEES root directory with `tools/run_all_trials.sh --local-only --only c6_tempus_kotlin`.
 
+The trial `trials/c11_tempus_bridge_kotlin` walks the client against real bridges: two bridge nodes, each a TRUST
+node and a TEMPUS node in one Silica program, and the TRUST node behind them, the network of
+`trials/c3_tempus_bridge` on ports of its own. Its 43 steps show:
+
+- A call answered by each bridge, a call that each bridge's application sends on to the TRUST node, and a cast.
+- What a bridge refuses of an edge: a function that fails, one that answers after the bridge's timeout, a function
+  of a forbidden module, a function the edge's type may not call, and an edge whose score is above the bridge's
+  limit. The client sees a close with no reply each time; the bridge's recorded output says why.
+- The bridge's bounds: a third request of an edge that has two calls in flight, a connection beyond the bridge's
+  limit of connections, and the twenty-first request of an edge within the hour.
+- The whitelist rule for a bridge's certificate, in both directions.
+- The bridge's own gossip steps, caused with the test-only `tick` and `clock` frames. The trial tool sends those
+  frames with the Python test support, because the extension holds none. The client listens, is dialed by the
+  bridge's tick, and sees ages rise, the oldest entry chosen, a younger entry preferred, a partner that does not
+  answer forgotten, a second tick that only ages, and an entry whose token expired leave.
+- An edge finding a bridge by a sample of a bridge store and calling it at the address of the entry.
+- The TRUST node quarantining a bridge, the TRUST node stopped, and a bridge stopped: the client sees a close with no
+  reply, or `unreachable`, and the other bridge still answers.
+
+`trials/c11_tempus_bridge_kotlin/COVERAGE.md` says, for each row of the behaviour list in section 16.2 of the design,
+which step of c6, c9 or c11 reaches it and which rows this client cannot reach. Run the trial from the BEES root
+directory with `tools/run_all_trials.sh --local-only --only c11_tempus_bridge_kotlin`.
+
 ## What the node was checked against
 
 `make test` also runs the node tests (`test/NodeTestMain.kt`), 24 of them:
@@ -476,7 +500,7 @@ Run it from the BEES root directory with `tools/run_all_trials.sh --local-only -
 The trial `trials/c9_tempus_node_kotlin` runs nodes of the extension and Silica nodes in one network on the Mac. It
 shows a Kotlin edge joining through a Silica sentinel and a Silica edge joining through a Kotlin sentinel; shuffles
 started by each side and answered by the other, in the store of the node's own type and in stores of another type,
-with each side's entries in the other's store; a partner that is not there; a good peer and 25 kinds of bad peer
+with each side's entries in the other's store; a partner that is not there; a good peer and 26 kinds of bad peer
 sent to a Silica node and to a Kotlin node, with the audit lines required to be the same, and the inflight limit and
 three refusals of the TLS handshake in the same way; a fourth refusal of the handshake that the two word differently; the clock's choices on Kotlin nodes whose clock the trial sets (the hold beginning and ending,
 going on with the last reading, the pause with `clock_refused` and the join that waits, the step back that is
@@ -505,10 +529,8 @@ connections at once beyond the inflight test; and a node that runs for longer th
 
 ## What the client does not cover
 
-- It was not run against a real bridge. `call`, `cast` and `result` were checked in three ways only: the request
-  bytes are the bytes the Python example writes (which `trials/c3_tempus_bridge` runs against real bridges); a real
-  node that is not a bridge was never sent one, because the client sends a call or a cast only to a peer admitted with
-  a bridge token; and the Python example, holding a bridge token, answered a call and a cast.
+- Against real bridges (`trials/c11_tempus_bridge_kotlin`) every argument and every result was an integer, and the
+  bridges' functions were the trial's own. The client's listener does not serve `call` or `cast`.
 - The arguments of a call on the command line are integers only. In code they may be any term of the codec's subset.
 - The value of a `result` is read only when it is made of integers, atoms, binaries, lists and maps with atom keys. A
   value that holds a tuple, a float or anything else is refused; the outcome still carries the reply's bytes.
@@ -522,9 +544,10 @@ connections at once beyond the inflight test; and a node that runs for longer th
 - The gossip part was run only on one machine, with test keys, for a few seconds at a time. It was not run for a long
   time, with expiring tokens, with peers that stop, or against the limits of its stores.
 - The private key is read from an unencrypted file and held in memory by the JDK. Nothing is done to protect it.
-- The trial does not drive the node behaviours that only test frames or timing can reach (the connection limit, the
-  node's clock moving, a node's token being replaced). The Python example drives those in `trials/c2_tempus_clients`
-  and `trials/t6_tempus_clock`.
+- The client cannot by itself cause what only the test frames reach (a tick, the node's clock moving). In
+  `trials/c11_tempus_bridge_kotlin` the trial tool sends those frames with the Python test support while the client
+  listens and asks. A node's own token being replaced, and a tick that finds a view empty, are not reached by the
+  client's trials; `trials/c9_tempus_node_kotlin` shows the first on a node of the extension.
 - There is no recorded output for Linux, because the Kotlin compiler is not installed on the project's Linux
   machines. The trials are declared for the Mac in their `platforms` files, and the trial runner reports them as not
   applicable on Linux. Run by hand on a machine without the compiler, a trial fails and says that the compiler is
