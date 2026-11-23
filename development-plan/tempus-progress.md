@@ -1103,3 +1103,13 @@ which a Silica node holds; c15 cases R41 to R43 show the Silica node's words for
 node's text for a test node off loopback; its value refusals are the tool's texts, which differ from boot_why's. The
 Rust client checks the binding first and applies a given whitelist both ways. Not built: the bridge role (refused), a
 gossip driver command. Mac only (platforms files).
+
+## 2026-11-23, the Swift client against real bridges (c10_tempus_bridge_swift)
+
+The trial written on 2026-11-23 and not run then (its bridge programs of 33 units could not be built by compiler
+999909) builds with silica-999899 and passes: bridges B1 and B2 and TRUST node T, steps A to H, 45 checked lines, four
+Mac goldens (t, b1, b2, swift). Every expectation of the draft held on the first run and the Swift client needed no
+change. The walk now also waits for the bridge's or T's own line, with the exact peer id, on every step that ends in a
+close with no reply. Not walked: the per-peer rate bound (row 35 of design 16.2). Mac only (platforms file). Run in the
+working tree, through the runner, and from a clean export of the index. Where the entries above say this trial has not
+run, read this entry.

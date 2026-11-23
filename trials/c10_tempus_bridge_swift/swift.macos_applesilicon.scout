@@ -1,0 +1,51 @@
+# A: bridge B2 joins through the Swift client, which listens as its sentinel
+A0 the Swift client listens as the sentinel -> listening 127.0.0.1:25103
+A1 B2's join, edge store -> served sample n=3 store=tempus_edge sent=reply peer=9200d2990c3e9eb7 typ=tempus_bridge
+A1 B2's join, bridge store -> served sample n=2 store=tempus_bridge sent=reply peer=9200d2990c3e9eb7 typ=tempus_bridge
+A1 B2's join, sentinel store -> served sample n=2 store=tempus_sentinel sent=reply peer=9200d2990c3e9eb7 typ=tempus_bridge
+A2 a tick finds B2's edge store empty: B2 asks its sentinel again -> served sample n=3 store=tempus_edge sent=reply peer=9200d2990c3e9eb7 typ=tempus_bridge
+# B: bridge B1 learns bridge B2 through the Swift client, which listens with a bridge token
+B0 the Swift client listens as a bridge -> listening 127.0.0.1:25105
+B1 as that bridge: shuffle tempus_bridge, its own entry at age 0 -> reply shuffle_reply entries=[] store=tempus_bridge peer=e4188f0a2cee5a46 typ=tempus_bridge
+B2 B1's tick: B1 shuffles its bridge store with the Swift client, its own entry at age 0 -> served shuffle entries=[0:e4188f0a2cee5a46] store=tempus_bridge sent=reply peer=e4188f0a2cee5a46 typ=tempus_bridge
+B3 an edge asks B1 for bridges: B1 holds B2, the entry the Swift client answered with -> reply sample_reply entries=[0:9200d2990c3e9eb7] store=tempus_bridge peer=e4188f0a2cee5a46 typ=tempus_bridge
+B4 the application picks that bridge, B2, and calls it: demo:add(2, 40) -> reply result req_id=31 value=42 ver=1 peer=9200d2990c3e9eb7 typ=tempus_bridge
+# C: calls and a cast, as an edge
+C1 call demo:add(2, 40) on B1 -> reply result req_id=31 value=42 ver=1 peer=e4188f0a2cee5a46 typ=tempus_bridge
+C2 call demo:onward(20, 22) on B1: the bridge's application calls demo:add on the TRUST node -> reply result req_id=31 value=42 ver=1 peer=e4188f0a2cee5a46 typ=tempus_bridge
+C3 the same through B2 -> reply result req_id=31 value=42 ver=1 peer=9200d2990c3e9eb7 typ=tempus_bridge
+C4 cast demo:note(7) on B1: a cast has no reply -> closed at=reply peer=e4188f0a2cee5a46 typ=tempus_bridge
+C5 call demo:crash(1): the function fails, and the client is told nothing -> closed at=reply peer=e4188f0a2cee5a46 typ=tempus_bridge
+C6 call demo:slow(1): longer than the bridge's call timeout -> closed at=reply peer=e4188f0a2cee5a46 typ=tempus_bridge
+C7 call demo:add(2, 3) afterwards -> reply result req_id=31 value=5 ver=1 peer=e4188f0a2cee5a46 typ=tempus_bridge
+# D: the whitelist rule for a bridge certificate
+D1 the client's whitelist holds B1's TEMPUS certificate -> reply sample_reply entries=[] store=tempus_edge peer=e4188f0a2cee5a46 typ=tempus_bridge
+D2 the client's whitelist holds another certificate only: the client refuses the bridge -> refused at=advert peer=e4188f0a2cee5a46 reason="the certificate of a tempus_bridge is not in the whitelist"
+D3 the client shows a bridge token under a certificate B1 does not list: B1 refuses it -> closed at=challenge peer=e4188f0a2cee5a46 typ=tempus_bridge
+D4 the client shows a certificate B1 lists with an edge token: B1 refuses it -> closed at=challenge peer=e4188f0a2cee5a46 typ=tempus_bridge
+# E: what B1 refuses of an edge; each refusal raises that edge's score, and above the limit a good request is refused
+E1 a function of a forbidden module: erlang:apply -> closed at=reply peer=e4188f0a2cee5a46 typ=tempus_bridge
+E2 a function the edge is not permitted: demo:secret -> closed at=reply peer=e4188f0a2cee5a46 typ=tempus_bridge
+E3 a request that says three arguments and carries two -> closed at=reply peer=e4188f0a2cee5a46 typ=tempus_bridge
+E4 a request that says no argument and carries two -> closed at=reply peer=e4188f0a2cee5a46 typ=tempus_bridge
+E5 a function that fails -> closed at=reply peer=e4188f0a2cee5a46 typ=tempus_bridge
+E6 a function of a forbidden module again -> closed at=reply peer=e4188f0a2cee5a46 typ=tempus_bridge
+E7 a good request, demo:add(2, 3): refused, the score is above the limit -> closed at=reply peer=e4188f0a2cee5a46 typ=tempus_bridge
+E8 another edge is served -> reply result req_id=31 value=5 ver=1 peer=e4188f0a2cee5a46 typ=tempus_bridge
+# F: the bridge's bound of 2 requests in flight for one peer, and the node's bound of 4 accepted connections
+F1 two calls of one edge are held by the bridge's application; its third request is refused -> closed at=reply peer=e4188f0a2cee5a46 typ=tempus_bridge
+F2 four connections are in hand (inflight_max): a fifth is closed at once after its handshake -> closed at=advert
+F3 held call 1, closed by the bridge at its call timeout -> closed at=reply peer=e4188f0a2cee5a46 typ=tempus_bridge
+F3 held call 2, closed by the bridge at its call timeout -> closed at=reply peer=e4188f0a2cee5a46 typ=tempus_bridge
+F3 held call 3, closed by the bridge at its call timeout -> closed at=reply peer=e4188f0a2cee5a46 typ=tempus_bridge
+F3 held call 4, closed by the bridge at its call timeout -> closed at=reply peer=e4188f0a2cee5a46 typ=tempus_bridge
+F4 afterwards the edge is served again -> reply result req_id=31 value=5 ver=1 peer=e4188f0a2cee5a46 typ=tempus_bridge
+# G: the TRUST side refuses the bridge, and then is not there
+G1 call demo:bad on B2: its application calls a function the TRUST node does not permit the bridge -> closed at=reply peer=9200d2990c3e9eb7 typ=tempus_bridge
+G2 call demo:onward(20, 22) on B2 afterwards -> reply result req_id=31 value=42 ver=1 peer=9200d2990c3e9eb7 typ=tempus_bridge
+G3 the TRUST node has stopped: demo:onward on B2 is closed with no reply -> closed at=reply peer=9200d2990c3e9eb7 typ=tempus_bridge
+G4 a function the bridge runs itself is still answered -> reply result req_id=31 value=42 ver=1 peer=9200d2990c3e9eb7 typ=tempus_bridge
+# H: bridge B2 is stopped
+H1 a call to B2 -> unreachable at=tls
+H2 B1's tick dialed B2 and failed: B1 holds no bridge any more -> reply sample_reply entries=[] store=tempus_bridge peer=e4188f0a2cee5a46 typ=tempus_bridge
+H3 a call through B1 is answered -> reply result req_id=31 value=42 ver=1 peer=e4188f0a2cee5a46 typ=tempus_bridge

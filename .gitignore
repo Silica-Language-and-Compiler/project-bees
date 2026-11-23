@@ -660,3 +660,22 @@ trials/c17_tempus_bridge_rust/nodes/*/lib/bees_tempus_spec.silica
 trials/c17_tempus_bridge_rust/nodes/*/lib/bees_tempus_node.silica
 trials/c17_tempus_bridge_rust/nodes/*/lib/tempus_ids.silica
 trials/c17_tempus_bridge_rust/nodes/*/lib/*.derived
+# C10 (the Swift client against real bridges): the roles and the node leaves; what the build generates is ignored again
+!trials/c10_tempus_bridge_swift/roles/
+!trials/c10_tempus_bridge_swift/nodes/
+trials/c10_tempus_bridge_swift/nodes/*/*
+!trials/c10_tempus_bridge_swift/nodes/*/Makefile
+!trials/c10_tempus_bridge_swift/nodes/*/*.config
+!trials/c10_tempus_bridge_swift/nodes/*/node.atoms
+!trials/c10_tempus_bridge_swift/nodes/*/*.trust
+!trials/c10_tempus_bridge_swift/nodes/*/*.spec
+!trials/c10_tempus_bridge_swift/nodes/*/lib/
+!trials/c10_tempus_bridge_swift/nodes/*/dangerous_exposure_source
+trials/c10_tempus_bridge_swift/nodes/*/silica.config
+trials/c10_tempus_bridge_swift/nodes/*/lib/bees_atoms.*
+trials/c10_tempus_bridge_swift/nodes/*/lib/bees_trust_conf.*
+trials/c10_tempus_bridge_swift/nodes/*/lib/bees_trust_mfa.silica
+trials/c10_tempus_bridge_swift/nodes/*/lib/bees_tempus_spec.silica
+trials/c10_tempus_bridge_swift/nodes/*/lib/bees_tempus_node.silica
+trials/c10_tempus_bridge_swift/nodes/*/lib/tempus_ids.silica
+trials/c10_tempus_bridge_swift/nodes/*/lib/*.derived

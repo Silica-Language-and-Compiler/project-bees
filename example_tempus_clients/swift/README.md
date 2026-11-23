@@ -475,12 +475,11 @@ Run the trial from the BEES root directory with `tools/run_all_trials.sh --local
 
 ## What the client part does not cover
 
-- It has not been run against a bridge yet. The call, cast and result frames were checked against the Python example's
-  bytes and against a node that is not a bridge, which refuses them. A trial with real bridges was written for it,
-  `trials/c10_tempus_bridge_swift` (its `walk.py` holds the steps and its `COVERAGE.md` the rows of the behaviour
-  list), but on 2026-11-23 the bridge programs of that trial did not compile with the pinned Silica compiler (error
-  E4045, the fault noted for the bridge program in `development-plan/silica-defects.md`), so the trial has no recorded
-  output and nothing in it counts as shown.
+- Against real bridges it was run in one trial, `trials/c10_tempus_bridge_swift` (its `walk.py` holds the steps A to
+  H and its `COVERAGE.md` the rows of the behaviour list): calls and a cast answered by a bridge and through the
+  TRUST node behind it, the bridge's refusals and its score, its bounds on requests in flight, the whitelist rule for
+  a bridge certificate on both sides, a TRUST node that refuses or has stopped, and a bridge that is lost. Not walked
+  there: the bridge's bound on one peer's requests per hour, which needs more than 20 requests of one edge.
 - Its reader of TRUST's result frame understands the same subset as the Python example's: maps, atoms, binaries,
   integers and lists. A result that carries a tuple or a float is refused, and its bytes are still in the outcome.
 - It keeps integers in 64 signed bits. The Python example reads an integer of up to 64 bits of magnitude. No number in
@@ -488,7 +487,8 @@ Run the trial from the BEES root directory with `tools/run_all_trials.sh --local
 - It was built and run on macOS on Apple Silicon only. There is no Swift toolchain on the Linux machine the other
   trials also run on, so the trials have Mac goldens only. Each Swift trial names the Mac in its `platforms` file, so
   the trial runner reports it as not applicable on another platform; run by hand on a machine without Swift,
-  `trials/c5_tempus_swift` and `trials/c8_tempus_node_swift` fail and say what is missing.
+  `trials/c5_tempus_swift`, `trials/c8_tempus_node_swift` and `trials/c10_tempus_bridge_swift` fail and say what is
+  missing.
 - The client part's `dial` and `Listener` keep no stores and run no shuffle timer: `dial` makes one request, and a
   `Listener` answers requests with entries it was given. Stores and timers are in `Peer` and in the node part.
 - A `Peer` does not refresh its token. `Peer.newToken` takes a new token from the application.
