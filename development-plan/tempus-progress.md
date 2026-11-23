@@ -1068,3 +1068,38 @@ COVERAGE.md). The tests and the three trials were also run from a clean export o
 call that names an atom the node does not hold is refused as protocol_error unknown_atom, not request_refused; the
 Kotlin node's atom list lacks `erlang` and the error atoms. Not ruled: the four configuration differences the Kotlin
 extension also has, the Dialed flag of key_rotated, where OpenSSL is looked for.
+
+## 2026-11-23, the Rust extension: client and node, three trials (owner's request)
+
+example_tempus_clients/rust is a Cargo workspace with no dependency outside itself, built with cargo 1.91.1 in
+offline mode. TLS 1.3, Ed25519, SHA-512 and certificates are Homebrew OpenSSL 4.1.0, called through 67 extern "C"
+declarations (lib/tempus/src/ffi.rs) with no C code and no libc crate; all unsafe code is in crypto.rs and tls.rs (46
+blocks). The TCP side is the standard library's TcpStream in blocking mode, one deadline per connection kept through
+its read and write timeouts. The first handshake was tested against a Silica node in both positions before anything
+was built on it. Layout as main's: lib/tempus (client half and node half in one crate), driver (tempus-client,
+tempus-node-example), testing (tempus-testing, tempus-node-trial), test (cargo tests, tempus-model, model_check.py,
+layering_check.py). One implementation only: the node matched to the Silica node, no second Peer and no gossip
+command. The node's state has one owning thread that everything else sends messages to; a connection runs on its own
+thread with copied values.
+
+Unit level: 18 tests (the t2 frames on three platforms' goldens, the vectors, the eight certificates byte for byte,
+19 of the 20 t4 cases, the 71 lines of t0_tempus_clock, the configuration cases and bounds, the boot refusals, a node
+in the test process); the tools' own view and store tests run over the Rust rules, which replays the t0_tempus_view
+and t1_tempus_store goldens, and 6885 generated answers equal the two Python models.
+
+Trials, Mac goldens: c14_tempus_rust (the client against a test node, a node on the system clock, and the Python test
+support; its outputs equal c5's Swift goldens but for ports and names, plus ten steps for a reply that is not the
+reply of its request), c15_tempus_node_rust (Rust nodes among Silica nodes; 54 hostile cases sent to a Silica edge and
+a Rust edge with identical audit lines; the clock choices; tempus-node-example on the machine's clock beside a Silica
+node built without the test unit) and c17_tempus_bridge_rust (the client against bridges B1 and B2 and TRUST node T,
+rebuilt from c3's network: calls, a cast, the whitelist rule both ways, the score and in-flight bounds, the TRUST side
+refusing and gone, a bridge lost; COVERAGE.md row by row). The tests and the three trials were also run from a clean
+export of the index. That run first failed: model_check.py counted as a failure the three tests of the tools that are
+skipped when trials t0_tempus_view and t1_tempus_store have not been run in the tree. It now prints them as skipped,
+and the clean run passes.
+
+Found: the Swift node's list of known atoms lacks the rejection atoms and trpc results of src/trust/bees_trust.atoms,
+which a Silica node holds; c15 cases R41 to R43 show the Silica node's words for them. The Rust node uses the Silica
+node's text for a test node off loopback; its value refusals are the tool's texts, which differ from boot_why's. The
+Rust client checks the binding first and applies a given whitelist both ways. Not built: the bridge role (refused), a
+gossip driver command. Mac only (platforms files).

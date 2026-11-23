@@ -405,9 +405,9 @@ Give your client a time bound of its own for a whole connection. A node may stay
 - The bridge's behaviour in section 8 was checked against the header of `src/tempus/bees_tempus_bridge.silica` and
   the design's section 17, not against every line of that unit.
 
-## 15. What to install for a Swift, a Kotlin or a C# client on a Mac
+## 15. What to install for a Swift, a Kotlin, a C# or a Rust client on a Mac
 
-This section lists what a Mac with Apple Silicon needs before a client written in Swift, in Kotlin or in C# can be compiled
+This section lists what a Mac with Apple Silicon needs before a client written in Swift, in Kotlin, in C# or in Rust can be compiled
 and run. The versions are the ones on the machine where the examples in this directory were written, on 2026-11-20.
 They are what was used, not a stated minimum. Other languages need the same three kinds of thing: a compiler, a TLS
 library that can meet section 3, and Ed25519 signatures.
@@ -476,6 +476,19 @@ that cannot offer both cannot connect to a TEMPUS node, and no setting of the no
   the macro's number; the two callbacks are static methods marked `UnmanagedCallersOnly`; and memory BIOs with a .NET
   `Socket` keep every wait under one deadline.
 - The file `csharp/README.md` gives the details and the build commands.
+
+### Rust
+
+- A Rust toolchain: cargo and rustc. Version used: 1.91.1.
+- OpenSSL 4.1.0 or later. Install it with `brew install openssl@4`. Rust's standard library has neither TLS nor
+  Ed25519. Without fetching any crate, a client calls OpenSSL through `extern "C"` declarations and a build script
+  that names the library directory. No C code and no `libc` crate are needed.
+- The settings that are C macros go through `SSL_CTX_ctrl` with the macro's number, as in C#.
+- A blocking `TcpStream` with read and write timeouts keeps the one deadline of a connection without any operating
+  system call of your own.
+- Tests can be ordinary `cargo test`, since the test harness ships with the toolchain. `cargo build --offline` makes
+  sure that no network request is made.
+- The file `rust/README.md` gives the details and the build commands.
 
 ### What none of them needs
 

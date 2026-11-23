@@ -41,7 +41,8 @@ The Python, Swift and Kotlin directories also hold a node half, added beside the
 be a TEMPUS node that behaves as the Silica node does. It has gossip logic of its own. Until the project owner decides
 between the two, both are kept, and each language's README compares them.
 
-The C# directory holds one implementation only: a client half and a node half, with no second, lighter gossip peer.
+The C# and Rust directories each hold one implementation only: a client half and a node half, with no second, lighter
+gossip peer.
 
 `gossip/` runs the drivers. It starts several instances of one language's driver on this machine as one TEMPUS
 network, and one network that mixes all four languages, and checks that the instances discover each other. Its
@@ -140,6 +141,25 @@ network, and one network that mixes all four languages, and checks that the inst
   the Python test support. The trial `trials/c13_tempus_node_csharp` runs the node tests and then nodes of the
   extension and Silica nodes in one network. The trial `trials/c16_tempus_bridge_csharp` walks the client half against
   two real bridges. All three are recorded for the Mac only.
+
+### rust/
+
+- The Rust extension is one Cargo workspace: `lib/tempus` (the one crate an application depends on: the client half
+  and the node half, an edge or a sentinel that behaves as the Silica node does; the bridge role is refused),
+  `driver/tempus-client` (the command line) and `driver/tempus-node-example` (an application that is a node),
+  `testing/` (test fixtures, a clock, timers and draws that a test sets by hand, and the trial's node program; the
+  library does not depend on them, which `make test` checks) and `test/`.
+- It holds one gossip implementation, the node matched to the Silica node. It has no lighter `Peer` and its driver has
+  no `gossip` command, so `gossip/` does not run it; its own [README](rust/README.md) says what joining would take.
+- It builds with cargo in offline mode and has no dependency outside itself. TLS and the cryptography are the OpenSSL
+  installed on the machine, called through declarations in `lib/tempus/src/ffi.rs`, with no C code. The statement at
+  the top of this document applies to it as it stands.
+- Its client half has no function that misbehaves on purpose and does not build the test-only `tick` and `clock`
+  frames. Its node half reads the machine's clock itself.
+- The trial `trials/c14_tempus_rust` runs the client against nodes and against the Python test support. The trial
+  `trials/c15_tempus_node_rust` runs nodes of the extension in one network with Silica nodes, and the client against
+  two of those. The trial `trials/c17_tempus_bridge_rust` runs the client against two real bridges and a TRUST node.
+  All are declared for the Mac only.
 
 ## How the trials use them
 

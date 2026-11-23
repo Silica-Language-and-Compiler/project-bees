@@ -1,0 +1,90 @@
+# N: node N, a test node whose clock is 1500
+N0 the Rust client listens as the sentinel -> listening 127.0.0.1:25602
+N0 the node's join, edge store -> served sample n=3 store=tempus_edge sent=reply peer=b19edad2958934e1 typ=tempus_edge
+N0 the node's join, bridge store -> served sample n=2 store=tempus_bridge sent=reply peer=b19edad2958934e1 typ=tempus_edge
+N0 the node's join, sentinel store -> served sample n=2 store=tempus_sentinel sent=reply peer=b19edad2958934e1 typ=tempus_edge
+N1 as the sentinel: sample tempus_sentinel 2 -> reply sample_reply entries=[0:9e1113ab416dc197] store=tempus_sentinel peer=b19edad2958934e1 typ=tempus_edge
+N2 as an edge: sample tempus_edge 3 -> reply sample_reply entries=[1:9200d2990c3e9eb7] store=tempus_edge peer=b19edad2958934e1 typ=tempus_edge
+N3 shuffle tempus_edge, its own entry at age 0 -> reply shuffle_reply entries=[1:9200d2990c3e9eb7] store=tempus_edge peer=b19edad2958934e1 typ=tempus_edge
+N4 sample: the client is in the node's view at age 0 -> reply sample_reply entries=[1:9200d2990c3e9eb7,0:1fae2ad7f75a0ded] store=tempus_edge peer=b19edad2958934e1 typ=tempus_edge
+N5 the Rust client listens as the edge -> listening 127.0.0.1:25603
+N5 the trial tool sent node N 2 test-only ticks
+N5 the node shuffles with the Rust client -> served shuffle entries=[0:b19edad2958934e1] store=tempus_edge sent=reply peer=b19edad2958934e1 typ=tempus_edge
+N6 sample: the node took the entry the client answered with -> reply sample_reply entries=[4:12eb7f449478f2aa] store=tempus_edge peer=b19edad2958934e1 typ=tempus_edge
+N7 an expired token -> closed at=challenge peer=b19edad2958934e1 typ=tempus_edge
+N8 a token that is not valid yet -> closed at=challenge peer=b19edad2958934e1 typ=tempus_edge
+N9 a token another key signed -> closed at=challenge peer=b19edad2958934e1 typ=tempus_edge
+N10 a token under the old kid -> key_rotated at=challenge kid=6b31 peer=b19edad2958934e1 typ=tempus_edge
+N11 a sample of more than the shuffle length -> closed at=reply peer=b19edad2958934e1 typ=tempus_edge
+N12 a shuffle of the sentinel store that holds an edge's entry -> closed at=reply peer=b19edad2958934e1 typ=tempus_edge
+N13 a call to a node that is not a bridge -> closed at=reply peer=b19edad2958934e1 typ=tempus_edge
+N14 a cast to a node that is not a bridge -> closed at=reply peer=b19edad2958934e1 typ=tempus_edge
+N15 the client's clock is past the node's token -> refused at=advert peer=b19edad2958934e1 reason="the token has expired"
+N16 the client holds another producer kid and says so -> refused at=advert peer=b19edad2958934e1 reason="key_rotated"
+N17 with a whitelist: an edge needs no entry in it -> reply sample_reply entries=[4:12eb7f449478f2aa] store=tempus_edge peer=b19edad2958934e1 typ=tempus_edge
+N18 an address nobody listens on -> unreachable at=tls
+# P: node P, which reads the system clock; the Rust client reads it too
+# (P draws from the platform's random source: the entries of each reply are written here in sorted order)
+P0 the Rust client listens as the sentinel -> listening 127.0.0.1:25604
+P0 the node's join, edge store -> served sample n=3 store=tempus_edge sent=reply peer=b19edad2958934e1 typ=tempus_edge
+P0 the node's join, bridge store -> served sample n=2 store=tempus_bridge sent=reply peer=b19edad2958934e1 typ=tempus_edge
+P0 the node's join, sentinel store -> served sample n=2 store=tempus_sentinel sent=reply peer=b19edad2958934e1 typ=tempus_edge
+P1 sample tempus_edge 3 -> reply sample_reply entries=[2:9200d2990c3e9eb7] store=tempus_edge peer=b19edad2958934e1 typ=tempus_edge
+P2 shuffle tempus_edge, its own entry at age 0 -> reply shuffle_reply entries=[2:9200d2990c3e9eb7] store=tempus_edge peer=b19edad2958934e1 typ=tempus_edge
+P3 sample: the client is in the node's view at age 0 -> reply sample_reply entries=[0:1fae2ad7f75a0ded,2:9200d2990c3e9eb7] store=tempus_edge peer=b19edad2958934e1 typ=tempus_edge
+P4 the trial's token of 1000 to 3000 has expired by the system clock -> closed at=challenge peer=b19edad2958934e1 typ=tempus_edge
+P5 a token that begins at 3900000000 is not valid yet -> closed at=challenge peer=b19edad2958934e1 typ=tempus_edge
+# X1: the Rust client dials the Python example client
+X1.1 a sample -> reply sample_reply entries=[3:9e1113ab416dc197] store=tempus_edge peer=e4188f0a2cee5a46 typ=tempus_edge
+X1.2 a shuffle -> reply shuffle_reply entries=[1:9e1113ab416dc197] store=tempus_edge peer=e4188f0a2cee5a46 typ=tempus_edge
+X1.3 a call -> reply result req_id=31 value=42 ver=1 peer=e4188f0a2cee5a46 typ=tempus_edge
+X1.4 a cast, which has no reply -> closed at=reply peer=e4188f0a2cee5a46 typ=tempus_edge
+X1.5 the peer presents somebody else's advert -> refused at=advert peer=9e1113ab416dc197 reason="the certificate's key is not the advert's pub"
+X1.6 the peer's proof is over another nonce -> refused at=response peer=e4188f0a2cee5a46 typ=tempus_edge reason="the proof of possession does not verify"
+X1.7 the peer's proof is by another key -> refused at=response peer=e4188f0a2cee5a46 typ=tempus_edge reason="the proof of possession does not verify"
+X1.8 the peer's proof is 63 bytes -> refused at=response peer=e4188f0a2cee5a46 typ=tempus_edge reason="sig is not 64 bytes"
+X1.9 the peer closes after its advert -> closed at=challenge peer=e4188f0a2cee5a46 typ=tempus_edge
+X1.10 the peer sends a second advert where its challenge was due -> refused at=challenge peer=e4188f0a2cee5a46 typ=tempus_edge reason="advert where pop_challenge or key_rotated was due"
+X1.11 a reply with an entry another key signed, beside a good one -> refused at=reply peer=e4188f0a2cee5a46 typ=tempus_edge reason="an entry does not verify: the signature does not verify"
+X1.12 a reply of more entries than the shuffle length -> refused at=reply peer=e4188f0a2cee5a46 typ=tempus_edge reason="more entries than the shuffle length"
+X1.13 a reply above the frame ceiling -> refused at=reply peer=e4188f0a2cee5a46 typ=tempus_edge reason="a frame above the ceiling"
+X1.14 a reply that is no term -> refused at=reply peer=e4188f0a2cee5a46 typ=tempus_edge reason="bad_version"
+X1.15 the peer closes instead of replying -> closed at=reply peer=e4188f0a2cee5a46 typ=tempus_edge
+X1.16 the peer's token has expired -> refused at=advert peer=e4188f0a2cee5a46 reason="the token has expired"
+X1.17 a sample_reply for another store than the one asked -> refused at=reply peer=e4188f0a2cee5a46 typ=tempus_edge reason="the reply is for another store than the request"
+X1.18 a sample of 1 answered with two entries -> refused at=reply peer=e4188f0a2cee5a46 typ=tempus_edge reason="more entries than the sample asked for"
+X1.19 a sample answered with a shuffle_reply -> refused at=reply peer=e4188f0a2cee5a46 typ=tempus_edge reason="shuffle_reply where sample_reply was due"
+X1.20 a sample answered with the done frame of the test unit -> refused at=reply peer=e4188f0a2cee5a46 typ=tempus_edge reason="done where sample_reply was due"
+X1.21 a shuffle answered with a sample_reply -> refused at=reply peer=e4188f0a2cee5a46 typ=tempus_edge reason="sample_reply where shuffle_reply was due"
+X1.22 a shuffle answered for another store -> refused at=reply peer=e4188f0a2cee5a46 typ=tempus_edge reason="the reply is for another store than the request"
+X1.23 a call answered with a result for another request id -> refused at=reply peer=e4188f0a2cee5a46 typ=tempus_edge reason="the result is not for this call's req_id"
+X1.24 a call answered with a sample_reply -> refused at=reply peer=e4188f0a2cee5a46 typ=tempus_edge reason="sample_reply where result was due"
+X1.25 a reply with an entry whose token is of another type than the store -> refused at=reply peer=e4188f0a2cee5a46 typ=tempus_edge reason="an entry does not verify: the entry's typ is not the store's"
+X1.26 a reply with an entry whose token has expired -> refused at=reply peer=e4188f0a2cee5a46 typ=tempus_edge reason="an entry does not verify: the token has expired"
+X1.27 the peer's token is under the old kid: the client says key_rotated -> refused at=advert peer=e4188f0a2cee5a46 reason="key_rotated"
+X1.28 the peer offers another ALPN protocol -> refused at=tls reason="the ALPN protocol is not tempus/1"
+X1.29 the peer offers a P-256 certificate -> tls_failed at=tls
+X1.30 the peer offers TLS 1.2 only -> tls_failed at=tls
+# X2: the Python example client dials the Rust client
+X2.0 the Rust client listens -> listening 127.0.0.1:25606
+X2.1 a sample -> served sample n=2 store=tempus_edge sent=reply peer=e4188f0a2cee5a46 typ=tempus_edge
+X2.2 a sample of 1 -> served sample n=1 store=tempus_edge sent=reply peer=e4188f0a2cee5a46 typ=tempus_edge
+X2.3 a shuffle -> served shuffle entries=[0:e4188f0a2cee5a46] store=tempus_edge sent=reply peer=e4188f0a2cee5a46 typ=tempus_edge
+X2.4 a sample of a store the client holds nothing for -> served sample n=2 store=tempus_bridge sent=reply peer=e4188f0a2cee5a46 typ=tempus_edge
+X2.5 a test-only tick: to a client a frame of no kind, closed with no reply -> served tick store=tempus_edge sent=close peer=e4188f0a2cee5a46 typ=tempus_edge
+X2.6 a call: a client is no bridge -> served call a=1 args=[1] f=f m=m opts={} req_id=31 ver=1 sent=close peer=e4188f0a2cee5a46 typ=tempus_edge
+X2.7 somebody else's advert -> refused at=advert peer=9e1113ab416dc197 reason="the certificate's key is not the advert's pub"
+X2.8 a proof by another key -> refused at=response peer=e4188f0a2cee5a46 typ=tempus_edge reason="the proof of possession does not verify"
+X2.9 a proof over another nonce -> refused at=response peer=e4188f0a2cee5a46 typ=tempus_edge reason="the proof of possession does not verify"
+X2.10 no proof: the request comes where it was due -> refused at=response peer=e4188f0a2cee5a46 typ=tempus_edge reason="sample where pop_response was due"
+X2.11 the dialer closes instead of its proof -> closed at=response peer=e4188f0a2cee5a46 typ=tempus_edge
+X2.12 a request above the frame ceiling -> refused at=request peer=e4188f0a2cee5a46 typ=tempus_edge reason="a frame above the ceiling"
+X2.13 a request with an unknown key -> refused at=request peer=e4188f0a2cee5a46 typ=tempus_edge reason="unknown_field"
+X2.14 a shuffle with an entry another key signed -> refused at=request peer=e4188f0a2cee5a46 typ=tempus_edge reason="an entry does not verify: the signature does not verify"
+X2.15 a shuffle of the bridge store with an edge's entry -> refused at=request peer=e4188f0a2cee5a46 typ=tempus_edge reason="an entry does not verify: the entry's typ is not the store's"
+X2.16 an expired token -> refused at=advert peer=e4188f0a2cee5a46 reason="the token has expired"
+X2.17 a token under the old kid: the client says key_rotated -> refused at=advert peer=e4188f0a2cee5a46 reason="key_rotated"
+X2.18 TLS 1.2 only -> tls_failed at=tls
+X2.19 another ALPN protocol -> refused at=tls reason="the ALPN protocol is not tempus/1"
+X2.20 no certificate -> tls_failed at=tls
+X2.21 a P-256 certificate -> tls_failed at=tls

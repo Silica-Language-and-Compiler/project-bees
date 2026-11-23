@@ -1,0 +1,11 @@
+# The tests of the Rust TEMPUS extension (cargo test --offline -p tempus-tests), and tempus-model, the program
+# test/model_check.py runs to compare the node's stores with the Python models. No application depends on this crate.
+[package]
+name = "tempus-tests"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+tempus = { path = "../../lib/tempus" }
+tempus-testing = { path = "../../testing/tempus-testing" }

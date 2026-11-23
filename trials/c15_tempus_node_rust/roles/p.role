@@ -1,0 +1,16 @@
+// C15: node P, a Silica edge that is not a test program: it is not externally driven and its root unit names nothing of
+// the test unit. It reads the machine's clock; its stores tick once an hour, so nothing in its output depends on time.
+// Its own token is valid by any present clock (variant 14). It joins through node R, the Rust node that is not a test
+// node either. No line of this node prints a time.
+// It is built in a directory of its own (nodes/p) whose unit list holds nothing of the test unit, so the program has
+// no atom of the test frames: it refuses a tick or a clock frame as a production node does (unknown_atom).
+fn port() -> string { "25702" }
+fn sents() -> string { "127.0.0.1:25705" }
+fn who() -> int64 { 1 }
+fn typ() -> int64 { 1 }
+fn tok() -> int64 { 14 }
+fn back() -> int64 { 1 }
+fn blim() -> int64 { 0 }
+fn fail() -> int64 { 2 }
+fn driven() -> boolean { false }
+fn ext_start(app: actor_ref) -> actor_ref { app }

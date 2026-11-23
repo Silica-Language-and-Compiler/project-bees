@@ -1,0 +1,26 @@
+TEST ONLY: this node's clock, timers and draws are set by the trial
+clock: the system clock is read
+tempus_edge node 12eb7f44 listening on 127.0.0.1:25704
+store tempus_edge: capacity 4, shuffle length 3
+store tempus_bridge: capacity 4, shuffle length 2
+store tempus_sentinel: capacity 4, shuffle length 2
+join: asking the sentinel at 127.0.0.1:25707 for tempus_edge d1
+join: the sentinel did not answer for tempus_edge, connect_failed d1
+join: no sentinel answered for tempus_edge; waiting to try again
+clock: the system clock could not be read: the node admits no connection and does not tick until it is read again
+application: told that the system clock could not be read: the node admits no connection and does not tick until it is read again
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a1
+[tempus audit] clock_refused peer=- the system clock cannot be read: closed at once a1
+join: the request for tempus_edge waits until the system clock is read again
+clock: the system clock is read again
+join: asking the sentinel at 127.0.0.1:25707 for tempus_edge d2
+join: the sentinel did not answer for tempus_edge, connect_failed d2
+join: no sentinel answered for tempus_edge; waiting to try again
+clock: the system clock went back by 51 s; the node follows it
+clock: the system clock went back by 70 s, more than clock_back_limit_s 60: the node has stopped; it admits no connection and does not tick until its application starts it again
+application: told that the system clock went back by 70 s, more than clock_back_limit_s 60: the node has stopped; it admits no connection and does not tick until its application starts it again
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a2
+[tempus audit] clock_stopped peer=- the node stopped after its system clock went back: closed at once a2
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a3
+[tempus audit] clock_stopped peer=- the node stopped after its system clock went back: closed at once a3
+exit=0

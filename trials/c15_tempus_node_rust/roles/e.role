@@ -1,0 +1,13 @@
+// C15: node E, a Silica edge and a test program (externally driven, by the test unit of src/tempus_test): its clock is
+// the trial's value, 1500, and its stores tick when the trial tool sends a tick frame. It joins through node S. The
+// Rust node A shuffles with it, and it is the Silica node every refusal of A is compared with.
+fn port() -> string { "25701" }
+fn sents() -> string { "127.0.0.1:25700" }
+fn who() -> int64 { 0 }
+fn typ() -> int64 { 1 }
+fn tok() -> int64 { 6 }
+fn back() -> int64 { 1 }
+fn blim() -> int64 { 0 }
+fn fail() -> int64 { 2 }
+fn driven() -> boolean { true }
+fn ext_start(app: actor_ref) -> actor_ref { bees_tempus_test@start(tempus_ids@now()) }

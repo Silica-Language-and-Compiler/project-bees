@@ -620,3 +620,43 @@ trials/c16_tempus_bridge_csharp/nodes/*/lib/bees_tempus_spec.silica
 trials/c16_tempus_bridge_csharp/nodes/*/lib/bees_tempus_node.silica
 trials/c16_tempus_bridge_csharp/nodes/*/lib/tempus_ids.silica
 trials/c16_tempus_bridge_csharp/nodes/*/lib/*.derived
+# C14, the client half of the Rust TEMPUS extension: what cargo builds, and the trial's generated units
+example_tempus_clients/rust/target/
+!trials/c14_tempus_rust/dangerous_exposure_source
+trials/c14_tempus_rust/dangerous_[np].silica
+trials/c14_tempus_rust/lib/bees_tempus_node.silica
+trials/c14_tempus_rust/lib/bees_atoms.*
+trials/c14_tempus_rust/.gen.mk
+# c15_tempus_node_rust: the roles and the node leaves, as c8_tempus_node_swift; and what the trial writes while it runs
+!trials/c15_tempus_node_rust/roles/
+!trials/c15_tempus_node_rust/nodes/
+trials/c15_tempus_node_rust/nodes/*/*
+!trials/c15_tempus_node_rust/nodes/*/Makefile
+!trials/c15_tempus_node_rust/nodes/*/lib/
+trials/c15_tempus_node_rust/nodes/*/lib/bees_atoms.*
+trials/c15_tempus_node_rust/nodes/*/dangerous_*.silica
+trials/c15_tempus_node_rust/nodes/*/.gen.mk
+trials/c15_tempus_node_rust/nodes/*/lib/bees_tempus_node.silica
+trials/c15_tempus_node_rust/nodes/*/lib/tempus_ids.silica
+!trials/c15_tempus_node_rust/nodes/*/dangerous_exposure_source
+trials/c15_tempus_node_rust/r.seed
+trials/c15_tempus_node_rust/r.token
+# c17_tempus_bridge_rust: the roles and the node leaves, as c3_tempus_bridge
+!trials/c17_tempus_bridge_rust/roles/
+!trials/c17_tempus_bridge_rust/nodes/
+trials/c17_tempus_bridge_rust/nodes/*/*
+!trials/c17_tempus_bridge_rust/nodes/*/Makefile
+!trials/c17_tempus_bridge_rust/nodes/*/*.config
+!trials/c17_tempus_bridge_rust/nodes/*/node.atoms
+!trials/c17_tempus_bridge_rust/nodes/*/*.trust
+!trials/c17_tempus_bridge_rust/nodes/*/*.spec
+!trials/c17_tempus_bridge_rust/nodes/*/lib/
+!trials/c17_tempus_bridge_rust/nodes/*/dangerous_exposure_source
+trials/c17_tempus_bridge_rust/nodes/*/silica.config
+trials/c17_tempus_bridge_rust/nodes/*/lib/bees_atoms.*
+trials/c17_tempus_bridge_rust/nodes/*/lib/bees_trust_conf.*
+trials/c17_tempus_bridge_rust/nodes/*/lib/bees_trust_mfa.silica
+trials/c17_tempus_bridge_rust/nodes/*/lib/bees_tempus_spec.silica
+trials/c17_tempus_bridge_rust/nodes/*/lib/bees_tempus_node.silica
+trials/c17_tempus_bridge_rust/nodes/*/lib/tempus_ids.silica
+trials/c17_tempus_bridge_rust/nodes/*/lib/*.derived

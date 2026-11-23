@@ -1,0 +1,20 @@
+# the Rust client against the Silica nodes S (a sentinel) and E (an edge); their clock is 1500
+K1 sample tempus_edge 3 of E -> reply sample_reply entries=[] store=tempus_edge peer=b19edad2958934e1 typ=tempus_edge
+K2 the same sample again: the same entries, the view is unchanged -> reply sample_reply entries=[] store=tempus_edge peer=b19edad2958934e1 typ=tempus_edge
+K3 sample tempus_edge 3 of the sentinel S, which then holds the client in its edge store -> reply sample_reply entries=[0:9200d2990c3e9eb7,0:b19edad2958934e1] store=tempus_edge peer=9e1113ab416dc197 typ=tempus_sentinel
+K4 the Rust client listens as the edge -> listening 127.0.0.1:25708
+K4 the trial tool sent 1 test-only ticks
+K4 S shuffles its edge store, which is not of its own type, with the client: no entry for S in the frame -> served shuffle entries=[1:b19edad2958934e1,1:9200d2990c3e9eb7] store=tempus_edge sent=reply peer=9e1113ab416dc197 typ=tempus_sentinel
+K5 S's own view line after the merge holds the client at age 0 (ruling NQ-15) and the entry the client answered with at age 2
+K6 the Rust client listens again; it will answer with an entry whose token is of another type -> listening 127.0.0.1:25708
+K6 the trial tool sent 4 test-only ticks
+K6 S shuffles with the client -> served shuffle entries=[1:b19edad2958934e1] store=tempus_edge sent=reply peer=9e1113ab416dc197 typ=tempus_sentinel
+K7 sample: nothing of that answer entered S's view, and the client, which gave it, is gone from it -> reply sample_reply entries=[1:b19edad2958934e1] store=tempus_edge peer=9e1113ab416dc197 typ=tempus_sentinel
+K8 a sample with an unknown key -> closed at=reply peer=b19edad2958934e1 typ=tempus_edge
+K9 a shuffle with an age above 65535 -> closed at=reply peer=b19edad2958934e1 typ=tempus_edge
+K10 a request that is no term -> closed at=reply peer=b19edad2958934e1 typ=tempus_edge
+K11 a token issued for another key -> closed at=challenge peer=b19edad2958934e1 typ=tempus_edge
+K12 as an edge whose token ends at 2000: shuffle tempus_edge with E -> reply shuffle_reply entries=[3:1fae2ad7f75a0ded] store=tempus_edge peer=b19edad2958934e1 typ=tempus_edge
+K13 sample: E holds that edge -> reply sample_reply entries=[0:958cff49930885d2,3:1fae2ad7f75a0ded] store=tempus_edge peer=b19edad2958934e1 typ=tempus_edge
+K14 the trial tool set E's clock to 2100 and sent a tick: that edge's entry has left E's view -> reply sample_reply entries=[] store=tempus_edge peer=b19edad2958934e1 typ=tempus_edge
+K15 the trial tool set E's clock to 3100, past E's own token: E still answers, and the client refuses its advert -> refused at=advert peer=b19edad2958934e1 reason="the token has expired"

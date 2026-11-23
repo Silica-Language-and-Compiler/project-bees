@@ -1,0 +1,11 @@
+# The command line of the Rust TEMPUS extension's client half. The trials drive the client through it. It links the
+# TEST ONLY crate, because it can make a test token (--test-token, --test-entry): it is not something an application uses.
+[package]
+name = "tempus-client"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+tempus = { path = "../../lib/tempus" }
+tempus-testing = { path = "../../testing/tempus-testing" }

@@ -1,0 +1,13 @@
+// C15: node S, a Silica sentinel and a test program (externally driven, by the test unit of src/tempus_test): its clock
+// is the trial's value, 1500, and its stores tick when the trial tool sends a tick frame. It is the first sentinel: no
+// sentinel is configured. The Rust node A and the Silica node E join through it.
+fn port() -> string { "25700" }
+fn sents() -> string { "" }
+fn who() -> int64 { 2 }
+fn typ() -> int64 { 3 }
+fn tok() -> int64 { 11 }
+fn back() -> int64 { 1 }
+fn blim() -> int64 { 0 }
+fn fail() -> int64 { 2 }
+fn driven() -> boolean { true }
+fn ext_start(app: actor_ref) -> actor_ref { bees_tempus_test@start(tempus_ids@now()) }

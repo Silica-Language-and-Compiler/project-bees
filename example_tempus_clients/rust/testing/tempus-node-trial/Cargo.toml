@@ -1,0 +1,10 @@
+# TEST ONLY: a node of the Rust TEMPUS extension as the trial trials/c15_tempus_node_rust runs it.
+[package]
+name = "tempus-node-trial"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+tempus = { path = "../../lib/tempus" }
+tempus-testing = { path = "../tempus-testing" }

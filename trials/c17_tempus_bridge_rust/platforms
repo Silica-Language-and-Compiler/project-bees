@@ -1,0 +1,2 @@
+# c17_tempus_bridge_rust needs the Rust toolchain (cargo and rustc) and OpenSSL 4.1.0, installed on the Mac only: declared for the Mac, N/A elsewhere
+macos_applesilicon

@@ -1,0 +1,15 @@
+# The Rust TEMPUS extension: one workspace, no dependency outside it (the standard library only). README.md says what
+# an application depends on: the crate lib/tempus alone. driver/ holds the command line and an example node
+# application, testing/ the TEST ONLY code, test/ the tests. Build with `cargo build --offline`: nothing is fetched,
+# because there is nothing to fetch.
+[workspace]
+resolver = "2"
+members = ["lib/tempus", "driver/tempus-client", "driver/tempus-node-example", "testing/tempus-testing", "testing/tempus-node-trial", "test/tempus-tests"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[profile.dev]
+opt-level = 1

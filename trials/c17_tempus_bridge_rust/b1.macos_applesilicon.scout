@@ -1,0 +1,141 @@
+[trust] transport: mutual TLS 1.3 over the programmer-installed OpenSSL; peer identity: the SHA-512 of its certificate
+[trust] mode trust, transport mutual TLS 1.3 (ALPN trust/1, X25519MLKEM768, peers by the SHA-512 of their certificate, pins only, no cacertfile), listen 127.0.0.1:25906, whitelist 0 entries, pinned servers 1, frame_size_max 4096, args_len_max 4096, term_depth_max 32, call_timeout_ms 2000, first_frame_timeout_ms 2000, suspicion_limit 3, token_bytes 48, token_ttl_sec 300, one request per connection (B1)
+[trust] TRUST standalone: no whitelist file configured, no inbound connections accepted
+TEST ONLY: tick and clock frames are accepted
+clock: the system clock is read
+tempus_bridge node e4188f0a listening on 127.0.0.1:25901
+store tempus_edge: capacity 4, shuffle length 3
+store tempus_bridge: capacity 4, shuffle length 2
+store tempus_sentinel: capacity 4, shuffle length 2
+join: no sentinel is configured
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a1
+[tempus audit] admitted peer=cb133950f3232872 tempus_bridge, tempus whitelist entry 2 a1
+view tempus_bridge: cb133950@0
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a2
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession a2
+view tempus_bridge: (empty)
+tick tempus_bridge: shuffle with cb133950 at 127.0.0.1:25905 d1
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d1
+[tempus audit] admitted peer=cb133950f3232872 tempus_bridge, tempus whitelist entry 2 d1
+view tempus_bridge: 9200d299@0
+tick tempus_bridge: shuffle merged
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a3
+[tempus audit] admitted peer=1fae2ad7f75a0ded tempus_edge, token and proof of possession a3
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a4
+[tempus audit] admitted peer=1fae2ad7f75a0ded tempus_edge, token and proof of possession a4
+[tempus audit] bridge_admitted peer=1fae2ad7f75a0ded call demo:add/2 a4
+[tempus audit] bridge_done peer=1fae2ad7f75a0ded answered a4
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a5
+[tempus audit] admitted peer=1fae2ad7f75a0ded tempus_edge, token and proof of possession a5
+[tempus audit] bridge_admitted peer=1fae2ad7f75a0ded call demo:onward/2 a5
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as client 0
+[tempus audit] bridge_done peer=1fae2ad7f75a0ded answered a5
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a6
+[tempus audit] admitted peer=1fae2ad7f75a0ded tempus_edge, token and proof of possession a6
+[tempus audit] bridge_admitted peer=1fae2ad7f75a0ded cast demo:note/1 a6
+[bridge] note got 7
+[tempus audit] bridge_done peer=1fae2ad7f75a0ded the cast ran a6
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a7
+[tempus audit] admitted peer=1fae2ad7f75a0ded tempus_edge, token and proof of possession a7
+[tempus audit] bridge_admitted peer=1fae2ad7f75a0ded call demo:crash/1 a7
+[tempus audit] user_code_error peer=1fae2ad7f75a0ded the function failed a7
+[tempus audit] bridge_score peer=1fae2ad7f75a0ded raised to 1 a7
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a8
+[tempus audit] admitted peer=1fae2ad7f75a0ded tempus_edge, token and proof of possession a8
+[tempus audit] bridge_admitted peer=1fae2ad7f75a0ded call demo:slow/1 a8
+[tempus audit] timeout peer=1fae2ad7f75a0ded the call took longer than call_timeout_ms a8
+[tempus audit] bridge_score peer=1fae2ad7f75a0ded raised to 2 a8
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a9
+[tempus audit] admitted peer=1fae2ad7f75a0ded tempus_edge, token and proof of possession a9
+[tempus audit] bridge_admitted peer=1fae2ad7f75a0ded call demo:add/2 a9
+[tempus audit] bridge_done peer=1fae2ad7f75a0ded answered a9
+[tempus audit] bridge_score peer=1fae2ad7f75a0ded lowered to 1 a9
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a10
+[tempus audit] admitted peer=1fae2ad7f75a0ded tempus_edge, token and proof of possession a10
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a11
+[tempus audit] closed_by_peer peer=(any) stage (any) a11
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a12
+[tempus audit] whitelist_reject peer=1fae2ad7f75a0ded a tempus_bridge or tempus_sentinel token under a certificate that is not in the tempus whitelist a12
+[tempus audit] bridge_score peer=1fae2ad7f75a0ded raised to 2 by whitelist_reject a12
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a13
+[tempus audit] whitelist_reject peer=cb133950f3232872 a certificate of the tempus whitelist with a token whose typ is not tempus_bridge or tempus_sentinel a13
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a14
+[tempus audit] admitted peer=d61f1169e331b60b tempus_edge, token and proof of possession a14
+[tempus audit] forbidden_mfa peer=d61f1169e331b60b erlang:apply/0 a14
+[tempus audit] bridge_score peer=d61f1169e331b60b raised to 1 by forbidden_mfa a14
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a15
+[tempus audit] admitted peer=d61f1169e331b60b tempus_edge, token and proof of possession a15
+[tempus audit] permission_denied peer=d61f1169e331b60b demo:secret/0 a15
+[tempus audit] bridge_score peer=d61f1169e331b60b raised to 2 by permission_denied a15
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a16
+[tempus audit] admitted peer=d61f1169e331b60b tempus_edge, token and proof of possession a16
+[tempus audit] protocol_error peer=d61f1169e331b60b args is not a list of a elements a16
+[tempus audit] bridge_score peer=d61f1169e331b60b raised to 3 by protocol_error a16
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a17
+[tempus audit] admitted peer=d61f1169e331b60b tempus_edge, token and proof of possession a17
+[tempus audit] protocol_error peer=d61f1169e331b60b args is not a list of a elements a17
+[tempus audit] bridge_score peer=d61f1169e331b60b raised to 4 by protocol_error a17
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a18
+[tempus audit] admitted peer=d61f1169e331b60b tempus_edge, token and proof of possession a18
+[tempus audit] bridge_admitted peer=d61f1169e331b60b call demo:crash/1 a18
+[tempus audit] user_code_error peer=d61f1169e331b60b the function failed a18
+[tempus audit] bridge_score peer=d61f1169e331b60b raised to 5 a18
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a19
+[tempus audit] admitted peer=d61f1169e331b60b tempus_edge, token and proof of possession a19
+[tempus audit] forbidden_mfa peer=d61f1169e331b60b erlang:apply/0 a19
+[tempus audit] bridge_score peer=d61f1169e331b60b raised to 6 by forbidden_mfa a19
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a20
+[tempus audit] admitted peer=d61f1169e331b60b tempus_edge, token and proof of possession a20
+[tempus audit] bridge_refused peer=d61f1169e331b60b score 6 is above the limit 5 a20
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a21
+[tempus audit] admitted peer=1fae2ad7f75a0ded tempus_edge, token and proof of possession a21
+[tempus audit] bridge_admitted peer=1fae2ad7f75a0ded call demo:add/2 a21
+[tempus audit] bridge_done peer=1fae2ad7f75a0ded answered a21
+[tempus audit] bridge_score peer=1fae2ad7f75a0ded lowered to 1 a21
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a22
+[tempus audit] admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession a22
+[tempus audit] bridge_admitted peer=224c0c0c5b08df0f call demo:hold/1 a22
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a23
+[tempus audit] admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession a23
+[tempus audit] bridge_admitted peer=224c0c0c5b08df0f call demo:hold/1 a23
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a24
+[tempus audit] admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession a24
+[tempus audit] bridge_inflight peer=224c0c0c5b08df0f the peer's requests in flight are at their bound a24
+[tempus audit] bridge_score peer=224c0c0c5b08df0f raised to 1 by bridge_inflight a24
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a25
+[tempus audit] admitted peer=958cff49930885d2 tempus_edge, token and proof of possession a25
+[tempus audit] bridge_admitted peer=958cff49930885d2 call demo:hold/1 a25
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a26
+[tempus audit] admitted peer=958cff49930885d2 tempus_edge, token and proof of possession a26
+[tempus audit] bridge_admitted peer=958cff49930885d2 call demo:hold/1 a26
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a27
+[tempus audit] inflight_refused peer=- more accepted connections than inflight_max: closed at once a27
+[tempus audit] timeout peer=224c0c0c5b08df0f the call took longer than call_timeout_ms a22
+[tempus audit] bridge_score peer=224c0c0c5b08df0f raised to 2 a22
+[tempus audit] timeout peer=224c0c0c5b08df0f the call took longer than call_timeout_ms a23
+[tempus audit] bridge_score peer=224c0c0c5b08df0f raised to 3 a23
+[tempus audit] timeout peer=958cff49930885d2 the call took longer than call_timeout_ms a25
+[tempus audit] bridge_score peer=958cff49930885d2 raised to 1 a25
+[tempus audit] timeout peer=958cff49930885d2 the call took longer than call_timeout_ms a26
+[tempus audit] bridge_score peer=958cff49930885d2 raised to 2 a26
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a28
+[tempus audit] admitted peer=1fae2ad7f75a0ded tempus_edge, token and proof of possession a28
+[tempus audit] bridge_admitted peer=1fae2ad7f75a0ded call demo:add/2 a28
+[tempus audit] bridge_done peer=1fae2ad7f75a0ded answered a28
+[tempus audit] bridge_score peer=1fae2ad7f75a0ded lowered to 0 a28
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a29
+[tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession a29
+view tempus_bridge: (empty)
+tick tempus_bridge: shuffle with 9200d299 at 127.0.0.1:25902 d2
+tick tempus_bridge: the partner did not answer, connect_failed d2
+view tempus_bridge: (empty)
+tick tempus_bridge: shuffle failed
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a30
+[tempus audit] admitted peer=1fae2ad7f75a0ded tempus_edge, token and proof of possession a30
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a31
+[tempus audit] admitted peer=1fae2ad7f75a0ded tempus_edge, token and proof of possession a31
+[tempus audit] bridge_admitted peer=1fae2ad7f75a0ded call demo:add/2 a31
+[tempus audit] bridge_done peer=1fae2ad7f75a0ded answered a31
+runtime report: an actor ended with reason (:explicit, :badarith)
+runtime report: an actor ended with reason (:explicit, :badarith)
+exit=0
