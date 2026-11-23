@@ -31,7 +31,7 @@ import platform_id as P  # noqa: E402
 
 HOSTS_FILE = ".bees_build_hosts"
 # the NAME=VALUE tokens of a hosts line's notes that are passed to the remote run's environment
-ENV_ALLOWED = ("SILICA_COMPILER", "SILICA_ROOT", "BEES_COMPILE_JOBS", "SILICA_COMPILE_TIMEOUT")
+ENV_ALLOWED = ("SILICA_COMPILER", "SILICA_ROOT", "BEES_COMPILE_JOBS", "SILICA_COMPILE_TIMEOUT", "BEES_PATH_PREFIX")
 SECRET_WORDS = re.compile(r"password|passwd|passphrase|BEGIN [A-Z ]*PRIVATE KEY|secret|token", re.I)
 CONN = re.compile(r"^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+$")
 
@@ -104,6 +104,31 @@ def leaves(root=ROOT, only=None):
             raise SystemExit(f"run_all_trials: no such trial: {', '.join(bad)}")
         out = [o for o in out if o in only]
     return out
+
+
+def leaf_platforms(leaf, root=ROOT):
+    """The platforms a trial is declared for: the ids in trials/LEAF/platforms (whitespace separated, # comments), or None when the
+    trial has no such file and so is for every platform that builds. A declared platform list is the one way a trial says it cannot
+    run on a platform (a missing toolchain, say); a trial run on a platform it is not declared for is reported N/A, by name and with
+    the reason (the file's comments), never as a pass and never skipped silently. An unknown id in the file is an error."""
+    f = os.path.join(root, "trials", leaf, "platforms")
+    if not os.path.isfile(f):
+        return None
+    with open(f) as fh:
+        text = fh.read()
+    ids = " ".join(line.split("#", 1)[0] for line in text.splitlines()).split()
+    bad = [i for i in ids if i not in P.PLATFORMS]
+    if bad or not ids:
+        raise SystemExit(f"run_all_trials: {f}: {'unknown platform id ' + ', '.join(bad) if bad else 'no platform id'} (known: {', '.join(P.PLATFORMS)})")
+    return ids
+
+
+def not_applicable_reason(leaf, pid, root=ROOT):
+    """None when the trial runs on pid, else the sentence the table prints."""
+    ids = leaf_platforms(leaf, root)
+    if ids is None or pid in ids:
+        return None
+    return f"declared only for {', '.join(ids)} (trials/{leaf}/platforms)"
 
 
 def unsupported_reason(pid):
@@ -194,6 +219,14 @@ def local_run(args, pid, log_dir, rows, lock):
             times = json.load(tf)
     except (OSError, ValueError):
         times = {}
+    for n in [n for n in names if not_applicable_reason(n, pid)]:
+        names.remove(n)
+        if not args.dry_run:
+            with lock:
+                rows.append(Row(pid, n, "N/A", note=not_applicable_reason(n, pid)))
+            print(f"[{pid}] N/A  {n:28} {not_applicable_reason(n, pid)}", flush=True)
+        else:
+            print(f"  [dry-run] trials/{n}: N/A on {pid}: {not_applicable_reason(n, pid)}")
     names.sort(key=lambda n: -times.get(pid + "/" + n, 0))   # the slowest first: the short ones fill the gaps at the end
     if args.dry_run:
         for n in names:
@@ -236,7 +269,9 @@ def remote_run(args, h, log_dir, rows, lock, stamp):
     ssh = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", h.conn]
     excl = [x for e in SYNC_EXCLUDES for x in ("--exclude", e)] + [x for e in exe_excludes() for x in ("--exclude", e)]
     jobs = h.jobs if h.jobs != "-" else str(args.jobs)
-    envs = " ".join(f"{k}={shlex.quote(v)}" for k, v in h.env().items())
+    renv = h.env()
+    prefix = renv.pop("BEES_PATH_PREFIX", "")   # directories put before the remote's PATH (a programmer's Erlang/OTP under the home directory)
+    envs = " ".join(f"{k}={shlex.quote(v)}" for k, v in renv.items()) + (f' PATH={shlex.quote(prefix)}:"$PATH"' if prefix else "")
     inner = (f"cd {rpath} && {envs} tools/run_all_trials.sh --local-only -j {jobs} --log-dir {remote_logs}"
              + (f" --only {','.join(args.only)}" if args.only else "") + (" --no-kit" if args.no_kit else ""))
     gold = ["rsync", "-a", "--update", "-e", "ssh -o BatchMode=yes", "--include", "*/", "--include", f"*.{pid}.scout", "--include", f"*.{pid}.golden_fail",
@@ -287,7 +322,7 @@ def exe_excludes():
 def table(rows, skipped):
     head = ("PLATFORM", "TRIAL", "STATUS", "PASSED", "FAILED", "SECONDS", "LOG / NOTE")
     data = [head]
-    for r in sorted(rows, key=lambda r: (r.platform, r.status == "PASS", r.trial)):
+    for r in sorted(rows, key=lambda r: (r.platform, r.status in ("PASS", "N/A"), r.trial)):
         data.append((r.platform, r.trial, r.status, str(r.passed), str(r.failed), "-" if r.secs is None else f"{r.secs:.1f}",
                      (r.note + " " if r.note else "") + os.path.relpath(r.log, ROOT) if r.log else r.note))
     for pid, why in skipped:
@@ -305,8 +340,10 @@ def totals(rows, skipped):
         if not rs:
             out.append(f"{pid:20} SKIPPED")
             continue
+        na = sum(1 for r in rs if r.status == "N/A")
+        rs = [r for r in rs if r.status != "N/A"]
         ok = sum(1 for r in rs if r.status == "PASS")
-        out.append(f"{pid:20} {ok} of {len(rs)} trials passed" + ("" if ok == len(rs) else f", {len(rs) - ok} FAILED"))
+        out.append(f"{pid:20} {ok} of {len(rs)} trials passed" + ("" if ok == len(rs) else f", {len(rs) - ok} FAILED") + (f"; {na} N/A (declared for other platforms)" if na else ""))
     return "\n".join(out)
 
 
@@ -401,7 +438,7 @@ def main(argv):
     print(table(rows, skipped))
     print()
     print(totals(rows, skipped))
-    bad = [r for r in rows if r.status != "PASS"]
+    bad = [r for r in rows if r.status not in ("PASS", "N/A")]
     print(f"wall time {wall:.0f}s; " + ("ALL PASSED" if not bad else f"{len(bad)} FAILED") + (f"; {len(skipped)} platform(s) SKIPPED" if skipped else ""))
     return 1 if bad or (not rows and not skipped) else 0
 

@@ -1,0 +1,7 @@
+[bees] mode=beam node=hub@localhost transport=tls tls_verify=verify_peer auth=cookie creation=1 epmd=none epmd_port=4369 net_tick io_ms=60000 tick_ms=15000 links=3 ea@localhost:listen,ec@localhost:listen,d@localhost:listen frame_size_max=4294967295
+[bees] BEAM mode: Erlang cookie authentication inside TLS 1.3 (transport tls, verify_peer against cacertfile, 127.0.0.1); key exchange X25519MLKEM768 or classical X25519; certificates Ed25519, ECDSA P-256 or RSA (PSS, 2048 bits or more); a downgrade from TRUST
+[bees audit] cookie digest accepted from d@localhost 0
+[bees audit] handshake complete with d@localhost 2
+hub: req_d n=34
+hub: ans_d sent
+exit=0

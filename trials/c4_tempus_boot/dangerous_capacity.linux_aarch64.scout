@@ -1,0 +1,3 @@
+tempus: boot refused: tempus_edge: capacity is not 1 to 256
+boot: refused, nothing started
+exit=1

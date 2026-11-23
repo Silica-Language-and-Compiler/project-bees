@@ -32,7 +32,8 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
-sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(HERE, "lib"))      # the extension
+sys.path.insert(0, os.path.join(HERE, "testing"))  # TEST ONLY: its test support
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import bees_tempus_admission as adm  # noqa: E402
 import bees_tempus_codec as codec  # noqa: E402

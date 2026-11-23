@@ -1,9 +1,10 @@
-ok    models: the model's lines are the goldens of trials/t0_tempus_view and trials/t1_tempus_store (4 files)
+ok    models: the model's lines are the goldens of trials/t0_tempus_view and trials/t1_tempus_store (6 files)
 ok    view, the calls behind the goldens: 20623 calls give the model's answers
 ok    store, the steps behind the goldens: 6006 calls give the model's answers
 ok    view, generated cases: 6074 calls give the model's answers
 ok    store, generated cases: 3434 calls give the model's answers
 ok    clock: there is a recorded output to compare with
+ok    clock clock.linux_aarch64.scout: every line of the golden is computed again
 ok    clock clock.linux_x86_64.scout: every line of the golden is computed again
 ok    clock clock.macos_applesilicon.scout: every line of the golden is computed again
 ok    configuration: a good value is accepted, for an edge and for a first sentinel
@@ -12,13 +13,14 @@ ok    configuration: sentinels are required unless the node is the first sentine
 ok    configuration: the clock's choices are closed sets, and the limit belongs to stop alone
 ok    configuration: the bridge role is refused, and a role outside the set
 ok    start refusals: a good set of values is not refused
-ok    start refusals: the fault of trials/c4_tempus_boot dangerous_capacity is refused with the Silica node's line (2 goldens)
-ok    start refusals: the fault of trials/c4_tempus_boot dangerous_shuffle is refused with the Silica node's line (2 goldens)
-ok    start refusals: the fault of trials/c4_tempus_boot dangerous_producer is refused with the Silica node's line (2 goldens)
-ok    start refusals: the fault of trials/c4_tempus_boot dangerous_clockback is refused with the Silica node's line (1 goldens)
-ok    start refusals: the fault of trials/c4_tempus_boot dangerous_token is refused with the Silica node's line (2 goldens)
+ok    start refusals: the fault of trials/c4_tempus_boot dangerous_capacity is refused with the Silica node's line (3 goldens)
+ok    start refusals: the fault of trials/c4_tempus_boot dangerous_shuffle is refused with the Silica node's line (3 goldens)
+ok    start refusals: the fault of trials/c4_tempus_boot dangerous_producer is refused with the Silica node's line (3 goldens)
+ok    start refusals: the fault of trials/c4_tempus_boot dangerous_clockback is refused with the Silica node's line (3 goldens)
+ok    start refusals: the fault of trials/c4_tempus_boot dangerous_token is refused with the Silica node's line (3 goldens)
 ok    start refusals: a node's own token must read, be of the node's type and name the node's key
+ok    the node's entry check, dangerous_admit.linux_aarch64.scout: the verdict and the reason the Silica node gave, on every descriptor case
 ok    the node's entry check, dangerous_admit.linux_x86_64.scout: the verdict and the reason the Silica node gave, on every descriptor case
 ok    the node's entry check, dangerous_admit.macos_applesilicon.scout: the verdict and the reason the Silica node gave, on every descriptor case
-22 passed, 0 failed
+24 passed, 0 failed
 exit=0

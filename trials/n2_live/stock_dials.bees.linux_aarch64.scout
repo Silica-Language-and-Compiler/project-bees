@@ -1,0 +1,18 @@
+[bees] mode=beam node=beesl@localhost transport=tcp auth=cookie creation=1 epmd=external epmd_port=22090 net_tick io_ms=8000 tick_ms=2000 link=stock@localhost role=listen frame_size_max=4096
+[bees] BEAM mode: Erlang cookie authentication, no encryption (transport tcp, 127.0.0.1); a downgrade from TRUST
+[bees audit] epmd: registered (the node keeps its own creation) beesl 22000
+[bees audit] cookie digest accepted from stock@localhost 0
+[bees audit] handshake complete with stock@localhost 0
+[bees audit] net_kernel is_auth answered yes to stock@localhost 0
+[bees audit] frame dropped, not a name this node serves global_name_server -1
+[bees audit] frame dropped, not a name this node serves rex -1
+inbox got op=hello n=1
+inbox: answered with a cast to outbox
+[bees audit] SEND to a handed-out pid, for inbox 0
+inbox got op=viapid n=3
+[bees audit] SEND to a pid this node did not hand out, dropped stock@localhost 99
+[bees audit] LINK to a handed-out pid accepted, counted (exits wait for the exit hub) stock@localhost 0
+[bees audit] UNLINK_ID answered UNLINK_ID_ACK, counted stock@localhost 0
+[bees audit] LINK to a pid this node does not have, answered EXIT noproc stock@localhost 99
+[bees audit] LINK to a handed-out pid accepted, counted (exits wait for the exit hub) stock@localhost 0
+exit=killed (SIGKILL)

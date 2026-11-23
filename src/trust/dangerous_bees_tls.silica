@@ -20,8 +20,9 @@
 //          sender). It closes the carrier after the last ciphertext, and frees the engine's state when the link tells it the
 //          carrier has gone. The engine's state is used by both workers; the engine serializes them per connection.
 //   ttlsl  the LISTENER (a plain actor, not a worker): owns the listening carrier, forwards (:link_up, "port:N"), and for every
-//          (:accepted, conn, _) starts a role-2 link on conn and tells its owner (:accepted, link, "peer:accepted"), as the carrier
-//          does. It is kept apart from ttls because it lives as long as the node: ttls takes a whole-state copy at every dispatch
+//          (:accepted, fd, _) starts the connection's carrier from the descriptor fd (the standard library's listener hands
+//          over the descriptor and starts no actor, since 2026-11-20) and a role-2 link on it, and tells its owner
+//          (:accepted, link, "peer:accepted"). It is kept apart from ttls because it lives as long as the node: ttls takes a whole-state copy at every dispatch
 //          (W2300, "the result shape is not analysed"), and in a long-lived actor that grew memory by about 1 MiB per accepted
 //          connection (SD-35: 2.0 GB after 2,000 connections, measured 2026-11-12); ttlsl's state is two references.
 // Roles of the link, chosen by how it is started (src/shim/bees_trust_link_tls.part, or by the listener):
@@ -46,6 +47,7 @@ use bees_atoms;
 use bees_trust_frame;
 use bees_trust_conf;
 use dangerous_bees_tls_native;
+use dangerous_tcp_carrier;
 
 export ttls/2;
 export ttlsw/2;
@@ -566,7 +568,7 @@ fn ttlsw(msg: (:tx, string, actor_ref) | (:credit, int64) | :close | (:tx_credit
 }
 
 // ======================================================================== ttlsl, the listener
-fn l_act(msg: (:open, actor_ref, string) | :close | (:link_up, string) | (:accepted, dangerous_actor_ref, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom), st: { owner: actor_ref, car: dangerous_actor_ref }, me: actor_ref) -> actor_ref {
+fn l_act(msg: (:open, actor_ref, string) | :close | (:link_up, string) | (:accepted, int64, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom), st: { owner: actor_ref, car: dangerous_actor_ref }, me: actor_ref) -> actor_ref {
     case msg of {
         (:open, o: actor_ref, a: string) -> {
             sequence proc[concurrency]
@@ -575,8 +577,11 @@ fn l_act(msg: (:open, actor_ref, string) | :close | (:link_up, string) | (:accep
         };
         :close -> { sequence proc[concurrency] _: boolean <- cast(st.car, :close impl ActorMessage {}) produces pure st.owner end };
         (:link_up, i: string) -> { sequence proc[concurrency] _: boolean <- cast(st.owner, (:link_up, i) impl ActorMessage {}) produces pure st.owner end };
-        (:accepted, c: dangerous_actor_ref, _i2: string) -> {
+        (:accepted, fd: int64, _i2: string) -> {
             sequence proc[concurrency]
+                // the listener hands over the accepted descriptor and starts no actor (the standard library's contract
+                // since 2026-11-20): the connection's carrier is started here, unsupervised, as the listener used to
+                c: dangerous_actor_ref <- spawn_dangerous({ owner: actor_ref_of_word(0), fd: fd, rx_credit: 0, up: false, listening: false, link_spec: "" }, dangerous_tcp_carrier@carrier, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
                 l: dangerous_actor_ref <- spawn_dangerous({ owner: actor_ref_of_word(0), car: c, w: c, h: 0 - 1, role: 2, phase: 0, credit: 0, car_out: false, srv: 0 - 1, told: false, fp_sent: false }, ttls, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
                 _: boolean <- cast(st.owner, (:accepted, l, "peer:accepted") impl ActorMessage {})
             produces pure st.owner end
@@ -589,7 +594,7 @@ fn l_act(msg: (:open, actor_ref, string) | :close | (:link_up, string) | (:accep
 }
 // The listening link: (:open, owner, "listen:...") from the node opens its carrier; the carrier's (:link_up, "port:N") and
 // (:link_down, _) go to the owner; every accepted connection gets its own link (role 2). The state is the owner and the carrier.
-fn ttlsl(msg: (:open, actor_ref, string) | :close | (:link_up, string) | (:accepted, dangerous_actor_ref, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom), st: { owner: actor_ref, car: dangerous_actor_ref }) -> (:no_reply, { owner: actor_ref, car: dangerous_actor_ref }) {
+fn ttlsl(msg: (:open, actor_ref, string) | :close | (:link_up, string) | (:accepted, int64, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom), st: { owner: actor_ref, car: dangerous_actor_ref }) -> (:no_reply, { owner: actor_ref, car: dangerous_actor_ref }) {
     sequence proc[concurrency]
         me: actor_ref <- self();
         owner: actor_ref <- l_act(msg, st, me);

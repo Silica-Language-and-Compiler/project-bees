@@ -1,4 +1,4 @@
-# C7: the Python TEMPUS extension as a NODE (example_tempus_clients/python/bees_tempus_node.py), in one network with Silica
+# C7: the Python TEMPUS extension as a NODE (example_tempus_clients/python/lib/bees_tempus_node.py), in one network with Silica
 # nodes on 127.0.0.1 (development-plan/tempus-design.md sections 3 to 6 and 8 to 11; owner's ruling of 2026-11-23:
 # "nodes on non-silica are the plan").
 #   tests         the extension's own tests (example_tempus_clients/python/test_bees_tempus_node.py and
@@ -21,7 +21,8 @@
 #                 to be the same, word for word.
 # Each Silica program is built in its own directory under nodes/, so that each has its own list of units (lib/), as
 # trials/t6_tempus_clock builds its nodes. `make production-check` (part of integrate) searches the Python extension's
-# modules for any trace of test support, and requires the same search to find it in the test support itself.
+# modules (example_tempus_clients/python/lib/bees_tempus_*.py) for any trace of test support, and requires the same
+# search to find it in the test support itself (example_tempus_clients/python/testing/bees_tempus_testing.py).
 # Needs Python 3 with the `cryptography` package and an ssl module over OpenSSL 3.5 or later (the key exchange group
 # X25519MLKEM768). Nothing is fetched. Files this trial writes while it runs: whitelist/, r_app.json, r_token.hex.
 # Post-processing of the Silica nodes' outputs: tools/bees_tempus_reports.py (as every TEMPUS trial).
@@ -48,8 +49,8 @@ fixtures:
 build: tools natives fixtures
 	@for n in $(NODES); do $(MAKE) --no-print-directory -C "$(HERE)/nodes/$$n" build SILICA_COMPILER="$(SILICA_COMPILER)" || exit 1; done
 production-check:
-	@cd "$(EXT)" && if grep -n -E '$(TRACES)' $(LIBRARY); then echo "FAIL: [c7_tempus_node_python] a module of the Python extension holds a trace of test support (the lines above)"; exit 1; fi; \
-	grep -q -E '$(TRACES)' bees_tempus_testing.py || { echo "FAIL: [c7_tempus_node_python] the search finds nothing in the test support either, so it proves nothing"; exit 1; }; \
+	@cd "$(EXT)/lib" && if grep -n -E '$(TRACES)' $(LIBRARY); then echo "FAIL: [c7_tempus_node_python] a module of the Python extension holds a trace of test support (the lines above)"; exit 1; fi; \
+	grep -q -E '$(TRACES)' ../testing/bees_tempus_testing.py || { echo "FAIL: [c7_tempus_node_python] the search finds nothing in the test support either, so it proves nothing"; exit 1; }; \
 	echo "[c7_tempus_node_python] production check: no trace of test support in the $(words $(LIBRARY)) modules of the Python extension; the same search finds it in bees_tempus_testing.py"
 run: build
 	@cd "$(HERE)" && for o in $(OUTS); do : > "$$o.sout"; done; \

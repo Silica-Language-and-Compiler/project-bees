@@ -1,0 +1,7 @@
+[trust] TEST ONLY: plaintext transport, peer identity is a test-supplied stand-in for the certificate fingerprint
+[trust] mode trust, listen 127.0.0.1:23001, whitelist 0 entries, pinned servers 3, frame_size_max 4096, args_len_max 4096, term_depth_max 32, call_timeout_ms 1500, first_frame_timeout_ms 2000, suspicion_limit 3, token_bytes 48, token_ttl_sec 300, sessions (B2): max_inflight 4, max_calls 8, max_age_ms 60000, idle_ms 2000, drain_ms 1000
+[trust] TRUST standalone: no whitelist file configured, no inbound connections accepted
+step 1 raw: a session, two slow calls, a cast, then 6 MiB of requests: the server closed the connection
+step 2 cast demo:stats([]): {ok, cast}
+pause done
+exit=0

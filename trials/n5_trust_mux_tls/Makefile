@@ -29,7 +29,7 @@ SCENARIOS := \
 ONLY ?=
 SCEN_QUOTED := $(foreach s,$(if $(ONLY),$(filter $(ONLY)|%,$(SCENARIOS)),$(SCENARIOS)),'$(s)')
 # as trials/n5_trust_mux: addresses, the runtime's root-actor lines, wall-clock values
-CLEAN_OUT = clean_out() { $(SED_I) -E -e 's/0x[0-9a-f]{6,}/0xADDR/g' -e 's/(age_ms|duration_ms|paused_ms)=[0-9]+/\1=N/g' -e 's/^(\[trust metrics\] trust_[a-z_]*_ms_sum) [0-9]+/\1 N/' "$$@" && $(STRIP_ROOT_EXIT) "$$@"; }; clean_out
+CLEAN_OUT = clean_out() { $(SED_I) -E -e 's/0x[0-9a-f]{6,}/0xADDR/g' -e 's/(age_ms|duration_ms|paused_ms)=[0-9]+/\1=N/g' -e 's/^(\[trust metrics\] trust_[a-z_]*_ms_sum) [0-9]+/\1 N/' "$$@" && $(STRIP_ROOT_EXIT) "$$@" && $(STRIP_CARRIER_LINK_LOST) "$$@"; }; clean_out
 .PHONY: build run integrate record-golden clean measure tls
 # the engine, or the leaf fails here with native/Makefile's refusal (the OpenSSL found, and the 4.1.0 minimum)
 tls:

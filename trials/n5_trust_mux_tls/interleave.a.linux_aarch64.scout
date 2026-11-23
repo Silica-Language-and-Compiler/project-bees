@@ -1,0 +1,63 @@
+[trust] transport: mutual TLS 1.3 over the programmer-installed OpenSSL; peer identity: the SHA-512 of its certificate
+[trust] mode trust, transport mutual TLS 1.3 (ALPN trust/1, X25519MLKEM768, peers by the SHA-512 of their certificate, pins only, no cacertfile), listen 127.0.0.1:23100, whitelist 2 entries, pinned servers 0, frame_size_max 4096, args_len_max 4096, term_depth_max 32, call_timeout_ms 3000, first_frame_timeout_ms 500, suspicion_limit 3, token_bytes 48, token_ttl_sec 300, sessions (B2): max_inflight 2, max_calls 8, max_age_ms 60000, idle_ms 2000, drain_ms 1000
+[trust] listening on 127.0.0.1:23100
+[trust audit] tls_established fp=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn trust/1, mutual, as server 0
+[trust audit] token_issued fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f new token for this fingerprint (the token itself is never logged) 0
+[trust telemetry] session.start client_id=fp:7e6dfd8484a57a96 conn=0
+[trust audit] admitted fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f call demo:add/2 0
+[trust telemetry] request.accept type=call req_id=0000000000000000000000000001 conn=0
+[trust telemetry] request.finish req_id=0000000000000000000000000001 outcome=ok duration_ms=N conn=0
+[trust audit] admitted fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f call demo:slow/1 0
+[trust telemetry] request.accept type=call req_id=0000000000000000000000000002 conn=0
+[trust audit] admitted fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f call demo:add/2 0
+[trust telemetry] request.accept type=call req_id=0000000000000100000000000003 conn=0
+[trust telemetry] pause inflight=2 conn=0
+[trust telemetry] request.finish req_id=0000000000000100000000000003 outcome=ok duration_ms=N conn=0
+[trust telemetry] resume paused_ms=N conn=0
+[trust audit] admitted fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f cast demo:note/1 0
+[trust telemetry] request.accept type=cast req_id=0000000000000400000000000004 conn=0
+[trust telemetry] pause inflight=2 conn=0
+[trust telemetry] request.finish req_id=0000000000000400000000000004 outcome=ok duration_ms=N conn=0
+[trust telemetry] resume paused_ms=N conn=0
+[trust audit] admitted fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f call demo:echo/1 0
+[trust telemetry] request.accept type=call req_id=0000000000000200000000000005 conn=0
+[trust telemetry] pause inflight=2 conn=0
+[trust telemetry] request.finish req_id=0000000000000200000000000005 outcome=ok duration_ms=N conn=0
+[trust telemetry] resume paused_ms=N conn=0
+[trust telemetry] request.finish req_id=0000000000000000000000000002 outcome=ok duration_ms=N conn=0
+[trust audit] admitted fp=7e6dfd8484a57a966622b3db878068719fb267b745f30133595abdb0ad17b9e388e2ebc8e472237c094bc181348528782b5344120a0bfaffcc697d380267676f cast demo:stats/0 0
+[trust telemetry] request.accept type=cast req_id=0000000000000400000000000006 conn=0
+[trust telemetry] request.finish req_id=0000000000000400000000000006 outcome=ok duration_ms=N conn=0
+[trust metrics] trust_sessions_started_total 1
+[trust metrics] trust_sessions_active 1
+[trust metrics] trust_sessions_ended_total{reason="limit_reached"} 0
+[trust metrics] trust_sessions_ended_total{reason="shutdown"} 0
+[trust metrics] trust_sessions_ended_total{reason="deny"} 0
+[trust metrics] trust_sessions_ended_total{reason="protocol"} 0
+[trust metrics] trust_sessions_ended_total{reason="client_cancel"} 0
+[trust metrics] trust_sessions_ended_total{reason="other"} 0
+[trust metrics] trust_goaway_total{reason="limit_reached"} 0
+[trust metrics] trust_goaway_total{reason="shutdown"} 0
+[trust metrics] trust_goaway_total{reason="deny"} 0
+[trust metrics] trust_goaway_total{reason="protocol"} 0
+[trust metrics] trust_requests_total{type="call",outcome="ok"} 4
+[trust metrics] trust_requests_total{type="call",outcome="error"} 0
+[trust metrics] trust_requests_total{type="cast",outcome="ok"} 2
+[trust metrics] trust_requests_total{type="cast",outcome="error"} 0
+[trust metrics] trust_requests_refused_total{reason="draining"} 0
+[trust metrics] trust_requests_refused_total{reason="duplicate"} 0
+[trust metrics] trust_requests_refused_total{reason="malformed"} 0
+[trust metrics] trust_requests_refused_total{reason="max_inflight"} 0
+[trust metrics] trust_duplicates_total 0
+[trust metrics] trust_client_cancels_total 0
+[trust metrics] trust_worker_crashes_total{class="error"} 0
+[trust metrics] trust_protocol_close_total 0
+[trust metrics] trust_resume_reads_total 3
+[trust metrics] trust_session_age_ms_sum N
+[trust metrics] trust_result_latency_ms_sum N
+[trust metrics] trust_paused_duration_ms_sum N
+[trust metrics] trust_session_age_ms_count 0
+[trust metrics] trust_result_latency_ms_count 6
+[trust metrics] trust_paused_duration_ms_count 3
+[trust telemetry] session.end reason=client_close age_ms=N calls_total=6 inflight_peak=2 refused=0 duplicates=0 conn=0
+exit=0

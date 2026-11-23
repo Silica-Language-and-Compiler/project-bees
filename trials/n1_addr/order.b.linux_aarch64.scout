@@ -1,0 +1,10 @@
+[bees] mode=beam node=b@localhost transport=tcp auth=cookie creation=1 epmd=none epmd_port=4369 net_tick io_ms=60000 tick_ms=15000 link=a@localhost role=dial frame_size_max=4096
+[bees] BEAM mode: Erlang cookie authentication, no encryption (transport tcp, 127.0.0.1); a downgrade from TRUST
+[bees] resolve two.stub: ok 127.0.0.2 (address 1 of 2)
+[bees audit] link lost; redial scheduled, delay in ms a@localhost 250
+[bees audit] redial attempt a@localhost 1
+[bees] resolve two.stub: ok 127.0.0.1 (address 2 of 2)
+[bees audit] cookie digest accepted from a@localhost 0
+[bees audit] handshake complete with a@localhost 0
+client: cast to inbox sent
+exit=0

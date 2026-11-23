@@ -11,7 +11,11 @@ trials/*/*
 !trials/s04_native_edge/dangerous_exposure_source
 !trials/m0_recreation/dangerous_exposure_source
 !trials/m2_ffi_shapes/dangerous_exposure_source
+# n2_auth (found missing on 2026-11-20: a fresh clone could not build the leaf, E4030, the sidecar was not found)
+!trials/n2_auth/dangerous_exposure_source
 !trials/*/sout.sed
+# the platforms a leaf runs on, read by tools/run_all_trials.py (no extension, so named here)
+!trials/*/platforms
 # M3: the roles and the node leaves (their generated files are ignored again below)
 !trials/m3_dist/roles/
 !trials/m3_dist/nodes/
@@ -258,7 +262,6 @@ trials/n1_frames/nodes/*/*
 !trials/n1_frames/nodes/*/node.wire
 !trials/n1_addr/nodes/*/node.atoms
 !trials/n1_addr/nodes/*/bees.config.in
-!trials/n1_addr/nodes/l/bees.config
 !trials/n1_frames/nodes/*/bees.config
 !trials/n1_addr/nodes/*/lib/
 !trials/n1_frames/nodes/*/lib/
@@ -579,3 +582,13 @@ trials/c8_tempus_node_swift/r.token
 trials/c9_tempus_node_kotlin/dangerous_[saq].silica
 trials/c9_tempus_node_kotlin/lib/bees_tempus_node.silica
 trials/c9_tempus_node_kotlin/.gen.mk
+# C7, the gossip examples of the example TEMPUS clients (example_tempus_clients/gossip, run by trials/c7_tempus_gossip):
+# what a run writes, and what the build of the Silica driver's leaf generates (its programs have no extension)
+example_tempus_clients/gossip/.run/
+example_tempus_clients/gossip/.silica_build.log
+example_tempus_clients/silica/driver/dangerous_g[s0-9]
+example_tempus_clients/silica/driver/dangerous_g[s0-9].silica
+example_tempus_clients/silica/driver/.gen.mk
+example_tempus_clients/silica/driver/lib/bees_tempus_node.silica
+example_tempus_clients/silica/driver/lib/tempus_ids.silica
+example_tempus_clients/silica/driver/lib/gossip_tokens.silica

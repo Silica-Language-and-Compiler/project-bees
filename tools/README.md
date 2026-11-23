@@ -7,10 +7,10 @@ Build and verification tools of BEES. This file documents the platform, golden-n
 
 `tools/platform.mk` (make) and `tools/platform_id.py` (Python) say which platform a build is for:
 
-| | macOS Apple Silicon | Linux x86_64 |
-|---|---|---|
-| `BEES_PLATFORM` (the `native/` directory) | `macos` | `linux` |
-| `BEES_PLATFORM_ID` (golden name, same spelling as Silica) | `macos_applesilicon` | `linux_x86_64` |
+| | macOS Apple Silicon | Linux x86_64 | Linux aarch64 (Raspberry Pi 5) |
+|---|---|---|---|
+| `BEES_PLATFORM` (the `native/` directory) | `macos` | `linux` | `linux` (the same directory) |
+| `BEES_PLATFORM_ID` (golden name, same spelling as Silica) | `macos_applesilicon` | `linux_x86_64` | `linux_aarch64` |
 
 Both default from `uname -s` / `uname -m` and can be set on the command line or in the environment.
 
@@ -31,7 +31,7 @@ measurements, the Erlang oracle vectors (`tools/etf_oracle/`, platform-free).
 `make integrate` compares a run only with `NAME.$(BEES_PLATFORM_ID).scout`. With none the leaf fails loudly: `MISSING golden for
 linux_x86_64 (record one on this platform with make record-golden): [leaf] file`. `make record-golden` writes the current platform's
 goldens, leaving the others alone, so the Linux goldens (`NAME.linux_x86_64.scout`, recorded 2026-11-18) sit beside the Mac ones.
-Makefiles use `$(GOLD_SUFFIX)` (`.macos_applesilicon`, `.linux_x86_64`), Python uses `platform_id.golden_name("main.scout")`. Where
+Makefiles use `$(GOLD_SUFFIX)` (`.macos_applesilicon`, `.linux_x86_64`, `.linux_aarch64`), Python uses `platform_id.golden_name("main.scout")`. Where
 the outputs of the two platforms differ, and why, is listed in `native/linux/README.md` ("Goldens").
 
 What a Makefile or a tool needs that differs between the platforms comes from `native/$(BEES_PLATFORM)/platform.mk` (`native/README.md`
@@ -78,7 +78,7 @@ linux_x86_64 manager@aalang.org /opt/bees /opt/openssl 2 SILICA_COMPILER=/opt/si
 ```
 
 `-` for no OpenSSL prefix or for this machine's `-j`. NOTES is free text; the tokens `SILICA_COMPILER`, `SILICA_ROOT`, `BEES_COMPILE_JOBS`,
-`SILICA_COMPILE_TIMEOUT` are passed to the remote run. `tools/silica.mk` takes `SILICA_COMPILER` from the make command line only, so the
+`SILICA_COMPILE_TIMEOUT` are passed to the remote run; `BEES_PATH_PREFIX=DIR[:DIR]` puts directories before the remote's `PATH` (a programmer's Erlang/OTP in the home directory: `BEES_PATH_PREFIX=/home/u/opt/erlang/bin`). `tools/silica.mk` takes `SILICA_COMPILER` from the make command line only, so the
 runner hands the one in its environment (here, or on the remote from the notes) to every make it starts as an argument
 (`make ... SILICA_COMPILER=...`); a remote line must name a compiler of that machine's platform, because the default
 `binaries/silica-compiler` of a checkout copied from a Mac is the macOS one. The file holds no keys, passwords or tokens (the reader refuses a line that mentions one);
@@ -93,10 +93,21 @@ The runner reads the file when it exists (`--remote` insists on it, `--no-remote
 back; (5) its rows join the table. `--list` and `--dry-run` print these commands and run none.
 
 **Platform switch.** `tools/platform_id.py` holds one build switch per platform (the last field of its `PLATFORMS` rows).
-`linux_x86_64` is True since 2026-11-18 (`native/linux/` and the Linux goldens exist), so a `linux_x86_64` line of the hosts file is run and a
-Linux machine running the script runs its own platform. `esp32s3` and `nucleo` are False: their lines are listed and reported `SKIPPED` with the
+`linux_x86_64` is True since 2026-11-18 (`native/linux/` and the Linux goldens exist), `linux_aarch64` since 2026-11-21 (the same `native/linux/`), so a
+line of the hosts file for either is run and a Linux machine running the script runs its own platform. `esp32s3` and `nucleo` are False: their lines are listed and reported `SKIPPED` with the
 reason. `test_platform_and_ports.py` pins the switches (`test_build_switches`), checks that a platform that builds has its `platform.mk` and
-sources and that every Mac golden has its Linux counterpart; `test_run_all_trials.py` checks the compiler hand-over.
+sources and that every Mac golden has its Linux x86-64 and Linux aarch64 counterparts (the aarch64 twin rule: see "Goldens of a third platform" in `native/linux/README.md`); `test_run_all_trials.py` checks the compiler hand-over.
+
+### Trials for specific platforms: `trials/LEAF/platforms`
+
+A trial that needs something only some platforms have (Swift, Kotlin and a JDK 27 exist on the Mac only) says so in a file
+`trials/LEAF/platforms`: platform identifiers, whitespace separated, `#` starts a comment (put the reason there). The runner does not run
+that trial on any other platform: it prints and records the row as `N/A` with `declared only for ... (trials/LEAF/platforms)`, counts it
+neither as a pass nor as a failure (totals read `N of M trials passed; K N/A`), and the exit status ignores it. A trial without the file
+is for every platform that builds, and one that is missing a toolchain there still FAILS loudly (the project's rule: a trial never
+skips by itself). `test_platform_and_ports.py` asks no golden of a platform a trial is not declared for (and fails when one exists), and
+checks the file's ids. Declared today: `c5_tempus_swift`, `c6_tempus_kotlin`, `c7_tempus_gossip` (macOS Apple Silicon only). A make run
+of such a leaf by hand does what its Makefile says (all three fail loudly when their toolchain is missing).
 
 ## Two machines: `bees_interchange.py`
 

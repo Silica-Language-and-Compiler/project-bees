@@ -618,7 +618,7 @@ The order follows OQ-17 (admission and TLS before any networked node trial) and 
 | 4 | T4 | Admission: Ed25519 verify and sign and SHA-512 in the native edge (`native/tempus/`), the token check, proof of possession, `kid` pinning, expiry and skew, `key_rotated`; a tool that makes test keys and tokens | goldens for acceptance and for each refusal, in one process | built 2026-11-18: the rules, the native edge, the verifier actor, `trials/t4_tempus_admission` (the `key_rotated` frame itself is written by T3's connection actor; T4 gives the verdict) |
 | 5 | T5 | Mutual TLS 1.3 with ALPN `tempus/1` and self-signed Ed25519 certificates; the `tempus` whitelist | as N4.1 | built 2026-11-18: the engine's three additions (`trials/t5_tempus_tls`), the TEMPUS link and the connection actor's admission with the channel binding and the whitelist (`trials/t5_tempus_link`, two processes over TLS on loopback) |
 | 6 | T3 | Nodes over TLS on loopback: listener, connection actors, join through a sentinel, test-only ticks and clock (then `control_test_only`, since 2026-11-20 the test unit of 16.3); a three-node trial | goldens for join, shuffle, a dead partner, a hostile peer | built 2026-11-18: the node part (`src/tempus/bees_tempus_node.part`), the store adapters (`bees_tempus_node.silica.in`), the draw converter (`dangerous_bees_tempus_draws.silica`), `trials/t3_tempus_nodes` (three nodes and the Python client; port block 23800); NQ-11 to NQ-14 are open and built provisionally |
-| 7 | C2 | Both clients as TEMPUS peers on the wire (dialing and listening); the thin Silica app; the rows of 16.2 that need no bridge | each such row has a trial from each client | built 2026-11-18, goldens 2026-11-19: `example_tempus_clients/silica/bees_tempus_client.part`, `trials/c2_tempus_clients` (port block 23900) with `COVERAGE.md`; rows 12 "no proof", 18 "closes after the advert" and 20 from the Python client only (16.4) |
+| 7 | C2 | Both clients as TEMPUS peers on the wire (dialing and listening); the thin Silica app; the rows of 16.2 that need no bridge | each such row has a trial from each client | built 2026-11-18, goldens 2026-11-19: `example_tempus_clients/silica/lib/bees_tempus_client.part`, `trials/c2_tempus_clients` (port block 23900) with `COVERAGE.md`; rows 12 "no proof", 18 "closes after the advert" and 20 from the Python client only (16.4) |
 | 8 | T6 | The bridge node (section 17): TRUST and TEMPUS in one program, two keys, per-type spec, per-peer score and bounds from the application | goldens with an edge client, two bridges and a TRUST node | built 2026-11-19: `src/tempus/bees_tempus_bridge.silica` (the per-peer table and the per-request actor), `bees_tempus_bridge.part` (`tempus_bridge_start`, `tempus_bridge_onward`), the node's call and cast going to the bridge's table (`bees_tempus_node.part`), `tools/bees_tempus_gen.py bridge` and `spec`; `src/trust` unchanged; NQ-18 to NQ-20 |
 | 9 | C3 | The clients against the bridge: the rest of 16.2 | every row of 16.2 has a trial from each client | built 2026-11-19: `trials/c3_tempus_bridge` (port block 24200) with `COVERAGE.md`; rows 29 and 33 and the quarantine of 17.7 from the Python client only |
 | 10 | T7 | Configuration: the `tempus` section and the three `mode` spellings through the `(:store)` carrier, validation, the packer | when D46's store reader exists for TRUST | in part 2026-11-19: the node's boot refusals from its arguments (`tempus_node_boot`, `bees_tempus_node@boot_why`, `trials/c4_tempus_boot`, port block 24300), `tools/bees_tempus_conf.py` (the mode spellings and the `tempus` section, with tests); the store-carrier conversion waits on D46's reader (NQ-21) |
@@ -1003,14 +1003,14 @@ Moved 2026-11-20 (owner): both clients are in `example_tempus_clients/` (`silica
 `tools`. They are examples only, not for production; `example_tempus_clients/README.md` says so and
 `example_tempus_clients/writing-a-tempus-client.md` says what a client in any language has to do.
 
-- Library, `example_tempus_clients/silica/`: `bees_tempus_client` (pure: for every operation of 16.2 the frame to send and the reading
+- Library, `example_tempus_clients/silica/lib/` (in `silica/` itself until the division of 2026-11-20, 16.7): `bees_tempus_client` (pure: for every operation of 16.2 the frame to send and the reading
   of the reply, over the node's own frame unit `bees_tempus_frame`; also the deliberately wrong frames, each by a named
   function) and, from C2, `dangerous_bees_tempus_client` (the active part: one actor per connection, dialing or accepting
   through the language's carrier and the TLS link, running admission, sending one request, handing the typed reply to the
   actor the caller named; a `dangerous_` unit because it spawns a carrier). It reads no file: addresses, key bytes, token
   bytes and draws are arguments `[B: N0c, D46]`.
   Built in C2 `[P, forced by the language: the carrier's spawn site stays in the root unit (SD-17) and a root unit may not
-  call a function of a dangerous_ unit (E4042)]`: the active part is not a unit but `example_tempus_clients/silica/bees_tempus_client.part`,
+  call a function of a dangerous_ unit (E4042)]`: the active part is not a unit but `example_tempus_clients/silica/lib/bees_tempus_client.part`,
   pasted into the application's root unit by `tools/bees_tempus_gen.py` as the node part is. Each connection is the node's
   own connection actor (`dangerous_bees_tempus_conn@tcon`), so the client and the node share one implementation of
   admission; the Python client is the independent one. Functions: `tempus_client_start(app, ci)`, `tempus_client_dial`,
@@ -1024,7 +1024,10 @@ Moved 2026-11-20 (owner): both clients are in `example_tempus_clients/` (`silica
 
 ### 16.5 The Python client
 
-`example_tempus_clients/python/bees_tempus_client.py`: a module and a command line, pure Python, nothing of the Silica library `[B: OQ-19]`. It has
+`example_tempus_clients/python/bees_tempus_client.py`: a module and a command line, pure Python, nothing of the Silica library `[B: OQ-19]`.
+Since the division of 2026-11-20 (16.7) that file is the name the trial tools import: the code is the library
+`example_tempus_clients/python/lib/tempus_client/` (codec, frames, connection, gossip) and, for the trials only,
+`lib/tempus_client/testing.py`; what this section says of the module is true of them together. It has
 its own ETF writer and reader for the subset of section 5 (maps, atoms, binaries, integers, lists), written independently
 of the Silica side, so that agreement between the two is evidence and not a shared mistake. TLS is Python's `ssl` module;
 Ed25519 and SHA-512 are the `cryptography` package and `hashlib` (checked 2026-11-18: `cryptography` 46.0.3 is installed
@@ -1038,6 +1041,28 @@ A scenario is written twice, once as a thin Silica app (its output is a golden b
 script (it asserts the same replies); both walk the rows of 16.2 the milestone reaches. The Python client also carries the
 hostile cases Silica's carrier cannot produce (row 26). Coverage is kept as a table in the trial directory: row of 16.2,
 trial, scenario step, for each client.
+
+### 16.7 Library and driver, and the gossip part of each example (owner's request, 2026-11-20)
+
+Each of the four examples in `example_tempus_clients/` is divided into a library (`lib/`: the files an application
+would start from) and a driver application (`driver/`: a thin program over the library). Each library holds, beside
+frames, admission and single connections, a gossip part: the three stores with the rules of section 3, a shuffle on
+each store's timer, the join of section 6, and the answers to `shuffle` and `sample` from the stores, with a
+sentinel's insert of the asking peer (NQ-13).
+
+- Python (`lib/tempus_client/gossip.py`), Kotlin (`lib/Gossip.kt`) and Swift (`lib/TempusClient/Gossip.swift`) state
+  the rules again in their language: `Store` and `Peer`. The Python rules are compared, step for step on random
+  inputs, with the models `tools/bees_tempus_view_model.py` and `tools/bees_tempus_store_model.py`.
+- Silica (`lib/bees_tempus_peer.part`) does not state them again `[P]`: in Silica they are the units of `src/tempus`
+  and the node part, as admission already is for the single-connection part. `tempus_peer_start` starts that library
+  not externally driven and without the test unit.
+- What a `Peer` of the three does not have, and a node has: `inflight_max`, the clock choices of section 10 (the
+  application gives it a clock function), the bridge's calls and scores. Their `Verifier` applies the whitelist rule
+  when it is given a whitelist; the Python one is given none by the trials, as before.
+- `example_tempus_clients/gossip/` runs instances of the drivers as one network on one machine
+  (`trials/c7_tempus_gossip`): four instances of each driver, a Silica sentinel with one edge of each language, and
+  that network without Silica. All six were run and recorded on the Mac on 2026-11-20. The Silica driver's
+  application learns who its peer knows by asking it for samples over loopback, through the single-connection part.
 
 ## 17. Bridge nodes (owner requirement, 2026-11-18)
 

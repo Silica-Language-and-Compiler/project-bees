@@ -1,0 +1,34 @@
+configuration accepted
+beam.auth.auth = "cookie"
+beam.auth.cookie = (secret, not shown)
+beam.auth.redial.initial_ms = 500
+beam.auth.redial.max_ms = 8000
+beam.auth.redial.on = true
+beam.auth.transport = "tcp"
+beam.link[].address = "listen:23410"
+beam.link[].host = "127.0.0.1"
+beam.link[].how.by_epmd = false
+beam.link[].how.dials = false
+beam.link[].how.port = 23410
+beam.link[].how.resolve = false
+beam.link[].name = "b@localhost"
+beam.link[].address = "127.0.0.1:23411"
+beam.link[].host = "127.0.0.1"
+beam.link[].how.by_epmd = false
+beam.link[].how.dials = true
+beam.link[].how.port = 23411
+beam.link[].how.resolve = false
+beam.link[].name = "c@localhost"
+beam.net.epmd.mode = "none"
+beam.net.epmd.port = 4369
+beam.net.listen_address = "127.0.0.1"
+beam.net.listen_port = 23410
+beam.net.listener = "listen:23410"
+node.creation = 1
+node.name = "a@localhost"
+beam.time.frame_max = 4096
+beam.time.io_ms = 60000
+beam.time.open_ms = 7000
+beam.time.tick_ms = 15000
+done
+exit=0

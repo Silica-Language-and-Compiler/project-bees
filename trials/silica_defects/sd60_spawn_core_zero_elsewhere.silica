@@ -1,0 +1,30 @@
+use bees_reporter;
+// SD-60 (expected: "first on core 0: true", "second on core 0: true", "on core 3: true", exit 0): OS-hosted, an actor
+// spawned with core 0 is not bound to core 0's carrier; the runtime puts it where it puts an actor spawned with no
+// core (on a 10-carrier Mac two such spawns land on carriers 4 and 5). A spawn on core 3 is on carrier 3, and
+// migrate_actor(a, 0) binds to carrier 0, which is what the probe here uses. Found by A6 (bees_place), 2026-11-22.
+fn idle(msg: int64, state: int64) -> (:no_reply, int64) { (:no_reply, state + msg) }
+fn same(what: string, a: actor_ref, b: actor_ref) -> atom {
+    sequence proc[concurrency, device_io]
+        i: int64 <- actor_carrier_index(a);
+        j: int64 <- actor_carrier_index(b);
+        _: atom <- print(what);
+        _: atom <- print_boolean(i == j);
+        o: atom <- println("")
+    produces pure o end
+}
+fn main() -> int64 {
+    sequence proc[concurrency]
+        _: atom <- bees_reporter@start();
+        zero: actor_ref <- spawn(0, idle, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: atom <- migrate_actor(zero, 0);
+        three: actor_ref <- spawn(0, idle, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: atom <- migrate_actor(three, 3);
+        a: actor_ref <- spawn(0, idle, stack_policy(0, :keep_last_message), state_policy(:keep_state_area), 0);
+        b: actor_ref <- spawn(0, idle, stack_policy(0, :keep_last_message), state_policy(:keep_state_area), 0);
+        c: actor_ref <- spawn(0, idle, stack_policy(0, :keep_last_message), state_policy(:keep_state_area), 3);
+        _: atom <- same("first on core 0: ", a, zero);
+        _: atom <- same("second on core 0: ", b, zero);
+        _: atom <- same("on core 3: ", c, three)
+    produces pure 0 end
+}

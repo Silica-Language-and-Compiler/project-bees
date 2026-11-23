@@ -35,11 +35,11 @@ private fun eq(a: Any?, b: Any?, what: String = "") {
 }
 
 // ---------------------------------------------------------------- group 1: the models
-private fun ent(s: String): Held<String>? = if (s == "-") null else s.split('~').let { Held(it[0], it[1], it[2].toInt()) }
-private fun view(s: String): List<Held<String>> = if (s == "-") emptyList() else s.split(',').map { ent(it)!! }
+private fun ent(s: String): NodeHeld<String>? = if (s == "-") null else s.split('~').let { NodeHeld(it[0], it[1], it[2].toInt()) }
+private fun view(s: String): List<NodeHeld<String>> = if (s == "-") emptyList() else s.split(',').map { ent(it)!! }
 private fun draws(s: String): List<Long>? = when (s) { "N" -> null; "-" -> emptyList(); else -> s.split(',').map { it.toLong() } }
-private fun show(e: Held<String>?): String = if (e == null) "-" else "${e.id}~${e.d}~${e.age}"
-private fun show(v: List<Held<String>>): String = if (v.isEmpty()) "-" else v.joinToString(",") { show(it) }
+private fun show(e: NodeHeld<String>?): String = if (e == null) "-" else "${e.id}~${e.d}~${e.age}"
+private fun show(v: List<NodeHeld<String>>): String = if (v.isEmpty()) "-" else v.joinToString(",") { show(it) }
 private fun showDraws(d: List<Long>?): String = if (d == null) "N" else if (d.isEmpty()) "-" else d.joinToString(",")
 
 private fun viewCase(f: List<String>): Pair<String, String> = when (f[1]) {
@@ -56,12 +56,12 @@ private fun viewCase(f: List<String>): Pair<String, String> = when (f[1]) {
     else -> throw AssertionError("no such view function: ${f[1]}")
 }
 
-private fun state(s: Store<String>): String =
+private fun state(s: NodeStore<String>): String =
     listOf(s.selfId, s.selfD, if (s.own) "1" else "0", s.cap.toString(), s.count.toString(), show(s.view), show(s.sent), show(s.partner), showDraws(s.tickDraws),
         showDraws(s.replyDraws)).joinToString("|")
 
 private fun storeCase(f: List<String>): Pair<String, String> {
-    val s = Store(f[1], f[2], f[3] == "1", f[4].toInt(), f[5].toInt())
+    val s = NodeStore(f[1], f[2], f[3] == "1", f[4].toInt(), f[5].toInt())
     s.view = view(f[6]); s.sent = view(f[7]); s.partner = ent(f[8]); s.tickDraws = draws(f[9]); s.replyDraws = draws(f[10])
     val arg = f[12]
     val out = when (f[11]) {

@@ -1,0 +1,22 @@
+a good edge token: admitted
+expired: refused: the token has expired
+not valid yet: refused: the token is not valid yet
+expired, inside the skew: admitted
+not valid yet, inside the skew: admitted
+expired at exactly exp plus skew: refused: the token has expired
+under another kid: refused: key_rotated
+under another kid and expired too: refused: key_rotated
+signed by a key that is not the producer's: refused: the signature does not verify
+sub is another key: refused: sub is not the peer's key
+a bridge token where an edge is wanted: refused: typ is not the store's type
+a bridge token where a bridge is wanted: admitted
+id is not the hash of pub: refused: id is not the SHA-512 of pub
+payload changed after signing: refused: the signature does not verify
+token cut short: refused: truncated
+proof of possession: admitted
+proof for another nonce: refused: the signature does not verify
+proof by another key: refused: the signature does not verify
+proof over another token: refused: the signature does not verify
+the node signs nonce and token: the same 64 bytes as the fixture's signature
+done
+exit=0

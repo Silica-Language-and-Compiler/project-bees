@@ -1,13 +1,13 @@
 // C7 Python node trial: node W, a Silica edge (identity 0) shaped like a PRODUCTION program: its build lists no unit
 // and no atom of src/tempus_test (nodes/w/lib), it is not externally driven, it reads the machine's clock and its
 // stores have their own timers (once an hour, so nothing in its output depends on time). Its own token is valid by
-// any present clock (variant 14). Its sentinel is the Python node R (port 24804), which is not a test node either:
+// any present clock (variant 14). Its sentinel is the Python node R (port 26104), which is not a test node either:
 // two nodes that both read the machine's clock, one of each kind.
 fn me() -> int64 { 0 }
 fn typ() -> int64 { 1 }
 fn tok() -> int64 { 14 }
-fn port() -> string { "24805" }
-fn sents() -> string { "127.0.0.1:24804" }
+fn port() -> string { "26105" }
+fn sents() -> string { "127.0.0.1:26104" }
 fn tick_ms() -> uint64 { 3600000 }
 fn driven() -> boolean { false }
 fn ext_start(app: actor_ref) -> actor_ref { app }

@@ -1,4 +1,4 @@
-# Linux on x86_64 (platform id linux_x86_64): the toolchain settings and the facilities native/ and tools/ use that differ
+# Linux on x86_64 and aarch64 (platform ids linux_x86_64, linux_aarch64; one directory, no per-architecture difference): the toolchain settings and the facilities native/ and tools/ use that differ
 # from the other platforms. Included by native/Makefile and tools/silica.mk when BEES_PLATFORM is linux (tools/platform.mk).
 # The values follow Silica's own trials/platform/linux_x86_64.mk.
 #
@@ -11,7 +11,11 @@ PLATFORM_SRC_CFLAGS = $(if $(OPENSSL_PREFIX),-I$(OPENSSL_PREFIX)/include)
 # Assembler and linker flags for the trial programs (Silica's .sams output). crt1.o calls main, so no entry flag. -no-pie:
 # the emitted data tables hold absolute addresses and the distribution's compilers default to PIE. -rdynamic: the actor
 # failure report names the running behavior with dladdr, which on glibc sees only .dynsym. GNU ld has no flag that sizes the
-# main thread's stack (the kernel takes it from the process limit, `ulimit -s`); none of the trials needs more than the default.
+# main thread's stack (the kernel takes it from the process limit, `ulimit -s`, 8 MiB by default). PLATFORM_MAIN_STACK_KB is the
+# limit that gives the main thread what the macOS link gives every program (-stack_size 0x10000000, 256 MiB); a leaf that sets
+# NEEDS_MAIN_STACK := 1 is run under it (RUN_TRIAL in tools/silica.mk). trials/c1_codec_term needs it: it builds terms of 60,000
+# tokens with one stack frame per token on the main thread (SD-59).
+PLATFORM_MAIN_STACK_KB := 262144
 PLATFORM_ASFLAGS :=
 PLATFORM_LDFLAGS := -no-pie -rdynamic -lpthread
 # the platform's sources, compiled into the archives (bees_platform.h): random into both the BEAM-mode and TRUST archives

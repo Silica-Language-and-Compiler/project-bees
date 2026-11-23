@@ -8,10 +8,11 @@ answers other members, reads a clock, and tells its application what happened.
 
 The authority for what a node does is the ruled design, `development-plan/tempus-design.md`. "Design section 3" below
 means a section of that document. Every statement here was checked against the code of the BEES TEMPUS node, the
-Silica library in `src/tempus/`, and where a file is named in brackets that is where it was checked. The Python
-extension in `python/` was written from this list, and the trial `trials/c7_tempus_node_python` runs its nodes and
-Silica nodes in one network; where that trial shows a statement, the section says so. Section 18 lists what is open
-and what could not be verified.
+Silica library in `src/tempus/`, and where a file is named in brackets that is where it was checked. The node half
+of the Python extension (the modules `python/lib/bees_tempus_*.py`) was written from this list, and the trial
+`trials/c7_tempus_node_python` runs its nodes and Silica nodes in one network; where that trial shows a statement, the
+section says so. Section 18 lists what is open and what could not be verified. Section 19 says how a node differs
+from the gossip discovery that the client libraries in this directory have.
 
 An extension is code in a language other than Silica that lets an application in that language take part in a TEMPUS
 network. The Python, Swift and Kotlin code in this directory are extensions.
@@ -515,3 +516,42 @@ the code for this document, see section 18):
   every line of that unit.
 - Memory and time. Nothing in this document was measured: no soak, no number of peers, no rate of connections.
 - Platforms. The mixed trial was run on a Mac with Apple Silicon only.
+
+## 19. The client libraries have gossip discovery too, and it is not a node
+
+Each client library in this directory (`python/lib/tempus_client`, `kotlin/lib`, `swift/lib/TempusClient`) has a
+gossip part of its own, a class named `Peer`. It was written on another line of work than the node halves of the
+extensions, from section 16 of the client document. `gossip/` runs these peers as networks of one language and of
+several. The Silica example is different: its gossip part starts BEES's own node library and is a node.
+
+A `Peer` of a client library and a node have the same core. Both keep the three stores by the rules of section 5,
+join by section 7, shuffle on their own timers by section 8, answer shuffles and samples by section 9, verify every
+entry, and stop ticking when their own token is not valid. A program can find other members with either.
+
+What a node does, by this document, that a client library's `Peer` does not. This list was checked against the
+Python client library and its tests. The Kotlin and Swift client libraries were written from the same section 16 of
+the client document; their READMEs name their own limits, and they were not checked line by line for this section.
+
+- The clock (section 12). A `Peer` takes the time from a function the application gives it and has no rule for a
+  clock that goes back or cannot be read. A node reads its own clock and follows the configured choices: follow,
+  hold or stop when the clock goes back, continue or pause when it cannot be read.
+- Limits (section 11). A `Peer` has one time bound for a connection. It has no limit on the number of accepted
+  connections it serves at once.
+- Configuration (section 4). A `Peer` is given plain values. A node has the keys, bounds and refusals of the
+  `tempus` section of `bees.config`, in the Silica node's words.
+- Audit lines (section 15) and the reasons of section 10. A `Peer` prints lines about its join and its ticks. It
+  does not write the node's audit lines, so its refusals cannot be compared with a Silica node's word for word.
+- What the application is told (section 14). A `Peer` tells its application of each peer it learns of. It does not
+  tell it of `key_rotated`, of an unreadable clock or of a stop, and it has no call to take a new producer key.
+- Testing by hand (section 16). A `Peer` runs real timers. Its store rules are functions that a test gives draws
+  to, but a test cannot fire the timers of a running `Peer` one at a time.
+- In Python only: the client library's `Peer` accepts a connection only from a certificate it was given beforehand,
+  so it cannot be a full member of a network whose members it does not know in advance. The node half of the Python
+  extension accepts a certificate it has never seen. `python/README.md` says how.
+
+What the client libraries' gossip was shown to do that the node halves were not: the `Peer` of each language was run
+in one network with the `Peer` of every other language (`gossip/`, the networks `mixed` and `trio`). Each node half
+was run in a network with Silica nodes only.
+
+Both exist side by side in each language's directory until the project owner decides between them. The READMEs of
+`python/`, `kotlin/` and `swift/` say where each is and what uses it.

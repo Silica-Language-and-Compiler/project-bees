@@ -15,7 +15,7 @@ import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(HERE, "..", "..", "example_tempus_clients", "python"))
+sys.path.insert(0, os.path.join(HERE, "..", "..", "example_tempus_clients", "python", "lib"))
 import bees_tempus_config  # noqa: E402
 import bees_tempus_node  # noqa: E402
 

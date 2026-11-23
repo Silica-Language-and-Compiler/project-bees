@@ -1,0 +1,14 @@
+m1_wire_types_signed_a.13 dec :ok rt
+m1_wire_types_signed_a.14 dec :ok rt
+m1_wire_types_signed_a.15 dec :ok rt
+m1_wire_types_signed_a.16 dec :ok rt
+m1_wire_types_signed_a.17 dec :ok rt
+m1_wire_types_signed_a.18 dec :ok rt
+m1_wire_types_signed_a.19 dec :ok rt
+m1_wire_types_signed_a.20 dec :out_of_range -
+m1_wire_types_signed_a.21 dec :out_of_range -
+m1_wire_types_signed_a.22 dec :out_of_range -
+m1_wire_types_signed_a.23 dec :out_of_range -
+m1_wire_types_signed_a.24 dec :out_of_range -
+m1_wire_types_signed_a done
+exit=0

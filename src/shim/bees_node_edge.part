@@ -73,7 +73,7 @@ fn net_dial_link(i: int64, c: dangerous_actor_ref, rd: actor_ref, me: actor_ref,
 fn net_listen(c: dangerous_actor_ref, sl: actor_ref, me: actor_ref, io_ms: uint64, tick_ms: uint64) -> { conn: actor_ref, tx: actor_ref } {
     sequence proc[concurrency]
         l: actor_ref <- spawn({ reaper: me, io_ms: io_ms, tick_ms: tick_ms, accepted: 0, slot: sl }, dangerous_bees_net@lsn, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
-        _: boolean <- cast(c, (:open, l, bees_peers@listener_address()) impl ActorMessage {});
+        _: boolean <- carrier_listen(c, l, bees_peers@listener_address());
         p: { conn: actor_ref, tx: actor_ref } <- net_pair(l, l)
     produces pure p end
 }

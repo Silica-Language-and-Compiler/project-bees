@@ -19,8 +19,9 @@
 # (the command line tempus-client), which after node A has stopped is run against S and E for the rows of the behaviour
 # list that trials/c5_tempus_swift does not show (trials/c10_tempus_bridge_swift/COVERAGE.md).
 # What a peer cannot see (a node's view, the reason of a refusal) is in the nodes' own outputs (ruling NQ-1).
-# Swift exists on the Mac only. This trial never skips: without a Swift toolchain or OpenSSL it fails and says so. Its
-# goldens are Mac goldens with no Linux twin (tools/test_platform_and_ports.py, LINUX_GOLDEN_EXCEPTIONS).
+# Swift exists on the Mac only. This trial never skips: without a Swift toolchain or OpenSSL it fails and says so. The
+# runner does not run it on a platform it is not declared for (the file `platforms` of this directory: N/A there), and
+# its goldens are Mac goldens with no Linux twin.
 # Post-processing: tools/bees_tempus_reports.py (the runtime's reports of actors that ended normally land anywhere;
 # the stage at which a peer's close is noticed is written `(any)`).
 BEES_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../..)

@@ -1,0 +1,9 @@
+[trust] TEST ONLY: plaintext transport, peer identity is a test-supplied stand-in for the certificate fingerprint
+[trust] mode trust, listen 127.0.0.1:22401, whitelist 0 entries, pinned servers 1, frame_size_max 4096, args_len_max 4096, term_depth_max 32, call_timeout_ms 2000, first_frame_timeout_ms 2000, suspicion_limit 3, token_bytes 48, token_ttl_sec 300, one request per connection (B1)
+[trust] TRUST standalone: no whitelist file configured, no inbound connections accepted
+step 1 call demo:add([1, 2]), hello path: {ok, int 3}
+step 2 call demo:add([40, 2]), token fast path: {ok, int 42}
+step 3 cast demo:note([7]): {ok, cast}
+step 4 call demo:echo([<<"hi">>]): {ok, binary hi}
+scenario done
+exit=0

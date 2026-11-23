@@ -1,5 +1,5 @@
 clock: the system clock is read
-tempus_sentinel node cb133950 listening on 127.0.0.1:24804
+tempus_sentinel node cb133950 listening on 127.0.0.1:26104
 store tempus_edge: capacity 4, shuffle length 3
 store tempus_bridge: capacity 4, shuffle length 2
 store tempus_sentinel: capacity 4, shuffle length 2
@@ -19,7 +19,7 @@ join: no sentinel is configured
 [tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a6
 [tempus audit] admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession a6
 [tempus audit] protocol_error peer=224c0c0c5b08df0f not a request: unknown_atom a6
-tick tempus_edge: shuffle with b19edad2 at 127.0.0.1:24805 d1
+tick tempus_edge: shuffle with b19edad2 at 127.0.0.1:26105 d1
 [tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d1
 [tempus audit] admitted peer=b19edad2958934e1 tempus_edge, token and proof of possession d1
 tick tempus_edge: shuffle merged

@@ -6,7 +6,7 @@
 #   window       max_calls: one goaway limit_reached, the last call still answered, close, the next call on a new session;
 #                idle_ms; max_age_ms; session_slots_max
 #   pause        max_inflight with read-pause backpressure: megabytes of requests wait unread while two slow calls hold the
-#                limit; the server's resident set is sampled at the pause and one second later (flat: no queue); resume
+#                limit; the server's resident set is sampled at the pause and half a second later (flat: no queue); resume
 #   deny         goaway deny (forbidden MFA, permission denied); suspicion per request; a failed request does not end the
 #                session; quarantine in the middle of a session
 #   protocol     goaway protocol (a malformed frame and an oversize frame in the middle of a session); an invalid token; a
@@ -49,7 +49,7 @@ SCENARIOS := \
 ONLY ?=
 SCEN_QUOTED := $(foreach s,$(if $(ONLY),$(filter $(ONLY)|%,$(SCENARIOS)),$(SCENARIOS)),'$(s)')
 # addresses, the runtime's root-actor lines, wall-clock values
-CLEAN_OUT = clean_out() { $(SED_I) -E -e 's/0x[0-9a-f]{6,}/0xADDR/g' -e 's/(age_ms|duration_ms|paused_ms)=[0-9]+/\1=N/g' -e 's/^(\[trust metrics\] trust_[a-z_]*_ms_sum) [0-9]+/\1 N/' "$$@" && $(STRIP_ROOT_EXIT) "$$@"; }; clean_out
+CLEAN_OUT = clean_out() { $(SED_I) -E -e 's/0x[0-9a-f]{6,}/0xADDR/g' -e 's/(age_ms|duration_ms|paused_ms)=[0-9]+/\1=N/g' -e 's/^(\[trust metrics\] trust_[a-z_]*_ms_sum) [0-9]+/\1 N/' "$$@" && $(STRIP_ROOT_EXIT) "$$@" && $(STRIP_CARRIER_LINK_LOST) "$$@"; }; clean_out
 .PHONY: build run integrate record-golden clean measure
 # a node leaf's root units are generated when its Makefile is parsed, after make has listed the entries: `units` parses it once
 # (so the units exist), then one build sees them all
@@ -62,12 +62,12 @@ run: $(if $(ONLY)$(NOBUILD),,build)
 	@cd "$(HERE)" && for s in $(SCEN_QUOTED); do \
 		sc=$$(echo "$$s" | cut -d'|' -f1); es=$$(echo "$$s" | cut -d'|' -f2); ec=$$(echo "$$s" | cut -d'|' -f3); \
 		dn=$$(echo "$$s" | cut -d'|' -f4 | tr '_' ' '); \
-		if [ "$$sc" = pause ]; then $(PAIR) "nodes/$$es" "$$sc.a.sout" "$(READY)" "nodes/$$ec" "$$sc.b.sout" "$$dn" --rss "telemetry] pause:1.0:pause.rss" || echo "pair $$sc: a run failed"; \
+		if [ "$$sc" = pause ]; then $(PAIR) "nodes/$$es" "$$sc.a.sout" "$(READY)" "nodes/$$ec" "$$sc.b.sout" "$$dn" --rss "telemetry] pause:0.5:pause.rss" || echo "pair $$sc: a run failed"; \
 		else $(PAIR) "nodes/$$es" "$$sc.a.sout" "$(READY)" "nodes/$$ec" "$$sc.b.sout" "$$dn" || echo "pair $$sc: a run failed"; fi; \
 		$(CLEAN_OUT) "$$sc.a.sout" "$$sc.b.sout"; $(TRUST_LATE_RESULT_LAST) "$$sc.a.sout"; \
 		if [ "$$sc" = pause ]; then a=$$(awk '/^at_text/ { print $$2 }' pause.rss); l=$$(awk '/^later/ { print $$2 }' pause.rss); \
-			if [ -n "$$a" ] && [ -n "$$l" ] && [ $$((l - a)) -lt 1024 ]; then echo "[pause] the server's resident set one second into the pause: within 1024 KiB of its size when it paused (megabytes of requests unread)" >> pause.a.sout; \
-			else echo "[pause] the server's resident set GREW while paused, or was not sampled: at the pause $$a KiB, one second later $$l KiB" >> pause.a.sout; fi; fi; \
+			if [ -n "$$a" ] && [ -n "$$l" ] && [ $$((l - a)) -lt 1024 ]; then echo "[pause] the server's resident set half a second into the pause: within 1024 KiB of its size when it paused (megabytes of requests unread)" >> pause.a.sout; \
+			else echo "[pause] the server's resident set GREW while paused, or was not sampled: at the pause $$a KiB, half a second later $$l KiB" >> pause.a.sout; fi; fi; \
 	done
 
 # compat: N3's own goldens, with N3's port numbers replaced by this trial's, must equal what the session actors printed

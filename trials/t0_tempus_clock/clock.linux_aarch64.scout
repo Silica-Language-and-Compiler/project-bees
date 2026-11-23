@@ -1,0 +1,81 @@
+part 1: clock_back, one good reading after the node's time
+follow: time 1000, reading 1001 -> time 1001, not earlier
+follow: time 1000, reading 1000 -> time 1000, not earlier
+follow: time 1000, reading 999 -> time 999, earlier, followed
+follow: time 1000, reading 0 -> time 0, earlier, followed
+hold: time 1000, reading 1001 -> time 1001, not earlier
+hold: time 1000, reading 1000 -> time 1000, not earlier
+hold: time 1000, reading 999 -> time 1000, earlier, held
+hold: time 1000, reading 0 -> time 1000, earlier, held
+stop limit 30: time 1000, reading 1001 -> time 1001, not earlier
+stop limit 30: time 1000, reading 1000 -> time 1000, not earlier
+stop limit 30: time 1000, reading 999 -> time 999, earlier, followed
+stop limit 30: time 1000, reading 971 -> time 971, earlier, followed
+stop limit 30: time 1000, reading 970 -> time 970, earlier, followed
+stop limit 30: time 1000, reading 969 -> time 1000, earlier, the node stops
+stop limit 30: time 1000, reading 0 -> time 1000, earlier, the node stops
+stop limit 0: time 1000, reading 1000 -> time 1000, not earlier
+stop limit 0: time 1000, reading 999 -> time 1000, earlier, the node stops
+follow: time 1000, reading 0 -> time 0, earlier, followed
+hold: time 1000, reading 0 -> time 1000, earlier, held
+part 2: clock_turn, a run of readings for each pair of choices
+clock_back follow, clock_fail pause
+  reading no time -> time 0; no reading yet, application told; no ticks; does not listen yet; does: no time at start: one line, application told
+  reading no time -> time 0; no reading yet, application told; no ticks; does not listen yet; does: nothing
+  reading 1000 -> time 1000; good; ticks; accepts; does: first reading: one line, listen
+  reading 1001 -> time 1001; good; ticks; accepts; does: nothing
+  reading 1001 -> time 1001; good; ticks; accepts; does: nothing
+  reading 990 -> time 990; good; ticks; accepts; does: step back followed: one line
+  reading no time -> time 990; paused, waits for the clock; no ticks; closes accepted connections (role 4, clock_refused); does: no time, pause: one line, application told
+  reading no time -> time 990; paused, waits for the clock; no ticks; closes accepted connections (role 4, clock_refused); does: nothing
+  reading 995 -> time 995; good; ticks; accepts; does: read again: one line; then nothing
+  reading no time -> time 995; paused, waits for the clock; no ticks; closes accepted connections (role 4, clock_refused); does: no time, pause: one line, application told
+  reading 980 -> time 980; good; ticks; accepts; does: read again: one line; then step back followed: one line
+  reading 981 -> time 981; good; ticks; accepts; does: nothing
+clock_back follow, clock_fail continue
+  reading no time -> time 0; no reading yet, application told; no ticks; does not listen yet; does: no time at start: one line, application told
+  reading 1000 -> time 1000; good; ticks; accepts; does: first reading: one line, listen
+  reading no time -> time 1000; goes on with its last reading; ticks; accepts; does: no time, continue: one line, application told
+  reading no time -> time 1000; goes on with its last reading; ticks; accepts; does: nothing
+  reading 1003 -> time 1003; good; ticks; accepts; does: nothing
+  reading no time -> time 1003; goes on with its last reading; ticks; accepts; does: no time, continue: one line, application told
+  reading 990 -> time 990; good; ticks; accepts; does: step back followed: one line
+clock_back hold, clock_fail continue
+  reading 1000 -> time 1000; good; ticks; accepts; does: first reading: one line, listen
+  reading 1005 -> time 1005; good; ticks; accepts; does: nothing
+  reading 990 -> time 1005; holds its time; ticks; accepts; does: step back, hold begins: one line
+  reading 991 -> time 1005; holds its time; ticks; accepts; does: nothing
+  reading 985 -> time 1005; holds its time; ticks; accepts; does: nothing
+  reading 1004 -> time 1005; holds its time; ticks; accepts; does: nothing
+  reading 1005 -> time 1005; good; ticks; accepts; does: the held time is reached: one line
+  reading 1006 -> time 1006; good; ticks; accepts; does: nothing
+  reading 1000 -> time 1006; holds its time; ticks; accepts; does: step back, hold begins: one line
+  reading no time -> time 1006; goes on with its last reading; ticks; accepts; does: no time, continue: one line, application told
+  reading 1001 -> time 1006; holds its time; ticks; accepts; does: step back, hold begins: one line
+  reading 1007 -> time 1007; good; ticks; accepts; does: the held time is reached: one line
+clock_back hold, clock_fail pause
+  reading 1000 -> time 1000; good; ticks; accepts; does: first reading: one line, listen
+  reading 990 -> time 1000; holds its time; ticks; accepts; does: step back, hold begins: one line
+  reading no time -> time 1000; paused, waits for the clock; no ticks; closes accepted connections (role 4, clock_refused); does: no time, pause: one line, application told
+  reading 992 -> time 1000; holds its time; ticks; accepts; does: read again: one line; then step back, hold begins: one line
+  reading no time -> time 1000; paused, waits for the clock; no ticks; closes accepted connections (role 4, clock_refused); does: no time, pause: one line, application told
+  reading 1001 -> time 1001; good; ticks; accepts; does: read again: one line; then nothing
+clock_back stop limit 10, clock_fail pause
+  reading 1000 -> time 1000; good; ticks; accepts; does: first reading: one line, listen
+  reading 995 -> time 995; good; ticks; accepts; does: step back followed: one line
+  reading 985 -> time 985; good; ticks; accepts; does: step back followed: one line
+  reading 974 -> time 985; stopped; no ticks; closes accepted connections (role 5, clock_stopped); does: step back above the limit: one line, application told, stop
+  reading 2000 -> time 985; stopped; no ticks; closes accepted connections (role 5, clock_stopped); does: nothing
+  reading no time -> time 985; stopped; no ticks; closes accepted connections (role 5, clock_stopped); does: nothing
+  reading 2001 -> time 985; stopped; no ticks; closes accepted connections (role 5, clock_stopped); does: nothing
+clock_back stop limit 10, clock_fail continue
+  reading 1000 -> time 1000; good; ticks; accepts; does: first reading: one line, listen
+  reading no time -> time 1000; goes on with its last reading; ticks; accepts; does: no time, continue: one line, application told
+  reading 900 -> time 1000; stopped; no ticks; closes accepted connections (role 5, clock_stopped); does: step back above the limit: one line, application told, stop
+  reading 1000 -> time 1000; stopped; no ticks; closes accepted connections (role 5, clock_stopped); does: nothing
+clock_back stop limit 0, clock_fail pause
+  reading 1000 -> time 1000; good; ticks; accepts; does: first reading: one line, listen
+  reading no time -> time 1000; paused, waits for the clock; no ticks; closes accepted connections (role 4, clock_refused); does: no time, pause: one line, application told
+  reading 999 -> time 1000; stopped; no ticks; closes accepted connections (role 5, clock_stopped); does: read again: one line; then step back above the limit: one line, application told, stop
+  reading no time -> time 1000; stopped; no ticks; closes accepted connections (role 5, clock_stopped); does: nothing
+exit=0

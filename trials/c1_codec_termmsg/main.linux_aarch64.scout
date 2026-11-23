@@ -1,0 +1,39 @@
+-- term: the message is the token list; enc_out and dec_any are bees_term_wire's
+{hello,42,<<bin>>,[1,2,3],1.5} 836805770568656c6c6f612a6d0000000362696e6b0003010203463ff8000000000000  = erl
+  decoded: ok t5 a:hello i42 b:62696e s:010203 f
+  erl's bytes decoded: ok t5 a:hello i42 b:62696e s:010203 f
+#{1=>a,2=>[x,{y,-7}]} 837400000002610177016161026c00000002770178680277017962fffffff96a  = erl
+  decoded: ok m2 i1 a:a i2 l2 a:x t2 a:y i-7 nil
+  erl's bytes decoded: ok m2 i1 a:a i2 l2 a:x t2 a:y i-7 nil
+erl's {123456789012345678901234567890,[a|b]} (a big integer, an improper list): ok t2 I0:d20a3f4eeee073c3f60fe98e01 l1 a:a a:b
+  encoded again: the same bytes
+erl's {zzqx_not_held,1} (an atom the program does not hold: its text is carried): ok t2 a:zzqx_not_held i1
+  encoded again: the same bytes
+-- the typed message of the same manifest, (int64, string): one derived encode
+83680261076d0000000178
+-- refusals
+empty frame: rejected truncated
+no version byte: rejected bad_version
+truncated inside a tuple: rejected truncated
+a trailing byte: rejected trailing_bytes
+a byte that is no tag: rejected bad_tag
+FLOAT_EXT (the old float): rejected unsupported
+a compressed term: rejected unsupported
+a map with the key 5 twice (61 05 and 6e 01 00 05): rejected duplicate_field
+a map that says 1025 pairs: rejected too_long
+a list that says 4294967295 elements: rejected truncated
+70 lists inside one another: rejected too_deep
+encode, a tuple of 3 with one element (not a whole term): not sent (no frame)
+encode, two terms: not sent (no frame)
+encode, no token: not sent (no frame)
+-- 5000 decodes in a row of each (validate_named)
+a list that says 4294967295 elements, refused truncated: 5000
+70 lists inside one another, refused too_deep: 5000
+{hello,42,<<bin>>,[1,2,3],1.5}, accepted: 5000
+-- the deliverer path: bees_peers@start_deliverer decodes the payload and casts the tokens to the name any
+actor any, message 0: t2 a:sent_by_this_program i1
+actor any, message 1: m2 i1 a:a i2 l2 a:x t2 a:y i-7 nil
+actor any: now a truncated payload (refused), one with a map key twice (refused), then {zzqx_not_held,1}
+actor any, message 2: t2 a:zzqx_not_held i1
+actor any: done
+exit=0

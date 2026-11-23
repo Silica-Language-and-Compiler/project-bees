@@ -1,0 +1,3 @@
+[trust] boot refused: bees.config:8: trust.whitelist_file: whitelist file "no_such_whitelist.config" does not exist (relative to the directory of bees.config)
+[trust] no actor was started
+exit=1

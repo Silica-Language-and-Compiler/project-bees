@@ -6,6 +6,12 @@ over mutually authenticated TLS 1.3 connections. The extension has two halves. T
 an ordinary peer and makes one request. The node half makes the application a member of the network: a node, with
 stores of its own, that joins, shuffles, answers and admits as the Silica node of `src/tempus` does.
 
+The directory is a library (`lib/`), a driver application over it (`driver/`) and tests (`test/`). The library holds
+two implementations of gossip membership, side by side. `Peer` in `lib/Gossip.kt` is the one the driver and the
+gossip example use. `TempusNode` in `lib/Node.kt` is the node half. They were written separately, each is used by its
+own callers, and neither uses the other. The project owner has not decided which of the two is kept. The section
+"Two gossip implementations" below says what each does that the other does not.
+
 The statement of the directory's [README](../README.md) applies to it as it stands: it is an example, and it must not
 be used in production. The section "What stands between this and production use" below says what has and what has not
 been done. Everything it was checked with uses keys, certificates and tokens made from fixed seeds that are written in
@@ -25,6 +31,10 @@ certificate, the tempus whitelist rule, the challenge, its own proof of possessi
 makes every request a client can make (`sample`, `shuffle`, and `call` and `cast` to a bridge), reads every reply, and
 verifies every entry of a reply before it reports the reply as good.
 
+The client half can also be a member of a network through `Peer`: it keeps the three stores, shuffles each on its
+own timer, joins through the configured sentinels, and answers the shuffles and samples of admitted peers from its
+stores. The section "The gossip part" below says more.
+
 The node half is described in the sections "A node" to "What a node does not cover" below.
 
 The extension does not contain the two test-only frames, `tick` and `clock`, or their answer, `done`. To the client
@@ -33,31 +43,36 @@ function that makes a token, or a peer that misbehaves.
 
 The files:
 
-- `src/Etf.kt` writes and reads the part of the Erlang external term format that the frames use.
-- `src/Frames.kt` holds the messages, with every bound on their fields, and the structure of a token.
-- `src/Admission.kt` holds the identity (key, certificate, token, listen address) and the client's verifier.
-- `src/Client.kt` holds the TLS setup, `dial`, `Listener`, and `Outcome`, the plain value that says what happened on
+- `lib/` is the library. An application would start from these files.
+- `lib/Etf.kt` writes and reads the part of the Erlang external term format that the frames use.
+- `lib/Frames.kt` holds the messages, with every bound on their fields, and the structure of a token.
+- `lib/Admission.kt` holds the identity (key, certificate, token, listen address) and the client's verifier.
+- `lib/Client.kt` holds the TLS setup, `dial`, `Listener`, and `Outcome`, the plain value that says what happened on
   a connection.
-- `src/View.kt` holds the view of one store and the steps of one store, as pure functions and one small class.
-- `src/Clock.kt` holds what one reading of the clock does to a node, as a pure function, and the machine's clock.
-- `src/Config.kt` holds a node's configuration and its refusals.
-- `src/Node.kt` holds the node.
-- `cli/Main.kt` is the command line of the client. It is not part of the extension.
-- `test/TestMain.kt` and `test/NodeTestMain.kt` hold the tests. They are run by plain `main` functions, so no test
-  library is needed. `test/model_cases.py` writes the cases the node tests read.
+- `lib/Gossip.kt` holds the view rules, `Store` and `Peer`: the gossip part of the client half.
+- `lib/View.kt` holds the view of one store and the steps of one store for the node half, as pure functions (the
+  object `View`) and one small class (`NodeStore`, with its entries `NodeHeld`).
+- `lib/Clock.kt` holds what one reading of the clock does to a node, as a pure function, and the machine's clock.
+- `lib/Config.kt` holds a node's configuration and its refusals.
+- `lib/Node.kt` holds the node.
+- `driver/Main.kt` is the driver application: a command line over the library, for one request, for listening and
+  for running a `Peer`. It is not part of the extension.
+- `test/TestMain.kt` holds the tests of the frames and of single connections, `test/GossipTest.kt` the tests of the
+  gossip part, and `test/NodeTestMain.kt` the tests of the node half. They are run by plain `main` functions, so no
+  test library is needed. `test/model_cases.py` writes the cases the node tests read.
 - `test/Fixtures.kt` and `test/NodeFixtures.kt` are for the tests and the trials only. The first makes tokens from
   the test producer's fixed seed. The second holds a clock, timers and draws that a test sets by hand. Nothing under
-  `src` uses either.
+  `lib` or `driver` uses either.
 
 ## What an application depends on
 
-`make build` writes `build/bees-tempus.jar`: the compiled extension alone (`src/*.kt`), with no `main` function, no
+`make build` writes `build/bees-tempus.jar`: the compiled extension alone (`lib/*.kt`, which includes `lib/Gossip.kt`), with no `main` function, no
 test code and no copy of the Kotlin runtime. An application puts that file on its class path beside the Kotlin
 standard library, and runs on a JDK of release 27 or later. It needs nothing else. Everything is in the one package
 `bees.tempus`. What an application uses of it: `Identity`, `TempusConfig` with `StoreConfig` and `SentinelAddress`,
 `TempusNode`, `NodeListener`, `NodeEvent`, `NodeEnvironment`, `ConfigRefused`, and for the client half `dial`,
-`Listener`, `Verifier`, `Settings`, `Request` and `Outcome`. The declarations marked `internal` are not for an
-application.
+`Listener`, `Verifier`, `Settings`, `Request` and `Outcome`, and for its gossip part `StoreSettings`, `PeerSettings`
+and `Peer`. The declarations marked `internal` are not for an application.
 
 ## What must be installed
 
@@ -90,14 +105,15 @@ OpenSSL for the nodes, and Python 3 with the `cryptography` package for the Pyth
 From this directory:
 
 ```
-make build     # writes build/bees-tempus.jar (the extension alone) and build/bees-tempus-client.jar (with the command line)
+make build     # writes build/bees-tempus.jar (the extension alone) and build/bees-tempus-client.jar (with the driver)
 make test      # compiles the tests with the extension and runs them
+make gossip    # four instances of the driver as one TEMPUS network on this machine
 make clean
 ```
 
-`make build` runs `kotlinc -nowarn -d build/bees-tempus.jar src/*.kt` for the extension alone, and
-`kotlinc -nowarn -include-runtime -d build/bees-tempus-client.jar src/*.kt cli/*.kt` for the command line. The second
-file holds the extension, the command line and the Kotlin runtime, so `java -jar` runs it.
+`make build` runs `kotlinc -nowarn -d build/bees-tempus.jar lib/*.kt` for the extension alone, and
+`kotlinc -nowarn -include-runtime -d build/bees-tempus-client.jar lib/*.kt driver/*.kt` for the driver. The second
+file holds the extension, the driver and the Kotlin runtime, so `java -jar` runs it.
 
 The command line prints its usage when it is run with no arguments. Every option is required unless the usage says it
 is optional, because none of the values has a default: the time bound of a connection, the clock difference allowed
@@ -130,8 +146,64 @@ word is one of `reply`, `served`, `key_rotated`, `refused` (this client refused 
 `closed` (the connection closed with no reply, which is all that a refusal by the peer ever shows, and is also the
 ordinary end of a `cast`), `timeout`, `tls_failed` and `unreachable`.
 
-From Kotlin code, the entry points are `Identity.load`, `Verifier`, `Settings`, `dial` and `Listener`. The trial's
-`Walk.kt` uses them the way an application would.
+From Kotlin code, the entry points of the client half are `Identity.load`, `Verifier`, `Settings`, `dial` and
+`Listener`, and for a member of a network `StoreSettings`, `PeerSettings` and `Peer`. The trial's `Walk.kt` uses the
+first five the way an application would, and `driver/Main.kt` uses `Peer`.
+
+## The gossip part
+
+`lib/Gossip.kt` adds what a client needs to find other peers by itself:
+
+- The view rules of the design's section 3: ageing, the choice of a partner, the merge, the eviction.
+- `Store`, one of a peer's three stores, with its steps: tick, reply, failed, request, sample, insert, drop.
+- `Peer`, which listens, joins through its sentinels, ticks each store on its own timer, and answers the shuffles and
+  samples of admitted peers from its stores. A peer whose token says `tempus_sentinel` also puts every peer that asks
+  it for a sample into its store of that peer's type.
+
+Nothing in it has a default. The capacity, shuffle length and tick of each store, the time bound of a connection, the
+sentinels and the retry delays of the join are values the application passes.
+
+```
+java -jar build/bees-tempus-client.jar gossip \
+    --cert CERT.pem --key KEY.pem --token TOKEN.hex --addr 127.0.0.1:24801 \
+    --producer-pub HEX --kid k1 --skew 10 --timeout-ms 3000 \
+    --store-edge 8:4:500 --store-bridge 8:4:5000 --store-sentinel 8:4:1000 --join-retry-ms 500:2000 \
+    --sentinel 127.0.0.1:24800 --whitelist-cert SENTINEL.pem
+```
+
+It listens on the address of `--addr`. It prints the peer's own lines (the join, each tick) and a line
+`learned STORE ID16 HOST:PORT` for each peer it comes to know. It runs until it is interrupted, or for `--run-ms`.
+
+`make gossip` starts four such instances on this machine, one sentinel and three edges, and stops them when every
+instance has learned of every edge. Each edge is given the sentinel's address and nothing else.
+[The gossip README](../gossip/README.md) says what the printed check means. It needs Python 3 with the `cryptography`
+package, because the runner and the test tokens are made with the Python example.
+
+## Two gossip implementations
+
+The library holds two sets of code for the same job, because two lines of work each wrote one. Both are kept whole
+until the project owner decides between them. They share `lib/Etf.kt`, `lib/Frames.kt`, `lib/Admission.kt` and the
+TLS setup of `lib/Client.kt`, and nothing else.
+
+| | `Peer` (`lib/Gossip.kt`) | `TempusNode` (`lib/Node.kt`, `View.kt`, `Clock.kt`, `Config.kt`) |
+| --- | --- | --- |
+| Store and entry types | `Store`, `Held` | `NodeStore`, `NodeHeld`, with the pure functions in the object `View` |
+| Connections | `dial` and `Listener` of the client half, one request each | its own connection code (`NodeConn`), in the Silica node's order of checks |
+| Settings | `PeerSettings` and `StoreSettings`, checked with `require` | `TempusConfig`, with the keys, bounds and refusal texts of the Silica node's `bees.config` |
+| Clock | the function given to the `Verifier` | read by the node, with `clockBack` (`follow`, `hold`, `stop`), `clockFail` (`continue`, `pause`) and `clockReadMs` |
+| Limit on accepted connections | none | `inflightMax`, with the close `inflight_refused` |
+| What it writes | its own lines, through `onLine` | the Silica node's boot, `join:`, `tick` and `clock:` lines and `[tempus audit]` lines, word for word |
+| What the application is told | `onLearned(store, descriptor)` for each new peer | `NodeEvent`: own token invalid, key rotated, clock unreadable, stopped, listen failed, view changed |
+| New token while running | `newToken` | `setToken`, and `setProducerKey` for a new producer key |
+| How a test drives it | real timers and the system clock; draws may be passed | a `NodeEnvironment` with a clock, timers and draws the test sets by hand |
+| Unit tests | `test/GossipTest.kt`, 10 tests on cases worked by hand and one network in one process | `test/NodeTestMain.kt`, 24 tests against the two Python models and the Silica goldens |
+| Run with other implementations | `../gossip` (`kotlin`, `mixed`, `trio`) and `trials/c7_tempus_gossip`, against the drivers of the other languages | `trials/c9_tempus_node_kotlin`, against Silica nodes, with the audit lines compared |
+| A command line | `gossip` in `driver/Main.kt` | none |
+
+Two names were changed so that both compile in the one package `bees.tempus`. The node half's store and entry classes
+were called `Store` and `Held`, which are the names `lib/Gossip.kt` uses; they are now `NodeStore` and `NodeHeld`.
+Nothing of `lib/Gossip.kt` was renamed.
+
 
 ## A node
 
@@ -347,7 +419,7 @@ so that a frame it has just sent (a `key_rotated`, a reply) is not lost.
 Everything below was run on one machine: macOS on Apple Silicon, with the versions named above. Nothing was run on
 Linux.
 
-`make test` runs 36 tests:
+`make test` runs 41 tests of the frames and of single connections (`test/TestMain.kt`):
 
 - The frames golden of `trials/t2_tempus_frames`. That trial prints every frame and token the Silica frame unit writes
   or deliberately breaks, as hex, with what the Silica reader made of each. The Kotlin client builds the 27 frames and
@@ -363,7 +435,14 @@ Linux.
   refusal, `key_rotated` in both directions, replies that must be refused, a peer nobody listens for and a peer that
   never answers.
 
-The trial `trials/c6_tempus_kotlin` runs those tests and then walks the client against real BEES TEMPUS nodes:
+`make test` then runs the 10 tests of the gossip part (`test/GossipTest.kt`): the view rules and the store's steps on
+cases worked by hand, and a sentinel and two edges of this library in one process over TLS on 127.0.0.1, where each
+edge must come to hold the other.
+
+The trial `trials/c7_tempus_gossip` runs four instances of the driver as one network, and one instance in a network
+with the Silica, Python and Swift drivers. Both were run and their checks are recorded.
+
+The trial `trials/c6_tempus_kotlin` runs the first 41 tests and then walks the client against real BEES TEMPUS nodes:
 
 - A test node joins through the Kotlin client, which listens as a sentinel. The client samples and shuffles as a
   sentinel and as an edge, is dialed by the node for a shuffle, and sees what it answered in the node's stores.
@@ -382,7 +461,7 @@ Run it from the BEES root directory with `tools/run_all_trials.sh --local-only -
 
 ## What the node was checked against
 
-`make test` also runs the node tests (`test/NodeTestMain.kt`), 22 of them:
+`make test` also runs the node tests (`test/NodeTestMain.kt`), 24 of them:
 
 - the view and the store: 20623 calls of view functions and 6006 store steps, which are the calls the two
   independent Python models (`tools/bees_tempus_view_model.py`, `tools/bees_tempus_store_model.py`) make to compute
@@ -404,7 +483,8 @@ going on with the last reading, the pause with `clock_refused` and the join that
 followed and the stop with `clock_stopped`); the node's own token expiring and being replaced; `key_rotated` told to
 the application; and a Kotlin node that is not a test node, on the machine's clock and its own timers, through
 which a Silica node that is not a test node joins, both refusing the `tick` and `clock` frames. It has recorded
-output for the Mac only: there is no Kotlin compiler on the Linux machine, and the trial fails there and says so.
+output for the Mac only. There is no Kotlin compiler on the Linux machines, so the trial is declared for the Mac in
+`trials/c9_tempus_node_kotlin/platforms`, and the trial runner reports it as not applicable on Linux.
 
 Not shown by any test or trial: a clock that cannot be read at start; the retry delay of a join doubling over real
 time; a tick that finds a view empty and asks a sentinel again; a listen address that cannot be bound; many
@@ -420,6 +500,7 @@ connections at once beyond the inflight test; and a node that runs for longer th
   connections in hand to end by that bound.
 - The four choices listed under "The configuration", and the difference in what the application is told of
   `key_rotated`, are not ruled.
+- Two gossip implementations stand side by side, and which is kept is not decided.
 - The bridge role is absent.
 
 ## What the client does not cover
@@ -433,11 +514,18 @@ connections at once beyond the inflight test; and a node that runs for longer th
   value that holds a tuple, a float or anything else is refused; the outcome still carries the reply's bytes.
 - The JDK has no call that reports which key exchange group a handshake used. The client offers one group only, and
   the node's own output shows the group, so the trial shows it; the client cannot check it by itself.
-- It does not make keys, certificates or tokens, does not fetch or refresh a token, and keeps no store of entries.
-  Joining a network, keeping the three stores and shuffling on a timer are left to the application.
+- It does not make keys, certificates or tokens, and does not fetch or refresh a token. `Peer.newToken` takes a new
+  token from the application.
+- A `Peer` does not serve `call` or `cast`, keeps no score of peers and has no limit on accepted connections. Its
+  clock is the function the application gives the `Verifier`; it has none of a node's rules for a clock that fails
+  or goes back. `TempusNode` has those rules and that limit.
+- The gossip part was run only on one machine, with test keys, for a few seconds at a time. It was not run for a long
+  time, with expiring tokens, with peers that stop, or against the limits of its stores.
 - The private key is read from an unencrypted file and held in memory by the JDK. Nothing is done to protect it.
 - The trial does not drive the node behaviours that only test frames or timing can reach (the connection limit, the
   node's clock moving, a node's token being replaced). The Python example drives those in `trials/c2_tempus_clients`
   and `trials/t6_tempus_clock`.
-- There is no recorded output for Linux, because the Kotlin compiler is not installed on the project's Linux machine.
-  There the trial fails and says that the compiler is missing; it does not skip.
+- There is no recorded output for Linux, because the Kotlin compiler is not installed on the project's Linux
+  machines. The trials are declared for the Mac in their `platforms` files, and the trial runner reports them as not
+  applicable on Linux. Run by hand on a machine without the compiler, a trial fails and says that the compiler is
+  missing; it does not skip.

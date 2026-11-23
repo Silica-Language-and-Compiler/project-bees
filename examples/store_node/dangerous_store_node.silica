@@ -78,6 +78,11 @@ fn open_listener(c: dangerous_actor_ref, address: string) -> boolean {
         ok: boolean <- cast(c, (:open, self(), address) impl ActorMessage {})
     produces pure ok end
 }
+fn conn_carrier(fd: int64) -> dangerous_actor_ref {
+    sequence proc[concurrency]
+        c: dangerous_actor_ref <- spawn_dangerous({ owner: actor_ref_of_word(0), fd: fd, rx_credit: 0, up: false, listening: false, link_spec: "" }, dangerous_tcp_carrier@carrier, stack_policy(0, :keep_last_message), state_policy(:keep_state_area))
+    produces pure c end
+}
 fn credit(c: dangerous_actor_ref, n: int64) -> boolean {
     sequence proc[concurrency]
         ok: boolean <- cast(c, (:credit, n) impl ActorMessage {})
@@ -122,7 +127,7 @@ fn on_rx(seg: string, st: { c: dangerous_actor_ref, cap: int64, name: string, rx
 }
 
 fn node(
-    msg: (:ok, { auth: { auth: string, cookie: string, redial: { initial_ms: int64, max_ms: int64, on: boolean }, transport: string }, links: List[{ address: string, host: string, how: { by_epmd: boolean, dials: boolean, port: int64, resolve: boolean }, name: string }, mem(normal)], net: { epmd: { mode: string, port: int64 }, listen_address: string, listen_port: int64, listener: string }, node: { creation: int64, name: string }, time: { frame_max: int64, io_ms: int64, open_ms: int64, tick_ms: int64 } }) | (:error, { record: int64, schema: int64, text: string }) | (:link_up, string) | (:accepted, dangerous_actor_ref, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom),
+    msg: (:ok, { auth: { auth: string, cookie: string, redial: { initial_ms: int64, max_ms: int64, on: boolean }, transport: string }, links: List[{ address: string, host: string, how: { by_epmd: boolean, dials: boolean, port: int64, resolve: boolean }, name: string }, mem(normal)], net: { epmd: { mode: string, port: int64 }, listen_address: string, listen_port: int64, listener: string }, node: { creation: int64, name: string }, time: { frame_max: int64, io_ms: int64, open_ms: int64, tick_ms: int64 } }) | (:error, { record: int64, schema: int64, text: string }) | (:link_up, string) | (:accepted, int64, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom),
     st: { c: dangerous_actor_ref, cap: int64, name: string, rx: { mode: atom, expected: int64, pending: string }, where: string }
 ) -> (:no_reply, { c: dangerous_actor_ref, cap: int64, name: string, rx: { mode: atom, expected: int64, pending: string }, where: string }) {
     case msg of {
@@ -136,7 +141,9 @@ fn node(
             true -> { _: atom <- say("[node] ", st.name); _: atom <- say("[node] listening: ", st.where); (:no_reply, st) };
             false -> { _: atom <- say("[node] ", "a peer is connected"); _: boolean <- credit(st.c, 1); (:no_reply, st) }
         };
-        (:accepted, conn: dangerous_actor_ref, _info: string) -> {
+        // the listener hands over the accepted descriptor and starts no actor: the owner starts the connection's carrier
+        (:accepted, fd: int64, _info: string) -> {
+            conn: dangerous_actor_ref <- conn_carrier(fd);
             _: boolean <- open_listener(conn, "");
             (:no_reply, { c: conn, cap: st.cap, name: st.name, rx: st.rx, where: st.where })
         };

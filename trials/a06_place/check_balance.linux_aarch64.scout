@@ -1,0 +1,12 @@
+8 0 0 0 limit 2 plan 0>1:2
+6 2 0 0 limit 2 plan 0>2:2
+4 2 2 0 limit 2 plan 0>3:2
+2 2 2 2 limit 2 plan
+1 0 limit 1 plan
+3 0 limit 2 plan 0>1:1
+0 5 1 0 limit 2 plan 1>0:2
+0 9 0 7 0 0 limit 3 plan 1>0:3 3>2:3
+0 0 0 limit 0 plan
+5 limit 5 plan
+2 1 2 2 limit 2 plan
+exit=0

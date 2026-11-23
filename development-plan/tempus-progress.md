@@ -895,3 +895,162 @@ the values it needs.
   accepts a P-256 certificate in the handshake and refuses it afterwards (`tempus_cert_key`) although its certificate
   request names Ed25519 only; the configuration has no key for the address a node advertises when it listens on every
   interface; the extension listens on any IPv4 address and resolves no sentinel name, both unlike the Silica tools.
+2026-11-20, the four example clients divided into library and driver, each with a gossip part (owner's request):
+design 16.7.
+- Layout. `python/lib/tempus_client/` (codec, frames, connection, gossip; `testing.py` for the trials only),
+  `python/driver/tempus_peer.py`, and `python/bees_tempus_client.py` kept as the module the trial tools import;
+  `kotlin/lib/` and `kotlin/driver/Main.kt` (was `kotlin/src/`); `swift/lib/`, `swift/driver/`, `swift/testing/`
+  (the fixtures, now a module of their own) and `swift/test/` (was `swift/Sources/`); `silica/lib/` (the two files
+  that were in `silica/`, and the new `bees_tempus_peer.part`) and `silica/driver/` (a build leaf: `peer.role` and
+  four instance roles). The three `lib/bees_tempus_client.silica` links and the two Makefiles that paste the client
+  part name the new place. The client root units of `trials/c2_tempus_clients`, generated again, differ from the
+  earlier ones in one comment line.
+- Gossip. `Store` and `Peer` in Python, Kotlin and Swift; in Silica the node library, started by
+  `tempus_peer_start`. Tests: `python/test_tempus_gossip.py` (the rules against the two models of `tools/`, 400 and
+  1200 random steps; three peers in one process), `kotlin/test/GossipTest.kt` (10), and part D of the Swift tests.
+- Networks on one machine, `example_tempus_clients/gossip/` and `trials/c7_tempus_gossip` (ports 24800 to 24804):
+  four instances of one driver, for each language; a Silica sentinel with one edge of each language (`mixed`); the
+  same without Silica (`trio`). All six run and recorded on the Mac, each 4 times with the same check.
+- The Silica driver. Its application starts the peer (`tempus_peer_start`) and the single-connection part with the
+  same identity, and every 700 ms asks its own peer for a sample over loopback, to print each peer it learns of. A
+  version that printed nothing of its own and was judged by the peer's `tick ... shuffle with` lines did not show
+  every peer within 90 s: an entry that is refreshed again and again is never the oldest, so it is never dialed.
+- These are the first BEES TEMPUS nodes that tick by their own timers, with draws from the platform's random source
+  and the system clock, against each other; the trials' nodes that are not test programs tick once an hour.
+
+2026-11-20, the standard library's new listener form followed (owner's ruling of the same day: "The silica change is
+to be accepted as it is found in the ../silica directory. BEES is to be updated to match").
+- The change. Silica's `dangerous_tcp_carrier` listener (Silica commit `00d39ce0eb`, in the checkout at merge
+  `92fd73c810`) tells its owner `(:accepted, fd: int64, peer)` and starts no actor; the owner starts the connection's
+  carrier from the descriptor (the state the unit's header gives) and decides where it sits in its supervision tree.
+  Until then the listener spawned the connection carrier and handed over its actor.
+- What BEES does now: it starts each connection's carrier unsupervised, as the listener itself used to, in four
+  places. The three TLS listeners, which own their listening carrier, do it in their own units
+  (`dangerous_bees_tls@ttlsl`, `dangerous_beam_tls@btlsl`, `dangerous_bees_tempus_tls@tlnkl`; each now names
+  `dangerous_tcp_carrier`). For a plaintext listener the carrier edge has `carrier_listen(c, owner, address)` and a
+  small actor `cacc` (`src/shim/bees_tcp_edge.part`) that owns the listening carrier, starts the carrier of each
+  accepted descriptor and tells the owner what it was told before, `(:accepted, connection_carrier, peer)`; the three
+  parts that opened a listening carrier for a plain owner call it (`bees_node_edge.part`, `beam_tls_none.part`,
+  `bees_trust_link_plain.part`). So `dangerous_bees_net@lsn`, `dangerous_beam_net@lsn`, `dangerous_bees_trust@tlsn`
+  and the session listener `mlsn` are unchanged, and so is every message above the links.
+- Two programs that own a raw listening carrier themselves follow the new form directly:
+  `trials/m2_carrier_tcp/peer.role` and `examples/store_node/dangerous_store_node.silica.in`.
+- Not done: no connection is put under a supervisor. That is what the new form allows; BEES keeps the earlier
+  behaviour (an unsupervised root actor per connection) until it is decided otherwise.
+- What was seen before the change was followed (the first run of the Silica gossip driver): a program built against
+  the new unit took the descriptor's number for an actor reference, the accepted connection was never opened, and
+  whichever actor had that number ended (the clock actor with `no case arm matched`; the failure reporter with a
+  trap).
+- The compiler stopping in `Emitting...` (four builds in a row around 17:00 to 17:30, while a build of the Silica
+  compiler ran on the machine): not seen again in the builds after 18:00. Recorded in `silica-defects.md` as a note.
+- Trials after the change, the whole set on the Mac (`tools/run_all_trials.sh --local-only`, compiler
+  `silica-999900`, which is not the pin): 92 of 100 leaves passed, among them every TEMPUS leaf (t0 to t6, c2 to c7),
+  `m2_carrier_tcp`, the M3 and M4 leaves, `n3_trust`, `n5_trust_mux_tls`, `n5_trust_mesh`, `d3_store_node` and
+  `f1_fuzz_wire`. No golden of an existing trial was recorded again. New goldens: the six checks of
+  `example_tempus_clients/gossip`. Generated files that are tracked and changed with the parts:
+  `trials/n2_carrier_leak/dangerous_leak.silica`, `examples/store_node/dangerous_store_node.silica`.
+- The 8 leaves that failed, none through the listener's new form as far as could be told:
+  - `n2_auth`: its link `dangerous_exposure_source` is not in the repository (E4030, the sidecar is not found).
+  - `n1_addr`: the manifest check refuses the build (`redial: required`).
+  - `s03_actor_ceiling`: `ceiling_default_reservation` printed 8000 and ended 0 where the golden has the runtime's
+    abort (`stack reservation failed`): the compiler's generation.
+  - `n2t_live`: the stock Erlang node now agrees X25519MLKEM768 where the goldens say X25519, and its TLS 1.2
+    scenarios connect: the installed Erlang and OpenSSL.
+  - `n4_trust_tls` and `n5_trust_mux` (`negative`, `compat_negative`): `demo:slow(300000000)` answered before the
+    call timeout, so the timeout, the suspicion and the quarantine that follow in the golden did not happen. Seen
+    again when `n4_trust_tls` was run alone. `n3_trust` and `n5_trust_mux_tls` passed the same step.
+  - `n2_dist` (`wrong_cookie_listen`; in a third run also `ticks_alive`) and `n2t_pair` (`three_nodes.hub`, two
+    lines in another order): a program that was just built takes about 2 s to listen the first time it is run on
+    this machine (measured: 1.98 s for a fresh copy of `dangerous_a_wrong`, 0.01 s the second time), and the pair
+    runner starts the dialer 0.5 s after the listener. The same pair run by hand, and by `tools/run_pair.py` alone,
+    gave the golden's lines, and `n2t_pair` run alone passed 22 of 22.
+
+2026-11-20, the eight failed leaves and one failing unit test looked into, by the owner's order ("confirm and fix each
+one"). Compiler `silica-999900`; system python3 3.15.2, OpenJDK 27.0.1.1, kotlinc 2.4.21, Erlang/OTP 29.
+- `n4_trust_tls`, `n5_trust_mux` (the call timeout step). Cause: the workload, not the timeout. `demo:slow` was a loop
+  of n steps and the step asked for 300000000; measured alone on this machine, three runs each: 303 to 390 ms on
+  999900, 236 to 343 ms on the pin 999909, against the server's `call_timeout_ms` of 400. The timeout fired only when
+  the machine was busy enough (it did in `n3_trust` and `n5_trust_mux_tls` in the same full run). Change:
+  `trials/n3_trust/roles/n3_demo.silica` waits by the clock, in the form `n5_demo.silica` already had, and the step
+  asks for 1200 ms, three times the timeout. The step's printed text changed with its argument, in six goldens
+  (`negative.b` of n3 and n4, `compat_negative.b` of n5_trust_mux, both platforms): the Mac ones are what the three
+  trials printed afterwards (7 of 7, 11 of 11, 30 of 30); the Linux ones had the same one line edited by hand and
+  were not run.
+- `n2_auth`. Cause: the leaf's link `dangerous_exposure_source` was never in the repository; `.gitignore`'s
+  `trials/*/*` hid it (`git check-ignore`). Added the link and its exception. Every other leaf whose units declare
+  foreign functions has its link (checked by a script over the tracked files, and by the full run: no other E4030).
+- `n1_addr`. Cause: node l has no bees.config and a `dial` peer, and its manifest had no `redial` line, which is
+  required since the user's ruling of 2026-11-17 (`contract/so-you-want-to-write-a-compiler.md`, the manifest table).
+  Added `redial off` to `nodes/l/node.wire`; the check was not touched.
+- `s03_actor_ceiling`. Not changed. On the pin 999909 it prints 8000 and ends 0 as on 999900, so it is not the
+  compiler's generation. The default stack reservation is the machine's memory plus swap, and this machine has 16 GiB
+  and, today, no swap at all (`vm.swapusage: total = 0.00M`): 8000 times 16 GiB is exactly the address space. The
+  Mac golden (abort near 4000) was recorded with swap in use. `silica-defects.md`, the note on the default
+  reservation, says so. Left for the owner: what the entry should show on a Mac whose swap comes and goes.
+- `n2t_live`. Cause: the installed Erlang is OTP 29, which offers TLS 1.3 by default and puts x25519mlkem768 first
+  (`ssl:groups(default)`); the trial was written against OTP 28, which offers TLS 1.2 only by default and has no
+  hybrid group, and it left both to the defaults. Change, in the stock node's option files only
+  (`tools/bees_beam_tls_live.py`): the TLS 1.3 files say `{supported_groups, [x25519]}`, and the "TLS 1.2 only" file
+  says `{versions, ['tlsv1.2']}`. No golden changed, and the trial passes 22 of 22 on OTP 29. Left for the owner:
+  whether a scenario of a stock node on the hybrid group is wanted (only an OTP that has the group can run it).
+- Python `test_tls_refusals`. Cause: a race a dialer cannot win. In TLS 1.3 the dialer's handshake is complete
+  before the listener has judged its certificate; the refusal comes afterwards as an alert and a close. Probed: when
+  the dialer writes its advert before the listener has closed, its next read gives the alert (`tls_failed`); when it
+  writes 0.3 s later the write fails with EPIPE and the alert is never read (`closed`). With Python 3.15.2 and
+  OpenSSL 4.1.0 the second happens every time. The guide (section 7) says a client can tell no more than a close, and
+  `tools/bees_tempus_trial.py` already accepted both for row 26. Change: the test accepts both for the three cases in
+  which the listener refuses the dialer's certificate; the stage and the listener's own outcome are still required
+  exactly. The client was not changed. Left for the owner: whether a reset before any frame should be named
+  `tls_failed`, which would give one answer but would also name a node's close at its connection limit that way.
+- `n2_dist` and `n2t_pair` (the start race). Cause measured: a program that was just built takes 1.98 s to listen
+  the first time it is run on this machine and 0.01 s afterwards, and the runners started the next program 0.5 s
+  after STARTING the first. Change: `tools/run_trial.py` marks the program's first byte of output, and
+  `tools/run_pair.py`, `run_trio.py` and `run_demo.py` start the next program STAGGER seconds after that (a program
+  that prints nothing before its peer arrives is waited for 5 s at most). No comparison was made order-insensitive.
+- The whole set after these changes: 99 of 100 leaves passed; the one that failed is `s03_actor_ceiling`.
+- Seen and left: `trials/c1_codec_live/kinds.bees.raw` and `trials/m3_decode_probe/main.silica.derived` are tracked
+  and rewritten by every run; `tools/test_platform_and_ports.py` fails on Linux goldens missing for
+  `c1_codec_term`, `c4_tempus_boot`, `n5_trust_mux` and `n5_trust_mux_tls`.
+
+## 2026-11-23, the two lines joined (merge of main into tempus-extension-nodes)
+
+The entries above this one and below the entry of 2026-11-20 come from two lines of work that did not know of each
+other: the node halves of the Python, Swift and Kotlin extensions (built on 8041473) and main's commits of 2026-11-21
+to 2026-11-23 (the library and driver split, gossip discovery in the client libraries, one compiler pin per platform,
+the three-platform runner, load balancing). The merge keeps both, in main's layout, and loses nothing of either.
+
+Python. The node half (seven modules) is in example_tempus_clients/python/lib beside the client library package
+lib/tempus_client; its test support is in python/testing. Neither uses the other. bees_tempus_client.py, the name the
+trial tools import, is the node half's test support by default and the client library's with
+BEES_TEMPUS_TEST_SUPPORT=tempus_client.testing; test_bees_tempus_client.py passes both ways. Two corrections were
+carried from the node half into lib/tempus_client: an atom that is not UTF-8 is refused and not raised, and the
+channel binding is judged before the token. Two differences remain in lib/tempus_client: its dial returns a reply
+unchecked (its Peer checks it), and the whitelist rule is applied only when a whitelist is given. Trial
+c7_tempus_node_python moved to ports 26100 to 26111, because main's c7_tempus_gossip owns 24800; 38 lines of nine Mac
+goldens changed, port numbers only. It is declared for the Mac only; Linux goldens are still to be recorded.
+
+Swift. The node half moved into main's layout (lib/TempusNode, driver/tempus-node-example, test/tempus-node-tests,
+test/model_check.py, testing/tempus-node-trial); the test-support target TempusTestSupport was folded into main's
+TempusClientTesting (ManualClock, ManualTimers and ListRandom in ManualSources.swift), and test/layering_check.py now
+checks that neither library nor tempus-node-example depends on it. TempusClient builds in Swift 5 mode, TempusNode
+and the test support in Swift 6 mode. Both libraries have a public type named Store, and a file that imports both
+selects the node's with `import struct TempusNode.Store`. c8_tempus_node_swift has a platforms file (Mac only).
+Where the entries above say TempusTestSupport, read TempusClientTesting.
+
+Kotlin. Main's layout kept (lib, driver, test). The node half (Node.kt, View.kt, Clock.kt, Config.kt,
+NodeTestMain.kt, NodeFixtures.kt, model_cases.py) moved into it. Its store and entry classes were renamed NodeStore
+and NodeHeld because lib/Gossip.kt declares Store and Held in the same package; nothing of main's was renamed.
+cli/Main.kt was removed (it was the unchanged base file; driver/Main.kt is main's). The Makefile builds
+bees-tempus.jar from lib alone and runs three test programs. The tests golden of c9_tempus_node_kotlin was recorded
+again because the node tests now also read the Linux AArch64 goldens main added to other trials (22 tests became 24
+and the golden counts in six lines rose). c9 has a platforms file (Mac only).
+
+All three. The old LINUX_GOLDEN_EXCEPTIONS entries are replaced by main's platforms files. Each language now holds
+two gossip implementations side by side: main's Peer in the client library (lighter, on real timers, run in the
+four-language gossip networks) and the node half (admission in the Silica node's order, its configuration keys and
+refusals, the clock choices, the in-flight limit, audit lines word for word, compared with Silica nodes case by
+case). Open for the owner: which to keep, or how to make one that has both sets of properties.
+
+Building. main pins silica-999899-macos-applesilicon and uses Silica's new TCP listener contract. The merge was built
+and run against a read-only export of Silica's main with that compiler, because the Silica checkout beside the BEES
+checkout on this machine held neither.

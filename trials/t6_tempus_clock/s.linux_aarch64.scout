@@ -1,0 +1,57 @@
+TEST ONLY: tick and clock frames are accepted
+clock: the system clock is read
+tempus_edge node b19edad2 listening on 127.0.0.1:24501
+store tempus_edge: capacity 4, shuffle length 3
+store tempus_bridge: capacity 4, shuffle length 2
+store tempus_sentinel: capacity 4, shuffle length 2
+join: asking the sentinel at 127.0.0.1:24503 for tempus_edge d1
+join: the sentinel did not answer for tempus_edge, connect_failed d1
+join: no sentinel answered for tempus_edge; waiting to try again
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a1
+[tempus audit] admitted peer=1fae2ad7f75a0ded tempus_edge, token and proof of possession a1
+clock: no time
+clock: the system clock could not be read: the node admits no connection and does not tick until it is read again
+application: told (86) that the system clock could not be read: the node admits no connection and does not tick until it is read again
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a2
+[tempus audit] clock_refused peer=- the system clock cannot be read: closed at once a2
+join: the request for tempus_edge waits until the system clock is read again
+clock: 1500 s (the later reading of a clock frame)
+clock: the system clock is read again
+join: asking the sentinel at 127.0.0.1:24503 for tempus_edge d2
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d2
+[tempus audit] admitted peer=9e1113ab416dc197 tempus_sentinel, tempus whitelist entry 0 d2
+join: the sentinel answered for tempus_edge d2
+view tempus_edge: (empty)
+view tempus_sentinel: 9e1113ab@0
+join: asking the sentinel at 127.0.0.1:24503 for tempus_bridge d3
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d3
+[tempus audit] admitted peer=9e1113ab416dc197 tempus_sentinel, tempus whitelist entry 0 d3
+join: the sentinel answered for tempus_bridge d3
+view tempus_bridge: (empty)
+view tempus_sentinel: 9e1113ab@0
+join: asking the sentinel at 127.0.0.1:24503 for tempus_sentinel d4
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d4
+[tempus audit] admitted peer=9e1113ab416dc197 tempus_sentinel, tempus whitelist entry 0 d4
+join: the sentinel answered for tempus_sentinel d4
+view tempus_sentinel: 9e1113ab@0
+view tempus_sentinel: 9e1113ab@0
+join: done
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a3
+[tempus audit] admitted peer=1fae2ad7f75a0ded tempus_edge, token and proof of possession a3
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a4
+[tempus audit] admitted peer=1fae2ad7f75a0ded tempus_edge, token and proof of possession a4
+clock: 1470 s
+clock: the system clock went back by 30 s; the node follows it
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a5
+[tempus audit] admitted peer=1fae2ad7f75a0ded tempus_edge, token and proof of possession a5
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a6
+[tempus audit] admitted peer=1fae2ad7f75a0ded tempus_edge, token and proof of possession a6
+clock: 1370 s
+clock: the system clock went back by 100 s, more than clock_back_limit_s 60: the node has stopped; it admits no connection and does not tick until its application starts it again
+application: told (87) that the system clock went back by 100 s, more than clock_back_limit_s 60: the node has stopped; it admits no connection and does not tick until its application starts it again
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a7
+[tempus audit] clock_stopped peer=- the node stopped after its system clock went back: closed at once a7
+clock: 2000 s (the later reading of a clock frame)
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a8
+[tempus audit] clock_stopped peer=- the node stopped after its system clock went back: closed at once a8
+exit=0

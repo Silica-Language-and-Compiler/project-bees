@@ -200,7 +200,18 @@ Trials replace wall-clock values (`age_ms`, `duration_ms`, `paused_ms`, the hist
 
 ## 9. Questions (Q1 to Q13 ruled 2026-11-18; Q14 and Q15 open; the table is the record of the options and of what was provisional)
 
-Q15 (OPEN, 2026-11-19). On the 2-core Linux box a CPU-busy request stops the whole server (SD-47; 11.2b). Four properties are
+Q15 (CLOSED 2026-11-21 by option (c), with what Silica has today; the text below is the record). The demo's `slow` no longer
+computes in one dispatch: it calls a helper actor of its own again and again until the time has passed
+(`trials/n5_trust_mux/roles/n5_demo.silica`). A `call()` awaiting its reply is a point where the scheduler runs the other
+actors of the carrier (specification 15.1.2), so the server goes on reading while a request is in work, on any number of
+cores. Run on macOS (10 cores), Linux x86-64 (8 cores) and Linux AArch64 (4 cores): every output of both trials is the same on
+the three, and the Mac goldens did not change. `pause` needed a second change: its first pause is 700 ms, not 1200 ms, and
+the resident set is sampled half a second in, because Silica's TCP carrier waits at most 1000 ms for the socket to take a
+piece and then ends the link, and on Linux the raw peer's 6 MiB do not fit in the kernel's buffers, so its write waits for
+the whole pause (on macOS they fit). A request that really computes for a long time still holds up the actors of its
+carrier: that is SD-47, unchanged, and an application's concern.
+
+Q15 as asked (2026-11-19). On the 2-core Linux box a CPU-busy request stops the whole server (SD-47; 11.2b). Four properties are
 then shown only on the Mac: answers out of order, duplicate detection while a request is in work, a cancel while a call is in
 work, and the read pause and resume.
 
@@ -330,7 +341,7 @@ scenarios) and 12 of 12, load average 10 to 30. "Observed" is in a golden; "infe
 | --- | --- | --- |
 | `interleave` (both trials) | one connection (one `session.start`, connection id 0 throughout); a 600 ms call, a quick call, a cast and a binary call handed over at once; answers arrive as 3, 4, 5, 2 and each caller gets its own value; `pause` and `resume` at `max_inflight` 2; the metrics | that the answers were matched by `req_id` and not by order follows from the order being different and the values being right |
 | `window` | five calls on one session, at the fifth ONE `goaway limit_reached` with `inflight=1`, that call still answered, `session.end`, the sixth call on a new connection (fast-path token); a session ended by `idle_ms` (900 ms of silence against 600); a session ended by `max_age_ms` (four calls 400 ms apart, the next call lands on a new connection); a second connection refused while one is open (`session_slots_full`, 0 bytes back); the boot note for `acceptors` | whether it was age or idle that ended the third session is known from the timing (a call every 400 ms against `idle_ms` 600), not from the line: both say `limit_reached` |
-| `pause` | two slow calls admitted, `pause inflight=2`, nothing else admitted for 1.2 s although about 6 MiB of requests had been written by the peer; the server's resident set 3536 KiB at the pause and 3552 KiB one second later (a first run; the golden says "within 1024 KiB"); `resume` when the first call ends; the next request (a cast) admitted, pause and resume again; then the first of 65536 forbidden requests: `goaway deny` | that the unread megabytes sat in the kernel and in the peer is inferred from the flat resident set and from the fact that no line was printed for them; the peer's side of the reset connection is not compared |
+| `pause` | two slow calls admitted, `pause inflight=2`, nothing else admitted for 1.2 s (0.7 s since 2026-11-21, with the resident set sampled half a second in: the peer's write must not wait 1000 ms, the limit of Silica's TCP carrier, and on Linux it waits for the whole pause) although about 6 MiB of requests had been written by the peer; the server's resident set 3536 KiB at the pause and 3552 KiB one second later (a first run; the golden says "within 1024 KiB"); `resume` when the first call ends; the next request (a cast) admitted, pause and resume again; then the first of 65536 forbidden requests: `goaway deny` | that the unread megabytes sat in the kernel and in the peer is inferred from the flat resident set and from the fact that no line was printed for them; the peer's side of the reset connection is not compared |
 | `deny` (both) | forbidden MFA and permission denied on a session: audit, `goaway deny`, `session.end reason=deny`, the caller sees `closed`, suspicion 1 then 2; a permitted call lowers it; a call whose user code fails gets no frame (the caller's own timeout: `timeout`), suspicion rises, and the session goes on (the next requests use the same connection id); two failing casts take suspicion above the limit: `quarantined`, `session closed`, `goaway deny`; the next connection is refused at the gate | |
 | `protocol` (both) | a duplicate `req_id` in work: dropped, `request.refuse reason=duplicate`, counted in `session.end` and the metrics, the other requests answered; a malformed map mid-session and an oversize length mid-session: `protocol_error`, `goaway protocol`, closed at once (175 bytes back: `token_issue`, `ok`, `goaway`); an invalid token with the offer: `token_reject`, `goaway deny` and nothing else (54 bytes) | that the 54 bytes are a goaway frame is inferred from its size and from the server's line; the raw peer counts bytes, it does not decode |
 | `shutdown` | a call in work when the node is told to shut down: `goaway shutdown` with `inflight=1`, the call's result delivered, `session.end reason=shutdown`; a call after it: `closed`, and the server's `shutdown ... closed before reading` | the shutdown is asked by a demo function that sends the listener the message `trust_shutdown()` sends; `trust_shutdown()` itself is compiled and not called |
@@ -414,7 +425,7 @@ Classification of the 13:
 
 Each property in the last column needs a request in work while the server goes on reading. On this Linux box a request in work
 stops the server, so the scenario cannot show the property there, whatever its timing. This is owner question Q15 (section 9).
-Until it is ruled, no Linux golden is recorded for these 12.
+Until it is ruled, no Linux golden is recorded for these 12. (Ruled and recorded 2026-11-21: Q15, section 9.)
 
 ### 11.3 The soak (`make measure`)
 

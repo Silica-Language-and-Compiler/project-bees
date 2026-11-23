@@ -40,6 +40,14 @@ protocol(Node) ->
         _ -> unknown
     end.
 
+%% At nodeup the distribution controller's #net_address.protocol of an ACCEPTED link can still be undefined (seen on Linux, OTP 29, in some
+%% runs); it is filled in a moment later. Ask again, every 50 ms, up to N times, until it is a protocol.
+settled_protocol(Node, N) ->
+    case protocol(Node) of
+        undefined when N > 0 -> timer:sleep(50), settled_protocol(Node, N - 1);
+        P -> P
+    end.
+
 %% A stock node that BEES must refuse (its TLS settings, its certificate or its cookie are wrong) pings BEES: pang.
 refused_ping(Bees) ->
     out("stock: ping ~s -> ~p", [Bees, net_adm:ping(Bees)]),
@@ -60,7 +68,7 @@ late_peer(Bees) ->
     ok = net_kernel:monitor_nodes(true),
     out("stock: registered, waiting for BEES to dial again", []),
     receive
-        {nodeup, Bees} -> out("stock: nodeup ~s; the link's protocol is ~p", [Bees, protocol(Bees)])
+        {nodeup, Bees} -> out("stock: nodeup ~s; the link's protocol is ~p", [Bees, settled_protocol(Bees, 40)])
     after 30000 ->
         out("stock: no nodeup from ~s", [Bees])
     end,

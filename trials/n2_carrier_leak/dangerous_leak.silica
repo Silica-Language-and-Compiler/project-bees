@@ -22,6 +22,40 @@ fn carrier_new() -> dangerous_actor_ref {
         c: dangerous_actor_ref <- spawn_dangerous({ owner: actor_ref_of_word(0), fd: 0 - 1, rx_credit: 0, up: false, listening: false, link_spec: "" }, dangerous_tcp_carrier@carrier, stack_policy(0, :keep_last_message), state_policy(:keep_state_area))
     produces pure c end
 }
+// carrier_listen(c, owner, address): opens the unopened carrier c as a LISTENER for `owner`, which is told what a listening
+// carrier's owner was told before the standard library's change of 2026-11-20: (:link_up, "port:N"), (:link_down, why),
+// and for every accepted connection (:accepted, connection_carrier, "peer:..."), the carrier still to be opened by whoever
+// will own the connection. The standard library's listener now hands its owner the accepted DESCRIPTOR,
+// (:accepted, fd, peer), and starts no actor (the owner decides where a connection sits in its supervision tree). BEES
+// starts each connection's carrier unsupervised, as the listener itself used to; that is done by the actor below, cacc,
+// which is the listening carrier's owner. Its state is the owner it speaks for. The initial state of a connection carrier
+// is the one the standard library's header gives: dangerous_tcp_carrier@initial() with the descriptor in place of -1.
+// (The listeners of the three TLS links, TRUST's, BEAM mode's and TEMPUS's, own their listening carrier themselves and
+// start the connection carrier the same way, in their own units. They are not named here: a plaintext program's root
+// unit, which holds this part, names no TLS unit.)
+fn cacc(msg: (:link_up, string) | (:accepted, int64, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom), owner: actor_ref) -> (:no_reply, actor_ref) {
+    sequence proc[concurrency]
+        _: boolean <- case msg of {
+            (:link_up, i: string) -> cast(owner, (:link_up, i) impl ActorMessage {});
+            (:accepted, fd: int64, peer: string) -> {
+                sequence proc[concurrency]
+                    conn: dangerous_actor_ref <- spawn_dangerous({ owner: actor_ref_of_word(0), fd: fd, rx_credit: 0, up: false, listening: false, link_spec: "" }, dangerous_tcp_carrier@carrier, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+                    ok: boolean <- cast(owner, (:accepted, conn, peer) impl ActorMessage {})
+                produces pure ok end
+            };
+            (:rx, _s: string) -> true;
+            (:tx_credit, _n: int64) -> true;
+            (:tx_failed, _w: atom) -> true;
+            (:link_down, w: atom) -> cast(owner, (:link_down, w) impl ActorMessage {})
+        }
+    produces pure (:no_reply, owner) end
+}
+fn carrier_listen(c: dangerous_actor_ref, owner: actor_ref, address: string) -> boolean {
+    sequence proc[concurrency]
+        a: actor_ref <- spawn(owner, cacc, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        ok: boolean <- cast(c, (:open, a, address) impl ActorMessage {})
+    produces pure ok end
+}
 
 fn say(s: string) -> atom {
     sequence proc[device_io]

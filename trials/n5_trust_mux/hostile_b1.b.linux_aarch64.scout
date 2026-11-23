@@ -1,0 +1,23 @@
+[trust] TEST ONLY: plaintext transport, peer identity is a test-supplied stand-in for the certificate fingerprint
+[trust] mode trust, listen 127.0.0.1:23004, whitelist 0 entries, pinned servers 1, frame_size_max 4096, args_len_max 4096, term_depth_max 32, call_timeout_ms 2000, first_frame_timeout_ms 2000, suspicion_limit 3, token_bytes 48, token_ttl_sec 300, one request per connection (B1)
+[trust] TRUST standalone: no whitelist file configured, no inbound connections accepted
+step 1 call demo:add([1, 1]): {error, protocol_error}
+step 2 call demo:add([2, 1]): {error, protocol_error}
+step 3 call demo:add([3, 1]): {error, protocol_error}
+step 4 call demo:add([4, 1]): {error, protocol_error}
+step 5 call demo:add([5, 1]): {error, protocol_error}
+step 6 call demo:add([6, 1]): {error, protocol_error}
+step 7 call demo:add([7, 1]): {error, protocol_error}
+step 8 call demo:add([8, 1]): {error, protocol_error}
+step 9 call demo:add([9, 1]): {error, protocol_error}
+step 10 call demo:add([10, 1]): {error, protocol_error}
+step 11 call demo:add([11, 1]): {error, protocol_error}
+step 12 call demo:add([12, 1]): {error, protocol_error}
+step 13 call demo:add([13, 1]): {ok, int 113}
+step 14 call demo:add([14, 1]): {error, protocol_error}
+step 15 call demo:add([15, 1]): {error, protocol_error}
+step 16 call demo:add([16, 1]): {error, protocol_error}
+step 17 call demo:add([17, 1]): {error, protocol_error}
+step 18 call demo:add([18, 1]): {ok, int 118}
+hostile done
+exit=0

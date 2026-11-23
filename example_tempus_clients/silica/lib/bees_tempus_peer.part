@@ -1,0 +1,37 @@
+// ---- BEES TEMPUS client library, the gossip part: pasted by tools/bees_tempus_gen.py into the dangerous_ root unit of
+// an application that is a MEMBER of a TEMPUS network (--part example_tempus_clients/silica/lib/bees_tempus_peer.part),
+// after src/tempus/bees_tempus_node.part. EXAMPLE ONLY, not for production: see example_tempus_clients/README.md.
+//
+// What gossip discovery needs beyond one connection is the three stores (edge, bridge, sentinel) with their ageing,
+// merge and eviction, a shuffle on each store's timer, and the join through the configured sentinels. In Silica all of
+// that is BEES's own library, the units of src/tempus (bees_tempus_view, bees_tempus_store, bees_tempus_store_actor,
+// bees_tempus_node, dangerous_bees_tempus_draws) and the node part. A Silica application does not write it a second
+// time, as the active part of this client library (bees_tempus_client.part) does not write admission a second time: it
+// uses the node's own connection actor. So this part is small. It starts that library as an ordinary member:
+//   - never externally driven: the clock is the system clock, read through the TEMPUS native edge, and every store
+//     ticks by its own timer; the draws come from the platform's secure source;
+//   - nothing of the test unit: a program built with this part holds no tick and no clock frame.
+// Nothing here reads a file or holds a default: every value is an argument.
+//
+// tempus_peer_boot(idn, net, sz) -> 0 to go on, 1 refused (one line says why). FIRST in main.
+// tempus_peer_start(app, idn, net, sz) -> the peer's actor. It listens, joins through its sentinels, serves admitted
+// peers and ticks its three stores. idn, net and sz are those of tempus_node_start (src/tempus/bees_tempus_node.part):
+//   idn   { id, pub, seed, addr, token, typ }: the TEMPUS identity, the address other peers dial, the producer's token,
+//         the peer's own type (1 edge, 2 bridge, 3 sentinel)
+//   net   { listen, spec, sents, wl, kid, ppub, ms, mst, max, skew, j0, j1, back, blim, fail, every }
+//   sz    { k1, c1, t1, k2, c2, t2, k3, c3, t3 }: capacity, shuffle length and tick_ms of the edge, bridge and sentinel store
+// What the application is told, and what it may cast to the peer (a new token, a new producer key), is what the node
+// part says for a node's application.
+//
+// How the application learns who the peer knows: it asks, as any admitted peer may, with a `sample` request to the
+// peer's own listen address (bees_tempus_client.part: tempus_client_dial). There is no other way into a store, by
+// design: a store is reached over tempus/1 only (development-plan/tempus-design.md 16.1). The driver of this
+// directory does that (../driver/peer.role).
+fn tempus_peer_boot(idn: $NI$, net: $NN$, sz: $NZ$) -> int64 {
+    drv: $NT$ <- { driven: false, ext: actor_ref_of_word(0), draws: "" };
+    tempus_node_boot(idn, net, sz, drv)
+}
+fn tempus_peer_start(app: actor_ref, idn: $NI$, net: $NN$, sz: $NZ$) -> actor_ref {
+    drv: $NT$ <- { driven: false, ext: app, draws: "" };
+    tempus_node_start(app, idn, net, sz, drv)
+}

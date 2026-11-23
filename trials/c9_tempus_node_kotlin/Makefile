@@ -48,7 +48,7 @@ nodes: tools natives fixtures
 kotlin: tools
 	@$(MAKE) --no-print-directory -C "$(EXT)" test-build "$(CASES)" KOTLINC="$(KOTLINC)" JAVA="$(JAVA)" > /dev/null || { echo "FAIL: [$(N)] the Kotlin extension or its tests did not compile (make -C example_tempus_clients/kotlin test-build)"; exit 1; }
 	@mkdir -p "$(HERE)/build" && cd "$(HERE)" && if [ ! -f "$(NET_JAR)" ] || [ Net.kt -nt "$(NET_JAR)" ] || [ "$(TEST_JAR)" -nt "$(NET_JAR)" ]; then \
-		"$(KOTLINC)" -nowarn -include-runtime -d "$(NET_JAR)" "$(EXT)"/src/*.kt "$(EXT)/test/Fixtures.kt" "$(EXT)/test/NodeFixtures.kt" Net.kt || { echo "FAIL: [$(N)] Net.kt did not compile"; exit 1; }; fi
+		"$(KOTLINC)" -nowarn -include-runtime -d "$(NET_JAR)" "$(EXT)"/lib/*.kt "$(EXT)/test/Fixtures.kt" "$(EXT)/test/NodeFixtures.kt" Net.kt || { echo "FAIL: [$(N)] Net.kt did not compile"; exit 1; }; fi
 	@echo "[$(N)] built: the Kotlin extension, its node tests and the network program"
 build: tools nodes kotlin
 run: build

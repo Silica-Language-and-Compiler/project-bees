@@ -1,6 +1,6 @@
 TEST ONLY: tick and clock frames are accepted
 clock: the system clock is read
-tempus_sentinel node 9e1113ab listening on 127.0.0.1:24800
+tempus_sentinel node 9e1113ab listening on 127.0.0.1:26100
 store tempus_edge: capacity 4, shuffle length 3
 store tempus_bridge: capacity 4, shuffle length 2
 store tempus_sentinel: capacity 4, shuffle length 2
@@ -20,7 +20,7 @@ view tempus_sentinel: e4188f0a@0
 [tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a5
 [tempus audit] admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession a5
 view tempus_sentinel: (empty)
-tick tempus_sentinel: shuffle with e4188f0a at 127.0.0.1:24803 d1
+tick tempus_sentinel: shuffle with e4188f0a at 127.0.0.1:26103 d1
 [tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d1
 [tempus audit] admitted peer=e4188f0a2cee5a46 tempus_sentinel, tempus whitelist entry 1 d1
 view tempus_sentinel: (empty)
@@ -150,7 +150,7 @@ view tempus_edge: 958cff49@0
 [tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a58
 [tempus audit] admitted peer=224c0c0c5b08df0f tempus_edge, token and proof of possession a58
 view tempus_edge: (empty)
-tick tempus_edge: shuffle with 958cff49 at 127.0.0.1:24810 d2
+tick tempus_edge: shuffle with 958cff49 at 127.0.0.1:26110 d2
 [tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d2
 [tempus audit] admitted peer=958cff49930885d2 tempus_edge, token and proof of possession d2
 view tempus_edge: 958cff49@0

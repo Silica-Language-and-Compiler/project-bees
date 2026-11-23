@@ -1,0 +1,3 @@
+configuration refused: record 2 schema 20: a record kind that is not one of a beam-mode store
+done
+exit=0

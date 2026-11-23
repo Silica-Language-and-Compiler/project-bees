@@ -1,0 +1,3 @@
+configuration refused: record 3 schema 21: trust.limits.args_len_max: above frame_size_max
+done
+exit=0

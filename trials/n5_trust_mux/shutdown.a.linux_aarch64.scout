@@ -1,0 +1,20 @@
+[trust] TEST ONLY: plaintext transport, peer identity is a test-supplied stand-in for the certificate fingerprint
+[trust] mode trust, listen 127.0.0.1:23000, whitelist 2 entries, pinned servers 0, frame_size_max 4096, args_len_max 4096, term_depth_max 32, call_timeout_ms 3000, first_frame_timeout_ms 500, suspicion_limit 3, token_bytes 48, token_ttl_sec 300, sessions (B2): max_inflight 2, max_calls 8, max_age_ms 60000, idle_ms 2000, drain_ms 1000
+[trust] listening on 127.0.0.1:23000
+[trust audit] token_issued fp=9fecef522decaee2ee95bcf1e0fb3db6b186fe92191395877af91ec2ff0968aafbf246a408690da60dac84c68ccbf6fe51b31016138b425985fe3d21b592c344 new token for this fingerprint (the token itself is never logged) 0
+[trust telemetry] session.start client_id=fp:9fecef522decaee2 conn=0
+[trust audit] admitted fp=9fecef522decaee2ee95bcf1e0fb3db6b186fe92191395877af91ec2ff0968aafbf246a408690da60dac84c68ccbf6fe51b31016138b425985fe3d21b592c344 call demo:add/2 0
+[trust telemetry] request.accept type=call req_id=0000000000000000000000000001 conn=0
+[trust telemetry] request.finish req_id=0000000000000000000000000001 outcome=ok duration_ms=N conn=0
+[trust audit] admitted fp=9fecef522decaee2ee95bcf1e0fb3db6b186fe92191395877af91ec2ff0968aafbf246a408690da60dac84c68ccbf6fe51b31016138b425985fe3d21b592c344 call demo:slow/1 0
+[trust telemetry] request.accept type=call req_id=0000000000000000000000000002 conn=0
+[trust audit] admitted fp=9fecef522decaee2ee95bcf1e0fb3db6b186fe92191395877af91ec2ff0968aafbf246a408690da60dac84c68ccbf6fe51b31016138b425985fe3d21b592c344 cast demo:stop/0 0
+[trust telemetry] request.accept type=cast req_id=0000000000000400000000000003 conn=0
+[trust telemetry] pause inflight=2 conn=0
+[trust telemetry] request.finish req_id=0000000000000400000000000003 outcome=ok duration_ms=N conn=0
+[trust telemetry] resume paused_ms=N conn=0
+[trust telemetry] goaway reason=shutdown drain_ms=1000 inflight=1 conn=0
+[trust telemetry] request.finish req_id=0000000000000000000000000002 outcome=ok duration_ms=N conn=0
+[trust telemetry] session.end reason=shutdown age_ms=N calls_total=3 inflight_peak=2 refused=0 duplicates=0 conn=0
+[trust audit] shutdown fp=- the node is shutting down, connection closed before reading 1
+exit=0

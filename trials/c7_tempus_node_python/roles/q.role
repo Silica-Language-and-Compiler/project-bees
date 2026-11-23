@@ -4,7 +4,7 @@
 fn me() -> int64 { 2 }
 fn typ() -> int64 { 3 }
 fn tok() -> int64 { 3 }
-fn port() -> string { "24800" }
+fn port() -> string { "26100" }
 fn sents() -> string { "" }
 fn tick_ms() -> uint64 { 1000 }
 fn driven() -> boolean { true }

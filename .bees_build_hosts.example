@@ -3,7 +3,7 @@
 #
 # One line per machine, whitespace separated:
 #   PLATFORM_ID  USER@HOST  REMOTE_PATH  OPENSSL_PREFIX  JOBS  [NOTES]
-#     PLATFORM_ID    macos_applesilicon | linux_x86_64 | ... (tools/platform_id.py)
+#     PLATFORM_ID    macos_applesilicon | linux_x86_64 | linux_aarch64 | ... (tools/platform_id.py)
 #     USER@HOST      reached with key-based ssh in batch mode only: ssh -o BatchMode=yes USER@HOST true must work
 #     REMOTE_PATH    where the BEES tree is synced to (absolute, or starting with ~); a Silica checkout must sit beside it
 #                    (SILICA_ROOT, default ../silica of the tree) or NOTES must say where
@@ -19,3 +19,4 @@
 # SILICA_COMPILER must name a compiler of that machine's platform (the default binaries/silica-compiler of a checkout copied from a
 # Mac is the macOS one). The box below has 2 cores and about 3.9 GB: 2 trials at a time (a compile peaks near 300 MB).
 linux_x86_64 manager@aalang.org /opt/bees /opt/openssl 2 SILICA_COMPILER=/opt/silica/binaries/silica-compiler-linux_x86_64 SILICA_ROOT=/opt/silica Linux x86_64, the first remote machine
+linux_aarch64 builder@pi.example.org /home/builder/bees /home/builder/opt/openssl 2 SILICA_COMPILER=/home/builder/silica/binaries/silica-compiler-linux_aarch64 SILICA_ROOT=/home/builder/silica BEES_COMPILE_JOBS=1 Raspberry Pi 5, aarch64, 3 GB: 2 trials at a time, 1 compile

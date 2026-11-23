@@ -1,0 +1,25 @@
+PASS tempus: both ends open with profile 1
+PASS tempus: the handshake completes
+PASS tempus: the server's facts say the profile's ALPN was selected
+PASS tempus: the client's facts say the profile's ALPN was selected
+PASS tempus: the server reads the client's public key (the node's)
+PASS tempus: the client reads the server's public key (the sentinel's)
+PASS tempus: the key read is not some other identity's
+PASS a trust/1 client is refused by a tempus/1 server (no common ALPN)
+PASS a tempus/1 client is refused by a trust/1 server (no common ALPN)
+PASS two credentials: all four ends open
+PASS two credentials: the TRUST handshake completes
+PASS two credentials: the TEMPUS handshake completes
+PASS two credentials: the TEMPUS client sees the bridge's TEMPUS key
+PASS two credentials: the TEMPUS server sees the node's key
+PASS two credentials: the TRUST client does not see a TEMPUS key
+PASS two credentials: the TRUST connection's ALPN bit is set (trust/1)
+PASS two credentials: a later TEMPUS open keeps the first TEMPUS credential (the node's, the bridge's)
+PASS a P-256 peer: the handshake completes
+PASS a P-256 peer: its key is refused (not Ed25519)
+PASS a profile that does not exist is refused
+PASS a negative profile is refused
+PASS the key of a connection with no peer certificate yet is refused
+PASS the key of a handle that is not a connection is refused
+all passed
+exit=0

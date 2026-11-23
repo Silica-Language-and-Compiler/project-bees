@@ -1,0 +1,333 @@
+-- 1 fixtures from erl
+int_0: i0 | same
+int_255: i255 | same
+int_256: i256 | same
+int_neg1: i-1 | same
+int_i32max: i2147483647 | same
+int_i32min: i-2147483648 | same
+int_i32max1: i2147483648 | same
+int_i32min1: i-2147483649 | same
+int_i64max: i9223372036854775807 | same
+int_i64min: i-9223372036854775808 | same
+int_i64max1: I+0000000000000080 | same
+int_i64min1: I-0100000000000080 | same
+int_2p64: I+000000000000000001 | same
+big_2048: I+393000000000000000000000000000000000000000000000~256 | same
+big_2048_neg: I-393000000000000000000000000000000000000000000000~256 | same
+float_1_5: f3ff8000000000000 | same
+float_neg0: f8000000000000000 | same
+float_0: f0000000000000000 | same
+float_big: f7e37e43c8800759c | same
+float_pi: f400921fb54442d18 | same
+atom_ok: a:6f6b | same
+atom_empty: a: | same
+atom_utf8: a:68c3a96c6c6fe28692 | same
+atom_255: a:787878787878787878787878787878787878787878787878~255 | same
+atom_255_utf8: a:c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9~510 | same
+bin_empty: b: | same
+bin_abc: b:616263 | same
+bin_bytes: b:00ff0102 | same
+bits_3: B3:a0 | same
+bits_12: B4:010230 | same
+tuple_0: t0 | same
+tuple_3: t3 a:61 i1 b:78 | same
+tuple_300: t300 i1 i2 i3 i4 i5 i6 i7 i8 i9 i10 i11 i12 i13 i14 i15 i16 i17 i18 i19 i20 i21 i22 i23 i24 i25 i26 i27 i28 i29 i30 i31 i32 i33 i34 i35 i36 i37 i38 i39 +261 | same
+nil: n | same
+string: s:616263 | same
+list_mixed: l7 i1 a:61 b:62 t1 a:63 f4004000000000000 n s:73 n | same
+improper: l1 i1 i2 | same
+improper2: l2 a:61 a:62 a:63 | same
+list_big_ints: l4 i256 i1000 i65536 i-1 n | same
+list_char_256: l2 i104 i256 n | same
+map_0: m0 | same
+map_1: m1 a:61 i1 | same
+map_atoms: m2 a:62 i2 a:61 i1 | same
+map_ints: m3 i1 a:61 i2 a:62 i3 a:63 | same
+map_1_and_1_0: m2 i1 a:61 f3ff0000000000000 a:62 | same
+map_nested: m2 a:6b m1 i1 l1 m0 n b:62 t1 m0 | same
+set: m3 i1 n i2 n i3 n | same
+export_fun: u:7177056c6973747377036d61706102 | same
+mixed: t5 a:63616c6c m3 a:61726773 l8 i1 f4004000000000000 b:62696e s:737472 l1 a:78 a:79 t0 m0 B1:80 n a:626967 I+0000000000000000000001 a:6964 i7 f8000000000000000 a:c3bc6ec3af l3 u:71770665726c616e6777046e6f64656100 i70000 i-70000 n | same
+fixed_pid: p:58770d6e6f6e6f6465406e6f686f73740000000a00000000~28 | same
+fixed_ref: r:5a0003770d6e6f6e6f6465406e6f686f7374000000000003~34 | same
+fixed_port: o:78770d6e6f6e6f6465406e6f686f73740000000000000000~28 | same
+fixed_local_fun: t2 a:66 u:70000000540074dbbc348b4519207f78ab4cd05072330000~85 | same
+fixed_all: l3 p:58770d6e6f6e6f6465406e6f686f73740000000a00000000~28 t2 r:5a0003770d6e6f6e6f6465406e6f686f7374000000000003~34 o:78770d6e6f6e6f6465406e6f686f73740000000000000000~28 m1 a:66 u:70000000540174dbbc348b4519207f78ab4cd05072330000~85 n | same
+-- 2 forms erl reads and does not write
+atom_ext_latin1: a:68c3a9 -> 83770368c3a9
+small_atom_ext_latin1: a:68c3a9 -> 83770368c3a9
+atom_utf8_ext_short: a:6f6b -> 8377026f6b
+integer_ext_small: i5 -> 836105
+small_big_one: i1 -> 836101
+small_big_padded: i255 -> 8361ff
+large_big_minus_one: i-1 -> 8362ffffffff
+small_big_minus_zero: i0 -> 836100
+small_big_2p64_padded: I+000000000000000001 -> 836e0900000000000000000001
+large_big_2p64: I+000000000000000001 -> 836e0900000000000000000001
+string_ext_empty: n -> 836a
+list_of_small_ints: l3 i97 i98 i99 n -> 836b0003616263
+bits_8: b:ff -> 836d00000001ff
+bits_3_unused_set: B3:a0 -> 834d0000000103a0
+pid_ext: p:67770161000000010000000203 -> 8367770161000000010000000203
+new_reference_ext: r:7200017701610100000007 -> 837200017701610100000007
+reference_ext: r:657701610000000102 -> 83657701610000000102
+new_port_ext: o:597701610000000100000002 -> 83597701610000000100000002
+port_ext: o:667701610000000102 -> 83667701610000000102
+-- 3 built from constructors
+built tuple_3: same
+built tuple_0: same
+built string from a byte list token: same
+built string from a list of small integers: same
+built improper: same
+built improper2: same
+built list_mixed: same
+built list_big_ints: same
+built list_char_256: same
+built map_ints: same
+built map_1_and_1_0: same
+built a map whose key is a map: same
+built map_nested: same
+built set: same
+built int_2p64: same
+built int_i64min1: same
+built int_255 from a big token that fits: same
+built int_i64min from a big token that fits: same
+built int_i64min: same
+built int_i32min1: same
+built float_1_5: same
+built float_neg0: same
+built atom_utf8: same
+built atom_255: same
+built atom_empty: same
+built bin_empty: same
+built bits_3: same
+built bits_3 with unused bits set: same
+built bin_abc from a bit string of 8 bits: same
+built export_fun: same
+built fixed_pid: same
+built fixed_ref: same
+built fixed_port: same
+-- 4 scanner
+mixed: length 150
+mixed: skip from 1 150
+mixed: tag_at 1 104
+mixed: tuple_arity 1 5
+mixed: tuple_first 1 3
+mixed: atom_text of element 1 call
+mixed: atom_check of element 1 0
+true atom_is call
+false atom_is cast
+mixed: element 2 at 9
+mixed: map_count of element 2 3
+mixed: map_first of element 2 14
+mixed: first key args
+mixed: first value: tag 108
+mixed: first value: list_count 8
+mixed: first value: list_first 25
+mixed: slice_term of the first element 836101
+mixed: body_of that slice 6101
+mixed: leaf_int of that slice 1
+mixed: atom_check of element 2 (a map) -4
+mixed: length of atom_text of element 2 0
+mixed: map_count of element 1 (an atom) -4
+mixed: tuple_arity of element 1 -4
+mixed: list_count of element 1 -4
+mixed: tag_at 100000 -2
+mixed: tag_at -1 -2
+mixed: skip from 100000 -2
+mixed: slice_term outside, length 0
+string: list_count 3
+string: list_first 4
+nil: list_count 0
+nil: list_first 2
+tuple_300: tuple_arity 300
+tuple_300: tuple_first 6
+map_0: map_count 0
+map count over the bytes left -2
+tuple arity over the bytes left -2
+list count over the bytes left -2
+string count over the bytes left -2
+atom_ext latin1: atom_text 68c3a9
+small_atom_ext latin1: atom_text 68c3a9
+atom of 256 letters: atom_check -7
+atom of 255 letters: atom_check 0
+atom not utf8: atom_check -9
+atom cut: atom_check -2
+atom cache reference: atom_check -16
+atom cut: atom_end -2
+atom ok: atom_end 5
+utf8_chars h e-acute l l o arrow 6
+utf8_chars U+10FFFF 1
+utf8_chars above U+10FFFF -9
+utf8_chars surrogate -9
+utf8_chars overlong -9
+utf8_chars cut -9
+utf8_chars lone continuation -9
+latin1_to_utf8 00 7f 80 ff 007fc280c3bf
+bytes_compare ab abc -1
+bytes_compare abc ab 1
+bytes_compare abc abc 0
+bytes_compare empty empty 0
+bytes_compare ff 00 1
+bytes_compare 7f 80 -1
+bytes_compare abd abc 1
+skip unknown tag -4
+skip FLOAT_EXT -16
+skip compressed -16
+skip cut tuple -2
+skip 64 deep (130 bytes) 130
+skip 65 deep -6
+skip_within 2: 2 deep 6
+skip_within 2: 3 deep -6
+skip list claiming 4294967295 elements -2
+skip new fun with a size under 4 -2
+code_reason -1 :bad_version
+code_reason -2 :truncated
+code_reason -3 :trailing_bytes
+code_reason -4 :bad_tag
+code_reason -5 :too_large
+code_reason -6 :too_deep
+code_reason -7 :too_long
+code_reason -8 :out_of_range
+code_reason -9 :bad_utf8
+code_reason -10 :unknown_atom
+code_reason -11 :bad_variant
+code_reason -12 :missing_field
+code_reason -13 :duplicate_field
+code_reason -14 :unknown_field
+code_reason -15 :foreign_actor
+code_reason -16 :unsupported
+code_reason 0 :ok
+code_reason -99 :unsupported
+-- 5 refusals
+empty frame: rejected :truncated
+no 131: rejected :bad_version
+version 132: rejected :bad_version
+131 alone: rejected :truncated
+compressed term: rejected :unsupported
+distribution header: rejected :unsupported
+unknown tag 255: rejected :bad_tag
+unknown tag 0: rejected :bad_tag
+trailing bytes: rejected :trailing_bytes
+list claiming 4294967295 elements: rejected :truncated
+tuple claiming 4294967295 elements: rejected :truncated
+map claiming 4294967295 pairs: rejected :too_long
+binary claiming 4294967295 bytes: rejected :truncated
+big integer claiming 4294967295 bytes: rejected :truncated
+string claiming 65535 bytes: rejected :truncated
+list of 0 elements and a tail: rejected :bad_tag
+duplicate key: rejected :duplicate_field
+duplicate key, 1 as 97 and as 98: rejected :duplicate_field
+duplicate key, ab as 107 and as 108: rejected :duplicate_field
+duplicate key, old and new atom tag: rejected :duplicate_field
+duplicate key in a map inside a tuple in a list: rejected :duplicate_field
+duplicate key, two maps with the same pairs in another order: rejected :duplicate_field
+two keys that are maps with different pairs: m2 m2 i1 n i2 n n m2 i1 n i3 n n | same
+duplicate key, maps in another order inside a tuple and a list: rejected :duplicate_field
+duplicate key, maps in another order inside a map key: rejected :duplicate_field
+duplicate key, same map values in another order: rejected :duplicate_field
+two keys, same map keys with other values: m2 m2 i1 a:61 i2 a:62 n m2 i2 a:61 i1 a:62 n | same
+atom not utf8: rejected :bad_utf8
+atom surrogate: rejected :bad_utf8
+FLOAT_EXT: rejected :unsupported
+atom cache reference: rejected :unsupported
+pid whose node is a cache reference: rejected :unsupported
+bit string, 0 bits: rejected :out_of_range
+bit string, 9 bits: rejected :out_of_range
+bit string, no byte: rejected :out_of_range
+big integer, sign byte 2: rejected :out_of_range
+new fun, size under 4: rejected :truncated
+export, arity not a small integer: rejected :bad_tag
+old FUN_EXT: rejected :unsupported
+LOCAL_EXT: rejected :unsupported
+pid cut by one byte: rejected :truncated
+tuple cut: rejected :truncated
+float cut: rejected :truncated
+atom cut: rejected :truncated
+atom of 256 letters: rejected :too_long
+65 deep: rejected :too_deep
+64 deep: t1 t1 t1 t1 t1 t1 t1 t1 t1 t1 t1 t1 t1 t1 t1 t1 t1 t1 t1 t1 t1 t1 t1 t1 t1 t1 t1 t1 t1 t1 t1 t1 t1 t1 t1 t1 t1 t1 t1 t1 +25 | same
+mixed: prefixes tried 150
+mixed: prefixes accepted 0
+mixed: prefixes rejected truncated 150
+mixed: prefixes the scanner refused 150
+mixed: bytes changed by 1, accepted 77
+mixed: bytes changed by 128, accepted 55
+fixed_all: prefixes tried 192
+fixed_all: prefixes accepted 0
+fixed_all: prefixes rejected truncated 192
+fixed_all: prefixes the scanner refused 192
+fixed_all: bytes changed by 1, accepted 160
+fixed_all: bytes changed by 128, accepted 159
+encode refuses no token: length 0
+encode refuses tuple of 2 with 1 element: length 0
+encode refuses two terms: length 0
+encode refuses list without its tail: length 0
+encode refuses unknown kind 99: length 0
+encode refuses unknown kind 0: length 0
+encode refuses bit string, 0 bits: length 0
+encode refuses bit string, 9 bits: length 0
+encode refuses bit string, no byte: length 0
+encode refuses atom of 256 letters: length 0
+encode refuses atom not utf8: length 0
+encode refuses duplicate key: length 0
+encode refuses duplicate key, byte list and list of small integers: length 0
+encode refuses duplicate key, two maps with the same pairs in another order: length 0
+encode refuses duplicate key in an inner map: length 0
+encode refuses map of 1025 pairs: length 0
+encode refuses map of -1 pairs: length 0
+encode refuses big integer, sign 2: length 0
+encode refuses big integer, leading zero byte: length 0
+encode refuses big integer, no byte: length 0
+encode refuses pid that is not a pid: length 0
+encode refuses pid holding a reference: length 0
+encode refuses pid with a byte too many: length 0
+encode refuses fun, empty: length 0
+encode refuses list of 0: length 0
+encode refuses tuple of -1: length 0
+encode 65 deep: length 0
+encode 64 deep: length 130
+-- 6 large terms and limits
+list of 30000 one-tuples: tokens 60002
+list of 30000 one-tuples: bytes in 120007
+list of 30000 one-tuples: bytes out 120007
+list of 30000 one-tuples: bytes same
+list of 30000 one-tuples: scanner ends at 120007
+list of 60000 integers: tokens 60002
+list of 60000 integers: bytes in 300007
+list of 60000 integers: bytes out 300007
+list of 60000 integers: bytes same
+list of 60000 integers: scanner ends at 300007
+60000 small integers spelled as a list (out: STRING_EXT): tokens 60002
+60000 small integers spelled as a list (out: STRING_EXT): bytes in 120007
+60000 small integers spelled as a list (out: STRING_EXT): bytes out 60004
+60000 small integers spelled as a list (out: STRING_EXT): bytes differs
+60000 small integers spelled as a list (out: STRING_EXT): scanner ends at 120007
+map of 1024 pairs: tokens 2049
+map of 1024 pairs: bytes in 6150
+map of 1024 pairs: bytes out 6150
+map of 1024 pairs: bytes same
+map of 1024 pairs: scanner ends at 6150
+map of 1025 pairs: rejected :too_long
+list of 65534 nils (65536 tokens): accepted, tokens 65536
+list of 65535 nils (65537 tokens): rejected :too_long
+300 tuples of 255 nils (76802 tokens): rejected :too_long
+tuple_3 within 4 tokens: accepted, tokens 4
+tuple_3 within 3 tokens: rejected :too_long
+2 deep within depth 2: accepted, tokens 3
+3 deep within depth 2: rejected :too_deep
+64 deep within depth 1000 (lowered to 64): accepted, tokens 65
+65 deep within depth 1000 (lowered to 64): rejected :too_deep
+encode byte list of 65535 (STRING_EXT): length 65539
+encode byte list of 65536 (LIST_EXT): length 131079
+mixed: tokens 27
+mixed: term_size 27
+mixed: term_end 0 27
+mixed: term_end 1 (an atom) 2
+mixed: term_end 2 (the map) 20
+mixed: term_end 3 (its first key) 4
+mixed: term_end 4 (its first value) 16
+mixed: term_end 9999 -1
+mixed: tokens of rest_after 0
+tuple of 2 with 1 element: term_size -1
+exit=0

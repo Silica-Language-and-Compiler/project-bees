@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""C7: nodes of the Python TEMPUS extension (example_tempus_clients/python/bees_tempus_node.py) and Silica nodes in one
+"""C7: nodes of the Python TEMPUS extension (example_tempus_clients/python/lib/bees_tempus_node.py) and Silica nodes in one
 network on 127.0.0.1.
 
     walk.py LEAF_DIR
@@ -53,7 +53,7 @@ import bees_tempus_trial as T  # noqa: E402
 import trial_ports  # noqa: E402
 
 c = T.c                                    # the test support, under its old name
-sys.path.insert(0, os.path.join(ROOT, "example_tempus_clients", "python"))
+sys.path.insert(0, os.path.join(ROOT, "example_tempus_clients", "python", "lib"))
 import bees_tempus_admission  # noqa: E402
 import bees_tempus_codec  # noqa: E402
 import bees_tempus_config  # noqa: E402

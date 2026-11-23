@@ -14,8 +14,9 @@
 //          (:link_up, _) and (:tx_credit, 8) reach the owner only after the handshake passed; then (:rx, plaintext) on the owner's
 //          (:credit, n), and the owner's (:tx, ...) and :close go to the writer.
 //   btlsw  the WRITER: writes plaintext into the engine, pulls ciphertext and casts it to the carrier, one write in flight.
-//   btlsl  the LISTENER: owns the listening carrier, forwards (:link_up, "port:N") and, for every (:accepted, conn, _), starts a
-//          role-2 link on conn and tells its owner (dangerous_beam_net@lsn) (:accepted, link, "peer:accepted").
+//   btlsl  the LISTENER: owns the listening carrier, forwards (:link_up, "port:N") and, for every (:accepted, fd, _), starts the
+//          connection's carrier from the descriptor fd (the standard library's listener hands over the descriptor and starts
+//          no actor, since 2026-11-20) and a role-2 link on it, and tells its owner (dangerous_beam_net@lsn) (:accepted, link, "peer:accepted").
 // What a finished handshake must show is judged HERE on the engine's facts: both certificates presented and verified against
 // cacertfile (the engine's context refuses anything else during the handshake), no ALPN (stock Erlang uses none), and the group
 // X25519MLKEM768 or classical X25519 (ruled 2026-11-18, spike section 7 Q2: stock OTP 28 has no hybrid group). A refusal is one
@@ -25,6 +26,7 @@
 module dangerous_beam_tls;
 use beam_conf;
 use dangerous_bees_tls_native;
+use dangerous_tcp_carrier;
 
 export btls/2;
 export btlsw/2;
@@ -525,7 +527,7 @@ fn btlsw(msg: (:tx, string, actor_ref) | (:credit, int64) | :close | (:tx_credit
 }
 
 // ======================================================================== btlsl, the listener
-fn l_act(msg: (:open, actor_ref, string) | :close | (:link_up, string) | (:accepted, dangerous_actor_ref, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom), st: { owner: actor_ref, car: dangerous_actor_ref }, me: actor_ref) -> actor_ref {
+fn l_act(msg: (:open, actor_ref, string) | :close | (:link_up, string) | (:accepted, int64, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom), st: { owner: actor_ref, car: dangerous_actor_ref }, me: actor_ref) -> actor_ref {
     case msg of {
         (:open, o: actor_ref, a: string) -> {
             sequence proc[concurrency]
@@ -534,8 +536,11 @@ fn l_act(msg: (:open, actor_ref, string) | :close | (:link_up, string) | (:accep
         };
         :close -> { sequence proc[concurrency] _: boolean <- cast(st.car, :close impl ActorMessage {}) produces pure st.owner end };
         (:link_up, i: string) -> { sequence proc[concurrency] _: boolean <- cast(st.owner, (:link_up, i) impl ActorMessage {}) produces pure st.owner end };
-        (:accepted, c: dangerous_actor_ref, _i2: string) -> {
+        (:accepted, fd: int64, _i2: string) -> {
             sequence proc[concurrency]
+                // the listener hands over the accepted descriptor and starts no actor (the standard library's contract
+                // since 2026-11-20): the connection's carrier is started here, unsupervised, as the listener used to
+                c: dangerous_actor_ref <- spawn_dangerous({ owner: actor_ref_of_word(0), fd: fd, rx_credit: 0, up: false, listening: false, link_spec: "" }, dangerous_tcp_carrier@carrier, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
                 l: dangerous_actor_ref <- spawn_dangerous({ owner: actor_ref_of_word(0), car: c, w: c, h: 0 - 1, role: 2, phase: 0, credit: 0, car_out: false, peer: 0 - 1, told: false }, btls, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
                 _: boolean <- cast(st.owner, (:accepted, l, "peer:accepted") impl ActorMessage {})
             produces pure st.owner end
@@ -548,7 +553,7 @@ fn l_act(msg: (:open, actor_ref, string) | :close | (:link_up, string) | (:accep
 }
 // The listening link: (:open, owner, "listen:...") from the node opens its carrier; the carrier's (:link_up, "port:N") and
 // (:link_down, _) go to the owner; every accepted connection gets its own link (role 2). The state is the owner and the carrier.
-fn btlsl(msg: (:open, actor_ref, string) | :close | (:link_up, string) | (:accepted, dangerous_actor_ref, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom), st: { owner: actor_ref, car: dangerous_actor_ref }) -> (:no_reply, { owner: actor_ref, car: dangerous_actor_ref }) {
+fn btlsl(msg: (:open, actor_ref, string) | :close | (:link_up, string) | (:accepted, int64, string) | (:rx, string) | (:tx_credit, int64) | (:tx_failed, atom) | (:link_down, atom), st: { owner: actor_ref, car: dangerous_actor_ref }) -> (:no_reply, { owner: actor_ref, car: dangerous_actor_ref }) {
     sequence proc[concurrency]
         me: actor_ref <- self();
         owner: actor_ref <- l_act(msg, st, me);

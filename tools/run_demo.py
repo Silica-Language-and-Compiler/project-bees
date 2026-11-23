@@ -88,6 +88,13 @@ def main():
     o = ap.parse_args()
     t0 = time.monotonic()
     a = Node(*o.a, o.time, t0)
+    # b follows STAGGER seconds after a has printed its first byte (a is loaded and runs; at most 20 s are waited for
+    # that): tools/run_pair.py says why the stagger is not measured from a's start
+    until = time.monotonic() + 20.0
+    while not a.chunks and not a.closed and time.monotonic() < until:
+        r, _, _ = select.select([a.master], [], [], 0.05)
+        if r:
+            a.pump()
     time.sleep(o.stagger)
     b = Node(*o.b, o.time, t0)
     nodes = [a, b]

@@ -1,0 +1,2 @@
+# c7_tempus_node_python needs only Python 3 with the cryptography package and an ssl module over OpenSSL 3.5 or later, beside what every TEMPUS trial needs, so it can in principle run on Linux too. No Linux golden has been recorded yet (neither linux_x86_64 nor linux_aarch64): it is declared for the Mac, the one platform with goldens. To do: run it on both Linux hosts, record the goldens, and add the two platform ids here.
+macos_applesilicon

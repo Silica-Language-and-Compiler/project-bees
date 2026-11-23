@@ -3,7 +3,7 @@
 Trial `trials/c3_tempus_bridge`. Node T is a plain TRUST node; bridges B1 and B2 are each the TRUST node as built and a
 TEMPUS node of role bridge in one program (`src/tempus/bees_tempus_bridge.part`, `bees_tempus_bridge.silica`). The Silica
 client (`example_tempus_clients/silica`, thin application `roles/client.role`, scenario `roles/c.role`, identity x2) runs first; the
-Python client (the test support of the Python extension, `example_tempus_clients/python/bees_tempus_testing.py`, imported under its old name `bees_tempus_client`; scenario `c3` of `tools/bees_tempus_trial.py`) walks the same steps
+Python client (the test support of the Python extension, `example_tempus_clients/python/testing/bees_tempus_testing.py`, imported under its old name `bees_tempus_client`; scenario `c3` of `tools/bees_tempus_trial.py`) walks the same steps
 afterwards with its own identity ("other"), then the steps only it takes (named P below): with a second edge (x3), an
 edge for the rate bound ("sentinel"'s key with an edge token), a bridge identity that listens (x4), the edge of the
 quarantine ("node"), and the two edges of ruling NQ-19 (Q and Z, below the table). Step numbers are those of `c.role` (1 to 20).

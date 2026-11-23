@@ -5,6 +5,10 @@ to stdin (wait_for_exit returns on that line). Output goes to OUT with the exit 
 Modelled on Silica's trials/ffi_addition/run_integration_exit_after_marker.py.
 
     run_trial.py EXE OUT MARKER [IDLE_SEC] [CAP_SEC]
+
+When the environment names a file in BEES_RUN_STARTED, that file is created at the program's first byte of output: the
+program has been loaded and runs. tools/run_pair.py and tools/run_trio.py wait for it before they start the next
+program (a program that was just built can take two seconds to be loaded the first time it is run on a Mac).
 """
 import os
 import pty
@@ -24,6 +28,7 @@ def main(argv):
     proc = subprocess.Popen([exe], stdin=subprocess.PIPE, stdout=slave, stderr=slave, close_fds=True)
     os.close(slave)
     chunks, seen, sent = [], False, False
+    started = os.environ.get("BEES_RUN_STARTED", "")
     start = time.monotonic()
     last = start
     while True:
@@ -36,6 +41,9 @@ def main(argv):
             if not data:
                 break
             chunks.append(data)
+            if started:
+                open(started, "w").close()
+                started = ""
             # The runtime's notice for each normal stop of an unsupervised actor (one-shot timers, resolvers) is not the
             # program's output and every caller deletes it afterwards; it does not break the quiet wait, or a program whose
             # short-lived actors stop more often than every IDLE seconds is never told to exit.

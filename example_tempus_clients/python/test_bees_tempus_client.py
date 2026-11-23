@@ -476,22 +476,31 @@ class Active(unittest.TestCase):
 
     def test_tls_refusals(self):
         p256 = c.p256_certificate()
-        # (the dialer's switches, the certificates the listener trusts) -> what each side sees
+        # (the dialer's switches, the certificates the listener trusts) -> what each side sees.
+        # LATE: the listener refuses the dialer's CERTIFICATE. In TLS 1.3 the dialer's handshake is complete before the
+        # listener has judged its certificate, so the refusal reaches the dialer afterwards, as an alert followed by the
+        # close. Which of the two the dialer meets first is a race it cannot win by any means: when its advert is
+        # written after the listener has closed, the write fails and the alert is never read ("closed"); otherwise the
+        # first read gives the alert ("tls_failed"). Both are the refusal, at the stage "advert", and a client can tell
+        # no more (writing-a-tempus-client.md section 7; tools/bees_tempus_trial.py accepts both for row 26). Which one
+        # comes depends on the versions of Python and OpenSSL and on the machine's load.
+        LATE = ("tls_failed", "closed")
         for name, dial, trusted, d_what, d_stage, l_what, l_reason in (
                 ("TLS 1.2 only", c.tls12_only(), None, "tls_failed", "tls", "tls_failed", "UNSUPPORTED_PROTOCOL"),
                 ("another ALPN", c.other_alpn("h2"), None, "closed", "advert", "refused", "the ALPN protocol is not tempus/1"),
                 ("no ALPN", c.other_alpn(None), None, "closed", "advert", "refused", "the ALPN protocol is not tempus/1"),
-                ("no client certificate", c.no_certificate(), None, "tls_failed", "advert", "tls_failed",
+                ("no client certificate", c.no_certificate(), None, LATE, "advert", "tls_failed",
                  "PEER_DID_NOT_RETURN_A_CERTIFICATE"),
-                ("a P-256 certificate", c.p256_cert(), None, "tls_failed", "advert", "tls_failed", "CERTIFICATE_VERIFY_FAILED"),
+                ("a P-256 certificate", c.p256_cert(), None, LATE, "advert", "tls_failed", "CERTIFICATE_VERIFY_FAILED"),
                 ("a P-256 certificate the listener was given", c.p256_cert(), [p256[0]], "closed", "advert", "refused",
                  "the certificate's key is not Ed25519"),
                 # the limit of Python's ssl: a good self-signed Ed25519 certificate the listener was not given
-                ("an unknown Ed25519 certificate", {}, [THIRD.cert_pem], "tls_failed", "advert", "tls_failed",
+                ("an unknown Ed25519 certificate", {}, [THIRD.cert_pem], LATE, "advert", "tls_failed",
                  "CERTIFICATE_VERIFY_FAILED")):
             asked = []
             out, served = exchange(dial=dial, trusted=trusted, handler=lambda r: asked.append(r) or c.done())
-            self.assertEqual((out.what, out.stage), (d_what, d_stage), name + ": " + out.line())
+            self.assertIn(out.what, d_what if isinstance(d_what, tuple) else (d_what,), name + ": " + out.line())
+            self.assertEqual(out.stage, d_stage, name + ": " + out.line())
             self.assertEqual((served.what, served.stage, served.reason), (l_what, "tls", l_reason), name + ": " + served.line())
             self.assertEqual(asked, [], name)
 

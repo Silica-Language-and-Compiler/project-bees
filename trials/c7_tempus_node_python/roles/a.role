@@ -1,10 +1,10 @@
 // C7 Python node trial: node A, a Silica edge (identity 0, the certificate `node`). Its sentinel is the Python
-// sentinel S (port 24803): a Silica node that joins through a node of the Python extension. A test program, as Q.
+// sentinel S (port 26103): a Silica node that joins through a node of the Python extension. A test program, as Q.
 fn me() -> int64 { 0 }
 fn typ() -> int64 { 1 }
 fn tok() -> int64 { 1 }
-fn port() -> string { "24801" }
-fn sents() -> string { "127.0.0.1:24803" }
+fn port() -> string { "26101" }
+fn sents() -> string { "127.0.0.1:26103" }
 fn tick_ms() -> uint64 { 1000 }
 fn driven() -> boolean { true }
 fn ext_start(app: actor_ref) -> actor_ref { bees_tempus_test@start(tempus_ids@now()) }

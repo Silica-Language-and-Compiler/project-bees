@@ -1,6 +1,6 @@
 # C2: coverage of the behaviour list (design 16.2) by the two clients
 
-Trial `trials/c2_tempus_clients`. The Python client (the test support of the Python extension, `example_tempus_clients/python/bees_tempus_testing.py`, which the tools import under its old name `bees_tempus_client`; scenario `c2` of
+Trial `trials/c2_tempus_clients`. The Python client (the test support of the Python extension, `example_tempus_clients/python/testing/bees_tempus_testing.py`, which the tools import under its old name `bees_tempus_client`; scenario `c2` of
 `tools/bees_tempus_trial.py`) drives node N; the Silica client (`example_tempus_clients/silica`, thin application `client.role`,
 scenarios `cs.role` as a sentinel and `ce.role` as an edge) drives node M, the same node on another port. Both send one
 tick to node O, which is not a test program's node (it is not externally driven; row 37). Step numbers are those of `cs.role` (written s1 to s10) and `ce.role` (1 to

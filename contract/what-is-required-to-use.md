@@ -66,7 +66,7 @@ Open consequences:
 
 ## 5. Other requirements
 
-- The Silica compiler generation BEES is verified against is pinned in `tools/silica.generation`.
+- The Silica compiler generation BEES is verified against is pinned in `tools/silica.generation`, one line per platform: macOS on Apple Silicon, Linux on x86-64 and Linux on AArch64. `make check-compiler` compares the compiler in use with the line of its own platform.
 - BEES builds on macOS and Apple Silicon first; Linux follows Silica's phase 3. The native C is common code plus one directory per platform (`native/macos/` built; `native/linux/`, `native/esp32s3/`, `native/nucleo/` placeholders); see `native/README.md`.
 - Goldens carry the platform in their name (`NAME.macos_applesilicon.scout`); a run compares only with its own platform's golden and fails loudly when there is none (`tools/README.md`).
 

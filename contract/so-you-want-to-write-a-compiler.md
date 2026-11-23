@@ -501,7 +501,7 @@ Two rules apply to every program that crosses a node boundary, in both modes (us
 | Host input and output, files and transports (wrappers over Silica's foreign-function interface) | planned |
 | Host-name resolution (DNS): BEES's own `getaddrinfo` edge (`native/src/silica_bees_resolve.c`) | built (N1) |
 | Re-creation of foreign data | blocked on Silica |
-| Balancing and placement of actors across cores | planned |
+| Balancing and placement of actors across cores | balancing built (A6, `src/shim/bees_place.silica`: the BEAM's balance check and migration paths through `migrate_actor`, OS-hosted and on the ESP32-S3's two cores; no work stealing, no compaction of load, one priority level); the placement hook, reserved cores, dispatch budget, watchdog and statistics are planned |
 | Secure inter-node communication (TRUST: a separate implementation from BEAM mode, D36) | planned (N3 to N5); needs a TLS engine, which needs the user's explicit approval (D38). The unauthenticated BEAM-mode node layer exists (B1a) |
 | The BEES configuration file `bees.config` (D37) | designed (B1b, [development-plan/bees-config-file.md](../development-plan/bees-config-file.md)); not built (N0) |
 | More than one link per node | built in BEAM mode (N2b, trials/n2_multilink) and in the M3 auth-none node (N2c, trials/m3_multilink) |

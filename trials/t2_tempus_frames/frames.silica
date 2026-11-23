@@ -1,5 +1,5 @@
 // T2 and C1: the tempus/1 frames (src/tempus/bees_tempus_frame.silica) and the client library's pure part
-// (example_tempus_clients/silica/bees_tempus_client.silica), in memory: no carrier, no key, no clock. Part 1: every frame a node or a
+// (example_tempus_clients/silica/lib/bees_tempus_client.silica), in memory: no carrier, no key, no clock. Part 1: every frame a node or a
 // client writes, as hex, and read back. Part 2: the token's structure. Part 3: frames a node must refuse, each with the
 // reason. Part 4: a view through a shuffle frame and back. Part 5: 20,000 refused frames (memory is measured outside,
 // tempus-progress.md). example_tempus_clients/python/test_bees_tempus_client.py builds every frame of parts 1 to 3 again with the Python client's

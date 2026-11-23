@@ -1,9 +1,9 @@
 clock: the system clock is read
-tempus_edge node 1fae2ad7 listening on 127.0.0.1:24807
+tempus_edge node 1fae2ad7 listening on 127.0.0.1:26107
 store tempus_edge: capacity 4, shuffle length 3
 store tempus_bridge: capacity 4, shuffle length 2
 store tempus_sentinel: capacity 4, shuffle length 2
-join: asking the sentinel at 127.0.0.1:24808 for tempus_edge d1
+join: asking the sentinel at 127.0.0.1:26108 for tempus_edge d1
 join: the sentinel did not answer for tempus_edge, connect_failed d1
 join: no sentinel answered for tempus_edge; waiting to try again
 clock: the system clock could not be read: the node admits no connection and does not tick until it is read again
@@ -12,16 +12,16 @@ application: told (clock_unreadable) that the system clock could not be read: th
 [tempus audit] clock_refused peer=- the system clock cannot be read: closed at once a1
 join: the request for tempus_edge waits until the system clock is read again
 clock: the system clock is read again
-join: asking the sentinel at 127.0.0.1:24808 for tempus_edge d2
+join: asking the sentinel at 127.0.0.1:26108 for tempus_edge d2
 [tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d2
 [tempus audit] admitted peer=e4188f0a2cee5a46 tempus_sentinel, tempus whitelist entry 1 d2
 join: the sentinel answered for tempus_edge d2
 view tempus_sentinel: e4188f0a@0
-join: asking the sentinel at 127.0.0.1:24808 for tempus_bridge d3
+join: asking the sentinel at 127.0.0.1:26108 for tempus_bridge d3
 [tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d3
 [tempus audit] admitted peer=e4188f0a2cee5a46 tempus_sentinel, tempus whitelist entry 1 d3
 join: the sentinel answered for tempus_bridge d3
-join: asking the sentinel at 127.0.0.1:24808 for tempus_sentinel d4
+join: asking the sentinel at 127.0.0.1:26108 for tempus_sentinel d4
 [tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as client d4
 [tempus audit] admitted peer=e4188f0a2cee5a46 tempus_sentinel, tempus whitelist entry 1 d4
 join: the sentinel answered for tempus_sentinel d4

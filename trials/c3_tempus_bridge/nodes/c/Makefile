@@ -5,9 +5,9 @@ LEAF_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 ROLES := $(LEAF_DIR)/../../roles
 T := $(BEES_ROOT)/tools
 -include $(LEAF_DIR)/.gen.mk
-$(LEAF_DIR)/.gen.mk: $(ROLES)/c.role $(ROLES)/client.role $(T)/bees_tempus_gen.py $(T)/bees_tempus_ids.py $(BEES_ROOT)/example_tempus_clients/silica/bees_tempus_client.part $(BEES_ROOT)/src/tempus/bees_tempus_link.part
+$(LEAF_DIR)/.gen.mk: $(ROLES)/c.role $(ROLES)/client.role $(T)/bees_tempus_gen.py $(T)/bees_tempus_ids.py $(BEES_ROOT)/example_tempus_clients/silica/lib/bees_tempus_client.part $(BEES_ROOT)/src/tempus/bees_tempus_link.part
 	@cd "$(LEAF_DIR)" && python3 "$(T)/bees_tempus_ids.py" write lib/tempus_ids.silica ../../../t5_tempus_tls/certs/ && \
-	python3 "$(T)/bees_tempus_gen.py" edge dangerous_c dangerous_c.silica --use tempus_ids --use bees_tempus_client --part example_tempus_clients/silica/bees_tempus_client.part "$(ROLES)/c.role" "$(ROLES)/client.role" && \
+	python3 "$(T)/bees_tempus_gen.py" edge dangerous_c dangerous_c.silica --use tempus_ids --use bees_tempus_client --part example_tempus_clients/silica/lib/bees_tempus_client.part "$(ROLES)/c.role" "$(ROLES)/client.role" && \
 	echo "# written by the rule of this file in the Makefile: the generated units are current" > .gen.mk
 include $(BEES_ROOT)/tools/trial.mk
 PAIRED := $(ENTRIES)
