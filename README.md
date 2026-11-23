@@ -4,7 +4,7 @@
 
 This file records the **intended scope** of Project BEES.
 
-Project BEES is the **shim that lets BEAM languages** (Erlang, Elixir, Gleam, LFE) **be compiled to Silica and its constructs**. It is not a reproduction of the BEAM's code API for Silica programmers. Each BEAM language is compiled to Silica by its own language-to-Silica compiler. Those compilers are separate projects, and all of them target the BEES target contract. BEAM processes become plain Silica actors, BEAM atoms are Silica atoms held in Silica's atom table, and OTP's supervisors, gen_servers, and state machines become Silica's own constructs. BEES supplies the rest of what compiled BEAM code needs and Silica lacks: the term model, BIFs, ETS, ports, and distribution (timers are Silica's own). BEES does not duplicate every BEAM type or behaviour: its aim is to make compiling a BEAM language to Silica **possible, not easy**. It is built **in Silica** and is meant to **sit where a conventional BEAM would**, while adding **first-class support for running and balancing work across many cores** and **across a network**—so placement, migration, and integration with I/O and clustering are not afterthoughts.
+Project BEES is the **shim that lets BEAM languages** (Erlang, Elixir, Gleam, LFE) **be compiled to Silica and its constructs**. It is not a reproduction of the BEAM's code API for Silica programmers. Each BEAM language is compiled to Silica by its own language-to-Silica compiler. Those compilers are separate projects, and all of them target the BEES target contract. BEAM processes become plain Silica actors, BEAM atoms are Silica atoms held in Silica's atom table, and OTP's supervisors, gen_servers, and state machines become Silica's own constructs. BEES supplies the rest of what compiled BEAM code needs and Silica lacks: the term model, BIFs, ETS, ports, and distribution (timers are Silica's own). BEES does not duplicate every BEAM type or behaviour: its aim is to make compiling a BEAM language to Silica **possible, not easy**. It is built **in Silica**, as a transport and core management **extension** for Silica (a reusable package written in Silica): it adds mutual TLS, core balancing, Erlang distribution and other BEAM behaviours, and it uses the transport behaviours Silica provides. It is a platform for transpiling BEAM-language applications to Silica, and it is meant to **sit where a conventional BEAM would**, while adding **first-class support for running and balancing work across many cores** and **across a network**—so placement, migration, and integration with I/O and clustering are not afterthoughts.
 
 The name nods to **Bogdan and Björn’s Erlang Abstract Machine (BEAM)**. BEES is not a reimplementation of OTP in full, many parts of which exist in native Silica including actors and supervisors; it is a **focused execution surface** and **shim** that carries that lineage forward in a new substrate.
 
@@ -13,7 +13,7 @@ The name nods to **Bogdan and Björn’s Erlang Abstract Machine (BEAM)**. BEES 
 - **Target contract** — the language-neutral specification that language-to-Silica compilers target. For each BEAM construct it says which Silica construct or BEES component it becomes. It comes with a conformance kit that compilers can check themselves against.
 - **Execution surface** — the boundary at which “BEAM-like” code meets the host: schedulers, actor lifecycle hooks, links, and networking-aware execution (as the project defines them over time).
 - **Multi-core** — **balancing and affinitizing actors** to cores, and policies for fairness, yielding, and locality, appropriate to a Silica-backed runtime. Silica schedules each core; BEES balances and places across cores through Silica's `migrate_actor()`. On OS-hosted apps it balances BEAM-style between the Silica runtime's carrier threads, and exclusive placement is never guaranteed, because the OS owns the cores. Running raw on a chip, it balances BEAM-style-ish directly onto the cores, and a pin is exclusive.
-- **Networking** — **distribution-oriented paths**: naming or addressing actors across nodes, and protocols or adapters for sending messages and coordinating placement. There are two modes: **SEMP/TRUST**, secure by default, of which BEES is the first implementation, and **standard BEAM distribution**, an explicit downgrade for interoperating with Erlang/OTP clusters. They are two separate implementations, chosen in the BEES configuration file `bees.config` (a design, not built yet).
+- **Networking** — **distribution-oriented paths**: naming or addressing actors across nodes, and protocols or adapters for sending messages and coordinating placement. Each BEES application chooses one of two modes: **SEMP mode**, secure by default, of which BEES is the first implementation (SEMP is TRUST, TEMPUS, or both as a bridge), and **BEAM mode**, standard BEAM distribution, an explicit downgrade for interoperating with Erlang/OTP clusters. They are two separate implementations, chosen in the BEES configuration file `bees.config`. The file is built and its reader is trialled, but today it is read when the program is built, and the result is compiled in, because Silica cannot yet read a file at boot.
 - **Clear dependency on Silica** — BEES is expected to use Silica for compilation and any runtime pieces that are already in Silica; **its repository** is meant to track the **orchestration layer, APIs, and integration** that are specific to a BEAM-style surface rather than the whole compiler.
 - **Documentation of intent** — what is guaranteed, what is compatible with Erlang/OTP concepts, and what is **Silica-specific** behavior.
 
@@ -50,11 +50,23 @@ Being an implementation of SEMP has consequences for anyone who builds on BEES:
 - A refused peer is told nothing. Failures are written to the receiving node's own log, and a peer that keeps failing is quarantined until an operator resets it.
 - The settings live in a configuration file, bees.config, and the certificates, whitelist and pins are files you provide. BEES does not ship a TLS library: see [contract/what-is-required-to-use.md](contract/what-is-required-to-use.md).
 
-Status: TRUST is built in BEES. TEMPUS is planned for after the first release and is not built yet.
+Status: TRUST is built in BEES, over mutual TLS 1.3 with multiplexed requests, and so is most of TEMPUS: networked nodes, the TLS link, a bridge node, gossip discovery and admission, with example clients in Python, Kotlin, Swift and Silica (C# and Rust clients are being written and are not yet committed). The example clients are for testing and illustration only, not production. What TEMPUS still lacks is listed in [development-plan/tempus-progress.md](development-plan/tempus-progress.md).
 
 ## Status
 
-Currently BEES is in its inception phase.
+BEES is past inception and not yet released. The BEAM-language compilers that target it live in a separate repository, [to-silica](https://github.com/Silica-Language-and-Compiler/to-silica).
+
+Built and trialled on the hosted targets, macOS on Apple Silicon, Linux AArch64 and Linux x86_64 (the trial tree runs on all three, with recorded results for each):
+
+- BEAM mode, working against stock Erlang/OTP 27 and 28 nodes, including TLS that is compatible with Erlang's `inet_tls_dist`, and between a Mac and a Linux machine.
+- SEMP mode: TRUST over mutual TLS 1.3 with multiplexing, and TEMPUS as described above.
+- The `bees.config` file, read at build time.
+- Configuring Silica's storage carrier for a node (`examples/store_node`). Sending the node's logs through it instead of standard output (D48) is decided but not built yet.
+- BEAM-style balancing of actors across cores (`src/shim/bees_place.silica`), balancing carrier threads on hosted targets.
+
+On the ESP32-S3, a balancing program is written (`examples/esp32s3_balance`), but the native TLS and transport support for the board is not built, so TRUST and TEMPUS do not run there yet.
+
+Before a first release: an external security review, boot-time reading of `bees.config`, the ESP32-S3 platform, and the other items listed in the release definition. [development-plan/roadmap.md](development-plan/roadmap.md) has the detail.
 
 ## License
 
