@@ -1,0 +1,345 @@
+// BEES balancing across cores (roadmap D3, A6): the BEAM's load balancing, done entirely with Silica's migrate_actor().
+// OS-hosted a "core" is one of the runtime's carrier threads (core c is carrier c mod the carrier count); on a raw
+// board it is a chip core. The code is the same for both.
+//
+// What the BEAM does (erl_process.c, check_balance) and where each part is here:
+//   one run queue per scheduler                 one run-queue actor (rq) per core, spawned on that core
+//   the longest a run queue was in a period     the most runnable balanced processes the rq counted in the period
+//   a balance check after a budget of work      the rq whose balanced processes have done `check_every` dispatches asks
+//                                               the coordinator for a check
+//   migration limit = the average length        check_balance/1: limit = the sum of the lengths over the cores, rounded up
+//   migration paths, fullest to emptiest        check_balance/1: the core furthest over the limit sends to the core
+//                                               furthest under it, then the next pair; one target per source
+//   a process moves when it is next scheduled   a process moves when it next reports its work (turn/2): its rq asks for
+//   on a queue over its limit                   the move, which Silica applies at the end of that dispatch
+//   bound processes never move                  a process that never calls turn/2 is never moved
+//
+// Silica's runtime reports no load, so the processes do: a balanced process keeps two values in its state, the rq of
+// its core and an int64 `pl` (see first/2), and calls turn/2 once in each dispatch. Every `quantum` dispatches turn/2
+// calls the rq, which counts the process as runnable and answers where it is to be from now on.
+//
+// NOT here, and why:
+//   work stealing by an idle scheduler   a Silica core cannot tell a program it has gone idle; an empty core is filled
+//                                        by the next balance check instead
+//   compaction of load                   needs how full each core is, which the runtime does not report
+//   one limit per priority               there is one level; set_actor_priority is not consulted
+//
+// The actors hold only scalars in their state (silica-defects SD-35); the lists of a check live in its messages.
+
+export start/2;
+export first/2;
+export child/1;
+export place/2;
+export core_of/1;
+export turn/2;
+export check_balance/1;
+export limit_of/1;
+export plan_to/1;
+export plan_quota/1;
+
+// ---- pl: work done since the last report (bits 0..11), the quantum (12..23), the core (24..39), the rq's count
+// period the process was last counted in (40 and up; 0 = never counted).
+fn first(core: int64, quantum: int64) -> int64 { quantum * 4096 + core * 16777216 }
+fn pl_work(pl: int64) -> int64 { pl % 4096 }
+fn pl_quantum(pl: int64) -> int64 { (pl / 4096) % 4096 }
+fn core_of(pl: int64) -> int64 { (pl / 16777216) % 65536 }
+fn pl_epoch(pl: int64) -> int64 { pl / 1099511627776 }
+fn pl_counted(pl: int64, epoch: int64) -> int64 { first(core_of(pl), pl_quantum(pl)) + epoch * 1099511627776 }
+// the pl of a process spawned by this one on the same core (the BEAM spawns on the parent's run queue)
+fn child(pl: int64) -> int64 { first(core_of(pl), pl_quantum(pl)) }
+
+// Puts a newly spawned process on the core its pl names, before its first message. spawn's own core argument cannot
+// do it: it takes a uint64 where pl gives an int64, and OS-hosted a spawn on core 0 is put where the runtime likes
+// (silica-defects SD-60).
+fn place(process: actor_ref, pl: int64) -> atom {
+    sequence proc[concurrency]
+        m: atom <- migrate_actor(process, core_of(pl))
+    produces pure m end
+}
+
+// One dispatch of a balanced process. The answer is what the process keeps: the rq to report to and its new pl.
+fn turn(rq: actor_ref, pl: int64) -> { rq: actor_ref, pl: int64 } {
+    case pl_work(pl) + 1 >= pl_quantum(pl) of {
+        true -> {
+            sequence proc[concurrency]
+                r: { rq: actor_ref, pl: int64 } <- call(rq, (:work, self(), pl) impl ActorMessage {})
+            produces pure r end
+        };
+        false -> { rq: rq, pl: pl + 1 }
+    }
+}
+
+// ---- the check, as pure functions over the run-queue lengths in core order
+fn ints_none() -> List[int64, mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[int64, mem(normal)] <- empty[int64, mem(normal)]()
+    produces pure e end
+}
+fn ints_cons(h: int64, t: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    sequence proc[mem(normal)]
+        r: List[int64, mem(normal)] <- prepend[int64, mem(normal)](h, t)
+    produces pure r end
+}
+fn ints_rev(xs: List[int64, mem(normal)], acc: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    case xs of {
+        []: List[int64, mem(normal)] -> acc;
+        [h: int64, t: List[int64, mem(normal)]] -> ints_rev(t, ints_cons(h, acc))
+    }
+}
+fn ints_sum(xs: List[int64, mem(normal)], acc: int64) -> int64 {
+    case xs of {
+        []: List[int64, mem(normal)] -> acc;
+        [h: int64, t: List[int64, mem(normal)]] -> ints_sum(t, acc + h)
+    }
+}
+fn ints_size(xs: List[int64, mem(normal)], acc: int64) -> int64 {
+    case xs of {
+        []: List[int64, mem(normal)] -> acc;
+        [_h: int64, t: List[int64, mem(normal)]] -> ints_size(t, acc + 1)
+    }
+}
+fn ints_nth(xs: List[int64, mem(normal)], i: int64) -> int64 {
+    case xs of {
+        []: List[int64, mem(normal)] -> 0;
+        [h: int64, t: List[int64, mem(normal)]] -> case i == 0 of { true -> h; false -> ints_nth(t, i - 1) }
+    }
+}
+fn ints_set(xs: List[int64, mem(normal)], i: int64, v: int64, acc: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    case xs of {
+        []: List[int64, mem(normal)] -> ints_rev(acc, ints_none());
+        [h: int64, t: List[int64, mem(normal)]] -> case i == 0 of {
+            true -> ints_set(t, i - 1, v, ints_cons(v, acc));
+            false -> ints_set(t, i - 1, v, ints_cons(h, acc))
+        }
+    }
+}
+fn ints_zeros(n: int64, acc: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    case n <= 0 of { true -> acc; false -> ints_zeros(n - 1, ints_cons(0, acc)) }
+}
+
+// the migration limit: the average length, rounded up
+fn limit_of(lens: List[int64, mem(normal)]) -> int64 {
+    n: int64 <- ints_size(lens, 0);
+    case n == 0 of { true -> 0; false -> (ints_sum(lens, 0) + n - 1) / n }
+}
+
+// The core where sign * (length - limit) is largest and above 0, or -1: sign 1 finds the core furthest over the limit,
+// sign -1 the core furthest under it. The lowest core wins a tie.
+fn furthest(lens: List[int64, mem(normal)], limit: int64, sign: int64, i: int64, best: int64, best_by: int64) -> int64 {
+    case lens of {
+        []: List[int64, mem(normal)] -> best;
+        [h: int64, t: List[int64, mem(normal)]] -> case sign * (h - limit) > best_by of {
+            true -> furthest(t, limit, sign, i + 1, i, sign * (h - limit));
+            false -> furthest(t, limit, sign, i + 1, best, best_by)
+        }
+    }
+}
+fn least(a: int64, b: int64) -> int64 { case a < b of { true -> a; false -> b } }
+fn most(a: int64, b: int64) -> int64 { case a > b of { true -> a; false -> b } }
+
+// A plan entry: quota * 65536 + target core; 0 = this core sends nothing.
+fn plan_to(entry: int64) -> int64 { entry % 65536 }
+fn plan_quota(entry: int64) -> int64 { entry / 65536 }
+
+fn pair_up(lens: List[int64, mem(normal)], limit: int64, plan: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    from: int64 <- furthest(lens, limit, 1, 0, 0 - 1, 0);
+    to: int64 <- furthest(lens, limit, 0 - 1, 0, 0 - 1, 0);
+    case from < 0 or to < 0 of {
+        true -> plan;
+        false -> {
+            quota: int64 <- least(ints_nth(lens, from) - limit, limit - ints_nth(lens, to));
+            settled: List[int64, mem(normal)] <- ints_set(ints_set(lens, from, limit, ints_none()), to, limit, ints_none());
+            pair_up(settled, limit, ints_set(plan, from, quota * 65536 + to, ints_none()))
+        }
+    }
+}
+
+// lens: the run-queue lengths in core order. The answer: one plan entry per core, in core order.
+fn check_balance(lens: List[int64, mem(normal)]) -> List[int64, mem(normal)] {
+    pair_up(lens, limit_of(lens), ints_zeros(ints_size(lens, 0), ints_none()))
+}
+
+// ---- the run-queue actor of one core
+fn refs_none() -> List[actor_ref, mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[actor_ref, mem(normal)] <- empty[actor_ref, mem(normal)]()
+    produces pure e end
+}
+fn refs_cons(h: actor_ref, t: List[actor_ref, mem(normal)]) -> List[actor_ref, mem(normal)] {
+    sequence proc[mem(normal)]
+        r: List[actor_ref, mem(normal)] <- prepend[actor_ref, mem(normal)](h, t)
+    produces pure r end
+}
+
+fn bump(epoch: int64) -> int64 { case epoch >= 4000000 of { true -> 1; false -> epoch + 1 } }
+fn one_if(b: boolean) -> int64 { case b of { true -> 1; false -> 0 } }
+
+// Asks the coordinator for a check once the core's balanced processes have done check_every dispatches in this period.
+fn ask(coord: actor_ref, work: int64, check_every: int64, asked: boolean) -> boolean {
+    case work >= check_every and not asked of {
+        true -> {
+            sequence proc[concurrency]
+                _: boolean <- cast(coord, :check impl ActorMessage {})
+            produces pure true end
+        };
+        false -> asked
+    }
+}
+
+// The move of one reporting process, when the core has a path with quota left and has not counted the process in this
+// count period: true when Silica took the request.
+fn send_away(me: actor_ref, wanted: boolean, to_core: int64) -> boolean {
+    case wanted of {
+        true -> {
+            sequence proc[concurrency]
+                m: atom <- migrate_actor(me, to_core)
+            produces pure m == :ok end
+        };
+        false -> false
+    }
+}
+
+// State: core; check_every; coord (the coordinator); next (the next core's rq, the coordinator after the last);
+// epoch, fresh, again (the count period: its number, the processes counted in it, the reports of processes already
+// counted; it ends when `again` reaches `fresh`, which is every runnable process seen once and then once more);
+// longest (the largest count of the balance period); work (dispatches reported in the balance period); asked;
+// to_core, to_rq, quota (the migration path); moved (processes sent away, ever).
+// An rq is call-only (a behaviour has one form, spec 15.1.2), so every answer has the shape of the answer to :work:
+//   (:work, process, pl)            -> the rq the process reports to from now on, and its pl
+//   :read                           -> rq: this rq; pl: this core's length. The balance period starts again and the
+//                                      path is dropped.
+//   :next                           -> rq: the next core's rq (the coordinator after the last core); pl: this core
+//   (:path, to_core, to_rq, quota)  -> rq: this rq; pl: 0
+fn rq(msg: (:work, actor_ref, int64) | :read | :next | (:path, int64, actor_ref, int64),
+      state: { core: int64, check_every: int64, coord: actor_ref, next: actor_ref, epoch: int64, fresh: int64, again: int64, longest: int64, work: int64, asked: boolean, to_core: int64, to_rq: actor_ref, quota: int64, moved: int64 })
+    -> (:reply, { rq: actor_ref, pl: int64 }, { core: int64, check_every: int64, coord: actor_ref, next: actor_ref, epoch: int64, fresh: int64, again: int64, longest: int64, work: int64, asked: boolean, to_core: int64, to_rq: actor_ref, quota: int64, moved: int64 }) {
+    case msg of {
+        (:work, me: actor_ref, pl: int64) -> {
+            sequence proc[concurrency]
+                is_fresh: boolean <- pl_epoch(pl) != state.epoch;
+                gone: boolean <- send_away(me, is_fresh and state.quota > 0, state.to_core);
+                fresh2: int64 <- state.fresh + one_if(is_fresh and not gone);
+                again2: int64 <- state.again + one_if(not is_fresh);
+                closes: boolean <- fresh2 > 0 and again2 >= fresh2;
+                work2: int64 <- state.work + pl_work(pl) + 1;
+                asked2: boolean <- ask(state.coord, work2, state.check_every, state.asked);
+                here: actor_ref <- self();
+                answer: { rq: actor_ref, pl: int64 } <- case gone of {
+                    true -> { rq: state.to_rq, pl: first(state.to_core, pl_quantum(pl)) };
+                    false -> { rq: here, pl: pl_counted(pl, state.epoch) }
+                }
+            produces
+                pure (:reply, answer, { core: state.core, check_every: state.check_every, coord: state.coord, next: state.next,
+                    epoch: case closes of { true -> bump(state.epoch); false -> state.epoch },
+                    fresh: case closes of { true -> 0; false -> fresh2 },
+                    again: case closes of { true -> 0; false -> again2 },
+                    longest: case closes of { true -> most(state.longest, fresh2); false -> state.longest },
+                    work: work2, asked: asked2, to_core: state.to_core, to_rq: state.to_rq,
+                    quota: state.quota - one_if(gone), moved: state.moved + one_if(gone) })
+            end
+        };
+        :read -> {
+            sequence proc[concurrency]
+                here: actor_ref <- self()
+            produces
+                pure (:reply, { rq: here, pl: most(state.longest, state.fresh) }, { core: state.core, check_every: state.check_every, coord: state.coord, next: state.next,
+                    epoch: state.epoch, fresh: state.fresh, again: state.again, longest: 0, work: 0, asked: false,
+                    to_core: state.to_core, to_rq: state.to_rq, quota: 0, moved: state.moved })
+            end
+        };
+        :next -> (:reply, { rq: state.next, pl: state.core }, state);
+        (:path, to_core: int64, to_rq: actor_ref, quota: int64) -> (:reply, { rq: to_rq, pl: 0 }, { core: state.core, check_every: state.check_every, coord: state.coord, next: state.next,
+                    epoch: state.epoch, fresh: state.fresh, again: state.again, longest: state.longest, work: state.work, asked: state.asked,
+                    to_core: to_core, to_rq: to_rq, quota: quota, moved: state.moved })
+    }
+}
+
+// ---- the coordinator: one check per :check, made of calls to the rqs
+fn refs_nth(xs: List[actor_ref, mem(normal)], i: int64, otherwise: actor_ref) -> actor_ref {
+    case xs of {
+        []: List[actor_ref, mem(normal)] -> otherwise;
+        [h: actor_ref, t: List[actor_ref, mem(normal)]] -> case i == 0 of { true -> h; false -> refs_nth(t, i - 1, otherwise) }
+    }
+}
+
+// Gives every core with a plan entry its path. rqs is in REVERSE core order, n cores. The answer: processes to move.
+fn hand_out(plan: List[int64, mem(normal)], core: int64, n: int64, rqs: List[actor_ref, mem(normal)], me: actor_ref) -> int64 {
+    case plan of {
+        []: List[int64, mem(normal)] -> 0;
+        [h: int64, t: List[int64, mem(normal)]] -> {
+            sequence proc[concurrency]
+                _: int64 <- case h == 0 of {
+                    true -> 0;
+                    false -> {
+                        r: { rq: actor_ref, pl: int64 } <- call(refs_nth(rqs, n - 1 - core, me), (:path, plan_to(h), refs_nth(rqs, n - 1 - plan_to(h), me), plan_quota(h)) impl ActorMessage {});
+                        r.pl
+                    }
+                };
+                rest: int64 <- hand_out(t, core + 1, n, rqs, me)
+            produces pure rest + plan_quota(h) end
+        }
+    }
+}
+
+// Reads the rq `at` (already read: its length is `len`) and every rq after it, then plans and hands out the paths.
+// lens and rqs are in reverse core order. The last rq's next is the coordinator, `me`.
+fn check(at: actor_ref, len: int64, me: actor_ref, lens: List[int64, mem(normal)], rqs: List[actor_ref, mem(normal)]) -> int64 {
+    sequence proc[concurrency]
+        lens2: List[int64, mem(normal)] <- ints_cons(len, lens);
+        rqs2: List[actor_ref, mem(normal)] <- refs_cons(at, rqs);
+        n: { rq: actor_ref, pl: int64 } <- call(at, :next impl ActorMessage {});
+        planned: int64 <- case n.rq == me of {
+            true -> {
+                in_order: List[int64, mem(normal)] <- ints_rev(lens2, ints_none());
+                hand_out(check_balance(in_order), 0, ints_size(in_order, 0), rqs2, me)
+            };
+            false -> {
+                r: { rq: actor_ref, pl: int64 } <- call(n.rq, :read impl ActorMessage {});
+                check(n.rq, r.pl, me, lens2, rqs2)
+            }
+        }
+    produces pure planned end
+}
+
+fn coord(msg: atom, state: { checks: int64, planned: int64 }) -> (:no_reply, { checks: int64, planned: int64 }) {
+    sequence proc[concurrency]
+        head: { rq: actor_ref, pl: int64 } <- call_registered(:bees_place_head, :read impl ActorMessage {});
+        planned: int64 <- check(head.rq, head.pl, self(), ints_none(), refs_none())
+    produces
+        pure (:no_reply, { checks: state.checks + 1, planned: state.planned + planned })
+    end
+}
+
+// Spawns the rq of core `core` and of every core below it; the answer is core 0's rq, registered as :bees_place_head.
+// An rq is put on its core with migrate_actor, for the reasons place/2 gives.
+fn spawn_rqs(core: int64, check_every: int64, coordinator: actor_ref, next: actor_ref) -> actor_ref {
+    case core == 0 of {
+        true -> {
+            sequence proc[concurrency]
+                head: actor_ref <- spawn_registered({ core: 0, check_every: check_every, coord: coordinator, next: next, epoch: 1, fresh: 0, again: 0, longest: 0, work: 0, asked: false, to_core: 0, to_rq: coordinator, quota: 0, moved: 0 },
+                    rq, :bees_place_head, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+                _: atom <- migrate_actor(head, 0)
+            produces pure head end
+        };
+        false -> {
+            sequence proc[concurrency]
+                r: actor_ref <- spawn({ core: core, check_every: check_every, coord: coordinator, next: next, epoch: 1, fresh: 0, again: 0, longest: 0, work: 0, asked: false, to_core: 0, to_rq: coordinator, quota: 0, moved: 0 },
+                    rq, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+                _: atom <- migrate_actor(r, core)
+            produces pure spawn_rqs(core - 1, check_every, coordinator, r) end
+        }
+    }
+}
+
+// Starts the balancer for cores 0 .. cores-1. check_every: the dispatches the balanced processes of one core do between
+// two checks; keep it many times the quantum of first/2 times the processes expected on a core, so that every process
+// has reported before a check. The answer is core 0's rq: the first balanced processes keep it with first(0, quantum)
+// and are put on core 0 with place/2; a child keeps its parent's rq with child/1 of the parent's pl, and place/2.
+fn start(cores: int64, check_every: int64) -> actor_ref {
+    sequence proc[concurrency]
+        coordinator: actor_ref <- spawn({ checks: 0, planned: 0 }, coord, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        head: actor_ref <- spawn_rqs(cores - 1, check_every, coordinator, coordinator)
+    produces
+        pure head
+    end
+}

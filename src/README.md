@@ -5,6 +5,13 @@
   (`carrier_new()`: the Silica stdlib's `dangerous_tcp_carrier`); `bees_node_edge.part` is the node's startup pasted into the
   root unit of every node program (`net_launch`, `net_start`, `net_raw_writer`, `net_send_raw`), because the functions of a
   `dangerous_` unit such as `dangerous_bees_net` may be called only from an FFI worker (E4042).
+  `bees_place` (A6, 2026-11-22) is the balancer: the BEAM's balance check (migration limit = the average run-queue length,
+  migration paths from the fullest core to the emptiest) done with `migrate_actor`, the same code OS-hosted (between carrier
+  threads) and on a raw board (between cores). One call-only run-queue actor per core counts the balanced processes that
+  report to it; a cast-only coordinator reads them and hands out the paths; a balanced process keeps its rq and one int64 in
+  its state and calls `turn/2` once per dispatch, and is moved when it next reports. A process that never calls `turn/2` is
+  never moved. Not built: work stealing, compaction of load, a limit per priority. Trials `a06_place` (the pure check; eight
+  processes put on core 0 end two per core and stay so); `examples/esp32s3_balance` runs it on the board against a control.
 - `inter_nodal/` — TRUST and BEAM-mode distribution (Track B). `dangerous_bees_net` (the receive, send and listen actors over the
   language's `(:tcp)` carrier; `dangerous_` because it holds the carrier as a `dangerous_actor_ref`, E4026), `bees_dist` (the handshake and `REG_SEND` layouts over strings), `bees_ingress` (audit).
   `bees_wire` is the M1b typed codec, kept for the `m1_wire_*` trials and the oracle; node programs encode with the

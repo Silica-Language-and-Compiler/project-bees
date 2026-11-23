@@ -1,0 +1,174 @@
+use bees_reporter;
+use bees_place;
+// A6: a skewed spawn is evened out (src/shim/bees_place.silica), OS-hosted. Eight balanced processes are put on core 0
+// and never stop working (each dispatch casts the next to itself); the balancer runs for cores 0 to 3. A ninth
+// process, spawned on core 1 and never reporting to the balancer (a process the program placed), works beside them.
+// A collector asks all nine every 25 ms which carrier they are on (actor_carrier_index) and ends the run with 0 when
+// 40 rounds of answers in a row (one second) each show two balanced processes on each of the four carriers and the
+// placed one still on carrier 1: the spawn was evened out and stays so. After 400 rounds without that it prints the
+// last round and ends with 1.
+// Needs at least four carriers (core c is carrier c mod the carrier count).
+// Expected: workers per core: 2 2 2 2 / placed process on core 1: true
+
+fn worker(msg: :tick | (:where, actor_ref, int64), state: { rq: actor_ref, pl: int64 }) -> (:no_reply, { rq: actor_ref, pl: int64 }) {
+    case msg of {
+        :tick -> {
+            sequence proc[concurrency]
+                r: { rq: actor_ref, pl: int64 } <- bees_place@turn(state.rq, state.pl);
+                _: boolean <- cast(self(), :tick impl ActorMessage {})
+            produces pure (:no_reply, { rq: r.rq, pl: r.pl }) end
+        };
+        (:where, to: actor_ref, round: int64) -> {
+            sequence proc[concurrency]
+                at: int64 <- actor_carrier_index(self());
+                _: boolean <- cast(to, (:at, round, 0, at) impl ActorMessage {})
+            produces pure (:no_reply, state) end
+        }
+    }
+}
+
+fn placed(msg: :tick | (:where, actor_ref, int64), state: int64) -> (:no_reply, int64) {
+    case msg of {
+        :tick -> {
+            sequence proc[concurrency]
+                _: boolean <- cast(self(), :tick impl ActorMessage {})
+            produces pure (:no_reply, state + 1) end
+        };
+        (:where, to: actor_ref, round: int64) -> {
+            sequence proc[concurrency]
+                at: int64 <- actor_carrier_index(self());
+                _: boolean <- cast(to, (:at, round, 1, at) impl ActorMessage {})
+            produces pure (:no_reply, state) end
+        }
+    }
+}
+
+fn ask_all(ws: List[actor_ref, mem(normal)], me: actor_ref, round: int64) -> atom {
+    case ws of {
+        []: List[actor_ref, mem(normal)] -> :ok;
+        [h: actor_ref, t: List[actor_ref, mem(normal)]] -> {
+            sequence proc[concurrency]
+                _: boolean <- cast(h, (:where, me, round) impl ActorMessage {})
+            produces pure ask_all(t, me, round) end
+        }
+    }
+}
+
+fn one_if(b: boolean) -> int64 { case b of { true -> 1; false -> 0 } }
+
+fn show(c0: int64, c1: int64, c2: int64, c3: int64, other: int64, placed_at: int64) -> atom {
+    sequence proc[device_io]
+        _: atom <- print("workers per core: ");
+        _: atom <- print_int64(c0);
+        _: atom <- print(" ");
+        _: atom <- print_int64(c1);
+        _: atom <- print(" ");
+        _: atom <- print_int64(c2);
+        _: atom <- print(" ");
+        _: atom <- print_int64(c3);
+        _: atom <- case other == 0 of {
+            true -> :ok;
+            false -> {
+                _: atom <- print(" elsewhere: ");
+                print_int64(other)
+            }
+        };
+        _: atom <- println("");
+        _: atom <- print("placed process on core 1: ");
+        _: atom <- print_boolean(placed_at == 1);
+        o: atom <- println("")
+    produces pure o end
+}
+
+// The balanced rounds in a row after one more answer: a complete balanced round adds one, a complete round that is not
+// balanced starts again from 0. The 40th ends the run.
+fn rounds_after(good: int64, got: int64, c0: int64, c1: int64, c2: int64, c3: int64, other: int64, placed_at: int64) -> int64 {
+    case got == 9 of {
+        false -> good;
+        true -> case c0 == 2 and c1 == 2 and c2 == 2 and c3 == 2 and placed_at == 1 of {
+            false -> 0;
+            true -> case good + 1 >= 40 of {
+                false -> good + 1;
+                true -> {
+                    sequence proc[concurrency]
+                        _: atom <- show(c0, c1, c2, c3, other, placed_at);
+                        _: boolean <- cast_exit(0)
+                    produces pure good + 1 end
+                }
+            }
+        }
+    }
+}
+
+fn give_up(round: int64, c0: int64, c1: int64, c2: int64, c3: int64, other: int64, placed_at: int64) -> boolean {
+    case round >= 400 of {
+        true -> {
+            sequence proc[concurrency]
+                _: atom <- show(c0, c1, c2, c3, other, placed_at);
+                _: boolean <- cast_exit(1)
+            produces pure true end
+        };
+        false -> false
+    }
+}
+
+fn collector(msg: (:poll, List[actor_ref, mem(normal)]) | (:at, int64, int64, int64),
+             state: { round: int64, good: int64, got: int64, c0: int64, c1: int64, c2: int64, c3: int64, other: int64, placed_at: int64 })
+    -> (:no_reply, { round: int64, good: int64, got: int64, c0: int64, c1: int64, c2: int64, c3: int64, other: int64, placed_at: int64 }) {
+    case msg of {
+        (:poll, ws: List[actor_ref, mem(normal)]) -> {
+            sequence proc[concurrency]
+                _: boolean <- give_up(state.round, state.c0, state.c1, state.c2, state.c3, state.other, state.placed_at);
+                _: atom <- ask_all(ws, self(), state.round + 1);
+                _: timer_ref <- send_after(25, self(), (:poll, ws) impl ActorMessage {})
+            produces
+                pure (:no_reply, { round: state.round + 1, good: state.good, got: 0, c0: 0, c1: 0, c2: 0, c3: 0, other: 0, placed_at: 0 - 1 })
+            end
+        };
+        (:at, round: int64, kind: int64, at: int64) -> case round == state.round of {
+            false -> (:no_reply, state);
+            true -> {
+                sequence
+                    w: boolean <- kind == 0;
+                    c0: int64 <- state.c0 + one_if(w and at == 0);
+                    c1: int64 <- state.c1 + one_if(w and at == 1);
+                    c2: int64 <- state.c2 + one_if(w and at == 2);
+                    c3: int64 <- state.c3 + one_if(w and at == 3);
+                    other: int64 <- state.other + one_if(w and (at < 0 or at > 3));
+                    placed_at: int64 <- case w of { true -> state.placed_at; false -> at };
+                    good: int64 <- rounds_after(state.good, state.got + 1, c0, c1, c2, c3, other, placed_at)
+                produces
+                    pure (:no_reply, { round: state.round, good: good, got: state.got + 1, c0: c0, c1: c1, c2: c2, c3: c3, other: other, placed_at: placed_at })
+                end
+            }
+        }
+    }
+}
+
+fn spawn_workers(n: int64, head: actor_ref, acc: List[actor_ref, mem(normal)]) -> List[actor_ref, mem(normal)] {
+    case n == 0 of {
+        true -> acc;
+        false -> {
+            sequence proc[concurrency, mem(normal)]
+                w: actor_ref <- spawn({ rq: head, pl: bees_place@first(0, 8) }, worker, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+                _: atom <- bees_place@place(w, bees_place@first(0, 8));
+                _: boolean <- cast(w, :tick impl ActorMessage {});
+                more: List[actor_ref, mem(normal)] <- prepend[actor_ref, mem(normal)](w, acc)
+            produces pure spawn_workers(n - 1, head, more) end
+        }
+    }
+}
+
+fn main() -> int64 {
+    sequence proc[concurrency, device_io, mem(normal)]
+        _: atom <- bees_reporter@start();
+        head: actor_ref <- bees_place@start(4, 512);
+        p: actor_ref <- spawn(0, placed, stack_policy(0, :keep_last_message), state_policy(:keep_state_area), 1);
+        _: boolean <- cast(p, :tick impl ActorMessage {});
+        none: List[actor_ref, mem(normal)] <- [p];
+        ws: List[actor_ref, mem(normal)] <- spawn_workers(8, head, none);
+        c: actor_ref <- spawn({ round: 0, good: 0, got: 0, c0: 0, c1: 0, c2: 0, c3: 0, other: 0, placed_at: 0 - 1 }, collector, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        _: boolean <- cast(c, (:poll, ws) impl ActorMessage {});
+        code: int64 <- wait_for_exit()
+    produces pure code end
+}

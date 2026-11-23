@@ -1,0 +1,3 @@
+workers per core: 2 2 2 2
+placed process on core 1: true
+exit=0

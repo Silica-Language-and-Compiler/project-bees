@@ -1,0 +1,4 @@
+first on core 0: false
+second on core 0: false
+on core 3: true
+exit=0

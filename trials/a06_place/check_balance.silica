@@ -1,0 +1,78 @@
+use bees_reporter;
+use bees_place;
+// A6: the balance check as a pure function (src/shim/bees_place.silica, check_balance/1). For each line of run-queue
+// lengths in core order it prints the lengths, the migration limit, and for every core that is to send processes
+// `core>target:quota`.
+fn show(xs: List[int64, mem(normal)]) -> atom {
+    case xs of {
+        []: List[int64, mem(normal)] -> :ok;
+        [h: int64, t: List[int64, mem(normal)]] -> {
+            sequence proc[device_io]
+                _: atom <- print_int64(h);
+                _: atom <- print(" ")
+            produces pure show(t) end
+        }
+    }
+}
+fn show_plan(plan: List[int64, mem(normal)], core: int64) -> atom {
+    case plan of {
+        []: List[int64, mem(normal)] -> :ok;
+        [h: int64, t: List[int64, mem(normal)]] -> {
+            sequence proc[device_io]
+                _: atom <- case h == 0 of {
+                    true -> :ok;
+                    false -> {
+                        _: atom <- print(" ");
+                        _: atom <- print_int64(core);
+                        _: atom <- print(">");
+                        _: atom <- print_int64(bees_place@plan_to(h));
+                        _: atom <- print(":");
+                        print_int64(bees_place@plan_quota(h))
+                    }
+                }
+            produces pure show_plan(t, core + 1) end
+        }
+    }
+}
+fn line(xs: List[int64, mem(normal)]) -> atom {
+    sequence proc[device_io]
+        _: atom <- show(xs);
+        _: atom <- print("limit ");
+        _: atom <- print_int64(bees_place@limit_of(xs));
+        _: atom <- print(" plan");
+        _: atom <- show_plan(bees_place@check_balance(xs), 0);
+        o: atom <- println("")
+    produces pure o end
+}
+fn cases() -> atom {
+    sequence proc[mem(normal)]
+        a: List[int64, mem(normal)] <- [8, 0, 0, 0];
+        _: atom <- line(a);
+        b: List[int64, mem(normal)] <- [6, 2, 0, 0];
+        _: atom <- line(b);
+        c: List[int64, mem(normal)] <- [4, 2, 2, 0];
+        _: atom <- line(c);
+        d: List[int64, mem(normal)] <- [2, 2, 2, 2];
+        _: atom <- line(d);
+        e: List[int64, mem(normal)] <- [1, 0];
+        _: atom <- line(e);
+        f: List[int64, mem(normal)] <- [3, 0];
+        _: atom <- line(f);
+        g: List[int64, mem(normal)] <- [0, 5, 1, 0];
+        _: atom <- line(g);
+        h: List[int64, mem(normal)] <- [0, 9, 0, 7, 0, 0];
+        _: atom <- line(h);
+        i: List[int64, mem(normal)] <- [0, 0, 0];
+        _: atom <- line(i);
+        j: List[int64, mem(normal)] <- [5];
+        _: atom <- line(j);
+        k: List[int64, mem(normal)] <- [2, 1, 2, 2];
+        o: atom <- line(k)
+    produces pure o end
+}
+fn main() -> int64 {
+    sequence
+        _: atom <- bees_reporter@start();
+        _: atom <- cases()
+    produces pure 0 end
+}
