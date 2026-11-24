@@ -10,10 +10,10 @@ It is a usable example, to be used carefully, as [the directory's README](../REA
 section "What stands between this extension and production use" below lists what has and has not been reviewed and
 tested, and so what care means here.
 
-The extension is one implementation. The other extensions in this directory hold two gossip implementations side by
-side (a lighter peer in the client library, and a node matched to the Silica node). The Rust extension holds only the
-second: a node matched to the Silica node of `src/tempus/`, with the client half beneath it. It shares no code with
-the Silica library or with the other extensions.
+The extension is one implementation: a node matched to the Silica node of `src/tempus/`, with the client half beneath
+it. Every extension in this directory holds one gossip implementation in the same way. The lighter peer is the
+driver's `gossip` command (the section "The driver's `gossip` command" below): a thin command over that same node, not
+a second implementation. The extension shares no code with the Silica library or with the other extensions.
 
 The extension cannot be a bridge. A bridge is a node that is a member of both a TEMPUS network and a TRUST network
 (TRUST is the other mode of BEES, for long-lived nodes that know each other in advance), and there is no TRUST
@@ -50,9 +50,10 @@ of dependency.
   - `src/node/mod.rs` holds the node: the join, the ticks, the shuffles, what the application is told.
   - `src/node/conn.rs` holds one connection of a node, dialed or accepted, and its audit lines.
 - `driver/tempus-node-example/` is a complete application that is a node. It depends on the crate `tempus` only.
-- `driver/tempus-client/` is a command line over the client half. The trials drive the client through it. It depends
-  on the test-only crate, because it can make a test token (`--test-token`, `--test-entry`); it is not something an
-  application uses.
+- `driver/tempus-client/` is the command line of the extension: `gossip`, which runs a node for the gossip example in
+  `../gossip`, and the commands over the client half that the trials drive. It depends on the test-only crate,
+  because the client commands can make a test token (`--test-token`, `--test-entry`); `gossip` uses the library
+  alone. It is not something an application uses.
 - `testing/tempus-testing/` is for tests only: keys and tokens from fixed seeds, and a clock, timers and draws that a
   test sets by hand.
 - `testing/tempus-node-trial/` is the program the trial `trials/c15_tempus_node_rust` runs as a node whose clock,
@@ -249,7 +250,7 @@ key exchange group X25519MLKEM768 only, the cipher suites TLS_AES_256_GCM_SHA384
 ALPN `tempus/1`, a certificate on both sides, no authority and no date check. Ed25519 signatures, SHA-512, random
 bytes and the reading and making of certificates come from the same library.
 
-- There is no C code. `lib/tempus/src/ffi.rs` declares 67 OpenSSL functions in two `extern "C"` blocks, and
+- There is no C code. `lib/tempus/src/ffi.rs` declares 69 OpenSSL functions in two `extern "C"` blocks, and
   `lib/tempus/build.rs` tells the linker where the library is. The build script looks in `OPENSSL_PREFIX` and then in
   the two Homebrew directories that `native/macos/platform.mk` names (`PLATFORM_OPENSSL_DIRS`); the Makefile passes
   `OPENSSL_PREFIX` from that file.
@@ -257,13 +258,18 @@ bytes and the reading and making of certificates come from the same library.
   for, `SSL_CTX_ctrl`, with the macro's command number (the protocol versions, the group list, the two lists of
   signature algorithms).
 - Rust calls a function of another language inside a block marked `unsafe`, which says that the compiler cannot check
-  it. All of the extension's unsafe code is in two files: 23 blocks in `crypto.rs` and 23 in `tls.rs`. Each block is
+  it. All of the library's unsafe code is in two files: 25 blocks in `crypto.rs` and 23 in `tls.rs`. Each block is
   one OpenSSL call, or one short run of calls, with a comment that says why it is sound. Each OpenSSL object is owned
   by a Rust type that frees it when it is dropped: `SigningKey` (a key), `Certificate` (a certificate), `MdCtx` (a
   digest context), `TlsContext` (an `SSL_CTX`) and `Conn` (an `SSL`). There are four `unsafe impl` lines, which say
   that `SigningKey` and `TlsContext` may be used from several threads; both are only read after they are made. A
   connection object is made and used on one thread.
-- No function of the operating system is declared. The TCP connection is `std::net::TcpStream` in blocking mode; the
+- Two of the blocks in `crypto.rs` read an Ed25519 key from an unencrypted PKCS#8 PEM file
+  (`crypto::ed25519_seed_from_pkcs8_pem`, through `d2i_AutoPrivateKey` and `EVP_PKEY_get_raw_private_key`), for the
+  driver's `gossip` command, which is given its key as such a file.
+- The library declares no function of the operating system. The driver `tempus-client` declares one, the C library's
+  `signal`, so that `gossip` ends on SIGINT and SIGTERM and still prints its last lines; the call is its one unsafe
+  block. The standard library has no way to catch a signal. The TCP connection is `std::net::TcpStream` in blocking mode; the
   one deadline of a connection is kept by setting the stream's read and write timeouts to what is left of it before
   each TLS operation. The cached `libc` crate is not used.
 - The first handshake was tested against a running Silica node in both positions before anything was built on it.
@@ -323,8 +329,36 @@ the same form as the lines of the Swift and Python command lines.
   `tempus_bridge` or `tempus_sentinel` must present one of the listed certificates.
 - The skew, the time bound and the shuffle length must always be given. TEMPUS has no default for any of them.
 
-The command line has no `gossip` command, which the Swift, Kotlin and Python drivers have for the four-language
-example in `../gossip`. The section "What the tests do not show" says what that would take.
+## The driver's `gossip` command
+
+`target/debug/tempus-client gossip OPTIONS` makes the program a member of a TEMPUS network. It is what the gossip
+example in `../gossip` runs for its `rust`, `mixed` and `trio` networks, with the options and the output that the
+Python, Kotlin, Swift and C# drivers' `gossip` commands have. It is a thin command over the library's node
+(`TempusNode`): it builds a `TempusConfig` and a `NodeIdentity` from its options, starts the node, and prints. There is
+no second gossip implementation behind it. It uses nothing of the test-only crate.
+
+- The options are `--cert` and `--key` (the certificate, and the private key as an unencrypted PKCS#8 PEM file),
+  `--token` (a file holding the token as hexadecimal digits), `--addr` (the address the node advertises and listens
+  on), `--producer-pub` and `--kid`, `--skew SECONDS`, `--timeout-ms`, `--store-edge`, `--store-bridge` and
+  `--store-sentinel` (each `CAPACITY:SHUFFLE_LENGTH:TICK_MS`), `--join-retry-ms FIRST:MAX`, `--sentinel HOST:PORT`
+  (any number; none for a first sentinel), `--whitelist-cert FILE` (any number), and optionally `--now SECONDS` and
+  `--run-ms MS`.
+- The role is the type the token carries. The skew is `--skew` times 1000 milliseconds. The whitelist is the
+  `--whitelist-cert` files; a sentinel is admitted only when its certificate is one of them.
+- `--now SECONDS` gives the node one fixed reading as its clock, through `TempusNode::with_sources`, which the node
+  accepts only on a loopback listen address. Without it the node reads the machine's clock.
+- It prints the node's own lines and its audit lines as the node writes them, `learned STORE ID16 HOST:PORT` the first
+  time a peer appears in a view the node reports, and a line `told: ...` for what the application is told. It runs
+  until SIGINT or SIGTERM, or for `--run-ms`, and then prints `known STORE: ID16 ...` for each store, every peer it ever
+  learned of, sorted.
+
+A node requires values the command line does not carry. The command states them itself, as the constants `GOSSIP_*`
+in `driver/tempus-client/src/main.rs`: at most 16 accepted connections at once (`inflight_max`), a clock that steps
+back is followed (`clock_back` follow, so no `clock_back_limit_s`), a reading that fails after a good one leaves the
+node going on with its last reading (`clock_fail` continue), and the clock is read every 1000 ms (`clock_read_ms`).
+These are the driver's choices for the gossip example, the same as the other drivers make. They are not defaults of
+the library, which has none, and they are not recommendations: an application decides each of them for its own
+network.
 
 ## What the client half does
 
@@ -406,19 +440,16 @@ Run one from the BEES root directory with `tools/run_all_trials.sh --local-only 
 
 ## What the tests do not show
 
-- A node of this extension joining through a sentinel of this extension. Each was shown against a Silica node only.
+- No trial shows a node of this extension joining through a sentinel of this extension: each was shown against a
+  Silica node only. The gossip example's `rust` network shows it, for a few seconds on one machine and as far as its
+  check goes (every edge learned of every edge and of the sentinel, and merged a shuffle it started); it drives no
+  refusal.
 - More than one sentinel configured, and the doubling of the join's wait, are read from the code only.
 - A failing random source is shown for a tick (it is skipped) and not for a request.
 - The node was not run for long, under load, or with many peers, and its memory use was not measured.
 - Nothing was run on any machine but one Mac with Apple Silicon. There is no Rust toolchain on the Linux machines the
   other trials also run on, so the three trials are declared for the Mac only (the file `platforms` in each) and have
   Mac recorded outputs only. On a machine without `cargo` or OpenSSL each trial fails and says what is missing.
-- The four-language gossip example in `../gossip` does not include Rust. To join it, the driver would need a `gossip`
-  command with that example's options: the key read from a PEM file (which needs declarations of OpenSSL's PEM
-  reader; the node takes a 32-byte seed today), the token read as hexadecimal digits from a file, the stores and the
-  retry delays in that example's spelling, and a line `learned STORE ID16 HOST:PORT` for each peer first seen, which
-  the node's `View` event gives. `gossip_run.py` would need an entry for the Rust driver. The node itself needs no
-  change: it is the same protocol.
 - The reader of TRUST's result frame understands maps, atoms, binaries, integers and lists. A result that carries a
   tuple or a float is refused, and its bytes are still in the outcome.
 - A failed TLS handshake is reported with the text OpenSSL gives for it. That text belongs to the OpenSSL version, so
@@ -439,7 +470,8 @@ A bridge is not built. It would need, in Rust:
 
 ## What stands between this extension and production use
 
-- Review. No person has reviewed the Rust code. In particular the 46 unsafe blocks that call OpenSSL, the two types
+- Review. No person has reviewed the Rust code. In particular the 48 unsafe blocks that call OpenSSL, the driver's
+  one unsafe block that calls `signal`, the two types
   marked as usable from several threads, the threads (one for each connection, with no bound on their number beyond
   `inflight_max` for accepted connections), and every error path want a reviewer.
 - A bridge. An application that must reach a TRUST network needs a bridge, and this extension cannot be one.

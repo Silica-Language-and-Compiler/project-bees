@@ -47,8 +47,8 @@ Each extension has one implementation: a client half and, beneath an application
 Silica node does (an edge or a sentinel; none can be a bridge).
 
 `gossip/` runs the drivers. It starts several instances of one language's driver on this machine as one TEMPUS
-network, and one network that mixes all four languages, and checks that the instances discover each other. Its
-[README](gossip/README.md) says how to run it and what its check shows.
+network, a network that mixes all six languages, and one that mixes the five other than Silica, and checks that the
+instances discover each other. Its [README](gossip/README.md) says how to run it and what its check shows.
 
 ## What each directory holds
 
@@ -124,7 +124,8 @@ network, and one network that mixes all four languages, and checks that the inst
   no second, lighter gossip peer. `driver/` is the command line and an example application that is a node. It needs
   the .NET SDK 11 and OpenSSL 4.1.0 or later, which it calls through P/Invoke for TLS and Ed25519, because .NET's own
   TLS and cryptography on macOS can neither load an Ed25519 key nor complete a handshake with a TEMPUS node. Its own
-  [README](csharp/README.md) says what was tried. Its driver has no `gossip` command, so `gossip/` does not run it.
+  [README](csharp/README.md) says what was tried. Its driver's `gossip` command runs a node from a command line; `gossip/` and the trial
+  `trials/c7_tempus_gossip` run it.
 - The trial `trials/c12_tempus_csharp` runs the client tests and then walks the client half against nodes and against
   the Python test support. The trial `trials/c13_tempus_node_csharp` runs the node tests and then nodes of the
   extension and Silica nodes in one network. The trial `trials/c16_tempus_bridge_csharp` walks the client half against
@@ -134,11 +135,11 @@ network, and one network that mixes all four languages, and checks that the inst
 
 - The Rust extension is one Cargo workspace: `lib/tempus` (the one crate an application depends on: the client half
   and the node half, an edge or a sentinel that behaves as the Silica node does; the bridge role is refused),
-  `driver/tempus-client` (the command line) and `driver/tempus-node-example` (an application that is a node),
+  `driver/tempus-client` (the command line; its `gossip` command runs a node, as the gossip example does) and `driver/tempus-node-example` (an application that is a node),
   `testing/` (test fixtures, a clock, timers and draws that a test sets by hand, and the trial's node program; the
   library does not depend on them, which `make test` checks) and `test/`.
-- Its driver has no `gossip` command, so `gossip/` does not run it; its own [README](rust/README.md) says what joining
-  would take.
+- Its driver's `gossip` command runs a node from a command line; `gossip/` and the trial `trials/c7_tempus_gossip`
+  run it.
 - It builds with cargo in offline mode and has no dependency outside itself. TLS and the cryptography are the OpenSSL
   installed on the machine, called through declarations in `lib/tempus/src/ffi.rs`, with no C code.
 - Its client half has no function that misbehaves on purpose and does not build the test-only `tick` and `clock`
@@ -161,7 +162,7 @@ network, and one network that mixes all four languages, and checks that the inst
   The Silica client's steps are compiled into small programs in the trial directories (the files ending in `.role`).
 - `tools/bees_tempus_fixtures.py` and `tools/bees_tempus_ids.py` use the Python client to make the test tokens and
   identities the trials compile in.
-- `trials/c7_tempus_gossip` runs the six networks of `gossip/` and compares each check with a recorded one.
+- `trials/c7_tempus_gossip` runs the eight networks of `gossip/` and compares each check with a recorded one.
 
 The trials also send two frames, `tick` and `clock`, that are for testing only. They are not part of what a client
 can use. The code that understands them is in a separate test unit, `src/tempus_test/`, which only a test program

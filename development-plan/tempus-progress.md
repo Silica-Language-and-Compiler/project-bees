@@ -1165,3 +1165,21 @@ extensions"), every extension's README, the two guides and the source headers sa
 to be used carefully, each with a list of what care means: no review as production code, one platform, no soak or
 load test, keys, certificates and tokens supplied by the application, test support kept out of what an application
 links, no bridge role, no promise that interfaces stay the same.
+
+## 2026-11-24, C# and Rust in the gossip example (owner's request)
+
+"Add C# and Rust to the gossip example. Add the lighter peer so as to match the other language implementations."
+Following the ruling of the same day (one gossip implementation per language), the lighter peer is built as Python,
+Swift and Kotlin now have it: a driver `gossip` command over the extension's own node, with no second implementation in
+either library and no defaults added. The C# driver (driver/Program.cs) and the Rust driver (driver/tempus-client) take
+the options gossip_run.py passes and print the same lines (the node's lines and audit lines, `learned STORE ID16
+HOST:PORT`, `told: ...`, and `known STORE:` at the end). Each states the values the example does not pass as the
+driver's choices for the example: in-flight limit 16, clock_back follow, clock_fail continue, clock_read_ms 1000.
+`--now` is an injected fixed clock, on a loopback address only (the Rust node refuses otherwise; the C# driver keeps
+the rule, since the C# library does not). The Rust library gained `crypto::ed25519_seed_from_pkcs8_pem` (OpenSSL
+`d2i_AutoPrivateKey`, `EVP_PKEY_get_raw_private_key`), so it now has 48 unsafe blocks (was 46); the Rust driver has
+one more, to catch SIGINT and SIGTERM, for which the standard library has no call. gossip_run.py gained the networks
+`csharp` and `rust`, and C# and Rust edges in `mixed` (now 7 instances) and `trio` (now 6; the name is kept, though it
+now holds five languages). Ports run 24800 to 24806, inside c7_tempus_gossip's block. New goldens: csharp and rust;
+mixed and trio re-recorded after two identical passes each; python, swift, kotlin and silica unchanged.
+trials/c7_tempus_gossip passes 8/0 (was 6). c12, c13, c16, c14, c15 and c17 pass with goldens unchanged.

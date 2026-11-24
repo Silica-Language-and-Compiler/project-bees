@@ -5,10 +5,12 @@ TEST ONLY fixtures made from fixed seeds (trials/t5_tempus_tls/certs, tools/bees
 
     gossip_run.py run NAME [--timeout SECONDS] [--out DIR]
         NAME    python | kotlin | swift | silica    one sentinel and three edges, all instances of that language's driver
+                csharp | rust
                 mixed                               a Silica sentinel and one edge of each language: Silica, Python,
-                                                    Kotlin, Swift
+                                                    Kotlin, Swift, C#, Rust
                 trio                                the mixed network without the Silica driver: a Swift sentinel and
-                                                    one edge each of Python, Kotlin and Swift
+                                                    one edge each of Python, Kotlin, Swift, C# and Rust (the name is
+                                                    older than its last two members)
         Starts the sentinel, then the edges, on 127.0.0.1 (ports: tools/trial_ports.py c7_tempus_gossip). Every edge
         knows only the sentinel's address. Waits until every instance has learned of every edge in its edge store,
         every edge has learned of the sentinel in its sentinel store, and every instance has merged a shuffle of its
@@ -51,15 +53,17 @@ KID = "k1"
 VALID = (1000, 4000000000)
 BASE = trial_ports.base("c7_tempus_gossip")
 # the identity of each slot (a name of tools/bees_tempus_certs.py) and its port offset: slot 0 is the sentinel
-SLOTS = ["sentinel", "node", "other", "x1", "x2"]
+SLOTS = ["sentinel", "node", "other", "x1", "x2", "x3", "x4"]
 STORES = ["--store-edge", "8:4:500", "--store-bridge", "8:4:5000", "--store-sentinel", "8:4:1000"]
 NETWORKS = {
     "python": ["python", "python", "python", "python"],
     "kotlin": ["kotlin", "kotlin", "kotlin", "kotlin"],
     "swift": ["swift", "swift", "swift", "swift"],
     "silica": ["silica", "silica", "silica", "silica"],
-    "mixed": ["silica", "silica", "python", "kotlin", "swift"],
-    "trio": ["swift", "python", "kotlin", "swift"],
+    "csharp": ["csharp", "csharp", "csharp", "csharp"],
+    "rust": ["rust", "rust", "rust", "rust"],
+    "mixed": ["silica", "silica", "python", "kotlin", "swift", "csharp", "rust"],
+    "trio": ["swift", "python", "kotlin", "swift", "csharp", "rust"],
 }
 SILICA_ENTRY = ["dangerous_gs", "dangerous_g1", "dangerous_g2", "dangerous_g3"]      # by slot: the values are compiled in
 MIN_SECONDS = 6.0          # the least time a network runs, so that every instance's stores tick several times
@@ -128,6 +132,13 @@ class Instance:
             return [os.environ.get("JAVA", "java"), "-cp", jar, "bees.tempus.MainKt", "gossip"] + opts, HERE
         if self.lang == "swift":
             return [os.path.join(CLIENTS, "swift", ".build", "debug", "tempus-client"), "gossip"] + opts, HERE
+        if self.lang == "csharp":
+            dll = os.path.join(CLIENTS, "csharp", "build", "bin", "BeesTempusDriver", "bees-tempus.dll")
+            if not os.path.exists(dll):
+                raise SystemExit("FAIL: %s is not built (make build)" % dll)
+            return [os.environ.get("DOTNET", "dotnet"), dll, "gossip"] + opts, HERE
+        if self.lang == "rust":
+            return [os.path.join(CLIENTS, "rust", "target", "debug", "tempus-client"), "gossip"] + opts, HERE
         raise SystemExit("no driver for %r" % self.lang)
 
     def start(self, out_dir, everyone):

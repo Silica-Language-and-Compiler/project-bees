@@ -546,8 +546,8 @@ gossip implementation beside it. A client that takes part in gossip (section 16 
 
 The Silica example's gossip part starts BEES's own node library, so it is the Silica node itself.
 
-The drivers of the Python, Swift and Kotlin extensions have a command `gossip` that runs a node from a command line,
-and `gossip/` runs these drivers and the Silica driver as networks of one language and of several. A command line has
+The drivers of the Python, Swift, Kotlin, C# and Rust extensions have a command `gossip` that runs a node from a
+command line, and `gossip/` runs these drivers and the Silica driver as networks of one language and of several. A command line has
 fewer values than a node's configuration (section 4). A node library has no defaults, so each driver states the
 remaining values itself, in one visible place, as its own choices for the example: the limit on accepted connections,
 the clock's choices and how often the clock is read. An application makes each of those choices for itself. The

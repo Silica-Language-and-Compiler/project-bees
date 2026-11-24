@@ -173,6 +173,16 @@ class Walk:
         check(out.what == "reply" and out.kind == "done", "a test-only tick frame to the Silica node at %s: %s" % (addr, out.line()))
 
 
+
+def settle(node, mark, wait, limit=10.0):
+    """Wait until the node has written at least one audit line since `mark` (a node under load may take longer than
+    `wait` to write it), then `wait` more for any further line of the same connection. Each node in these comparisons
+    writes at least one audit line for each case, so the wait ends; `limit` bounds it if a node writes none."""
+    until = time.monotonic() + limit
+    while not audit_lines(node.text()[mark:]) and time.monotonic() < until:
+        time.sleep(0.05)
+    quiet(wait)
+
 def part_one(w):
     v = c.Verifier(PRODUCER, "k1", 1500, 10)
     ticker = ident(112, "tempus_edge", 3000, DEAD)            # the trial tool's own peer, for the test-only ticks
@@ -287,7 +297,7 @@ def refusals(w, s, e, a, v):
         for name, node, addr in (("E", e, E_ADDR), ("A", a, A_ADDR)):
             mark = len(node.text())
             out = c.dial(addr, who, v, body, shuffle_length=3, **how)
-            quiet(wait)
+            settle(node, mark, wait)
             seen.append((name, (out.what, out.stage if out.what != "tls_failed" else "tls"), audit_lines(node.text()[mark:])))
         compare(w, "R%d" % k, label, seen)
     # more accepted connections than inflight_max (2): two are held open, the third is closed at once
@@ -552,7 +562,7 @@ def part_three(w):
         for name, node, addr in (("P", p, P_ADDR), ("R", r, R_ADDR)):
             mark = len(node.text())
             out = c.dial(addr, x, real, body, shuffle_length=3)
-            quiet()
+            settle(node, mark, 0.7)
             seen.append((name, (out.what, out.stage), audit_lines(node.text()[mark:])))
         compare(w, "M%d" % k, label + ": to a node that is no test program a frame of no kind", seen)
     w.stop("r")

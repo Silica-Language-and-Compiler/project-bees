@@ -14,8 +14,9 @@ this repository. The documents [What do I need to do to write a TEMPUS client?](
 [What do I need to do to write a TEMPUS node?](../writing-a-tempus-node.md) say what a client and a node have to do,
 in a form that does not depend on any one language.
 
-There is one implementation here, not two. The Python, Swift and Kotlin directories each hold a second, lighter gossip
-peer beside their node half. The C# extension has the node half only, with the client half beneath it.
+There is one gossip implementation here: the node half, with the client half beneath it, as in every extension of
+this directory. The lighter peer is the driver's `gossip` command (the section "The driver's `gossip` command" below):
+a thin command over that same node, not a second implementation.
 
 ## What it is
 
@@ -39,8 +40,9 @@ The layout is the one every extension in this directory has:
   - `Clock.cs` holds what one reading of the clock does to a node, as a pure function, and the machine's clock.
   - `Config.cs` holds a node's configuration and its refusals.
   - `Node.cs` and `NodeConn.cs` hold the node and one connection of a node.
-- `driver/` is a program over the library: the command line of the client half, and an example application that is a
-  node. It references the library and nothing else.
+- `driver/` is a program over the library: the command line of the client half, the `gossip` command that runs a
+  node for the gossip example in `../gossip`, and an example application that is a node. It references the library
+  and nothing else.
 - `testing/` is test support, in a project of its own, `BeesTempusTesting.csproj`: keys from fixed seeds, a function
   that makes tokens, and a clock, timers and draws that a test sets by hand. The library and the driver do not
   reference it, and an application must not.
@@ -141,12 +143,48 @@ dotnet build/bin/BeesTempusDriver/bees-tempus.dll dial 127.0.0.1:25401 \
 - `node KEY=VALUE ...` is the example application that is a node. The usage lists its keys, which are those of the
   configuration below. It prints the node's lines and what the application is told, and ends when its standard input
   says `exit` or ends.
+- `gossip OPTIONS` is the command the gossip example runs. The next section describes it.
 
 The outcome of a connection is printed as one line, for example
 `reply sample_reply entries=[0:1fae2ad7f75a0ded] store=tempus_edge peer=b19edad2958934e1 typ=tempus_edge`. The first
 word is one of `reply`, `served`, `key_rotated`, `refused` (this client refused the peer; the reason follows),
 `closed` (the connection closed with no reply, which is all that a refusal by the peer ever shows, and is also the
 ordinary end of a `cast`), `timeout`, `tls_failed` and `unreachable`.
+
+## The driver's `gossip` command
+
+`dotnet build/bin/BeesTempusDriver/bees-tempus.dll gossip OPTIONS` makes the program a member of a TEMPUS network.
+It is what the gossip example in `../gossip` runs for its `csharp`, `mixed` and `trio` networks, with the options and
+the output that the Python, Kotlin, Swift and Rust drivers' `gossip` commands have. It is a thin command over the
+library's node (`TempusNode`): it builds a `TempusConfig` and an `Identity` from its options, starts the node, and
+prints. There is no second gossip implementation behind it.
+
+- The options are those of `dial` without `--shuffle-length`, and `--store-edge`, `--store-bridge` and
+  `--store-sentinel` (each `CAPACITY:SHUFFLE_LENGTH:TICK_MS`), `--join-retry-ms FIRST:MAX`, `--sentinel HOST:PORT`
+  (any number; none for a first sentinel) and, optionally, `--run-ms MS`. `--addr` is also where the node listens.
+- The role is the type the token carries. The skew is `--skew` times 1000 milliseconds.
+- The `--whitelist-cert` files become the whitelist, named `cert1`, `cert2` and so on in their order, and every
+  `--sentinel` names the first of them. The command line does not say which certificate is which sentinel's, and the
+  node does not need it: it requires that a sentinel's name is an entry of the whitelist, and admits a sentinel whose
+  certificate is any entry. With a `--sentinel` and no `--whitelist-cert` the node refuses to start.
+- `--now SECONDS` gives the node one fixed reading as its clock, through a `NodeEnvironment` with the machine's timers
+  and random source. The library takes such an environment on any address; the command takes `--now` on a loopback
+  `--addr` only, which is the rule the Silica node keeps for a clock its caller supplies. Without `--now` the node
+  reads the machine's clock (`NodeEnvironment.System`).
+- It prints the node's own lines and its audit lines as the node writes them, `learned STORE ID16 HOST:PORT` the first
+  time a peer appears in a view the node reports, and a line `told: ...` for what the application is told. It runs
+  until SIGINT or SIGTERM, or for `--run-ms`, and then prints `known STORE: ID16 ...` for each store, every peer it ever
+  learned of, sorted.
+
+A node requires values the command line does not carry. The command states them itself, as the constants `Gossip*` in
+`driver/Program.cs`: at most 16 accepted connections at once (`inflightMax`), a clock that goes back is followed
+(`clockBack` follow, so no `clockBackLimitS`), a reading that fails after a good one leaves the node going on with its
+last reading (`clockFail` continue), and the clock is read every 1000 ms (`clockReadMs`). These are the driver's
+choices for the gossip example, the same as the other drivers make. They are not defaults of the library, which has
+none, and they are not recommendations: an application decides each of them for its own network.
+
+The key is read by the library as it is for `dial` (`Identity.Load`, an unencrypted PKCS#8 PEM file); no OpenSSL
+function was added for this command.
 
 ## Why not SslStream
 
@@ -488,7 +526,10 @@ Not shown by any test or trial: a clock that cannot be read at start; an entry w
 view of a node of the extension before a tick; the retry delay of a join doubling over real time; a tick that finds
 a view empty and asks a sentinel again by a join request; a listen address that cannot be bound; a sentinel named by
 host name; many connections at once beyond the inflight test; `tls_group_refused`, because every peer the trials have
-offers one group only; and a node that runs for longer than a trial. The driver's `node` command, the example
+offers one group only; and a node that runs for longer than a trial. The driver's `gossip` command is run by the
+gossip example (`trials/c7_tempus_gossip`), whose check shows C# nodes joining through a C# sentinel, a Swift sentinel
+and a Silica sentinel, learning of every edge and merging shuffles, for a few seconds on one machine; it drives no
+refusal. The driver's `node` command, the example
 application, is in no trial: it was run by hand once on 2026-11-23, as a sentinel on the machine's clock that the
 driver's `dial` command sampled twice, and with a configuration that is refused.
 

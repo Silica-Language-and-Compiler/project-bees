@@ -1,4 +1,33 @@
-// The command line of the Rust TEMPUS extension's client half. A usable example, to be used carefully (README.md).
+// The command line of the Rust TEMPUS extension. A usable example, to be used carefully (README.md).
+//
+//   tempus-client gossip OPTIONS
+//       Be a member of a TEMPUS network: a node of the library (tempus::node), whose role is the type its token
+//       carries. It listens, joins through the sentinels, shuffles the three stores on their timers and answers the
+//       peers that dial. Prints the node's own lines (with its audit lines) and, for every peer it comes to know,
+//       `learned STORE ID16 HOST:PORT`. Runs until it is interrupted or ended, or for --run-ms; then prints, per store,
+//       `known STORE: ID16 ...` (every peer it ever learned of, sorted). What a node requires and these options do not
+//       carry (the bound on accepted connections and the clock choices) is stated in GOSSIP_* below.
+//       OPTIONS, all required unless marked:
+//         --cert FILE --key FILE         this peer's certificate (PEM, self-signed over its Ed25519 key) and its private
+//                                        key (PEM, PKCS#8, not encrypted)
+//         --token FILE                   its token from the producer, as hex digits in a file
+//         --addr HOST:PORT               the address it advertises and listens on (HOST an IPv4 literal)
+//         --producer-pub HEX --kid KID   the producer's current public key and its identifier
+//         --skew SECONDS                 the clock difference this peer allows
+//         --timeout-ms MS                the time bound of a whole connection
+//         --store-edge CAP:LEN:TICK_MS --store-bridge CAP:LEN:TICK_MS --store-sentinel CAP:LEN:TICK_MS
+//                                        capacity, shuffle length and tick of each store
+//         --join-retry-ms FIRST:MAX      the join's first and greatest retry delay
+//         --sentinel HOST:PORT           may be repeated (1 to 16); none for a first sentinel
+//         --whitelist-cert PEM_FILE      optional, may be repeated: a bridge or sentinel this peer accepts (a sentinel
+//                                        is admitted only when its certificate is one of these)
+//         --now SECONDS                  optional: one fixed reading in place of the machine's clock (the node
+//                                        accepts that on a loopback address only)
+//         --run-ms MS                    optional: stop after that long
+//       The gossip command uses the library alone, nothing of the TEST ONLY crate.
+//
+// The commands below were written for the trials of the client half. They take the key as a seed and can make TEST
+// ONLY tokens and entries (testing/tempus-testing):
 //
 //   tempus-client read-hex HEX SHUFFLE_LENGTH
 //   tempus-client test-token --seed HEX --kid KID TYP NBF EXP
@@ -14,15 +43,21 @@
 //             --shuffle-length N [--whitelist-cert PEM_FILE ...] [--no-entry-check]
 // --test-token and --test-entry sign with the TEST producer seed 00..1f under --kid: TEST ONLY.
 // Every dial prints its outcome as one line and exits 0; a fault of the command line exits 2.
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::io::{BufRead, Write};
-use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::os::raw::c_int;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tempus::admission::{frame_line, Identity, Verifier};
 use tempus::client::{dial, DialOptions};
-use tempus::crypto::{certificate_der, hex, sha512, unhex, SigningKey};
-use tempus::frames::{self, read_body, Entry};
+use tempus::crypto::{certificate_der, ed25519_seed_from_pkcs8_pem, hex, sha512, unhex, SigningKey};
+use tempus::frames::{self, read_body, read_token, Entry};
 use tempus::listener::{standard_answer, ListenOptions, Listener};
+use tempus::node::clock::{ClockBack, ClockFail};
+use tempus::node::config::{NodeIdentity, PeerType, Sentinel, StoreConfig, TempusConfig};
+use tempus::node::sources::{ClockSource, SecureRandom, Sources, SystemTimers};
+use tempus::node::{NodeEvent, TempusNode};
 use tempus_testing::{fixture_identity, fixture_key, make_test_token, test_certificate};
 
 fn fail(text: &str) -> ! {
@@ -177,9 +212,143 @@ fn test_entries(o: &Options) -> HashMap<String, Vec<Entry>> {
     held
 }
 
+// ---------------------------------------------------------------- gossip
+fn read_text(path: &str) -> String {
+    std::fs::read_to_string(path).unwrap_or_else(|_| fail(&format!("{} cannot be read", path)))
+}
+
+fn store_config(o: &Options, name: &str) -> StoreConfig {
+    let p: Vec<i64> = o.need(name).split(':').map(|n| n.parse().unwrap_or_else(|_| fail(&format!("{} is CAP:LEN:TICK_MS", name)))).collect();
+    if p.len() != 3 {
+        fail(&format!("{} is CAP:LEN:TICK_MS", name));
+    }
+    StoreConfig { capacity: p[0], shuffle_length: p[1], tick_ms: p[2] }
+}
+
+fn host_port(text: &str, name: &str) -> (String, i64) {
+    match text.rsplit_once(':').and_then(|(h, p)| p.parse::<i64>().ok().map(|p| (h.to_string(), p))) {
+        Some(x) => x,
+        None => fail(&format!("{} is HOST:PORT", name)),
+    }
+}
+
+// The values a node requires and the `gossip` command line does not carry. The library has no default for any of
+// them; these are this driver's choices for the gossip example, stated here and nowhere else, and not
+// recommendations: an application decides each of them for its own network (README.md, "The configuration").
+const GOSSIP_INFLIGHT_MAX: i64 = 16;                       // accepted connections at once
+const GOSSIP_CLOCK_BACK: ClockBack = ClockBack::Follow;    // a clock that steps back is followed
+const GOSSIP_CLOCK_BACK_LIMIT_S: Option<i64> = None;       // only Stop takes a limit
+const GOSSIP_CLOCK_FAIL: ClockFail = ClockFail::Continue;  // a reading that fails after a good one: go on with the last reading
+const GOSSIP_CLOCK_READ_MS: i64 = 1000;                    // how often the clock is read
+
+/// The clock of `--now SECONDS`: one fixed reading. The node accepts a clock of its caller's on a loopback listen
+/// address only.
+struct FixedClock(i64);
+
+impl ClockSource for FixedClock {
+    fn seconds(&self) -> Option<i64> {
+        Some(self.0)
+    }
+}
+
+static INTERRUPTED: AtomicBool = AtomicBool::new(false);
+
+extern "C" fn on_signal(_: c_int) {
+    INTERRUPTED.store(true, Ordering::SeqCst);
+}
+
+extern "C" {
+    // the C library's signal(2); the result, the previous handler, is not used
+    fn signal(signum: c_int, handler: extern "C" fn(c_int)) -> usize;
+}
+
+/// SIGINT and SIGTERM end the run, so that the `known` lines are printed. The standard library has no call for this.
+fn end_on_signals() {
+    const SIGINT: c_int = 2;
+    const SIGTERM: c_int = 15;
+    // SAFETY: the handler only stores into an atomic, which is safe in a signal handler; the numbers are those of
+    // macOS and Linux.
+    unsafe {
+        signal(SIGINT, on_signal);
+        signal(SIGTERM, on_signal);
+    }
+}
+
+fn gossip(o: &Options) {
+    if !o.rest.is_empty() {
+        fail("gossip OPTIONS");
+    }
+    let seed = ed25519_seed_from_pkcs8_pem(&read_text(o.need("--key"))).unwrap_or_else(|| fail("--key is not an unencrypted PKCS#8 Ed25519 key in PEM"));
+    let token = unhex(read_text(o.need("--token")).trim()).unwrap_or_else(|| fail("--token does not hold hex digits"));
+    // the node's role is the type its token carries
+    let role = read_token(&token).ok().and_then(|t| PeerType::from_name(&t.fields.typ)).unwrap_or_else(|| fail("--token does not hold a token"));
+    let retry: Vec<i64> = o.need("--join-retry-ms").split(':').filter_map(|n| n.parse().ok()).collect();
+    if retry.len() != 2 {
+        fail("--join-retry-ms is FIRST:MAX");
+    }
+    let (host, port) = host_port(o.need("--addr"), "--addr");
+    let many = |name: &str| o.values.get(name).cloned().unwrap_or_default();
+    // a member of a network always applies the whitelist rule: with no --whitelist-cert it accepts no bridge and no
+    // sentinel on a connection. The library's whitelist is a list of certificates and a sentinel names none of them.
+    let config = TempusConfig {
+        role, listen_address: host, port,
+        sentinels: many("--sentinel").iter().map(|s| { let (host, port) = host_port(s, "--sentinel"); Sentinel { host, port } }).collect(),
+        edge: store_config(o, "--store-edge"), bridge: store_config(o, "--store-bridge"), sentinel: store_config(o, "--store-sentinel"),
+        producer_kid: o.need("--kid").as_bytes().to_vec(), producer_key: o.need_hex("--producer-pub", Some(32)),
+        whitelist: many("--whitelist-cert").iter().map(|p| pem_der(p)).collect(),
+        shuffle_timeout_ms: o.need_int("--timeout-ms"), inflight_max: GOSSIP_INFLIGHT_MAX,
+        clock_skew_ms: o.need_int("--skew") * 1000,
+        clock_back: GOSSIP_CLOCK_BACK, clock_back_limit_s: GOSSIP_CLOCK_BACK_LIMIT_S,
+        clock_fail: GOSSIP_CLOCK_FAIL, clock_read_ms: GOSSIP_CLOCK_READ_MS,
+        join_retry_initial_ms: retry[0], join_retry_max_ms: retry[1],
+    };
+    let identity = NodeIdentity { seed, certificate_der: pem_der(o.need("--cert")), token, address: o.need("--addr").to_string() };
+    // every peer this instance ever held in a store, from the views the node reports
+    let known: Arc<Mutex<HashMap<&'static str, BTreeSet<String>>>> = Arc::new(Mutex::new(HashMap::new()));
+    let seen = known.clone();
+    let events = Box::new(move |event: NodeEvent| match event {
+        NodeEvent::View { store, entries } => {
+            let mut seen = seen.lock().unwrap();
+            for e in entries {
+                let id16 = hex(&e.id[..8.min(e.id.len())]);
+                if seen.entry(store.name()).or_default().insert(id16.clone()) {
+                    say(&format!("learned {} {} {}", store.name(), id16, String::from_utf8_lossy(&e.d.addr)));
+                }
+            }
+        }
+        NodeEvent::OwnTokenNotValid { reason } => say(&format!("told: the node's own token is not valid any more: {}", reason)),
+        NodeEvent::KeyRotated { kid, .. } => say(&format!("told: a peer answered key_rotated, its current kid is {}", String::from_utf8_lossy(&kid))),
+        NodeEvent::ClockNotRead(text) | NodeEvent::Stopped(text) => say(&format!("told: {}", text)),
+        NodeEvent::ListenFailed(text) => say(&format!("told: the node does not listen: {}", text)),
+        NodeEvent::Listening { .. } | NodeEvent::Joined | NodeEvent::PeerRefused { .. } => {}
+    });
+    let lines: tempus::node::Lines = Arc::new(|line: &str| say(line));
+    let made = match o.one("--now") {
+        Some(_) => {
+            let sources = Sources { clock: Arc::new(FixedClock(o.need_int("--now"))), timers: Arc::new(SystemTimers::new()), random: Arc::new(SecureRandom) };
+            TempusNode::with_sources(config, identity, sources, lines, events)
+        }
+        None => TempusNode::new(config, identity, lines, events),
+    };
+    let node = made.unwrap_or_else(|_| std::process::exit(1)); // the node has written the line that says why
+    end_on_signals();
+    node.start();
+    let until = o.one("--run-ms").map(|_| Instant::now() + Duration::from_millis(o.need_int("--run-ms").max(0) as u64));
+    while !INTERRUPTED.load(Ordering::SeqCst) && until.map(|t| Instant::now() < t).unwrap_or(true) {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    node.stop();
+    let known = known.lock().unwrap();
+    for t in PeerType::ALL {
+        let all: Vec<String> = known.get(t.name()).map(|s| s.iter().cloned().collect()).unwrap_or_default();
+        say(&format!("known {}: {}", t.name(), if all.is_empty() { "(none)".to_string() } else { all.join(" ") }));
+    }
+}
+
 fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     match argv.first().map(|s| s.as_str()) {
+        Some("gossip") => gossip(&Options::new(&argv[1..])),
         Some("read-hex") if argv.len() == 3 => {
             let (body, length) = match (unhex(&argv[1]), argv[2].parse::<usize>()) {
                 (Some(b), Ok(n)) => (b, n),
@@ -225,6 +394,6 @@ fn main() {
             for _ in stdin.lock().lines() {}
             listener.stop();
         }
-        _ => fail("usage: tempus-client read-hex | test-token | dial | listen (see the README)"),
+        _ => fail("usage: tempus-client gossip | read-hex | test-token | dial | listen (see the README)"),
     }
 }

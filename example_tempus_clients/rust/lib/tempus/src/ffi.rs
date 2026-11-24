@@ -78,6 +78,8 @@ extern "C" {
     pub fn EVP_PKEY_new_raw_private_key(kind: c_int, engine: *mut ENGINE, key: *const c_uchar, len: usize) -> *mut EVP_PKEY;
     pub fn EVP_PKEY_new_raw_public_key(kind: c_int, engine: *mut ENGINE, key: *const c_uchar, len: usize) -> *mut EVP_PKEY;
     pub fn EVP_PKEY_get_raw_public_key(key: *const EVP_PKEY, out: *mut c_uchar, len: *mut usize) -> c_int;
+    pub fn EVP_PKEY_get_raw_private_key(key: *const EVP_PKEY, out: *mut c_uchar, len: *mut usize) -> c_int;
+    pub fn d2i_AutoPrivateKey(out: *mut *mut EVP_PKEY, input: *mut *const c_uchar, len: c_long) -> *mut EVP_PKEY;
     pub fn EVP_PKEY_get_base_id(key: *const EVP_PKEY) -> c_int;
     pub fn EVP_PKEY_free(key: *mut EVP_PKEY);
     pub fn EVP_MD_CTX_new() -> *mut EVP_MD_CTX;

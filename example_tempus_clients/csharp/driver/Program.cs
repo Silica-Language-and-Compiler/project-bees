@@ -16,6 +16,12 @@ namespace Bees.Tempus.Driver
     {
         const string Usage = @"bees-tempus: the driver of the C# extension for TEMPUS. A usable example: use it carefully.
 
+  gossip OPTIONS                      be a node of a TEMPUS network (an edge or a sentinel, as the token says): listen,
+                                      join through the sentinels, shuffle the three stores on their timers, answer
+                                      the peers that dial. Prints the node's own lines, its audit lines, and, for every
+                                      peer it comes to know, `learned STORE ID16 HOST:PORT`.
+                                      Runs until it is interrupted or ended, or for --run-ms; then prints, per store,
+                                      `known STORE: ID16 ...` (every peer it ever learned of, sorted).
   dial HOST:PORT OPTIONS REQUEST      connect, be admitted, send one request, print the outcome as one line
       REQUEST: sample STORE N
                shuffle STORE                        offers this client's own entry at age 0
@@ -27,7 +33,7 @@ namespace Bees.Tempus.Driver
   read-hex HEX SHUFFLE_LENGTH         read one frame body given as hex digits and print what it is
   node KEY=VALUE ...                  be a TEMPUS node (an edge or a sentinel) until the standard input says exit or ends
 
-  OPTIONS of dial and listen, all required unless marked:
+  OPTIONS of gossip, dial and listen, all required unless marked:
       --cert FILE            this client's certificate, PEM, self-signed over its Ed25519 key
       --key FILE             its private key, PEM (PKCS#8, not encrypted)
       --token FILE           its token from the producer, as hex digits in a file
@@ -36,9 +42,17 @@ namespace Bees.Tempus.Driver
       --kid TEXT             the identifier of that key
       --skew SECONDS         the clock difference this client allows
       --timeout-ms MS        the time bound of a whole connection
-      --shuffle-length N     the shuffle length of the network
+      --shuffle-length N     dial and listen: the shuffle length of the network
       --whitelist-cert FILE  optional, may be repeated: the certificate (PEM) of a bridge or sentinel this client accepts
       --now SECONDS          optional: the time for token checks, in seconds since 1970 UTC, in place of the system clock
+    gossip only (in place of --shuffle-length; --addr is also where the node listens; a --sentinel needs its
+    certificate among the --whitelist-cert files; --now, when given, is the node's clock, on a loopback --addr only):
+      --store-edge CAP:LEN:TICK_MS      capacity, shuffle length and tick of the edge store
+      --store-bridge CAP:LEN:TICK_MS    the same of the bridge store
+      --store-sentinel CAP:LEN:TICK_MS  the same of the sentinel store
+      --join-retry-ms FIRST:MAX         the join's first and greatest retry delay
+      --sentinel HOST:PORT   may be repeated; none for a first sentinel
+      --run-ms MS            optional: stop after that long
   STORE is tempus_edge, tempus_bridge or tempus_sentinel.
 
   KEYS of node, every one required unless marked optional; nothing has a default:
@@ -158,12 +172,114 @@ namespace Bees.Tempus.Driver
                     }
                     return 0;
                 }
+                case "gossip":
+                    return Gossip(new Options(argv.Skip(1)));
                 case "node":
                     return Node(argv.Skip(1));
                 default:
                     Console.Write(Usage);
                     return 2;
             }
+        }
+
+        // What a node's configuration requires and the command line of `gossip` does not carry. The library has no
+        // defaults, so the driver states them here. They are the driver's choices for the gossip example, not
+        // recommendations: an application decides each of them for its own network (README.md, "The configuration").
+        const int GossipInflightMax = 16;                 // accepted connections at once
+        const string GossipClockBack = "follow";          // a clock that goes back is followed
+        static readonly long? GossipClockBackLimitS = null; // used under "stop" only
+        const string GossipClockFail = "continue";        // a failed reading leaves the last good time in use
+        const long GossipClockReadMs = 1000;              // how often the clock is read
+
+        static StoreConfig GossipStore(Options o, string name)
+        {
+            var p = o.Need(name).Split(':');
+            if (p.Length != 3 || !p.All(x => long.TryParse(x, out _))) throw new Problem(name + " is CAP:LEN:TICK_MS");
+            return new StoreConfig(int.Parse(p[0]), int.Parse(p[1]), long.Parse(p[2]));
+        }
+
+        static (string Host, int Port) HostPort(string text, string name)
+        {
+            int at = text.LastIndexOf(':');
+            if (at <= 0 || !int.TryParse(text.Substring(at + 1), out int port)) throw new Problem(name + " is HOST:PORT");
+            return (text.Substring(0, at), port);
+        }
+
+        // `gossip`: a member of a TEMPUS network, as the Python, Swift and Kotlin drivers' `gossip` commands are, for the
+        // gossip example in ../gossip. A thin command over TempusNode: no second implementation of anything.
+        static int Gossip(Options o)
+        {
+            if (o.Rest.Count != 0) throw new Problem("gossip OPTIONS");
+            Identity me;
+            try { me = Identity.Load(o.Need("--cert"), o.Need("--key"), TokenFile(o.Need("--token")), o.Need("--addr")); }
+            catch (Exception e) when (e is ArgumentException || e is Refused || e is IOException) { throw new Problem("the identity cannot be used: " + e.Message); }
+            // the node's role is the type its token carries
+            string role;
+            try { role = Frames.ReadToken(me.Token).Typ.Substring("tempus_".Length); }
+            catch (Refused) { throw new Problem("--token does not hold a token"); }
+            var retry = o.Need("--join-retry-ms").Split(':');
+            if (retry.Length != 2 || !retry.All(x => long.TryParse(x, out _))) throw new Problem("--join-retry-ms is FIRST:MAX");
+            var (host, port) = HostPort(me.Addr, "--addr");
+            // The whitelist's entries are named by their place on the command line. The command line does not say which
+            // certificate is which sentinel's, and the node does not need it: it requires only that a sentinel's name is
+            // an entry of the whitelist, and admits a sentinel when its certificate is any entry. So every sentinel is
+            // given the first name; with no --whitelist-cert the node refuses to start, since it could admit no sentinel.
+            var whitelist = o.All("--whitelist-cert").Select((f, k) => new KeyValuePair<string, Certificate>("cert" + (k + 1), Certificate.FromPem(ReadText(f)))).ToList();
+            var sentinels = o.All("--sentinel").Select(s => { var (h, p) = HostPort(s, "--sentinel"); return new SentinelAddress(h, p, whitelist.Count > 0 ? whitelist[0].Key : ""); }).ToList();
+            var config = new TempusConfig(role, host, port, sentinels, GossipStore(o, "--store-edge"), GossipStore(o, "--store-bridge"), GossipStore(o, "--store-sentinel"),
+                Encoding.UTF8.GetBytes(o.Need("--kid")), HexOf(o.Need("--producer-pub"), "--producer-pub"), whitelist, o.Number("--timeout-ms"),
+                GossipInflightMax, o.Number("--skew") * 1000, GossipClockBack, GossipClockBackLimitS, GossipClockFail, GossipClockReadMs,
+                long.Parse(retry[0]), long.Parse(retry[1]));
+            // every line, the node's and this command's, is printed under one lock
+            var printing = new object();
+            void Say(string line) { lock (printing) Console.WriteLine(line); }
+            // the node's clock: the machine's, or the fixed time of --now
+            string nowText = o.Maybe("--now");
+            long fixedNow = nowText == null ? 0 : long.Parse(nowText);
+            // The library's node takes the clock of any environment it is given. The Silica node, and the Swift and Rust
+            // nodes, accept a clock of their caller's on a loopback listen address only; this command keeps that rule.
+            if (nowText != null && host != "localhost" && !(Addresses.Kind(host) == "ipv4" && host.StartsWith("127.")))
+                throw new Problem("--now is taken on a loopback listen address only");
+            var environment = nowText == null ? NodeEnvironment.System(Say)
+                : new NodeEnvironment(() => fixedNow, new SystemTimers(), new SecureDraws(), () => Crypto.RandomBytes(32), Say);
+            // every peer this node ever held in a store, from the views the node reports; the listener runs on the node's thread
+            var known = Frames.PeerTypes.ToDictionary(t => t, t => new SortedSet<string>(StringComparer.Ordinal));
+            TempusNode node;
+            try
+            {
+                node = TempusNode.Start(config, me, (n, e) =>
+                {
+                    switch (e)
+                    {
+                        case NodeEvent.ViewChanged v:
+                            foreach (var x in v.Entries)
+                            {
+                                string id16 = Hex.Of(x.D.Id.Take(8).ToArray());
+                                bool isNew;
+                                lock (known) isNew = known[v.Store].Add(id16);
+                                if (isNew) Say("learned " + v.Store + " " + id16 + " " + Encoding.UTF8.GetString(x.D.Addr));
+                            }
+                            break;
+                        case NodeEvent.OwnTokenInvalid x: Say("told: the node's own token is not valid any more: " + x.Why); break;
+                        case NodeEvent.KeyRotated x: Say("told: a peer answered key_rotated, its current kid is " + Encoding.UTF8.GetString(x.Kid)); break;
+                        case NodeEvent.ClockUnreadable x: Say("told: " + x.What); break;
+                        case NodeEvent.Stopped x: Say("told: " + x.Why); break;
+                        case NodeEvent.ListenFailed x: Say("told: the node does not listen: " + x.Why); break;
+                    }
+                }, environment);
+            }
+            catch (ConfigRefused) { return 1; }       // the node has written the line that says why
+            // SIGINT and SIGTERM end the run, so that the `known` lines are printed
+            using var ended = new System.Threading.ManualResetEventSlim(false);
+            void End(System.Runtime.InteropServices.PosixSignalContext c) { c.Cancel = true; ended.Set(); }
+            using var onInt = System.Runtime.InteropServices.PosixSignalRegistration.Create(System.Runtime.InteropServices.PosixSignal.SIGINT, End);
+            using var onTerm = System.Runtime.InteropServices.PosixSignalRegistration.Create(System.Runtime.InteropServices.PosixSignal.SIGTERM, End);
+            string runMs = o.Maybe("--run-ms");
+            if (runMs == null) ended.Wait(); else ended.Wait(TimeSpan.FromMilliseconds(long.Parse(runMs)));
+            node.Dispose();
+            lock (known)
+                foreach (var t in Frames.PeerTypes) Say("known " + t + ": " + (known[t].Count == 0 ? "(none)" : string.Join(" ", known[t])));
+            return 0;
         }
 
         // An application that is a TEMPUS node: the smallest complete one. It reads the machine's clock, runs its own

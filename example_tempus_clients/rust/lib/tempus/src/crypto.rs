@@ -265,12 +265,45 @@ fn base64_decode(text: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
+/// The bytes of the first PEM block with this label ("CERTIFICATE", "PRIVATE KEY") in a text.
+fn pem_block(pem: &str, label: &str) -> Option<Vec<u8>> {
+    let (begin, end) = (format!("-----BEGIN {}-----", label), format!("-----END {}-----", label));
+    let lines: Vec<&str> = pem.lines().map(|l| l.trim_end_matches('\r')).collect();
+    let a = lines.iter().position(|l| *l == begin)?;
+    let b = a + lines[a..].iter().position(|l| *l == end)?;
+    base64_decode(&lines[a + 1..b].concat())
+}
+
 /// The certificate of a PEM text (the first one in it), as DER.
 pub fn certificate_der(pem: &str) -> Option<Vec<u8>> {
-    let lines: Vec<&str> = pem.lines().map(|l| l.trim_end_matches('\r')).collect();
-    let a = lines.iter().position(|l| *l == "-----BEGIN CERTIFICATE-----")?;
-    let b = a + lines[a..].iter().position(|l| *l == "-----END CERTIFICATE-----")?;
-    base64_decode(&lines[a + 1..b].concat())
+    pem_block(pem, "CERTIFICATE")
+}
+
+/// The 32-byte seed of the Ed25519 private key in an unencrypted PKCS#8 PEM text ("-----BEGIN PRIVATE KEY-----"),
+/// as OpenSSL reads it; None when the text holds no such key, the key is of another kind, or bytes follow it. The
+/// seed is what SigningKey::from_seed and a node's identity take.
+pub fn ed25519_seed_from_pkcs8_pem(pem: &str) -> Option<Vec<u8>> {
+    let der = pem_block(pem, "PRIVATE KEY")?;
+    let mut p = der.as_ptr();
+    // SAFETY: `p` points at `der.len()` readable bytes; d2i_AutoPrivateKey moves `p` past what it read and returns a
+    // new key, owned here and freed below, or null.
+    let pkey = unsafe { ffi::d2i_AutoPrivateKey(ptr::null_mut(), &mut p, der.len() as c_long) };
+    if pkey.is_null() {
+        clear_errors();
+        return None;
+    }
+    let whole = p as usize == der.as_ptr() as usize + der.len();
+    let mut seed = vec![0u8; 32];
+    let mut n: usize = 32;
+    // SAFETY: `pkey` is live until it is freed, once, at the end of the block; `seed` has 32 bytes and `n` says so.
+    let ok = unsafe {
+        let ok = ffi::EVP_PKEY_get_base_id(pkey) == ffi::EVP_PKEY_ED25519
+            && ffi::EVP_PKEY_get_raw_private_key(pkey, seed.as_mut_ptr(), &mut n) == 1;
+        ffi::EVP_PKEY_free(pkey);
+        ok
+    };
+    clear_errors();
+    if ok && whole && n == 32 { Some(seed) } else { None }
 }
 
 pub fn certificate_pem(der: &[u8]) -> String {
