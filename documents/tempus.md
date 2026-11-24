@@ -1,6 +1,6 @@
 # TEMPUS
 
-TEMPUS stands for Transient Entities Managed by a Peer-overlay for Unified Security. It is the part of SEMP for nodes that come and go: phones, laptops, browsers and other short-lived members of a system. In BEES, TEMPUS is planned for after the first release and is not built yet.
+TEMPUS stands for Transient Entities Managed by a Peer-overlay for Unified Security. It is the part of SEMP for nodes that come and go: phones, laptops, browsers and other short-lived members of a system. In BEES, most of TEMPUS is built: networked nodes, the TLS link, a bridge node, start-up checks, gossip discovery and admission. Example clients exist in Python, Kotlin, Swift and Silica, for illustration only. What is left is listed in development-plan/tempus-progress.md.
 
 ## What it is
 
