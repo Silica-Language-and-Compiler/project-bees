@@ -1,0 +1,11 @@
+// C13 C# node trial: node A, a Silica edge (identity 0). A test program: externally driven, by the test unit. Its
+// sentinel is the C# node KS: A joins through a node of the C# extension.
+fn ident() -> int64 { 0 }
+fn typ() -> int64 { 1 }
+fn port() -> string { "25501" }
+fn sents() -> string { "127.0.0.1:25503" }
+fn driven() -> boolean { true }
+fn ext_start(app: actor_ref) -> actor_ref { bees_tempus_test@start(tempus_ids@now()) }
+fn tick_ms() -> uint64 { 1000 }
+// the node's own token: tempus_edge, valid 1000 to 3000
+fn own_tok() -> int64 { 6 }

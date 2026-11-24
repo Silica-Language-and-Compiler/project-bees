@@ -1,0 +1,13 @@
+TEST ONLY: this node's clock, timers and draws are set by the trial
+clock: the system clock could not be read: the node has not started
+application: told that the system clock could not be read: the node has not started
+clock: the system clock is read
+tempus_sentinel node e4188f0a listening on 127.0.0.1:25706
+store tempus_edge: capacity 4, shuffle length 3
+store tempus_bridge: capacity 4, shuffle length 2
+store tempus_sentinel: capacity 4, shuffle length 2
+join: no sentinel is configured
+[tempus audit] tls_established peer=- TLSv1.3 X25519MLKEM768 TLS_AES_256_GCM_SHA384 alpn tempus/1, mutual, as server a1
+[tempus audit] admitted peer=958cff49930885d2 tempus_edge, token and proof of possession a1
+view tempus_edge: 958cff49@0
+exit=0

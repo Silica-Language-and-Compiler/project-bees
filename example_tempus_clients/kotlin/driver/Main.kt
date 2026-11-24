@@ -1,21 +1,23 @@
-// EXAMPLE ONLY, not for production. See README.md beside the lib directory.
+// A usable example, to be used carefully. See README.md beside the lib directory.
 //
-// The driver application of the example client: a thin program over the library in ../lib. It reads its values from
+// The driver application of the extension: a thin program over the library in ../lib. It reads its values from
 // the command line and from the files the command line names, hands them to the library, and prints what the library
 // reports, one line each.
 package bees.tempus
 
 import java.nio.file.Files
 import java.nio.file.Path
+import java.security.SecureRandom
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.system.exitProcess
 
-private const val USAGE = """bees-tempus-client: an EXAMPLE TEMPUS client. Not for production.
+private const val USAGE = """bees-tempus-client: the driver of the Kotlin extension for TEMPUS. A usable example: use it carefully.
 
-  gossip OPTIONS                      be a member of a TEMPUS network: listen, join through the sentinels, shuffle the
-                                      three stores on their timers, answer the peers that dial. Prints the peer's own
-                                      lines and, for every peer it comes to know, `learned STORE ID16 HOST:PORT`.
+  gossip OPTIONS                      be a node of a TEMPUS network (an edge or a sentinel, as the token says): listen,
+                                      join through the sentinels, shuffle the three stores on their timers, answer
+                                      the peers that dial. Prints the node's own lines and, for every peer it comes
+                                      to know, `learned STORE ID16 HOST:PORT`.
                                       Runs until it is interrupted or ended, or for --run-ms; then prints, per store,
                                       `known STORE: ID16 ...` (every peer it ever learned of, sorted).
   dial HOST:PORT OPTIONS REQUEST      connect, be admitted, send one request, print the outcome as one line
@@ -40,7 +42,8 @@ private const val USAGE = """bees-tempus-client: an EXAMPLE TEMPUS client. Not f
       --shuffle-length N     dial and listen: the shuffle length of the network
       --whitelist-cert FILE  optional, may be repeated: the certificate (PEM) of a bridge or sentinel this client accepts
       --now SECONDS          optional: the time for token checks, in seconds since 1970 UTC, in place of the system clock
-    gossip only (in place of --shuffle-length; --addr is also where the peer listens):
+    gossip only (in place of --shuffle-length; --addr is also where the node listens; a --sentinel needs its
+    certificate among the --whitelist-cert files; --now, when given, is the node's clock):
       --store-edge CAP:LEN:TICK_MS      capacity, shuffle length and tick of the edge store
       --store-bridge CAP:LEN:TICK_MS    the same of the bridge store
       --store-sentinel CAP:LEN:TICK_MS  the same of the sentinel store
@@ -85,21 +88,30 @@ private fun fail(text: String): Nothing {
     exitProcess(2)
 }
 
-private class Setup(o: Options, gossip: Boolean = false) {
+private class Setup(o: Options) {
     val me = Identity.load(Path.of(o.one("--cert")), Path.of(o.one("--key")),
         unhex(String(Files.readAllBytes(Path.of(o.one("--token"))), Charsets.US_ASCII).trim()), o.one("--addr"))
     val now: () -> Long = o.maybe("--now")?.toLong()?.let { fixed -> { fixed } } ?: { System.currentTimeMillis() / 1000 }
     val verifier = Verifier(unhex(o.one("--producer-pub")), o.one("--kid").toByteArray(Charsets.UTF_8), now, o.one("--skew").toLong(),
         o.many("--whitelist-cert").map { fingerprint(readCertificate(Files.readAllBytes(Path.of(it)))) }.toSet())
     val timeoutMs = o.one("--timeout-ms").toLong()
-    val settings = if (gossip) null else Settings(timeoutMs, o.one("--shuffle-length").toInt())
+    val settings = Settings(timeoutMs, o.one("--shuffle-length").toInt())
 }
 
-private fun storeSettings(text: String): StoreSettings {
+private fun storeConfig(text: String): StoreConfig {
     val p = text.split(":")
     if (p.size != 3) fail("a store is CAP:LEN:TICK_MS")
-    return StoreSettings(p[0].toInt(), p[1].toInt(), p[2].toLong())
+    return StoreConfig(p[0].toInt(), p[1].toInt(), p[2].toLong())
 }
+
+// What a node's configuration requires and the command line of `gossip` does not carry. The library has no defaults,
+// so the driver states them here. They are the driver's choices for the gossip example, not recommendations: an
+// application decides each of them for its own network.
+private const val GOSSIP_INFLIGHT_MAX = 16            // accepted connections at once
+private const val GOSSIP_CLOCK_BACK = "follow"        // a clock that goes back is followed
+private val GOSSIP_CLOCK_BACK_LIMIT_S: Long? = null   // used under "stop" only
+private const val GOSSIP_CLOCK_FAIL = "continue"      // a failed reading leaves the last good time in use (the Python and Swift drivers choose the same)
+private const val GOSSIP_CLOCK_READ_MS = 1000L        // how often the clock is read
 
 private val out = Object()
 
@@ -112,29 +124,57 @@ private fun say(line: String) {
 
 private fun gossip(o: Options) {
     if (o.rest.isNotEmpty()) fail("gossip OPTIONS")
-    val s = Setup(o, gossip = true)
+    val me = Identity.load(Path.of(o.one("--cert")), Path.of(o.one("--key")),
+        unhex(String(Files.readAllBytes(Path.of(o.one("--token"))), Charsets.US_ASCII).trim()), o.one("--addr"))
     val retry = o.one("--join-retry-ms").split(":")
     if (retry.size != 2) fail("--join-retry-ms is FIRST:MAX")
-    val settings = PeerSettings(mapOf("tempus_edge" to storeSettings(o.one("--store-edge")), "tempus_bridge" to storeSettings(o.one("--store-bridge")),
-        "tempus_sentinel" to storeSettings(o.one("--store-sentinel"))), s.timeoutMs, o.many("--sentinel"), retry[0].toLong(), retry[1].toLong())
-    val known = PEER_TYPES.associateWith { java.util.TreeSet<String>() }
-    val addr = o.one("--addr")
-    val at = addr.lastIndexOf(':')
+    val at = me.addr.lastIndexOf(':')
     if (at <= 0) fail("an address is host:port")
-    val peer = Peer(s.me, s.verifier, settings, addr.substring(0, at), addr.substring(at + 1).toInt(), ::say, { store, d ->
-        val isNew = synchronized(known) { known.getValue(store).add(d.id8()) }
-        if (isNew) say("learned $store ${d.id8()} ${d.addrText()}")
-    })
+    // The whitelist's entries are named by their place on the command line. The command line does not say which
+    // certificate is which sentinel's, and the node does not need it: it requires only that a sentinel's name is an
+    // entry of the whitelist, and admits a sentinel when its certificate is any entry. So every sentinel is given the
+    // first name; with no --whitelist-cert the node refuses to start, since it could admit no sentinel.
+    val whitelist = o.many("--whitelist-cert").mapIndexed { k, file -> "cert${k + 1}" to readCertificate(Files.readAllBytes(Path.of(file))) }.toMap(LinkedHashMap())
+    val sentinels = o.many("--sentinel").map { text ->
+        val colon = text.lastIndexOf(':')
+        if (colon <= 0) fail("a sentinel is host:port")
+        SentinelAddress(text.substring(0, colon), text.substring(colon + 1).toInt(), whitelist.keys.firstOrNull() ?: "")
+    }
+    val config = TempusConfig(
+        role = readToken(me.token).typ.removePrefix("tempus_"), listenAddress = me.addr.substring(0, at), port = me.addr.substring(at + 1).toInt(),
+        sentinels = sentinels, edge = storeConfig(o.one("--store-edge")), bridge = storeConfig(o.one("--store-bridge")),
+        sentinel = storeConfig(o.one("--store-sentinel")), producerKid = o.one("--kid").toByteArray(Charsets.UTF_8),
+        producerKey = unhex(o.one("--producer-pub")), whitelist = whitelist, shuffleTimeoutMs = o.one("--timeout-ms").toLong(),
+        inflightMax = GOSSIP_INFLIGHT_MAX, clockSkewMs = o.one("--skew").toLong() * 1000, clockBack = GOSSIP_CLOCK_BACK,
+        clockBackLimitS = GOSSIP_CLOCK_BACK_LIMIT_S, clockFail = GOSSIP_CLOCK_FAIL, clockReadMs = GOSSIP_CLOCK_READ_MS,
+        joinRetryInitialMs = retry[0].toLong(), joinRetryMaxMs = retry[1].toLong())
+    // the node's clock: the machine's, or the fixed time of --now
+    val random = SecureRandom()
+    val clock = o.maybe("--now")?.toLong()?.let { fixed -> WallClock { fixed } } ?: SystemWallClock
+    val environment = NodeEnvironment(clock, SystemTimers(), SecureDraws(random), random, ::say)
+    // every peer this node ever held in a store, from the views the node reports; the listener runs on the node's thread
+    val known = PEER_TYPES.associateWith { java.util.TreeSet<String>() }
+    val listener = NodeListener { _, event ->
+        when (event) {
+            is NodeEvent.ViewChanged -> for (e in event.entries) {
+                val isNew = synchronized(known) { known.getValue(event.store).add(e.d.id8()) }
+                if (isNew) say("learned ${event.store} ${e.d.id8()} ${e.d.addrText()}")
+            }
+            is NodeEvent.ListenFailed -> say("the node could not listen: ${event.why}")
+            // a driver has no producer to ask for a new token: the node's own lines say what happened
+            is NodeEvent.OwnTokenInvalid, is NodeEvent.KeyRotated, is NodeEvent.ClockUnreadable, is NodeEvent.Stopped -> {}
+        }
+    }
     val ended = CountDownLatch(1)
     val finished = CountDownLatch(1)
     Runtime.getRuntime().addShutdownHook(Thread {
         ended.countDown()
         finished.await(10, TimeUnit.SECONDS)
     })
-    peer.start()
+    val node = try { TempusNode.start(config, me, listener, environment) } catch (e: ConfigRefused) { finished.countDown(); exitProcess(2) }
     val runMs = o.maybe("--run-ms")?.toLong()
     if (runMs == null) ended.await() else ended.await(runMs, TimeUnit.MILLISECONDS)
-    peer.stop()
+    node.close()
     synchronized(known) {
         for (t in PEER_TYPES) say("known $t: " + known.getValue(t).joinToString(" ").ifEmpty { "(none)" })
     }
@@ -169,7 +209,7 @@ fun main(argv: Array<String>) {
                     r[0] == "cast" && r.size >= 4 -> Request.Cast(r[1].toByteArray(Charsets.UTF_8), r[2], r[3], ints(r.drop(4)))
                     else -> fail("the request is: sample STORE N | shuffle STORE | call REQ_ID MODULE FUNCTION [INT]... | cast ...")
                 }
-                println(dial(o.rest[0], s.me, s.verifier, request, s.settings!!).line())
+                println(dial(o.rest[0], s.me, s.verifier, request, s.settings).line())
             }
             "listen" -> {
                 val o = Options(argv.drop(1))
@@ -179,7 +219,7 @@ fun main(argv: Array<String>) {
                 val at = o.rest[0].lastIndexOf(':')
                 if (at <= 0) fail("an address is host:port")
                 val mine = readToken(s.me.token).typ
-                Listener(s.me, s.verifier, s.settings!!, o.rest[0].substring(0, at), o.rest[0].substring(at + 1).toInt()) { rq ->
+                Listener(s.me, s.verifier, s.settings, o.rest[0].substring(0, at), o.rest[0].substring(at + 1).toInt()) { rq ->
                     val store = when (val b = rq.body) { is Body.Sample -> b.store; is Body.Entries -> b.store; else -> "" }
                     if (store == mine) listOf(s.me.entry(0)) else emptyList()
                 }.use { lis ->

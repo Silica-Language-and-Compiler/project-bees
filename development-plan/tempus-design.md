@@ -1000,7 +1000,8 @@ A node that is not externally driven reads the system clock (section 4, `[B: NQ-
 ### 16.4 The Silica client
 
 Moved 2026-11-20 (owner): both clients are in `example_tempus_clients/` (`silica/` and `python/`), out of `src` and
-`tools`. They are examples only, not for production; `example_tempus_clients/README.md` says so and
+`tools`. They were examples only, not for production; since 2026-11-24 (owner) they are usable examples, to be used
+carefully, and `example_tempus_clients/README.md` says what care means;
 `example_tempus_clients/writing-a-tempus-client.md` says what a client in any language has to do.
 
 - Library, `example_tempus_clients/silica/lib/` (in `silica/` itself until the division of 2026-11-20, 16.7): `bees_tempus_client` (pure: for every operation of 16.2 the frame to send and the reading
@@ -1025,9 +1026,9 @@ Moved 2026-11-20 (owner): both clients are in `example_tempus_clients/` (`silica
 ### 16.5 The Python client
 
 `example_tempus_clients/python/bees_tempus_client.py`: a module and a command line, pure Python, nothing of the Silica library `[B: OQ-19]`.
-Since the division of 2026-11-20 (16.7) that file is the name the trial tools import: the code is the library
-`example_tempus_clients/python/lib/tempus_client/` (codec, frames, connection, gossip) and, for the trials only,
-`lib/tempus_client/testing.py`; what this section says of the module is true of them together. It has
+Since 2026-11-24 (16.7) that file is a plain name for the test support `example_tempus_clients/python/testing/bees_tempus_testing.py`,
+and the codec is `example_tempus_clients/python/lib/bees_tempus_codec.py`, one of the seven modules of the Python
+extension; what this section says of the module is true of them together. It has
 its own ETF writer and reader for the subset of section 5 (maps, atoms, binaries, integers, lists), written independently
 of the Silica side, so that agreement between the two is evidence and not a shared mistake. TLS is Python's `ssl` module;
 Ed25519 and SHA-512 are the `cryptography` package and `hashlib` (checked 2026-11-18: `cryptography` 46.0.3 is installed
@@ -1050,15 +1051,18 @@ frames, admission and single connections, a gossip part: the three stores with t
 each store's timer, the join of section 6, and the answers to `shuffle` and `sample` from the stores, with a
 sentinel's insert of the asking peer (NQ-13).
 
-- Python (`lib/tempus_client/gossip.py`), Kotlin (`lib/Gossip.kt`) and Swift (`lib/TempusClient/Gossip.swift`) state
-  the rules again in their language: `Store` and `Peer`. The Python rules are compared, step for step on random
-  inputs, with the models `tools/bees_tempus_view_model.py` and `tools/bees_tempus_store_model.py`.
-- Silica (`lib/bees_tempus_peer.part`) does not state them again `[P]`: in Silica they are the units of `src/tempus`
-  and the node part, as admission already is for the single-connection part. `tempus_peer_start` starts that library
-  not externally driven and without the test unit.
-- What a `Peer` of the three does not have, and a node has: `inflight_max`, the clock choices of section 10 (the
-  application gives it a clock function), the bridge's calls and scores. Their `Verifier` applies the whitelist rule
-  when it is given a whitelist; the Python one is given none by the trials, as before.
+- RULED 2026-11-24 (owner): one implementation per language. Asked which of two gossip implementations to keep in
+  Python, Swift and Kotlin (the `Peer` of each client library, added on main on 2026-11-21, and the node half matched
+  to the Silica node, added on the branch tempus-extension-nodes), the owner ruled: "select the implementation for
+  each language that is the most complete, produces the smallest code, and will be the most usable and stable". The
+  node half was kept in all three; `Peer` was removed (Python `lib/tempus_client/`, Kotlin `lib/Gossip.kt`, Swift
+  `lib/TempusClient/Gossip.swift`). Each driver's `gossip` command now runs a node, with its command line and output
+  unchanged, and states in one place the values a node requires that the gossip example does not pass (in-flight
+  limit 16, clock_back follow, clock_fail continue, clock_read_ms 1000: the drivers' choices for the example, not
+  defaults of any library). The C# and Rust extensions had only the node half.
+- Silica (`lib/bees_tempus_peer.part`) does not state the rules again `[P]`: in Silica they are the units of
+  `src/tempus` and the node part, as admission already is for the single-connection part. `tempus_peer_start` starts
+  that library not externally driven and without the test unit.
 - `example_tempus_clients/gossip/` runs instances of the drivers as one network on one machine
   (`trials/c7_tempus_gossip`): four instances of each driver, a Silica sentinel with one edge of each language, and
   that network without Silica. All six were run and recorded on the Mac on 2026-11-20. The Silica driver's

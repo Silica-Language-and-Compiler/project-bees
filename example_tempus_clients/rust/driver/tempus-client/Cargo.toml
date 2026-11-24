@@ -1,0 +1,12 @@
+# The command line of the Rust TEMPUS extension: `gossip` (a node, for the gossip example; it uses the library alone)
+# and the client half's commands, through which the trials drive the client. It links the TEST ONLY crate, because the
+# client commands can make a test token (--test-token, --test-entry): it is not something an application uses.
+[package]
+name = "tempus-client"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+tempus = { path = "../../lib/tempus" }
+tempus-testing = { path = "../../testing/tempus-testing" }

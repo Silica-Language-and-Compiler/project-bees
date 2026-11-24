@@ -1,6 +1,6 @@
 // The listening position (design 16.1; writing-a-tempus-client.md section 9): a node that learned of this client
 // through gossip dials the address the client advertises. The same admission runs, then ONE request is read and answered.
-// An example only: not for production.
+// A usable example, to be used with care (README.md says what care means).
 import COpenSSL
 import Darwin
 import Foundation
@@ -54,11 +54,6 @@ public final class Listener {
     public var onOutcome: ((Int, Outcome) -> Void)?
     /// A fixed challenge nonce per connection number, for a test; nil takes each from the secure random source.
     public var nonce: ((Int) -> Bytes)?
-    /// false: no Outcome is kept (a peer that runs for a long time). Set before start().
-    public var keep = true
-    /// When set, asked for the identity at each connection (a peer whose token is replaced while it runs). The key and
-    /// the certificate must be those of `identity`; only the token may differ.
-    public var current: (() -> Identity)?
 
     private let fd: Int32
     private let context: TLSContext
@@ -166,7 +161,7 @@ public final class Listener {
             Thread.detachNewThread { [self] in
                 let out = serve(peer, i)
                 changed.lock()
-                if keep { done[i] = out }
+                done[i] = out
                 running -= 1
                 var ready: [(Int, Outcome)] = []
                 while let next = done[reported] {
@@ -210,7 +205,6 @@ public final class Listener {
         } catch {
             return end(conn, "refused", "tls", state, "\(error)")
         }
-        let identity = current?() ?? self.identity
         if let out = admit(conn, me: identity, addr: identity.addr ?? address, verifier: verifier, nonce: nonce?(index),
                            certDER: certDER, state: state, shuffleLength: shuffleLength) {
             return out

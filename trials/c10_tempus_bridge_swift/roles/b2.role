@@ -1,0 +1,4 @@
+// C10 trial (the Swift client against bridges): bridge B2, TEMPUS identity 4 ("x1"), TRUST certificate w.pem
+fn port() -> string { "25102" }
+fn me() -> int64 { 4 }
+fn trust_at() -> string { "127.0.0.1:25100" }

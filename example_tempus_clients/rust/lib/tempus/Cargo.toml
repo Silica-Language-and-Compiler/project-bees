@@ -1,0 +1,10 @@
+# The Rust TEMPUS extension: what an application depends on. No test material is in this crate, and it has no
+# dependency: the standard library, and the installed OpenSSL through the declarations of src/ffi.rs.
+[package]
+name = "tempus"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+build = "build.rs"
+
+[dependencies]

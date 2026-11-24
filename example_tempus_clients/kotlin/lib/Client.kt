@@ -1,4 +1,4 @@
-// EXAMPLE ONLY, not for production. See README.md beside the lib directory.
+// A usable example, to be used carefully. See README.md beside the lib directory.
 //
 // The active part: an ordinary TEMPUS peer over TCP and mutual TLS 1.3, in both positions. dial() connects, is
 // admitted, sends ONE request and reads its reply. Listener accepts, is admitted, reads one request and answers it.
@@ -128,7 +128,7 @@ private class OwnKey(val identity: Identity) : X509ExtendedKeyManager() {
  * itself has by then verified, in the handshake, that the peer holds that certificate's private key. `refused` keeps
  * the reason of a refusal for the Outcome.
  */
-private class SelfSignedEd25519 : X509ExtendedTrustManager() {
+internal class SelfSignedEd25519 : X509ExtendedTrustManager() {
     @Volatile var refused: String? = null
 
     private fun check(chain: Array<out X509Certificate>?) {
@@ -150,13 +150,13 @@ private class SelfSignedEd25519 : X509ExtendedTrustManager() {
     override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
 }
 
-private fun context(identity: Identity, trust: SelfSignedEd25519): SSLContext {
+internal fun context(identity: Identity, trust: SelfSignedEd25519): SSLContext {
     val ctx = SSLContext.getInstance(TLS_VERSION)
     ctx.init(arrayOf<KeyManager>(OwnKey(identity)), arrayOf<TrustManager>(trust), SecureRandom())
     return ctx
 }
 
-private fun restrict(socket: SSLSocket) {
+internal fun restrict(socket: SSLSocket) {
     val p = socket.sslParameters
     p.protocols = arrayOf(TLS_VERSION)
     p.cipherSuites = TLS_SUITES
@@ -168,7 +168,7 @@ private fun restrict(socket: SSLSocket) {
 }
 
 /** After the handshake: what was negotiated, and the peer's certificate. Refused(reason) otherwise. */
-private fun tlsChecks(socket: SSLSocket): X509Certificate {
+internal fun tlsChecks(socket: SSLSocket): X509Certificate {
     val session = socket.session
     if (session.protocol != TLS_VERSION) throw Refused("the TLS version is not 1.3")
     if (session.cipherSuite !in TLS_SUITES) throw Refused("the cipher suite is not one of tempus/1")
@@ -179,17 +179,17 @@ private fun tlsChecks(socket: SSLSocket): X509Certificate {
     return cert
 }
 
-private fun sslReason(e: Exception): String = (e.message ?: e.javaClass.simpleName).lineSequence().first()
+internal fun sslReason(e: Exception): String = (e.message ?: e.javaClass.simpleName).lineSequence().first()
 
 // ---------------------------------------------------------------- one connection
-private sealed class Read {
+internal sealed class Read {
     class Frame(val body: ByteArray) : Read()
     object Oversize : Read()
     class Ended(val what: String, val why: String) : Read()        // closed, timeout, tls_failed
 }
 
 /** A TLS connection with ONE deadline for all of it. */
-private class Conn(val socket: SSLSocket, val deadline: Long) {
+internal class Conn(val socket: SSLSocket, val deadline: Long) {
     var framesRead = 0
     var open = true
     var advert: Descriptor? = null
@@ -326,7 +326,7 @@ private fun admit(conn: Conn, me: Identity, verifier: Verifier, certificate: X50
     return null
 }
 
-private fun hostPort(text: String): InetSocketAddress {
+internal fun hostPort(text: String): InetSocketAddress {
     val at = text.lastIndexOf(':')
     require(at > 0) { "an address is host:port" }
     return InetSocketAddress(text.substring(0, at), text.substring(at + 1).toInt())
@@ -440,12 +440,9 @@ class Incoming(val body: Body, val peer: Descriptor, val typ: String, val index:
  * admitted and has ONE request read. A shuffle (every entry verified for its store first) and a sample are given to
  * the handler, which returns the entries of the reply, or null to close with no reply. Any other request is closed
  * with no reply. Every connection ends as one Outcome, kept in accept order.
- *
- * keep false: no Outcome is kept (a peer that runs for a long time). current, when given, is asked for the identity at
- * each connection (a peer whose token is replaced while it runs); otherwise every connection uses `identity`.
  */
 class Listener(val identity: Identity, val verifier: Verifier, val settings: Settings, host: String, port: Int,
-               val keep: Boolean = true, val current: (() -> Identity)? = null, val handler: (Incoming) -> List<Entry>?) : AutoCloseable {
+               val handler: (Incoming) -> List<Entry>?) : AutoCloseable {
     // A plain java.net.ServerSocket; TLS is layered on each accepted connection, with a trust manager of its own.
     private val server: ServerSocket = ServerSocket()
     private val done = HashMap<Int, Outcome>()
@@ -484,13 +481,10 @@ class Listener(val identity: Identity, val verifier: Verifier, val settings: Set
                     try { raw.close() } catch (x: IOException) {}
                     Outcome("closed", "tls", "internal error: ${e.javaClass.simpleName}: ${e.message}")
                 }
-                if (keep) synchronized(lock) { done[i] = out; lock.notifyAll() }
+                synchronized(lock) { done[i] = out; lock.notifyAll() }
             }
             t.isDaemon = true
-            synchronized(threads) {
-                if (!keep) threads.removeAll { !it.isAlive }
-                threads.add(t)
-            }
+            synchronized(threads) { threads.add(t) }
             t.start()
         }
     }
@@ -498,7 +492,6 @@ class Listener(val identity: Identity, val verifier: Verifier, val settings: Set
     private fun serve(raw: Socket, index: Int): Outcome {
         val deadline = System.nanoTime() + settings.timeoutMs * 1_000_000
         val trust = SelfSignedEd25519()
-        val identity = current?.invoke() ?: this.identity
         val socket = context(identity, trust).socketFactory.createSocket(raw, null, true) as SSLSocket
         try {
             socket.useClientMode = false

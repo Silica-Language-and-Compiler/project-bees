@@ -786,6 +786,115 @@ an example only, with no misbehaviour and no tick or clock frame), its 36 tests 
 `walk.py`; Mac goldens only, because there is no Kotlin compiler on the Linux machine, where the trial fails and says so;
 not run against a bridge).
 
+2026-11-23, the Python extension as a TEMPUS node (owner's ruling of that day: "nodes on non-silica are the plan"; the
+non-Silica code is called an extension from now on). `example_tempus_clients/python` is now seven modules an
+application imports (`bees_tempus_codec`, `bees_tempus_admission`, `bees_tempus_peer`, `bees_tempus_view`,
+`bees_tempus_store`, `bees_tempus_config`, `bees_tempus_node`) and one test-support module, `bees_tempus_testing.py`
+(the tick and clock frames, token making, fixed seeds and nonces, misbehaving peers, and a clock, timers and draws a
+test steps by hand); `bees_tempus_client.py` is kept as a thin module of the old name, because the trial tools import
+it. A node of the extension is an edge or a sentinel; the role bridge is refused (no TRUST in Python). It has the
+stores, the join, its own shuffles, admission in the node's order with the whitelist rule, the limits, the clock's
+choices, the configuration's keys and refusals, and the Silica node's lines. A test gives a node its clock, timers and
+draws through the constructor; no frame does.
+- Fixed in the extension: an atom that is not UTF-8 is a refusal and not an exception; the channel binding is checked
+  first and the `tempus` whitelist rule is applied; a dialed reply must be the reply of its request (kind, store,
+  entry count, `req_id`) and its entries are verified; the negotiated key exchange group is read from the handshake
+  and anything but X25519MLKEM768 is refused; a listener accepts a peer whose certificate it was not given in advance.
+- Proof: `example_tempus_clients/python/test_bees_tempus_node.py` (the stores against the recorded outputs of
+  `trials/t0_tempus_view` and `trials/t1_tempus_store`, the clock against `trials/t0_tempus_clock`, admission against
+  `trials/t4_tempus_admission`, the configuration against `tools/test_bees_tempus_conf.py` and
+  `trials/c4_tempus_boot`), and the new trial `trials/c7_tempus_node_python` (port block 24800; Mac goldens): Python
+  and Silica nodes in one network, joins and shuffles both ways, 44 hostile cases sent to a Silica sentinel and to a
+  Python sentinel with the audit lines required to be the same, a Python node that is not a test node beside a Silica
+  node built without the test unit, the clock's choices on Python nodes, and the extension's own client.
+- No golden of an earlier trial changed: `t2`, `t3`, `t6`, `c2`, `c5` and `c6` pass through
+  `tools/run_all_trials.sh` on the Mac with the pinned compiler. `c3_tempus_bridge` did not build that day: the
+  compiler refuses the root unit of bridge B1 (E4045 at `carrier_new`, in a file generated on 2026-11-20 from sources
+  that have not changed since), which is not a matter of the Python code. Its scenario, walked by hand with the node
+  programs built on 2026-11-20, gives the four recorded outputs unchanged.
+- New documents: `example_tempus_clients/writing-a-tempus-node.md` and `example_tempus_clients/python/README.md`;
+  `writing-a-tempus-client.md` corrected (the `done` frame, a reply must be the reply of its request, how the
+  whitelist names a certificate, atoms a node holds, what was since traced through the code); the two COVERAGE.md
+  files of `trials/c2_tempus_clients` and `trials/c3_tempus_bridge` reviewed, with what no trial shows for the Silica
+  client listed there.
+- Found and not decided: a Silica node does not tell its application of `key_rotated` on an accepted connection (the
+  extension does, and says which); the comment in `bees_tempus_node.part` that the clock is read once a second is
+  stale (the code reads every `clock_read_ms`); a join answered with a frame that is not a sample reply puts the
+  frame's bytes into the Silica node's line; how `clock_skew_ms` becomes the node's seconds is not built.
+
+## 2026-11-23, the Kotlin extension can run an application as a TEMPUS node (owner: "nodes on non-silica are the plan")
+
+- `example_tempus_clients/kotlin` gained a node half beside its client half: `src/View.kt` (the view and the store's
+  steps), `src/Clock.kt` (`clockTurn`, the machine's clock), `src/Config.kt` (`TempusConfig`, the refusals of
+  `tools/bees_tempus_conf.py` and of `bees_tempus_node@boot_why`), `src/Node.kt` (`TempusNode`: join, ticks, shuffles,
+  answers, admission, limits, the clock's states, what the application is told, the Silica node's lines word for
+  word). A node is an edge or a sentinel; the role `bridge` is refused, because the extension has no TRUST side.
+- One owner of the state: a single node thread holds the stores, the clock state, the token and the counts; timers,
+  the clock reader, the acceptor, connections (one virtual thread each, with copies) and the application post to it.
+- No test code in the extension: the clock, the timers and the draws are a `NodeEnvironment` given at construction
+  (the default is the machine's clock, real timers and the secure random source); the test clock, hand-run timers,
+  literal draws and token making are under `test/`. The command line moved from `src/Main.kt` to `cli/Main.kt`, so
+  `build/bees-tempus.jar` is the extension alone; `build/bees-tempus-client.jar` is as before.
+- Tests (`test/NodeTestMain.kt`, 22): every call of the two Python models behind every line of the goldens of
+  `t0_tempus_view` and `t1_tempus_store` (20623 view calls, 6006 store steps) and 9508 generated ones made again in
+  Kotlin; every line of the golden of `t0_tempus_clock`; the configuration's refusals; five start refusals of
+  `c4_tempus_boot` with the node's line; the entry check on the cases of `t4_tempus_admission`.
+- Trial `trials/c9_tempus_node_kotlin` (port block 25000, Mac goldens, 11 outputs): a Kotlin edge joins through a
+  Silica sentinel and a Silica edge through a Kotlin sentinel; shuffles started by each side and answered by the
+  other; a good peer, 25 kinds of bad peer, the inflight limit and three TLS refusals against a Silica node and a
+  Kotlin node with the audit lines required to be the same; the clock's choices, the node's own token and `key_rotated` on Kotlin nodes whose clock
+  the trial sets; a Kotlin sentinel that is not a test node, through which a Silica node that is not a test node
+  joins by the machine's clock. The golden of `c6_tempus_kotlin` did not change.
+- Trial `trials/c11_tempus_bridge_kotlin` (port block 25200; the Kotlin client against real bridges, and rows 3, 4,
+  7, 16, 20 and 21 of 16.2 with the test frames) is written and has NOT run: its bridge programs, copies of
+  `trials/c3_tempus_bridge/nodes/b1` and `b2`, fail E4045 at the carrier's spawn with the pinned compiler, as that
+  trial's own `nodes/b1` does on this day (the fault noted in silica-defects.md). `COVERAGE.md` there lists what the
+  Kotlin client's trials cover, row by row.
+- Found and not decided: a Silica node does not tell its application of `key_rotated` on an accepted connection (the
+  extension does); a join answered with a frame that is not a sample reply puts the frame's bytes into the Silica
+  node's line (the extension writes `the reply is not a sample_reply`); what a Silica node says of a `tick` frame
+  depends on the atoms its program holds (`unknown_atom` without the test unit's atoms, `unknown kind` with them);
+  how `clock_skew_ms` becomes the node's seconds is not built (the extension divides by 1000 and drops the rest);
+  the three spec keys, the file keys and the advertised address of section 11 have no ruled form for a node that
+  takes its configuration as a value.
+
+2026-11-23, the Swift extension as a TEMPUS node (the same ruling of that day). `example_tempus_clients/swift` is now
+one Swift package with two targets an application depends on, `TempusClient` (the wire and client part, as before)
+and `TempusNode` (new: the stores, the join, the node's own shuffles, admission as a node judges it, the limits, the
+clock's choices, the configuration, the Silica node's lines), a complete application `tempus-node-example`, and a
+target `TempusTestSupport` that only tests and trial programs link (`Fixtures.swift` moved there out of
+`TempusClient`, with a clock, timers and draws a test sets by hand). A node of the extension is an edge or a sentinel;
+the role bridge is refused at the start (no TRUST in Swift). The node part is compiled in the Swift 6 language mode;
+everything that changes is owned by one serial queue, and each connection runs on a thread of its own with a copy of
+the values it needs.
+- Changed in `TempusClient`, for the node: a TLS context can end the handshake when the dialer's protocols do not
+  include `tempus/1` and can let a P-256 certificate through the handshake so that the node refuses it afterwards (a
+  client's context is as it was); an identity can be made from a key already held; the values the node passes between
+  threads are marked as safe to pass.
+- Proof: `make -C example_tempus_clients/swift test` (348 checks of the client part as before; 207 of the node part:
+  the 71 case lines of `trials/t0_tempus_clock`, 19 of the 20 cases of `trials/t4_tempus_admission`, the value cases
+  of `tools/test_bees_tempus_conf.py` and every bound of design section 11, the boot refusals; 2860 generated cases of
+  the view and store rules, each equal to the answer of the two Python models of the BEES tools), and the new trial
+  `trials/c8_tempus_node_swift` (port block 24900; nine Mac goldens): a Silica edge and a Swift edge join through a
+  Silica sentinel; shuffles started by each side and answered by the other; 38 hostile cases done to a Silica edge
+  and to a Swift edge, the audit lines and what the peer saw required to be the same; the clock's choices on Swift
+  nodes (hold, continue, stop inside and above the limit, pause with a connection closed and a join that waits, no
+  reading at the start); a Swift sentinel that is no test program (`tempus-node-example`) through which a Silica
+  node built without the test unit joins, shuffling on its own timer; and both refusing `tick` and `clock` in the same
+  words (`unknown_atom`).
+- The Swift client: the same trial runs its command line against two Silica nodes for rows of 16.2 that
+  `trials/c5_tempus_swift` does not show (steps K1 to K15, golden `client`). `trials/c10_tempus_bridge_swift` (port
+  block 25100) was written to run it against real bridges, with `COVERAGE.md` for the Swift client in the form of
+  C2's; it has NOT run: its bridge programs, the text of `trials/c3_tempus_bridge/nodes/b1` and `b2` with other
+  ports, fail E4045 at the carrier's spawn with the pinned compiler (the fault of the bridge program noted in
+  silica-defects.md), also with C3's own ports and role files. It has no goldens and is not among the committed
+  trials until that is settled.
+- The golden of `trials/c5_tempus_swift` did not change.
+- Found and not decided, beside what the Python entry lists: the design says a peer that fails its proof of
+  possession is removed from the view, and the Silica node does that only for the partner it dialed; a Silica node
+  accepts a P-256 certificate in the handshake and refuses it afterwards (`tempus_cert_key`) although its certificate
+  request names Ed25519 only; the configuration has no key for the address a node advertises when it listens on every
+  interface; the extension listens on any IPv4 address and resolves no sentinel name, both unlike the Silica tools.
 2026-11-20, the four example clients divided into library and driver, each with a gossip part (owner's request):
 design 16.7.
 - Layout. `python/lib/tempus_client/` (codec, frames, connection, gossip; `testing.py` for the trials only),
@@ -902,3 +1011,175 @@ one"). Compiler `silica-999900`; system python3 3.15.2, OpenJDK 27.0.1.1, kotlin
 - Seen and left: `trials/c1_codec_live/kinds.bees.raw` and `trials/m3_decode_probe/main.silica.derived` are tracked
   and rewritten by every run; `tools/test_platform_and_ports.py` fails on Linux goldens missing for
   `c1_codec_term`, `c4_tempus_boot`, `n5_trust_mux` and `n5_trust_mux_tls`.
+
+## 2026-11-23, the two lines joined (merge of main into tempus-extension-nodes)
+
+The entries above this one and below the entry of 2026-11-20 come from two lines of work that did not know of each
+other: the node halves of the Python, Swift and Kotlin extensions (built on 8041473) and main's commits of 2026-11-21
+to 2026-11-23 (the library and driver split, gossip discovery in the client libraries, one compiler pin per platform,
+the three-platform runner, load balancing). The merge keeps both, in main's layout, and loses nothing of either.
+
+Python. The node half (seven modules) is in example_tempus_clients/python/lib beside the client library package
+lib/tempus_client; its test support is in python/testing. Neither uses the other. bees_tempus_client.py, the name the
+trial tools import, is the node half's test support by default and the client library's with
+BEES_TEMPUS_TEST_SUPPORT=tempus_client.testing; test_bees_tempus_client.py passes both ways. Two corrections were
+carried from the node half into lib/tempus_client: an atom that is not UTF-8 is refused and not raised, and the
+channel binding is judged before the token. Two differences remain in lib/tempus_client: its dial returns a reply
+unchecked (its Peer checks it), and the whitelist rule is applied only when a whitelist is given. Trial
+c7_tempus_node_python moved to ports 26100 to 26111, because main's c7_tempus_gossip owns 24800; 38 lines of nine Mac
+goldens changed, port numbers only. It is declared for the Mac only; Linux goldens are still to be recorded.
+
+Swift. The node half moved into main's layout (lib/TempusNode, driver/tempus-node-example, test/tempus-node-tests,
+test/model_check.py, testing/tempus-node-trial); the test-support target TempusTestSupport was folded into main's
+TempusClientTesting (ManualClock, ManualTimers and ListRandom in ManualSources.swift), and test/layering_check.py now
+checks that neither library nor tempus-node-example depends on it. TempusClient builds in Swift 5 mode, TempusNode
+and the test support in Swift 6 mode. Both libraries have a public type named Store, and a file that imports both
+selects the node's with `import struct TempusNode.Store`. c8_tempus_node_swift has a platforms file (Mac only).
+Where the entries above say TempusTestSupport, read TempusClientTesting.
+
+Kotlin. Main's layout kept (lib, driver, test). The node half (Node.kt, View.kt, Clock.kt, Config.kt,
+NodeTestMain.kt, NodeFixtures.kt, model_cases.py) moved into it. Its store and entry classes were renamed NodeStore
+and NodeHeld because lib/Gossip.kt declares Store and Held in the same package; nothing of main's was renamed.
+cli/Main.kt was removed (it was the unchanged base file; driver/Main.kt is main's). The Makefile builds
+bees-tempus.jar from lib alone and runs three test programs. The tests golden of c9_tempus_node_kotlin was recorded
+again because the node tests now also read the Linux AArch64 goldens main added to other trials (22 tests became 24
+and the golden counts in six lines rose). c9 has a platforms file (Mac only).
+
+All three. The old LINUX_GOLDEN_EXCEPTIONS entries are replaced by main's platforms files. Each language now holds
+two gossip implementations side by side: main's Peer in the client library (lighter, on real timers, run in the
+four-language gossip networks) and the node half (admission in the Silica node's order, its configuration keys and
+refusals, the clock choices, the in-flight limit, audit lines word for word, compared with Silica nodes case by
+case). Open for the owner: which to keep, or how to make one that has both sets of properties.
+
+Building. main pins silica-999899-macos-applesilicon and uses Silica's new TCP listener contract. The merge was built
+and run against a read-only export of Silica's main with that compiler, because the Silica checkout beside the BEES
+checkout on this machine held neither.
+
+## 2026-11-23, the C# extension
+
+example_tempus_clients/csharp: a client half and a node half (edge and sentinel; bridge refused), one implementation,
+in main's layout (lib, driver, testing, test). .NET SDK 11.0.100, no package. TLS, Ed25519 and SHA-512 through
+Homebrew OpenSSL 4.1.0 by P/Invoke, because SslStream on macOS cannot load an Ed25519 key or complete a handshake with
+a node (the README records each failure). One node thread owns all node state. 44 client tests and 25 node tests.
+Trials, Mac goldens only (platforms files): c12_tempus_csharp (client, 4 outputs), c13_tempus_node_csharp (mixed
+network; 42 hostile cases, the inflight limit and four TLS refusals with audit lines equal to a Silica node's, the
+P-256 case included; 11 outputs), c16_tempus_bridge_csharp (the client against real bridges, 40 steps, 4 outputs;
+COVERAGE.md). The tests and the three trials were also run from a clean export of the index, and pass there. Found: a
+call that names an atom the node does not hold is refused as protocol_error unknown_atom, not request_refused; the
+Kotlin node's atom list lacks `erlang` and the error atoms. Not ruled: the four configuration differences the Kotlin
+extension also has, the Dialed flag of key_rotated, where OpenSSL is looked for.
+
+## 2026-11-23, the Rust extension: client and node, three trials (owner's request)
+
+example_tempus_clients/rust is a Cargo workspace with no dependency outside itself, built with cargo 1.91.1 in
+offline mode. TLS 1.3, Ed25519, SHA-512 and certificates are Homebrew OpenSSL 4.1.0, called through 67 extern "C"
+declarations (lib/tempus/src/ffi.rs) with no C code and no libc crate; all unsafe code is in crypto.rs and tls.rs (46
+blocks). The TCP side is the standard library's TcpStream in blocking mode, one deadline per connection kept through
+its read and write timeouts. The first handshake was tested against a Silica node in both positions before anything
+was built on it. Layout as main's: lib/tempus (client half and node half in one crate), driver (tempus-client,
+tempus-node-example), testing (tempus-testing, tempus-node-trial), test (cargo tests, tempus-model, model_check.py,
+layering_check.py). One implementation only: the node matched to the Silica node, no second Peer and no gossip
+command. The node's state has one owning thread that everything else sends messages to; a connection runs on its own
+thread with copied values.
+
+Unit level: 18 tests (the t2 frames on three platforms' goldens, the vectors, the eight certificates byte for byte,
+19 of the 20 t4 cases, the 71 lines of t0_tempus_clock, the configuration cases and bounds, the boot refusals, a node
+in the test process); the tools' own view and store tests run over the Rust rules, which replays the t0_tempus_view
+and t1_tempus_store goldens, and 6885 generated answers equal the two Python models.
+
+Trials, Mac goldens: c14_tempus_rust (the client against a test node, a node on the system clock, and the Python test
+support; its outputs equal c5's Swift goldens but for ports and names, plus ten steps for a reply that is not the
+reply of its request), c15_tempus_node_rust (Rust nodes among Silica nodes; 54 hostile cases sent to a Silica edge and
+a Rust edge with identical audit lines; the clock choices; tempus-node-example on the machine's clock beside a Silica
+node built without the test unit) and c17_tempus_bridge_rust (the client against bridges B1 and B2 and TRUST node T,
+rebuilt from c3's network: calls, a cast, the whitelist rule both ways, the score and in-flight bounds, the TRUST side
+refusing and gone, a bridge lost; COVERAGE.md row by row). The tests and the three trials were also run from a clean
+export of the index. That run first failed: model_check.py counted as a failure the three tests of the tools that are
+skipped when trials t0_tempus_view and t1_tempus_store have not been run in the tree. It now prints them as skipped,
+and the clean run passes.
+
+Found: the Swift node's list of known atoms lacks the rejection atoms and trpc results of src/trust/bees_trust.atoms,
+which a Silica node holds; c15 cases R41 to R43 show the Silica node's words for them. The Rust node uses the Silica
+node's text for a test node off loopback; its value refusals are the tool's texts, which differ from boot_why's. The
+Rust client checks the binding first and applies a given whitelist both ways. Not built: the bridge role (refused), a
+gossip driver command. Mac only (platforms files).
+
+## 2026-11-23, the Swift client against real bridges (c10_tempus_bridge_swift)
+
+The trial written on 2026-11-23 and not run then (its bridge programs of 33 units could not be built by compiler
+999909) builds with silica-999899 and passes: bridges B1 and B2 and TRUST node T, steps A to H, 45 checked lines, four
+Mac goldens (t, b1, b2, swift). Every expectation of the draft held on the first run and the Swift client needed no
+change. The walk now also waits for the bridge's or T's own line, with the exact peer id, on every step that ends in a
+close with no reply. Not walked: the per-peer rate bound (row 35 of design 16.2). Mac only (platforms file). Run in the
+working tree, through the runner, and from a clean export of the index. Where the entries above say this trial has not
+run, read this entry.
+
+## 2026-11-23, the Kotlin client against real bridges (c11_tempus_bridge_kotlin), and the Kotlin node's atom list
+
+The trial written on 2026-11-23 and not run then builds with silica-999899 and passes: bridges B1 and B2 and TRUST
+node T, 43 steps, four Mac goldens (t, b1, b2, kotlin). Its nodes and roles are those of c16_tempus_bridge_csharp
+with the ports changed. All 40 expectations of the draft held on the first run and the Kotlin client needed no
+change. Three steps were added because the draft claimed more than it showed: a third request of an edge with two
+calls in flight is closed with the bridge's bridge_inflight line (row 35), the edge calls a bridge at the address of
+an entry it sampled (row 30), and after a bridge is lost the next call succeeds through the other (row 33). The waits
+for held calls now name the peer and the connection. COVERAGE.md is corrected in the rows it had misattributed. Rows
+3, 4, 5, 7, 10, 12, 16, 18, 20, 21, 24, 25, 29 to 35 and section 17.7 are reached by the Kotlin client.
+
+The Kotlin node's list of the atoms a node holds was incomplete (46 of 68). Shown against a Silica node: to a call of
+erlang:ok/0 the Silica node wrote request_refused and the Kotlin node wrote protocol_error, not a request:
+unknown_atom. The list is now every atom of src/tempus/bees_tempus.atoms and src/trust/bees_trust.atoms. The case is
+step D32 of c9_tempus_node_kotlin: seven lines added to three of its goldens, none removed or changed. Where the
+entries above say c11 has not run, read this entry.
+
+## 2026-11-23, the Swift node's atom list
+
+The Swift node's list of the atoms a node holds lacked the rejection atoms and the trpc result atoms of
+src/trust/bees_trust.atoms. Shown against a Silica node before the fix: to a frame whose kind is the atom `truncated`
+the Silica node wrote "not a request: unknown kind" and the Swift node wrote "not a request: unknown_atom". The list is
+now every atom of src/tempus/bees_tempus.atoms and src/trust/bees_trust.atoms (68), and a unit test reads the two
+files and requires the list to equal their union. tempus-node-tests is 212 tests (was 207). No golden changed; c5, c8
+and c10 pass. The cases were not added to c8, because its steps are numbered and its audit lines carry connection
+counters, so new cases would change existing golden lines.
+
+## 2026-11-24, one gossip implementation per language, and "usable examples" (owner's rulings)
+
+Ruling 1: "select the implementation for each language that is the most complete, produces the smallest code, and
+will be the most usable and stable." In Python, Swift and Kotlin the node half was kept and main's `Peer` removed:
+Python lib/tempus_client/ and test_tempus_gossip.py, Kotlin lib/Gossip.kt and test/GossipTest.kt, Swift
+lib/TempusClient/Gossip.swift and the gossip part of tempus-client-tests, together with what existed only so two
+implementations could coexist (Kotlin's NodeStore and NodeHeld are Store and Held again; Swift's two-Store import is
+gone; Python's bees_tempus_client.py is a plain name for the one test support, and BEES_TEMPUS_TEST_SUPPORT is gone).
+Nothing had to be carried into the node halves: each already tells its application of view changes and takes a new
+token. Measured in lines of code that are not blank or comment: Python 5225 to 3787, Swift 4590 to 4120, Kotlin 3202
+to 2756; the Kotlin extension jar went from 101 classes to 89. Each driver's `gossip` command now runs a node, with its
+command line and output unchanged, so the gossip example's goldens did not change; the values a node requires and the
+example does not pass are stated once in each driver as its own choices (in-flight limit 16, clock_back follow,
+clock_fail continue, clock_read_ms 1000). Cases of the removed tests that the node tests lacked were ported: Python's
+random view and store comparisons with the models, Swift's and Kotlin's three peers in one process over TLS (the
+Kotlin one adds one line to the tests golden of c9_tempus_node_kotlin, the only golden that changed). The Python and
+Kotlin agents first given this were stopped part way by a usage limit; agents on another model finished their work
+from the tree.
+
+Ruling 2: "change the wording to be usable examples, use carefully." The directory README (now titled "TEMPUS
+extensions"), every extension's README, the two guides and the source headers say the extensions are usable examples
+to be used carefully, each with a list of what care means: no review as production code, one platform, no soak or
+load test, keys, certificates and tokens supplied by the application, test support kept out of what an application
+links, no bridge role, no promise that interfaces stay the same.
+
+## 2026-11-24, C# and Rust in the gossip example (owner's request)
+
+"Add C# and Rust to the gossip example. Add the lighter peer so as to match the other language implementations."
+Following the ruling of the same day (one gossip implementation per language), the lighter peer is built as Python,
+Swift and Kotlin now have it: a driver `gossip` command over the extension's own node, with no second implementation in
+either library and no defaults added. The C# driver (driver/Program.cs) and the Rust driver (driver/tempus-client) take
+the options gossip_run.py passes and print the same lines (the node's lines and audit lines, `learned STORE ID16
+HOST:PORT`, `told: ...`, and `known STORE:` at the end). Each states the values the example does not pass as the
+driver's choices for the example: in-flight limit 16, clock_back follow, clock_fail continue, clock_read_ms 1000.
+`--now` is an injected fixed clock, on a loopback address only (the Rust node refuses otherwise; the C# driver keeps
+the rule, since the C# library does not). The Rust library gained `crypto::ed25519_seed_from_pkcs8_pem` (OpenSSL
+`d2i_AutoPrivateKey`, `EVP_PKEY_get_raw_private_key`), so it now has 48 unsafe blocks (was 46); the Rust driver has
+one more, to catch SIGINT and SIGTERM, for which the standard library has no call. gossip_run.py gained the networks
+`csharp` and `rust`, and C# and Rust edges in `mixed` (now 7 instances) and `trio` (now 6; the name is kept, though it
+now holds five languages). Ports run 24800 to 24806, inside c7_tempus_gossip's block. New goldens: csharp and rust;
+mixed and trio re-recorded after two identical passes each; python, swift, kotlin and silica unchanged.
+trials/c7_tempus_gossip passes 8/0 (was 6). c12, c13, c16, c14, c15 and c17 pass with goldens unchanged.

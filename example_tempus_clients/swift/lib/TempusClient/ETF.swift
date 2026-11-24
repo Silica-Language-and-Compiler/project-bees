@@ -1,6 +1,6 @@
 // The Erlang external term format, the subset tempus/1 uses: maps with atom keys, atoms, binaries, integers, lists.
 // Written from development-plan/tempus-design.md section 5 and example_tempus_clients/writing-a-tempus-client.md.
-// An example only: not for production.
+// A usable example, to be used with care (README.md says what care means).
 
 /// A body or a token this client does not accept. `reason` says why.
 public struct Refused: Error, Equatable, CustomStringConvertible {
@@ -18,7 +18,7 @@ public struct Unencodable: Error, CustomStringConvertible {
 public typealias Bytes = [UInt8]
 
 /// One term. A map's keys are atoms, held by name.
-public indirect enum Term: Equatable {
+public indirect enum Term: Equatable, Sendable {
     case atom(String)
     case int(Int64)
     case binary(Bytes)
@@ -34,7 +34,7 @@ public indirect enum Term: Equatable {
 
 public let frameMax = 131072
 
-func be32(_ n: Int) -> Bytes {
+package func be32(_ n: Int) -> Bytes {
     [UInt8((n >> 24) & 0xFF), UInt8((n >> 16) & 0xFF), UInt8((n >> 8) & 0xFF), UInt8(n & 0xFF)]
 }
 

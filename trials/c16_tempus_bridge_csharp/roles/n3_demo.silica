@@ -1,0 +1,37 @@
+// N3 trial: the demo service of node a, the functions its demo.trust manifest offers to TRUST peers. Each takes the request's
+// args as the list the manifest declares (decoded by the language's decode in the generated bees_trust_mfa) and returns
+// (:ok, value) or (:error, reason) (the user code failing; the worker then fails, D2).
+module n3_demo;
+use bees_atoms;
+
+export add/1;
+export echo/1;
+export slow/1;
+export crash/1;
+export note/1;
+export secret/1;
+
+fn sum(xs: List[int64, mem(normal)], acc: int64) -> int64 {
+    case xs of {
+        []: List[int64, mem(normal)] -> acc;
+        [h: int64, t: List[int64, mem(normal)]] -> sum(t, acc + h)
+    }
+}
+fn first_int(xs: List[int64, mem(normal)]) -> int64 {
+    case xs of { []: List[int64, mem(normal)] -> 0; [h: int64, _t: List[int64, mem(normal)]] -> h }
+}
+fn first_str(xs: List[string, mem(normal)]) -> string {
+    case xs of { []: List[string, mem(normal)] -> ""; [h: string, _t: List[string, mem(normal)]] -> h }
+}
+fn add(xs: List[int64, mem(normal)]) -> (:ok, int64) | (:error, atom) { (:ok, sum(xs, 0)) }
+fn echo(xs: List[string, mem(normal)]) -> (:ok, string) | (:error, atom) { (:ok, first_str(xs)) }
+// a busy loop of n steps (longer than the server's call_timeout_ms for the timeout trial)
+fn spin(n: int64, acc: int64) -> int64 { case n <= 0 of { true -> acc; false -> spin(n - 1, acc + 1) } }
+fn slow(xs: List[int64, mem(normal)]) -> (:ok, int64) | (:error, atom) { (:ok, spin(first_int(xs), 0)) }
+fn crash(xs: List[int64, mem(normal)]) -> (:ok, int64) | (:error, atom) { (:error, bees_atoms@a_badarith()) }
+fn note(xs: List[int64, mem(normal)]) -> (:ok, int64) | (:error, atom) {
+    sequence proc[device_io]
+        _: atom <- println(concat("[demo] note got ", case first_int(xs) of { 7 -> "7"; _: int64 -> "?" }))
+    produces pure (:ok, first_int(xs)) end
+}
+fn secret(xs: List[int64, mem(normal)]) -> (:ok, int64) | (:error, atom) { (:ok, 42) }

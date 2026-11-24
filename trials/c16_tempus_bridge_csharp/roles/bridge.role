@@ -1,0 +1,139 @@
+// C16 bridges trial, the application of each bridge (B1, B2): a thin program that starts the TRUST side as every TRUST node
+// starts it (trust_boot, trust_start: bees.config, TEST-ONLY certificates of the N4.1 trial) and the TEMPUS side with
+// tempus_bridge_start (src/tempus/bees_tempus_bridge.part), passing the TEST-ONLY values of lib/tempus_ids.silica and the
+// limits below, and answers every admitted call or cast of an edge (design 17.4 step 2). The entry's own role file gives
+// port(), me() (the TEMPUS identity), trust_at() (node T's address).
+// TEMPUS side: a test program's node (externally driven, by the test unit of src/tempus_test), role bridge, stores of capacity 4 (shuffle length 3, 2, 2), inflight_max 4,
+// shuffle_timeout_ms 5000; its tempus whitelist holds the TEMPUS certificates of B1, B2 and x4 (the Python client's bridge
+// identity). Limits (ruling OQ-25): score limit 5, table of 4, 20 requests per peer per hour, 2 in flight per peer, 4 in
+// total, call timeout 4000 ms.
+// What the application does with each function an edge may call (bridge_fns.silica, edge.trust):
+//   add, crash, note   bees_tempus_bridge@run: BEES runs the function in a per-request worker
+//   onward             tempus_bridge_onward: demo:add/2 on node T with the edge's arguments (plain TRUST, B's certificate)
+//   bad                tempus_bridge_onward: demo:secret/0 on node T, which T's whitelist does not permit for a bridge (the
+//                      trial's way to make T raise its suspicion of the bridge, design 17.7)
+//   hold, release      a held call is not answered until an edge calls release (the bridge closes it at the call timeout
+//                      first: the application still answers it once, later); release answers the first held at once,
+//                      the second 200 ms later, and the release itself 200 ms after that (apart: one order of lines)
+//   slow               answered 4300 ms later, after the call timeout
+//$ BA = { h1: actor_ref, h2: actor_ref, n: int64 }
+fn region_dump_limit() -> int64 { 0 }
+fn say(s: string) -> atom {
+    sequence proc[device_io]
+        _: atom <- println(s)
+    produces pure :ok end
+}
+fn hx(s: string) -> string { tempus_ids@unhex(s) }
+fn none_ref() -> actor_ref { actor_ref_of_word(0) }
+fn int_span(n: int64) -> string { bees_trust_frame@enc_value_int(n) }
+fn no_ints() -> List[int64, mem(normal)] {
+    sequence proc[mem(normal)]
+        e: List[int64, mem(normal)] <- empty[int64, mem(normal)]()
+    produces pure e end
+}
+fn no_args() -> string { bees_trust_frame@enc_args_ints(no_ints()) }
+fn later(me: actor_ref, ms: uint64, op: int64, n: int64, rq: actor_ref) -> boolean {
+    sequence proc[concurrency]
+        t: timer_ref <- send_after(ms, me, (:bees, op, "", "", n, 0, rq) impl ActorMessage {})
+    produces pure true end
+}
+fn answer_int(rq: actor_ref, n: int64) -> boolean {
+    v: string <- int_span(n);
+    bees_tempus_bridge@rq_result(rq, v)
+}
+fn on_call(s: $BA$, me: actor_ref, args: string, mt: string, rq: actor_ref) -> $BA$ {
+    case mt == "demo:add/2" or mt == "demo:crash/1" or mt == "demo:note/1" of {
+        true -> { sequence _: boolean <- bees_tempus_bridge@rq_run(rq) produces pure s end };
+        false -> case mt == "demo:onward/2" of {
+            true -> { sequence _: atom <- tempus_bridge_onward(rq, trust_at(), bees_atoms@a_demo(), bees_atoms@a_add(), 2, args) produces pure s end };
+            false -> case mt == "demo:bad/0" of {
+                true -> {
+                    a0: string <- no_args();
+                    sequence _: atom <- tempus_bridge_onward(rq, trust_at(), bees_atoms@a_demo(), bees_atoms@a_secret(), 0, a0) produces pure s end
+                };
+                false -> case mt == "demo:hold/1" of {
+                    true -> case s.n == 0 of { true -> { h1: rq, h2: s.h2, n: 1 }; false -> { h1: s.h1, h2: rq, n: 2 } };
+                    false -> case mt == "demo:release/0" of {
+                        true -> {
+                            sequence
+                                _: atom <- say(concat("application: release: the held calls are answered, ", bees_trust_frame@int_text(s.n)));
+                                _: boolean <- answer_int(s.h1, 1);
+                                _: boolean <- later(me, 200, 95, 2, s.h2);
+                                _: boolean <- later(me, 400, 95, s.n, rq)
+                            produces pure { h1: none_ref(), h2: none_ref(), n: 0 } end
+                        };
+                        false -> case mt == "demo:slow/1" of {
+                            true -> { sequence _: boolean <- later(me, 4300, 95, 0, rq) produces pure s end };
+                            false -> { sequence _: boolean <- bees_tempus_bridge@rq_fail(rq, "no such function here") produces pure s end }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+fn app_bees(s: $BA$, me: actor_ref, b: $NB$) -> $BA$ {
+    case b.op of {
+        90 -> on_call(s, me, b.s1, b.s2, b.who);
+        95 -> { sequence _: boolean <- answer_int(b.who, b.n) produces pure s end };
+        80 -> { sequence _: atom <- say(concat("application: told that the node's own token is not valid any more: ", b.s1)) produces pure s end };
+        81 -> { sequence _: atom <- say(concat("application: a peer answered key_rotated and named kid ", b.s1)) produces pure s end };
+        84 -> { sequence _: atom <- say(concat("application: the bridge did not start: ", b.s1)) produces pure s end };
+        _: int64 -> s
+    }
+}
+fn app(msg: $NM$, s: $BA$) -> (:no_reply, $BA$) {
+    sequence proc[concurrency]
+        me: actor_ref <- self();
+        s2: $BA$ <- case msg of {
+            (:accepted, _l: dangerous_actor_ref, _i: string) -> s;
+            (:link_up, _info: string) -> s;
+            (:rx, _s: string) -> s;
+            (:tx_credit, _n: int64) -> s;
+            (:tx_failed, _w: atom) -> s;
+            (:link_down, _w2: atom) -> s;
+            (:bees, op: int64, s1: string, sb: string, n: int64, m: int64, who: actor_ref) -> app_bees(s, me, { op: op, s1: s1, s2: sb, n: n, m: m, who: who })
+        }
+    produces pure (:no_reply, s2) end
+}
+fn wl() -> string { concat(concat(tempus_ids@fp_hex(3), tempus_ids@fp_hex(4)), tempus_ids@fp_hex(7)) }
+fn tempus_side() -> atom {
+    sequence proc[concurrency]
+        a: actor_ref <- spawn({ h1: none_ref(), h2: none_ref(), n: 0 }, app, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        idn: $NI$ <- { id: hx(tempus_ids@id_hex(me())), pub: hx(tempus_ids@pub_hex(me())), seed: hx(tempus_ids@seed_hex(me())), addr: concat("127.0.0.1:", port()), token: hx(tempus_ids@tok_hex(me(), 13)), typ: 2 };
+        net: $NN$ <- { listen: concat("listen:", port()), spec: tempus_spec(tempus_ids@certfile(me()), tempus_ids@keyfile(me())), sents: "", wl: wl(), kid: tempus_ids@kid(), ppub: hx(tempus_ids@producer_pub_hex()), ms: 5000, mst: "5000", max: 4, skew: tempus_ids@skew(), j0: 200, j1: 800, back: 1, blim: 0, fail: 2, every: 1000 };
+        sz: $NZ$ <- { k1: 4, c1: 3, t1: 1000, k2: 4, c2: 2, t2: 1000, k3: 4, c3: 2, t3: 1000 };
+        x: actor_ref <- bees_tempus_test@start(tempus_ids@now());
+        drv: $NT$ <- { driven: true, ext: x, draws: "0,1,2,3" };
+        lim: $BL$ <- { slim: 5, size: 4, rate: 20, ivl: 3600000, pin: 2, tin: 4, cms: 4000 };
+        b: actor_ref <- tempus_bridge_start(a, idn, net, sz, drv, lim)
+    produces pure :ok end
+}
+// the program's failure reporter: every report to standard error (tools/bees_tempus_trial.py reads that stream apart). Not
+// bees_reporter: a bridge program is at 32 units, and a 33rd made this root unit fail E4045 at its carrier (development-plan/
+// silica-defects.md, the 2026-11-19 T6 note)
+fn reporter(report: string, st: int64) -> (:no_reply, int64) {
+    sequence proc[device_io]
+        _: atom <- println_stderr(report)
+    produces pure (:no_reply, st) end
+}
+fn start_reporter() -> atom {
+    sequence proc[concurrency]
+        r: actor_ref <- spawn(0, reporter, stack_policy(0, :keep_last_message), state_policy(:keep_state_area));
+        ok: atom <- register_failure_reporter(r)
+    produces pure ok end
+}
+fn bridge_start() -> atom {
+    sequence
+        _: atom <- start_reporter();
+        _: atom <- trust_start();
+        _: atom <- tempus_side()
+    produces pure :ok end
+}
+fn main() -> int64 {
+    sequence proc[concurrency, device_io]
+        b: int64 <- trust_boot();
+        _: atom <- case b == 0 of { true -> bridge_start(); false -> :ok };
+        rc: int64 <- case b == 0 of { true -> wait_for_exit(); false -> 1 }
+    produces pure rc end
+}

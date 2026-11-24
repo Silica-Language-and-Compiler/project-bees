@@ -1,0 +1,10 @@
+# TEST ONLY: fixed keys, token making, and a clock, timers and draws a test sets by hand. No application depends on
+# this crate, and the library does not (test/layering_check.py fails the build when it does).
+[package]
+name = "tempus-testing"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+tempus = { path = "../../lib/tempus" }

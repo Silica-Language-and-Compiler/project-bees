@@ -1,0 +1,37 @@
+// C10 trial: the functions a bridge exports to edges (edge.trust). An edge's admitted request runs nothing until the
+// bridge application answers it (src/tempus/bees_tempus_bridge.silica): for add, crash and note the application asks
+// BEES to run the function below in a per-request worker; for onward, bad, hold, release and slow it answers itself
+// (bridge.role), and the function below is there for the MFA table's type check of the arguments only.
+module bridge_fns;
+use bees_atoms;
+
+export add/1;
+export crash/1;
+export note/1;
+export onward/1;
+export bad/1;
+export hold/1;
+export release/1;
+export slow/1;
+
+fn sum(xs: List[int64, mem(normal)], acc: int64) -> int64 {
+    case xs of {
+        []: List[int64, mem(normal)] -> acc;
+        [h: int64, t: List[int64, mem(normal)]] -> sum(t, acc + h)
+    }
+}
+fn first_int(xs: List[int64, mem(normal)]) -> int64 {
+    case xs of { []: List[int64, mem(normal)] -> 0; [h: int64, _t: List[int64, mem(normal)]] -> h }
+}
+fn add(xs: List[int64, mem(normal)]) -> (:ok, int64) | (:error, atom) { (:ok, sum(xs, 0)) }
+fn crash(xs: List[int64, mem(normal)]) -> (:ok, int64) | (:error, atom) { (:error, bees_atoms@a_badarith()) }
+fn note(xs: List[int64, mem(normal)]) -> (:ok, int64) | (:error, atom) {
+    sequence proc[device_io]
+        _: atom <- println(concat("[bridge] note got ", case first_int(xs) of { 7 -> "7"; _: int64 -> "?" }))
+    produces pure (:ok, first_int(xs)) end
+}
+fn onward(xs: List[int64, mem(normal)]) -> (:ok, int64) | (:error, atom) { (:ok, 0) }
+fn bad(xs: List[int64, mem(normal)]) -> (:ok, int64) | (:error, atom) { (:ok, 0) }
+fn hold(xs: List[int64, mem(normal)]) -> (:ok, int64) | (:error, atom) { (:ok, 0) }
+fn release(xs: List[int64, mem(normal)]) -> (:ok, int64) | (:error, atom) { (:ok, 0) }
+fn slow(xs: List[int64, mem(normal)]) -> (:ok, int64) | (:error, atom) { (:ok, 0) }

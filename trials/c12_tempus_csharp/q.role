@@ -1,0 +1,10 @@
+// C12 C# client trial: node Q, NOT a test program: it is not externally driven, its root unit names nothing of the
+// test unit, and it reads the machine's clock. The C# client meets it with the machine's clock too.
+// It has no sentinel and its stores tick once an hour, so nothing in its output depends on time.
+fn port() -> string { "25401" }
+fn sents() -> string { "" }
+fn driven() -> boolean { false }
+fn ext_start(app: actor_ref) -> actor_ref { app }
+fn tick_ms() -> uint64 { 3600000 }
+// the node's own token: tempus_edge, valid 1000 to 4000000000, so that it is valid by the machine's clock
+fn own_tok() -> int64 { 14 }

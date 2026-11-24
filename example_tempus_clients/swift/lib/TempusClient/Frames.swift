@@ -1,7 +1,7 @@
 // The tempus/1 frame bodies a client writes and reads (design section 5), with every bound of design section 8, and
 // the token (design section 4). The test-only tick and clock frames of src/tempus_test are not here: they are no part
 // of a client, and this reader refuses both as it refuses any frame of no kind.
-// An example only: not for production.
+// A usable example, to be used with care (README.md says what care means).
 
 public let peerTypes = ["tempus_edge", "tempus_bridge", "tempus_sentinel"]
 /// The kinds this client reads as tempus/1 frames.
@@ -12,7 +12,7 @@ public let ageMax: Int64 = 65535
 public let entriesMax = 64
 
 /// The record that describes one peer.
-public struct Descriptor: Equatable {
+public struct Descriptor: Equatable, Sendable {
     public var id: Bytes
     public var pub: Bytes
     public var addr: Bytes
@@ -35,7 +35,7 @@ public struct Descriptor: Equatable {
 }
 
 /// One entry of a shuffle or sample frame.
-public struct Entry: Equatable {
+public struct Entry: Equatable, Sendable {
     public var age: Int64
     public var d: Descriptor
 
@@ -48,7 +48,7 @@ public struct Entry: Equatable {
 }
 
 /// A body as this client read it.
-public enum Frame: Equatable {
+public enum Frame: Equatable, Sendable {
     case advert(Descriptor)
     case popChallenge(nonce: Bytes)
     case popResponse(sig: Bytes)
@@ -119,7 +119,7 @@ public func checkDescriptor(_ d: Descriptor) throws {
 }
 
 // ---------------------------------------------------------------- the token
-public struct TokenFields: Equatable {
+public struct TokenFields: Equatable, Sendable {
     public let kid: Bytes
     public let sub: Bytes
     public let typ: String

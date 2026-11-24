@@ -6,7 +6,13 @@ statement was checked against the code of the BEES TEMPUS node (`src/tempus/`) a
 directory. Section numbers below, such as "design section 5", refer to that design document. Where something could
 not be checked against the code, section 14 says so.
 
-The two example clients are examples only and must not be used in production. See [README.md](README.md).
+The extensions in this directory are usable examples, to be used carefully. [README.md](README.md) and the README of
+each language say what care means: the keys, certificates and tokens of the trials are test fixtures made from fixed
+seeds, the test support exists to misbehave on purpose and is no part of what an application uses, and none of the
+code has had a review by anyone but its author. An application that is to be a member of the network, with stores of
+its own, is a node: see [What do I need to do to write a TEMPUS node?](writing-a-tempus-node.md).
+
+"The Python extension" and "the Python example" below both mean the modules `python/lib/bees_tempus_*.py`.
 
 ## 1. The terms used here
 
@@ -48,7 +54,9 @@ The two example clients are examples only and must not be used in production. Se
    says what a client that listens must do.
 7. If your client will talk to bridges or sentinels: the list of their TEMPUS certificates that your application
    accepts. This list is called the `tempus` whitelist. The design requires an edge to check that a peer claiming to be
-   a bridge or a sentinel presents a certificate from that list.
+   a bridge or a sentinel presents a certificate from that list. The list names a certificate by the SHA-512 hash of
+   the certificate's DER bytes, 64 bytes. It names a certificate, not a key: a new certificate over the same key is
+   another entry.
 8. A source of the current time in whole seconds since 1970 UTC, for checking tokens, and a source of secure random
    bytes.
 
@@ -59,8 +67,9 @@ checks each of them after the handshake and closes the connection otherwise.
 
 - The TLS version is 1.3. No other version is offered or accepted.
 - The key exchange group is X25519MLKEM768. The node offers and accepts no other group on TEMPUS connections. Your TLS
-  library must be able to offer it. The Python example does not choose a group itself; it relies on what its TLS
-  library offers by default.
+  library must be able to offer it. Python's `ssl` module cannot name the groups it offers before Python 3.15, and it
+  offers X25519MLKEM768 by default when it is built over OpenSSL 3.5 or later. The Python extension reads the group
+  the handshake chose and refuses a connection that chose another.
 - The cipher suite is TLS_AES_256_GCM_SHA384 or TLS_CHACHA20_POLY1305_SHA256.
 - The application protocol, negotiated by ALPN, is `tempus/1`.
 - Both sides present a certificate. This is mutual TLS: the node requires your client's certificate, and your client
@@ -82,6 +91,12 @@ The body may be at most 131072 bytes. The node refuses a longer frame from its l
 Every map has a key `t`, an atom that names the message. A map may hold only the keys listed for its message; the node
 refuses a map with an unknown key, a missing key or a key that appears twice. The body must be exactly one term with no
 bytes after it. Maps and lists may be nested at most as deep as the messages below need.
+
+Every atom in a frame must be one the node holds: the key names and the closed sets of this section. The node refuses
+a frame that names any other atom before it looks at the frame's kind. (Which atoms a bridge holds for the `m` and
+`f` of a `call` was not checked for this document.) In the other direction, your client's reader must refuse, and not
+fail on, anything a peer can send: a length that runs past the frame, an atom whose name is not valid UTF-8, a term
+of a kind it does not read.
 
 Write the ETF the way both examples write it, which gives every message exactly one byte form:
 
@@ -107,6 +122,7 @@ The messages:
 | sample reply | `#{t => sample_reply, store => Typ, entries => [E]}` | the side that was dialed |
 | call, cast | `#{t => call or cast, ver => 1, req_id => <<bytes>>, m => Module, f => Function, a => Arity, args => List, opts => #{}}` | an edge, to a bridge |
 | result | `#{t => result, ver => 1, req_id => <<bytes>>, value => Term}` | a bridge, in answer to a call |
+| done | `#{t => done}` | a test program's node only, in answer to the two test-only frames of section 8 |
 
 `Typ` is one of the atoms `tempus_edge`, `tempus_bridge` and `tempus_sentinel`.
 
@@ -242,8 +258,22 @@ time, `sub`, the `id` hash and the producer's signature. In addition the `typ` o
 of the store the frame names. One entry that does not verify makes the node refuse the whole frame; nothing from it
 enters the node's store. Your client must apply the same rule to every reply it receives before it uses any entry.
 
-By the design, the initiator of a shuffle puts its own entry first at age 0, when its own type is the type of the
-store.
+The initiator of a shuffle puts its own entry first at age 0, when its own type is the type of the store.
+
+### A reply must be the reply of its request
+
+Before your client uses a reply it must check that the reply answers what was asked. A node that dials another node
+makes these checks, and so must a client:
+
+- the reply to a `shuffle` is a `shuffle_reply`, and the reply to a `sample` is a `sample_reply`. Any other frame,
+  including the other of the two and the `done` frame, is refused;
+- the reply names the store the request named;
+- the reply holds at most the shuffle length of that store. A node never answers a `sample` with more entries than the
+  `n` asked for, so a client may also refuse more than `n`, and the Python extension does;
+- every entry verifies, as above. One entry that does not verify refuses the whole reply;
+- the `result` of a `call` carries the `req_id` of the call. A `cast` has no reply at all.
+
+A reply that fails any of these is treated as no reply: nothing of it is used.
 
 ### call and cast, to a bridge only
 
@@ -268,7 +298,9 @@ there is no leave message: a member that stops is forgotten as its entries grow 
 The trials in this repository also send two frames named `tick` and `clock`, and the examples contain code that
 builds them. They are for testing only. The code that reads them is in a separate test unit, `src/tempus_test/`, that
 only a test program includes in its build. A production node has no such code and refuses both frames as it refuses
-any frame that is not a request. Do not build them into a client.
+any frame that is not a request. Do not build them into a client. A test program's node answers them with the frame
+`#{t => done}`. A `done` frame is never the reply to a `sample`, a `shuffle` or a `call`, and a client that receives
+one in their place must refuse it.
 
 ## 9. A client that listens
 
@@ -357,23 +389,24 @@ Give your client a time bound of its own for a whole connection. A node may stay
   certificate's key is Ed25519 and that it equals the advert's `pub`; it verifies no chain, and no separate check of
   the self-signature was found in it. The Python example does check, for a peer it dials, that the issuer equals the
   subject and that the certificate's signature verifies under its own key.
-- The exact nesting depth a node allows was not restated here, because the design's table says 4 and the node's
-  structure check is called with 6. A client that sends only the messages of section 4 stays inside both.
+- The nesting depth: the design's table says 4. The node's structure check, made on every frame before its kind is
+  looked at, allows 6, and the decoder of each message then allows what that message needs (an advert 3, a frame of
+  entries 5, the others 2). A client that sends only the messages of section 4 stays inside all of them.
 - Whether a node accepts ETF written in another valid form (for example a different integer or atom tag) was not
   checked. The form in section 4 is what both examples write and what the trials compare byte for byte.
-- That the Python example's TLS library offers X25519MLKEM768 by default is known only from the trials passing against
-  nodes that require that group. The example's code does not select it.
-- The statement that an initiator puts its own entry first at age 0, the statement that a joiner keeps its sentinel,
-  and the refresh at half of the lifetime are taken from the design and were not traced through the code for this
-  document.
-- That a node whose own token has expired goes on listening and answering is taken from the design's section 6 and
-  was not traced through the code for this document.
+- The refresh at half of the token's lifetime is taken from the design and its source material. No code of the node
+  enforces it: refreshing is the application's act.
+- The check that a `result` carries the `req_id` of its `call` is made by the Python extension. It was not traced in
+  the Silica client.
+- Traced through the node's code on 2026-11-23, for the document on writing a node, and no longer open here: an
+  initiator puts its own entry first at age 0 in the store of its own type; a joiner keeps the sentinel it joined
+  through; a node whose own token has expired goes on listening and answering.
 - The bridge's behaviour in section 8 was checked against the header of `src/tempus/bees_tempus_bridge.silica` and
   the design's section 17, not against every line of that unit.
 
-## 15. What to install for a Swift or a Kotlin client on a Mac
+## 15. What to install for a Swift, a Kotlin, a C# or a Rust client on a Mac
 
-This section lists what a Mac with Apple Silicon needs before a client written in Swift or in Kotlin can be compiled
+This section lists what a Mac with Apple Silicon needs before a client written in Swift, in Kotlin, in C# or in Rust can be compiled
 and run. The versions are the ones on the machine where the examples in this directory were written, on 2026-11-20.
 They are what was used, not a stated minimum. Other languages need the same three kinds of thing: a compiler, a TLS
 library that can meet section 3, and Ed25519 signatures.
@@ -426,7 +459,37 @@ that cannot offer both cannot connect to a TEMPUS node, and no setting of the no
     and give the client the certificate and key files.
 - The file `kotlin/README.md` gives the details and the build commands.
 
-### What neither needs
+### C#
+
+- The .NET SDK, release 11. Install it with `brew install dotnet`. Version used: 11.0.100.
+- OpenSSL 4.1.0 or later. Install it with `brew install openssl@4`. C# calls it as a C library through P/Invoke, with
+  no C code of your own. .NET's own TLS and cryptography were tried first on macOS 26 and could not be used:
+  - `X509Certificate2.CreateFromPemFile` does not load an Ed25519 key (`'1.3.101.112' is not a known key algorithm`),
+    so a client cannot present its certificate.
+  - `SslStream` asked for TLS 1.3 alone fails with `The requested security protocol is not supported`; with Apple's
+    Network framework as its engine the handshake fails with error -9824, as the Swift attempt did.
+  - .NET 11 has no Ed25519 signature type.
+- No NuGet package and no test framework are needed. A project with no package reference builds with no network when
+  its `nuget.config` clears the package sources.
+- Three things to know about OpenSSL from C#: several settings are C macros and must be called as `SSL_CTX_ctrl` with
+  the macro's number; the two callbacks are static methods marked `UnmanagedCallersOnly`; and memory BIOs with a .NET
+  `Socket` keep every wait under one deadline.
+- The file `csharp/README.md` gives the details and the build commands.
+
+### Rust
+
+- A Rust toolchain: cargo and rustc. Version used: 1.91.1.
+- OpenSSL 4.1.0 or later. Install it with `brew install openssl@4`. Rust's standard library has neither TLS nor
+  Ed25519. Without fetching any crate, a client calls OpenSSL through `extern "C"` declarations and a build script
+  that names the library directory. No C code and no `libc` crate are needed.
+- The settings that are C macros go through `SSL_CTX_ctrl` with the macro's number, as in C#.
+- A blocking `TcpStream` with read and write timeouts keeps the one deadline of a connection without any operating
+  system call of your own.
+- Tests can be ordinary `cargo test`, since the test harness ships with the toolchain. `cargo build --offline` makes
+  sure that no network request is made.
+- The file `rust/README.md` gives the details and the build commands.
+
+### What none of them needs
 
 - The Silica compiler and the BEES sources are needed only to run a TEMPUS node to test against. A client needs
   neither to be compiled.
@@ -439,7 +502,10 @@ Sections 1 to 13 are enough for a client that sends one request to an address it
 find other peers by itself must also be a member of the network. A member keeps stores, shuffles them on a timer,
 joins through a sentinel and answers from its stores. The rules below are the node's own, from the design's sections
 3, 6 and 10 and from `src/tempus/bees_tempus_view.silica`, `bees_tempus_store.silica` and `bees_tempus_node.part`.
-Each example in this directory has them in its library, and `gossip/` runs them.
+A member is a node, and this section is the short form of [What do I need to do to write a TEMPUS
+node?](writing-a-tempus-node.md), which also gives the clock's rules, the limits, the configuration, the audit lines
+and what the application is told. Each extension in this directory has one implementation of these rules, its node,
+and `gossip/` runs them.
 
 ### What a member is configured with
 

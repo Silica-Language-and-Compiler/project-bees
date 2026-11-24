@@ -1,0 +1,10 @@
+# the functions an edge may name on this bridge (tools/bees_trust_gen.py writes the MFA table from these lines; the bridge's
+# TRUST side lists no whitelist, so no TRUST peer calls in); which of them an edge may call is edge.spec's business
+export demo add 2 bridge_fns@add args int64 result int64
+export demo crash 1 bridge_fns@crash args int64 result int64
+export demo note 1 bridge_fns@note args int64 result int64
+export demo onward 2 bridge_fns@onward args int64 result int64
+export demo bad 0 bridge_fns@bad args int64 result int64
+export demo hold 1 bridge_fns@hold args int64 result int64
+export demo release 0 bridge_fns@release args int64 result int64
+export demo slow 1 bridge_fns@slow args int64 result int64

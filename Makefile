@@ -70,7 +70,7 @@ kit-platform:
 	@python3 "$(BEES_ROOT)/tools/trial_ports.py" check
 	@python3 "$(BEES_ROOT)/tools/test_platform_and_ports.py" 2>&1 | tail -3
 	@python3 "$(BEES_ROOT)/example_tempus_clients/python/test_bees_tempus_client.py" 2>&1 | tail -3
-	@python3 "$(BEES_ROOT)/example_tempus_clients/python/test_tempus_gossip.py" 2>&1 | tail -3
+	@python3 "$(BEES_ROOT)/example_tempus_clients/python/test_bees_tempus_node.py" 2>&1 | tail -3
 	@python3 "$(BEES_ROOT)/tools/test_bees_tempus_admission.py" 2>&1 | tail -3
 	@python3 "$(BEES_ROOT)/tools/test_bees_tempus_store.py" 2>&1 | tail -3
 	@python3 "$(BEES_ROOT)/tools/test_bees_tempus_view.py" 2>&1 | tail -3

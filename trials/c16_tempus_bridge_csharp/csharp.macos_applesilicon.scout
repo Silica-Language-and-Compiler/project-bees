@@ -1,0 +1,47 @@
+== A. calls and a cast through a bridge (rows 24, 25, 31, 32)
+1 a call of demo:add/2 on bridge B1: result 5, req_id k1
+2 the same call on bridge B2: result 5, req_id k2
+3 demo:onward/2 on B1, which the bridge's application sends on to the TRUST node T: result 42, req_id k3
+4 the same through B2: result 42, req_id k4
+5 a cast of demo:note/1 on B1 (a cast has no reply): closed, no reply
+6 the bridge ran the cast: its line `[bridge] note got 7` is in B1's output
+== B. what a bridge refuses of an edge; the edge sees a close and nothing else (rows 24, 34, 35)
+7 a function that fails (demo:crash/1): no error body: closed, no reply
+8 the bridge still serves: result 5, req_id k7
+9 a function that answers after the bridge's call timeout (demo:slow/1): closed, no reply
+10 the bridge still serves: result 5, req_id k9
+11 two calls of this edge are held by the bridge's application; a third request of the same edge: closed, no reply
+12 another edge is served meanwhile: result 5, req_id n1
+13 the two held calls end at the bridge's call timeout: each closed, no reply
+14 demo:release/0 afterwards: result 2, req_id k11
+15 a function of a forbidden module (erlang:apply/0): closed, no reply
+16 a function the bridge does not let an edge call (demo:secret/0): closed, no reply
+17 the forbidden module again: closed, no reply
+18 the function that is not permitted again: closed, no reply
+19 then a good request of the same edge: refused for its score: closed, no reply
+20 another edge is still served: result 5, req_id n2
+21 twenty calls of one edge, R, within the hour: each answered
+22 the twenty-first: the rate bound: closed, no reply
+23 another edge is served: result 5, req_id n3
+== C. the whitelist rule for a bridge's certificate, both ways (rows 11, 12, 26)
+24 a client whose whitelist is empty refuses B1 before any request: refused at=advert reason="a tempus_bridge whose certificate is not in the tempus whitelist"
+25 the same when it lists only B2's certificate: refused at=advert reason="a tempus_bridge whose certificate is not in the tempus whitelist"
+26 a client that lists B1's certificate is answered: a sample of B1's bridge store: (empty)
+27 this client with a bridge token, under a certificate B1 does not list: closed, no reply
+28 with an edge token, under a certificate B1 lists (x4): closed, no reply
+29 with a bridge token under that certificate, admitted: a call, which the bridge permits to edges only: closed, no reply
+== D. an application finds a bridge in a store and calls it (rows 29, 30)
+30 a bridge peer shuffles B2's entry into B1's bridge store; an edge samples that store (every entry of the reply verified): 9200d299@1
+31 the edge dials the address of the entry it was given and calls demo:add/2 there: result 42, req_id d1
+32 B2's bridge store holds B1: e4188f0a@1
+== E. what a client sees when the TRUST side refuses or cannot be reached (design 17.7, row 33)
+33 three calls of demo:bad/0 on B1, which sends on a call T does not permit: T quarantines B1: each closed, no reply
+34 then demo:onward/2 on B1: T refuses the quarantined bridge: closed, no reply
+35 B1 itself still answers what needs no TRUST node: result 5, req_id t5
+36 and B2 still reaches T: result 42, req_id t6
+37 T is stopped: demo:onward/2 on B2: closed, no reply
+38 B2 itself still answers: result 5, req_id t8
+39 B1 is stopped: a call to it: unreachable at=tls
+40 a tick of B2's bridge store, whose only entry is B1: the shuffle fails and B1 is forgotten; the store: (empty)
+[c16_tempus_bridge_csharp] every step passed (40 steps)
+exit=0

@@ -11,7 +11,7 @@
 //     issuer equal to subject, and the certificate's signature verifying under its own key. The binding (that key is
 //     the advert's pub) is the verifier's check.
 //   - Certificate validity dates are not checked (ruling NQ-10: the producer token carries the validity window).
-// An example only: not for production.
+// A usable example, to be used with care (README.md says what care means).
 import COpenSSL
 import Darwin
 
@@ -19,9 +19,9 @@ public let alpn = "tempus/1"
 /// Seconds a closing side keeps reading, so that its last frame is not lost to a TCP reset.
 let linger = 0.5
 
-func monotonic() -> Double { Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1e9 }
+package func monotonic() -> Double { Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1e9 }
 
-func tlsReason() -> String {
+package func tlsReason() -> String {
     let e = ERR_peek_last_error()
     ERR_clear_error()
     guard e != 0, let s = ERR_reason_error_string(e) else { return "closed during the handshake" }
@@ -29,10 +29,16 @@ func tlsReason() -> String {
 }
 
 /// An SSL_CTX with the tempus/1 profile and this identity's certificate and key.
-final class TLSContext {
-    let ctx: OpaquePointer
+package final class TLSContext {
+    package let ctx: OpaquePointer
 
-    init(server: Bool, identity: Identity) throws {
+    /// `peerSignatures` names the signature algorithms accepted from the peer. A client offers and accepts Ed25519
+    /// only. A node also lets a P-256 certificate through the handshake, so that it can refuse it afterwards with the
+    /// audit event a BEES node writes for it (tempus_cert_key). `requireCertificate` false lets a peer with no
+    /// certificate through the handshake. `strictALPN` true makes a listener end the handshake with a fatal alert
+    /// when the dialer offers protocols and tempus/1 is not among them, as a BEES node does.
+    package init(server: Bool, identity: Identity, peerSignatures: String = "ed25519", requireCertificate: Bool = true,
+                 strictALPN: Bool = false) throws {
         guard let c = SSL_CTX_new(server ? TLS_server_method() : TLS_client_method()) else {
             throw CryptoFailure("no TLS context")
         }
@@ -45,8 +51,8 @@ final class TLSContext {
               SSL_CTX_ctrl(c, SSL_CTRL_SET_MAX_PROTO_VERSION, Int(TLS1_3_VERSION), nil) == 1,
               SSL_CTX_set_ciphersuites(c, "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256") == 1,
               ctrlString(c, SSL_CTRL_SET_GROUPS_LIST, "X25519MLKEM768"),
-              ctrlString(c, SSL_CTRL_SET_SIGALGS_LIST, "ed25519"),
-              ctrlString(c, SSL_CTRL_SET_CLIENT_SIGALGS_LIST, "ed25519"),
+              ctrlString(c, SSL_CTRL_SET_SIGALGS_LIST, peerSignatures),
+              ctrlString(c, SSL_CTRL_SET_CLIENT_SIGALGS_LIST, peerSignatures),
               SSL_CTX_use_certificate(c, cert) == 1,
               SSL_CTX_use_PrivateKey(c, identity.key.pkey) == 1,
               SSL_CTX_check_private_key(c) == 1 else {
@@ -55,11 +61,12 @@ final class TLSContext {
             throw CryptoFailure("the TLS context could not be set up: \(why)")
         }
         // The peer's certificate is required and its chain is not judged here (see the text at the top of this file).
-        SSL_CTX_set_verify(c, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, { _, _ in 1 })
+        SSL_CTX_set_verify(c, requireCertificate ? SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT : SSL_VERIFY_PEER, { _, _ in 1 })
         if server {
             // tempus/1 when the dialer offers it; otherwise no protocol is selected and the check after the handshake refuses
-            SSL_CTX_set_alpn_select_cb(c, { _, out, outlen, offered, offeredLen, _ in
-                guard let out, let outlen, let offered else { return SSL_TLSEXT_ERR_NOACK }
+            SSL_CTX_set_alpn_select_cb(c, { _, out, outlen, offered, offeredLen, strict in
+                let refuse = strict == nil ? SSL_TLSEXT_ERR_NOACK : SSL_TLSEXT_ERR_ALERT_FATAL
+                guard let out, let outlen, let offered else { return refuse }
                 let want = Array("tempus/1".utf8)
                 var i = 0
                 let n = Int(offeredLen)
@@ -72,8 +79,8 @@ final class TLSContext {
                     }
                     i += 1 + len
                 }
-                return SSL_TLSEXT_ERR_NOACK
-            }, nil)
+                return refuse
+            }, strictALPN ? UnsafeMutableRawPointer(bitPattern: 1) : nil)
         } else {
             guard SSL_CTX_set_alpn_protos(c, protos, UInt32(protos.count)) == 0 else {
                 SSL_CTX_free(c)
@@ -90,7 +97,7 @@ private func ctrlString(_ c: OpaquePointer, _ cmd: Int32, _ text: String) -> Boo
     return chars.withUnsafeMutableBytes { SSL_CTX_ctrl(c, cmd, 0, $0.baseAddress) } == 1
 }
 
-enum ReadResult {
+package enum ReadResult {
     case frame(Bytes)
     case oversize
     case closed(String)
@@ -99,14 +106,14 @@ enum ReadResult {
 }
 
 /// A TLS connection with one deadline for all of it; reads and writes answer with values, not errors.
-final class Conn {
-    private let ssl: OpaquePointer
+package final class Conn {
+    package let ssl: OpaquePointer
     private let fd: Int32
     private let deadline: Double
     private var framesRead = 0
     private var open = true
 
-    init(ssl: OpaquePointer, fd: Int32, deadline: Double) {
+    package init(ssl: OpaquePointer, fd: Int32, deadline: Double) {
         self.ssl = ssl
         self.fd = fd
         self.deadline = deadline
@@ -151,13 +158,13 @@ final class Conn {
     }
 
     /// The handshake. nil when it succeeded.
-    func handshake() -> ReadResult? {
+    package func handshake() -> ReadResult? {
         run { SSL_do_handshake(self.ssl) }.1
     }
 
     /// True when the bytes were handed to the transport. A failure is not reported here: the next read says what happened.
     @discardableResult
-    func send(_ data: Bytes) -> Bool {
+    package func send(_ data: Bytes) -> Bool {
         var sent = 0
         while sent < data.count {
             let (n, stop) = data.withUnsafeBufferPointer { buf in
@@ -183,7 +190,7 @@ final class Conn {
     }
 
     /// The next frame's body. A frame above the ceiling is refused from its length, before its body is read.
-    func read() -> ReadResult {
+    package func read() -> ReadResult {
         let (head, stop) = exact(4)
         if let stop { return stop }
         let size = head.reduce(0) { ($0 << 8) | Int($1) }
@@ -194,7 +201,7 @@ final class Conn {
         return .frame(body)
     }
 
-    var selectedALPN: String? {
+    package var selectedALPN: String? {
         var p: UnsafePointer<UInt8>?
         var n: UInt32 = 0
         SSL_get0_alpn_selected(ssl, &p, &n)
@@ -202,10 +209,10 @@ final class Conn {
         return String(decoding: UnsafeBufferPointer(start: p, count: Int(n)), as: UTF8.self)
     }
 
-    var version: String { String(cString: SSL_get_version(ssl)) }
+    package var version: String { String(cString: SSL_get_version(ssl)) }
 
     /// The certificate the peer presented, as DER.
-    var peerCertificate: Bytes? {
+    package var peerCertificate: Bytes? {
         guard let x = SSL_get1_peer_certificate(ssl) else { return nil }
         defer { X509_free(x) }
         return derOf(x)
@@ -214,7 +221,7 @@ final class Conn {
     /// Close so that what was last written arrives: TLS close_notify, TCP end of writing, then read to the peer's end
     /// (at most `linger` seconds). Closing with unread bytes would send a TCP reset, which can destroy a frame (a
     /// key_rotated, a request) the peer has not yet read.
-    func close() {
+    package func close() {
         guard open else { return }
         open = false
         ERR_clear_error()
@@ -232,13 +239,13 @@ final class Conn {
     }
 }
 
-func setNonBlocking(_ fd: Int32) {
+package func setNonBlocking(_ fd: Int32) {
     _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
     var one: Int32 = 1
     setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
 }
 
-func splitAddress(_ text: String) -> (host: String, port: String)? {
+package func splitAddress(_ text: String) -> (host: String, port: String)? {
     guard let i = text.lastIndex(of: ":") else { return nil }
     let host = String(text[..<i]), port = String(text[text.index(after: i)...])
     guard !host.isEmpty, let n = Int(port), n >= 0, n <= 65535 else { return nil }

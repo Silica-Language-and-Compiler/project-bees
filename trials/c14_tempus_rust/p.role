@@ -1,0 +1,14 @@
+// C14 Rust client trial: node P, not a test program: it is not externally driven and its root unit names nothing of the
+// test unit. It reads the machine's clock and its stores have their own timers (once an hour, so nothing in its output
+// depends on time). Its own token is valid by any present clock (variant 14). Its sentinel is a second listener of the
+// Rust client. No line of this node prints a time.
+// (P is built in this trial's one directory, whose unit list holds the test unit for N, as node O of
+// trials/c2_tempus_clients is. The node whose build lists nothing of the test unit is node P of trials/t6_tempus_clock.)
+fn port() -> string { "25601" }
+fn sents() -> string { "127.0.0.1:25604" }
+fn tok() -> int64 { 14 }
+fn back() -> int64 { 1 }
+fn blim() -> int64 { 0 }
+fn fail() -> int64 { 2 }
+fn driven() -> boolean { false }
+fn ext_start(app: actor_ref) -> actor_ref { app }

@@ -1,0 +1,9 @@
+<!-- The C# extension for TEMPUS: a class library with no Main, no test code and no package reference.
+     A usable example, to be used carefully: see ../README.md. -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <AssemblyName>BeesTempus</AssemblyName>
+    <RootNamespace>Bees.Tempus</RootNamespace>
+  </PropertyGroup>
+</Project>

@@ -1,7 +1,7 @@
 // Ed25519, SHA-512 and certificates, through the OpenSSL installed on the machine.
 // CryptoKit is not used: its Ed25519 signatures are randomized, so the same key and message give different bytes on
 // every call, and the tokens and proofs of the trials could not be compared byte for byte.
-// An example only: not for production.
+// A usable example, to be used with care (README.md says what care means).
 import COpenSSL
 
 public struct CryptoFailure: Error, CustomStringConvertible {
@@ -30,15 +30,11 @@ public func randomBytes(_ n: Int) throws -> Bytes {
 
 /// An Ed25519 private key, from its 32-byte seed.
 public final class SigningKey {
-    let pkey: OpaquePointer
+    package let pkey: OpaquePointer
     public let pub: Bytes
-    /// The seed the key was made from. It is kept so that an identity can be made again with another token; nothing
-    /// in this library prints it.
-    public let seed: Bytes
 
     public init(seed: Bytes) throws {
         guard seed.count == 32 else { throw CryptoFailure("an Ed25519 seed is 32 bytes") }
-        self.seed = seed
         guard let k = EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, nil, seed, 32) else {
             throw CryptoFailure("the Ed25519 key could not be made")
         }
@@ -82,7 +78,7 @@ public func ed25519Verify(pub: Bytes, message: Bytes, sig: Bytes) -> Bool {
 }
 
 // ---------------------------------------------------------------- certificates
-func derOf(_ x: OpaquePointer) -> Bytes? {
+package func derOf(_ x: OpaquePointer) -> Bytes? {
     let n = i2d_X509(x, nil)
     guard n > 0 else { return nil }
     var out = Bytes(repeating: 0, count: Int(n))
@@ -93,7 +89,7 @@ func derOf(_ x: OpaquePointer) -> Bytes? {
     return written == n ? out : nil
 }
 
-func x509(der: Bytes) -> OpaquePointer? {
+package func x509(der: Bytes) -> OpaquePointer? {
     der.withUnsafeBufferPointer { buf -> OpaquePointer? in
         var p = buf.baseAddress
         let x = d2i_X509(nil, &p, der.count)

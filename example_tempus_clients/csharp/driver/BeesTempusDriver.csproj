@@ -1,0 +1,12 @@
+<!-- The driver of the C# extension for TEMPUS: the command line of the client half, and an example application that
+     is a node. It references the library and nothing of the tests. A usable example, to be used carefully. -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>bees-tempus</AssemblyName>
+    <RootNamespace>Bees.Tempus.Driver</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../lib/BeesTempus.csproj" />
+  </ItemGroup>
+</Project>

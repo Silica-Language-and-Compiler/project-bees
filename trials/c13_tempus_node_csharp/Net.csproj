@@ -1,0 +1,12 @@
+<!-- TEST CODE of trial c13_tempus_node_csharp: the program that hosts the C# nodes of the mixed network. It references
+     the extension and its TEST ONLY support. -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>net</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../example_tempus_clients/csharp/lib/BeesTempus.csproj" />
+    <ProjectReference Include="../../example_tempus_clients/csharp/testing/BeesTempusTesting.csproj" />
+  </ItemGroup>
+</Project>

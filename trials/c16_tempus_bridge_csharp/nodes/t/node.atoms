@@ -1,0 +1,9 @@
+# node T's own atoms: the demo service's names and its failure reason
+demo
+add
+echo
+slow
+crash
+note
+secret
+badarith

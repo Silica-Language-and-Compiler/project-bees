@@ -1,5 +1,5 @@
 // Identities, the verifier (design section 4) and outcomes.
-// An example only: not for production.
+// A usable example, to be used with care (README.md says what care means).
 
 /// One peer: its Ed25519 key, pub, peer id = SHA-512(pub), the certificate self-signed over that key (DER), its token
 /// exactly as the producer gave it, and the listen address text "host:port" it advertises.
@@ -19,6 +19,14 @@ public final class Identity {
         self.token = token
         self.addr = addr
         self.certDER = try certDER ?? selfSignedCertificate(key: key, commonName: commonName, serial: serial)
+    }
+
+    /// The same identity with another token: the key is shared, no seed is needed again.
+    package init(key: SigningKey, token: Bytes, addr: String?, certDER: Bytes) {
+        self.key = key
+        self.token = token
+        self.addr = addr
+        self.certDER = certDER
     }
 
     public func descriptor(addr other: String? = nil) throws -> Descriptor {

@@ -1,0 +1,2 @@
+# c12_tempus_csharp needs the .NET SDK 11 (dotnet), installed on the Mac only: declared for the Mac, N/A elsewhere
+macos_applesilicon

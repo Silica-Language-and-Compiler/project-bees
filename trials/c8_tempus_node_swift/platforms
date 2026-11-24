@@ -1,0 +1,2 @@
+# c8_tempus_node_swift needs the Swift toolchain (Apple's Command Line Tools), installed on the Mac only: declared for the Mac, N/A elsewhere
+macos_applesilicon

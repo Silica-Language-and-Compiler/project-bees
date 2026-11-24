@@ -1,2 +1,2 @@
-# c7_tempus_gossip needs the Swift and/or Kotlin toolchains (and a JDK 27), installed on the Mac only: declared for the Mac, N/A elsewhere
+# c7_tempus_gossip needs the Swift, Kotlin (and a JDK 27), .NET SDK 11 and Rust toolchains, installed on the Mac only: declared for the Mac, N/A elsewhere
 macos_applesilicon

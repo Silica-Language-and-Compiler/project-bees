@@ -1,0 +1,11 @@
+// C14 Rust client trial: node N, a test program (externally driven, by the test unit of src/tempus_test): its clock is
+// the trial's value, 1500, and its stores tick when the trial tool sends a tick frame. Its sentinel is the Rust
+// client's listener. The Rust client sends it no test-only frame: the trial tool does, through the Python example.
+fn port() -> string { "25600" }
+fn sents() -> string { "127.0.0.1:25602" }
+fn tok() -> int64 { 1 }
+fn back() -> int64 { 1 }
+fn blim() -> int64 { 0 }
+fn fail() -> int64 { 2 }
+fn driven() -> boolean { true }
+fn ext_start(app: actor_ref) -> actor_ref { bees_tempus_test@start(tempus_ids@now()) }

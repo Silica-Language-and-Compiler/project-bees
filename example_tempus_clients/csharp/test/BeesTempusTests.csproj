@@ -1,0 +1,12 @@
+<!-- The tests of the C# extension for TEMPUS: a plain console program, with no test framework. -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>bees-tempus-tests</AssemblyName>
+    <RootNamespace>Bees.Tempus.Tests</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../lib/BeesTempus.csproj" />
+    <ProjectReference Include="../testing/BeesTempusTesting.csproj" />
+  </ItemGroup>
+</Project>

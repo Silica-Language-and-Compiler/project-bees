@@ -1,0 +1,70 @@
+# part 1: the Silica sentinel S, the Silica edge E and the Swift edge A; every clock is 1500
+J1 E joined through S, then A joined through S: A holds E in its edge store and S in its sentinel store
+H1 A's tick: A shuffled its edge store with E, its own entry first at age 0; E holds A at age 0
+H2 E's tick: E shuffled its edge store with A; A answered and holds E at age 0
+H3 S's tick: S shuffled its edge store with A
+H4 A's tick of its sentinel store: A shuffled with S and holds S at age 0 again
+H5 a sample of A's edge store by another peer -> reply sample_reply entries=[0:b19edad2958934e1] store=tempus_edge peer=9200d2990c3e9eb7 typ=tempus_edge
+# refusals: each step is done to the Silica node E and to the Swift node A, and their audit lines are compared
+R1 an expired token -> the peer saw closed at=challenge; both nodes: admission_refused peer=958cff49930885d2 the token has expired
+R2 a token that is not valid yet -> the peer saw closed at=challenge; both nodes: admission_refused peer=958cff49930885d2 the token is not valid yet
+R3 a token another key signed -> the peer saw closed at=challenge; both nodes: admission_refused peer=958cff49930885d2 the signature does not verify
+R4 a token under the old kid -> the peer saw key_rotated at=challenge; both nodes: key_rotated peer=958cff49930885d2 the peer's token is under another kid; it was told the current one
+R5 a token whose sub is another key -> the peer saw closed at=challenge; both nodes: admission_refused peer=958cff49930885d2 sub is not the peer's key
+R6 somebody else's advert -> the peer saw closed at=challenge; both nodes: binding_refused peer=cb133950f3232872 the advert's pub is not the key of the peer's TLS certificate
+R7 an advert whose id is not the hash of its pub -> the peer saw closed at=challenge; both nodes: admission_refused peer=cb133950f3232872 id is not the SHA-512 of pub
+R8 a sentinel token under a certificate that is not whitelisted -> the peer saw closed at=challenge; both nodes: whitelist_reject peer=958cff49930885d2 a tempus_bridge or tempus_sentinel token under a certificate that is not in the tempus whitelist
+R9 a whitelisted certificate with an edge token -> the peer saw closed at=challenge; both nodes: whitelist_reject peer=9e1113ab416dc197 a certificate of the tempus whitelist with a token whose typ is not tempus_bridge or tempus_sentinel
+R10 a proof by another key -> the peer saw closed at=reply; both nodes: pop_failed peer=958cff49930885d2 the proof of possession does not verify
+R11 a proof over another nonce -> the peer saw closed at=reply; both nodes: pop_failed peer=958cff49930885d2 the proof of possession does not verify
+R12 a proof of 63 bytes -> the peer saw closed at=reply; both nodes: pop_failed peer=958cff49930885d2 sig is not 64 bytes
+R13 no proof: the request comes where it was due -> the peer saw closed at=reply; both nodes: pop_failed peer=958cff49930885d2 a response was expected
+R14 a first frame that is no advert -> the peer saw closed at=challenge; both nodes: protocol_error peer=- the first frame is not an advert
+R15 a second advert where the challenge was due -> the peer saw closed at=response; both nodes: protocol_error peer=958cff49930885d2 a challenge was expected
+R16 a first frame above the frame ceiling -> the peer saw closed at=challenge; both nodes: protocol_error peer=- frame refused before decoding: too_large
+R17 a request above the frame ceiling -> the peer saw closed at=reply; both nodes: admitted peer=958cff49930885d2 tempus_edge, token and proof of possession | protocol_error peer=958cff49930885d2 frame refused before decoding: too_large
+R18 a sample of more than the shuffle length -> the peer saw closed at=reply; both nodes: admitted peer=958cff49930885d2 tempus_edge, token and proof of possession | protocol_error peer=958cff49930885d2 n is not 1 to the shuffle length
+R19 a sample of more than the store's shuffle length -> the peer saw closed at=reply; both nodes: admitted peer=958cff49930885d2 tempus_edge, token and proof of possession | protocol_error peer=958cff49930885d2 n is not 1 to the shuffle length
+R20 a sample with an unknown key -> the peer saw closed at=reply; both nodes: admitted peer=958cff49930885d2 tempus_edge, token and proof of possession | protocol_error peer=958cff49930885d2 unknown_field
+R21 a sample of a store that is no peer type -> the peer saw closed at=reply; both nodes: admitted peer=958cff49930885d2 tempus_edge, token and proof of possession | protocol_error peer=958cff49930885d2 store is not a peer type
+R22 a shuffle of more entries than the shuffle length -> the peer saw closed at=reply; both nodes: admitted peer=958cff49930885d2 tempus_edge, token and proof of possession | protocol_error peer=958cff49930885d2 more entries than the shuffle length
+R23 a shuffle with an age above 65535 -> the peer saw closed at=reply; both nodes: admitted peer=958cff49930885d2 tempus_edge, token and proof of possession | protocol_error peer=958cff49930885d2 age is not 0 to 65535
+R24 a shuffle with an entry another key signed, beside a good one -> the peer saw closed at=reply; both nodes: admitted peer=958cff49930885d2 tempus_edge, token and proof of possession | entry_refused peer=958cff49930885d2 entry 1: the signature does not verify
+R25 a shuffle of the sentinel store with an edge's entry -> the peer saw closed at=reply; both nodes: admitted peer=958cff49930885d2 tempus_edge, token and proof of possession | entry_refused peer=958cff49930885d2 entry 0: typ is not the store's type
+R26 a shuffle of the bridge store with more entries than that store's shuffle length -> the peer saw closed at=reply; both nodes: admitted peer=958cff49930885d2 tempus_edge, token and proof of possession | shuffle_refused peer=- the store refused the frame
+R27 a request that is no term -> the peer saw closed at=reply; both nodes: admitted peer=958cff49930885d2 tempus_edge, token and proof of possession | protocol_error peer=958cff49930885d2 not a request: bad_version
+R28 a reply frame where a request was due -> the peer saw closed at=reply; both nodes: admitted peer=958cff49930885d2 tempus_edge, token and proof of possession | protocol_error peer=958cff49930885d2 not a request: unknown kind
+R29 a call: neither node is a bridge -> the peer saw closed at=reply; both nodes: admitted peer=958cff49930885d2 tempus_edge, token and proof of possession | request_refused peer=958cff49930885d2 call and cast are served by a bridge only
+R30 a cast: neither node is a bridge -> the peer saw closed at=reply; both nodes: admitted peer=958cff49930885d2 tempus_edge, token and proof of possession | request_refused peer=958cff49930885d2 call and cast are served by a bridge only
+R31 the peer closes after its advert -> the peer saw closed at=challenge; both nodes: closed_by_peer peer=(any) stage (any)
+R32 the peer stays silent where its request was due, past the node's time bound -> the peer saw closed at=request; both nodes: admitted peer=958cff49930885d2 tempus_edge, token and proof of possession | timeout peer=958cff49930885d2 stage request
+R33 the peer stays silent where its proof was due, past the node's time bound -> the peer saw closed at=response; both nodes: timeout peer=958cff49930885d2 stage response
+R34 TLS: another ALPN protocol -> the peer saw tls_failed at=tls; both nodes: alpn_mismatch peer=- the peer did not agree on ALPN tempus/1, as server
+R35 TLS: no certificate -> the peer saw tls_failed at=tls; both nodes: tls_verify_failed peer=- the peer presented no certificate, as server
+R36 TLS: a P-256 certificate -> the peer saw closed at=advert; both nodes: tempus_cert_key peer=- the peer certificate's key is not Ed25519, as server
+R37 TLS: version 1.2 only -> the peer saw tls_failed at=tls; both nodes: tls_handshake_failed peer=- the TLS 1.3 handshake failed (alert, version, group, suite or signature outside the tempus/1 profile), as server
+R38 a third connection while two are held open (inflight_max is 2) -> the peer saw closed at=advert; both nodes: inflight_refused peer=- more accepted connections than inflight_max: closed at once
+# the clock of A: clock_back hold, clock_fail continue
+C1 A's clock reads 1505: a token that ends at 1500 is inside the skew of 10 -> reply
+C2 the clock goes back to 1490 and A holds 1510: the same token has expired by the held time -> closed
+C3 a reading fails: A goes on with its last reading and still serves -> reply
+C4 the next reading, 1495, is still behind: the hold is said once more; at 1510 the hold ends
+C5 A's clock reads 3050: E's entry, whose token ended at 3000, left A's view; the view is empty, so A asked S again, and refused S's token, which has ended too
+C6 A's clock reads 4100, past its own token: ticking stopped; A still listens, and a peer's own check refuses A's advert -> refused
+C7 the application passes a new token: A ticks again and a peer admits it -> reply
+# part 2, node T: clock_back stop with the limit 60, clock_fail pause; no sentinel answers it
+T1 a reading fails: T waits for its clock; a connection is closed at once after its handshake -> closed at=advert
+T2 the join's retry falls due during the wait and dials nobody; when the clock is read again it is dialed at once
+T3 a step back of 51 s, inside the limit of 60: followed
+T4 a step back of 70 s, above the limit: T has stopped; a connection is closed at once -> closed at=advert
+T5 a later good reading, the join's retry and a tick change nothing: T stays stopped -> closed at=advert
+# part 2, node U: its clock cannot be read at its start
+U1 no reading at the start: U has not begun and does not listen -> unreachable
+U2 the first reading that succeeds: U listens and serves -> reply
+# part 3: the Swift node R (tempus-node-example, no test program) and the Silica node P; both read the machine's clock
+M1 P's first try found nobody; R started; P's retry joined through R
+M2 R's own timer ticked its edge store: R shuffled with P, and P answered
+M3 a sample of R's edge store by another peer, which reads the machine's clock too -> reply sample_reply entries=[0:1fae2ad7f75a0ded] store=tempus_edge peer=9e1113ab416dc197 typ=tempus_sentinel
+M4 a test-only tick frame: to a node that is no test program a frame of no kind -> the peer saw closed at=reply; both nodes: admitted peer=958cff49930885d2 tempus_edge, token and proof of possession | protocol_error peer=958cff49930885d2 not a request: unknown_atom
+M5 a test-only clock frame: to a node that is no test program a frame of no kind -> the peer saw closed at=reply; both nodes: admitted peer=958cff49930885d2 tempus_edge, token and proof of possession | protocol_error peer=958cff49930885d2 not a request: unknown_atom
+M6 a test-only clock frame with two readings: to a node that is no test program a frame of no kind -> the peer saw closed at=reply; both nodes: admitted peer=958cff49930885d2 tempus_edge, token and proof of possession | protocol_error peer=958cff49930885d2 not a request: unknown_atom
