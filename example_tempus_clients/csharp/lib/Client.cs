@@ -1,4 +1,4 @@
-// EXAMPLE ONLY, not for production. See README.md in the directory above.
+// A usable example, to be used carefully. See README.md in the directory above.
 //
 // The client half: an ordinary TEMPUS peer over TCP and mutual TLS 1.3, in both positions. Client.Dial connects, is
 // admitted, sends ONE request and reads its reply. Listener accepts, is admitted, reads one request and answers it.

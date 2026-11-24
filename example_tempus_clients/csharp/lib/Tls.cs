@@ -1,4 +1,4 @@
-// EXAMPLE ONLY, not for production. See README.md in the directory above.
+// A usable example, to be used carefully. See README.md in the directory above.
 //
 // The transport: TCP with mutual TLS 1.3 on top, through OpenSSL (OpenSsl.cs). TLS, exactly:
 //   - TLS 1.3 only; the key exchange group X25519MLKEM768 only; the cipher suites TLS_AES_256_GCM_SHA384 and

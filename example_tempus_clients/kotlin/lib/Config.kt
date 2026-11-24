@@ -1,4 +1,4 @@
-// EXAMPLE ONLY, not for production. See README.md beside the lib directory.
+// A usable example, to be used carefully. See README.md beside the lib directory.
 //
 // A node's configuration, as a value the application builds: the keys of the `tempus` section of bees.config
 // (development-plan/tempus-design.md section 11), with the bounds and refusals of tools/bees_tempus_conf.py and the

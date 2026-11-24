@@ -6,8 +6,6 @@ import Foundation
 import TempusClient
 import TempusNode
 import TempusClientTesting
-// TempusClient has a store of its own with the same name (lib/TempusClient/Gossip.swift); the node's is meant here
-import struct TempusNode.Store
 
 nonisolated(unsafe) var passed = 0
 nonisolated(unsafe) var failed = 0
@@ -379,6 +377,85 @@ func atomTests(_ root: String) {
     same(word(.map(["t": .atom("sample"), "store": .atom("no_such_atom"), "n": .int(1)])), "unknown_atom", "a value that is an atom no node holds")
 }
 
+// ---------------------------------------------------------------- three nodes of this library as one network
+/// What each node of the network below was told of its views: every identity seen per store, and whether every view
+/// was sound (within its capacity, no peer twice, never the node itself).
+final class Seen: @unchecked Sendable {
+    private let lock = NSLock()
+    private var ids: [[PeerType: Set<Bytes>]] = [[:], [:], [:]]
+    private var sound = true
+
+    func view(_ k: Int, _ store: PeerType, _ entries: [ViewEntry<Descriptor>], me: Bytes, capacity: Int) {
+        lock.lock()
+        ids[k][store, default: []].formUnion(entries.map(\.id))
+        if entries.count > capacity || Set(entries.map(\.id)).count != entries.count || entries.contains(where: { $0.id == me }) { sound = false }
+        lock.unlock()
+    }
+
+    func has(_ k: Int, _ store: PeerType, _ id: Bytes) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return ids[k][store]?.contains(id) ?? false
+    }
+
+    var allSound: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return sound
+    }
+}
+
+/// A sentinel and two edges of this library in one process, over mutual TLS 1.3 on 127.0.0.1, with the machine's clock,
+/// real timers and the system's random source: the edges are given the sentinel's address only, and each must come to
+/// hold the other. Tokens are valid from 1000 to 4000000000. The ports are ones the system had free.
+func networkTests() {
+    do {
+        let far: Int64 = 4_000_000_000
+        let producer = try SigningKey(seed: fixtureSeed(0))
+        let probe = try fixtureIdentity(96, typ: "tempus_edge", nbf: 1000, exp: far, addr: "127.0.0.1:1")
+        let ports = try (0..<3).map { _ -> Int in
+            let l = try Listener(identity: probe, verifier: Verifier(producerPub: producer.pub, kid: Array("k1".utf8), clock: { 1500 }, skew: 10),
+                                 timeout: 1.0) { _ in .close }
+            defer { l.start().stop() }
+            return l.port
+        }
+        let firsts: [UInt8] = [128, 32, 64]
+        let ids = try (0..<3).map { k in
+            try fixtureIdentity(firsts[k], typ: k == 0 ? "tempus_sentinel" : "tempus_edge", nbf: 1000, exp: far, addr: "127.0.0.1:\(ports[k])")
+        }
+        let store = StoreConfig(capacity: 4, shuffleLength: 3, tickMs: 150)
+        let seen = Seen()
+        var nodes: [TempusNode] = []
+        for k in 0..<3 {
+            let config = TempusConfig(role: k == 0 ? .sentinel : .edge, listenAddress: "127.0.0.1", port: ports[k],
+                                      sentinels: k == 0 ? [] : [Sentinel(host: "127.0.0.1", port: ports[0])],
+                                      edge: store, bridge: store, sentinel: store,
+                                      producerKid: Array("k1".utf8), producerKey: producer.pub, whitelist: [ids[0].certDER],
+                                      shuffleTimeoutMs: 3000, inflightMax: 8, clockSkewMs: 10000, clockBack: .follow, clockBackLimitS: nil,
+                                      clockFail: .continue, clockReadMs: 1000, joinRetryInitialMs: 200, joinRetryMaxMs: 800)
+            let idn = NodeIdentity(seed: fixtureSeed(firsts[k]), certificateDER: ids[k].certDER, token: ids[k].token, address: "127.0.0.1:\(ports[k])")
+            let me = ids[k].peerId
+            let node = try TempusNode(config: config, identity: idn, lines: { _ in }, events: { event in
+                if case .view(let st, let entries) = event { seen.view(k, st, entries, me: me, capacity: 4) }
+            })
+            node.start()
+            nodes.append(node)
+        }
+        let id = ids.map(\.peerId)
+        func complete() -> Bool {
+            seen.has(1, .edge, id[2]) && seen.has(2, .edge, id[1]) && seen.has(1, .sentinel, id[0]) && seen.has(2, .sentinel, id[0])
+                && seen.has(0, .edge, id[1]) && seen.has(0, .edge, id[2])
+        }
+        let until = Date().addingTimeInterval(20)
+        while !complete() && Date() < until { usleep(50_000) }
+        check(complete(), "network: two edges that know only the sentinel's address come to hold each other, and the sentinel both")
+        check(seen.allSound, "network: every view is within its capacity, holds no peer twice and never the node itself")
+        for n in nodes { n.stop() }
+    } catch {
+        check(false, "network tests: \(error)")
+    }
+}
+
 let args = CommandLine.arguments
 if args.count == 2 && args[1] == "model" {
     model()
@@ -387,6 +464,7 @@ if args.count == 2 && args[1] == "model" {
     configTests()
     admissionTests(args[1])
     atomTests(args[1])
+    networkTests()
     print("tempus-node-tests: \(passed) passed, \(failed) failed")
     exit(failed == 0 ? 0 : 1)
 } else {

@@ -1,4 +1,4 @@
-// EXAMPLE ONLY, not for production. See README.md in the directory above.
+// A usable example, to be used carefully. See README.md in the directory above.
 //
 // The node's clock: what one reading of the system clock does to the node's time and clock state (rulings NQ-11 and
 // NQ-22; development-plan/tempus-design.md section 10). Pure, and equal to bees_tempus_node@clock_back and

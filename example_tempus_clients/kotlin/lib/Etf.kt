@@ -1,4 +1,4 @@
-// EXAMPLE ONLY, not for production. See README.md beside the lib directory.
+// A usable example, to be used carefully. See README.md beside the lib directory.
 //
 // The part of the Erlang external term format (ETF) that tempus/1 uses: maps with atom keys, atoms, binaries,
 // integers and lists. Written from example_tempus_clients/writing-a-tempus-client.md section 4 and the ruled design

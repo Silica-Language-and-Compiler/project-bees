@@ -1,4 +1,4 @@
-<!-- Settings shared by the four projects of the C# extension for TEMPUS. EXAMPLE ONLY, not for production: see README.md. -->
+<!-- Settings shared by the four projects of the C# extension for TEMPUS. A usable example, to be used carefully: see README.md. -->
 <Project>
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>

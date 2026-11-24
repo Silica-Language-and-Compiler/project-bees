@@ -1,4 +1,4 @@
-// EXAMPLE ONLY, not for production. See README.md beside the lib directory.
+// A usable example, to be used carefully. See README.md beside the lib directory.
 //
 // A TEMPUS node: an edge or a sentinel (never a bridge, which is also a TRUST node). It does what the Silica node of
 // src/tempus does (development-plan/tempus-design.md sections 3 to 6 and 8 to 11): it reads the clock, listens, joins
@@ -193,8 +193,8 @@ class TempusNode private constructor(private val config: TempusConfig, identity:
     private var me: Identity = identity
     private var kid: ByteArray = config.producerKid
     private var producerKey: ByteArray = config.producerKey
-    private val stores: Map<String, NodeStore<Descriptor>> = types.associateWith { t ->
-        NodeStore(myId, identity.descriptor(), t == config.typ, config.store(t).capacity, config.store(t).shuffleLength)
+    private val stores: Map<String, Store<Descriptor>> = types.associateWith { t ->
+        Store(myId, identity.descriptor(), t == config.typ, config.store(t).capacity, config.store(t).shuffleLength)
     }
     private var now = 0L
     private var ck = ClockState.NO_READING
@@ -272,7 +272,7 @@ class TempusNode private constructor(private val config: TempusConfig, identity:
         if (s.replyDraws == null) s.replyDraws = env.draws.draws(typ, s.count + 1)
     }
 
-    private fun held(e: Entry) = NodeHeld(hex(e.d.id), e.d, e.age)
+    private fun held(e: Entry) = Held(hex(e.d.id), e.d, e.age)
 
     private fun show(typ: String) = tell(NodeEvent.ViewChanged(typ, stores.getValue(typ).view.map { Entry(it.age, it.d) }))
 
@@ -389,7 +389,7 @@ class TempusNode private constructor(private val config: TempusConfig, identity:
             show(typ)
             if (out.typ == "tempus_sentinel") {
                 // ruling NQ-12: a joiner keeps the sentinel it joined through, at age 0, after the sample's entries
-                stores.getValue("tempus_sentinel").insert(NodeHeld(hex(out.peer.id), out.peer, 0))
+                stores.getValue("tempus_sentinel").insert(Held(hex(out.peer.id), out.peer, 0))
                 show("tempus_sentinel")
             }
             if (!start) return
@@ -528,7 +528,7 @@ class TempusNode private constructor(private val config: TempusConfig, identity:
                 // a sentinel inserts the peer that asks into its store of the peer's type, after the sample was taken
                 // (ruling NQ-13), so a joiner is never answered with itself
                 if (config.role == "sentinel") {
-                    stores.getValue(r.typ).insert(NodeHeld(hex(r.peer.id), r.peer, 0))
+                    stores.getValue(r.typ).insert(Held(hex(r.peer.id), r.peer, 0))
                     show(r.typ)
                 }
                 return out?.let { sampleReply(b.store, it.map { e -> Entry(e.age, e.d) }) }

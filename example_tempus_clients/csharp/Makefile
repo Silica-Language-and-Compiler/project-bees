@@ -1,4 +1,4 @@
-# The C# extension for TEMPUS: a client and a node. EXAMPLE ONLY, not for production: see README.md.
+# The C# extension for TEMPUS: a client and a node. A usable example, to be used carefully: see README.md.
 #
 #   make build   checks the layering (test/layering_check.py: the library and the driver depend on no test code and on
 #                no package), then compiles into build/bin/:

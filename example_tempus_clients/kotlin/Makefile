@@ -1,4 +1,4 @@
-# The Kotlin extension for TEMPUS: a client and a node. EXAMPLE ONLY, not for production: see README.md.
+# The Kotlin extension for TEMPUS: a client and a node. A usable example, to be used carefully: see README.md.
 #
 #   make build   compiles two files into build/:
 #                  bees-tempus.jar         the extension alone (lib/*.kt): what an application puts on its class path,
@@ -8,9 +8,8 @@
 #   make gossip  build, then four instances of the driver as one TEMPUS network on this machine
 #                (../gossip/gossip_run.py run kotlin)
 #   make test    compiles the extension, the driver and test/*.kt into build/bees-tempus-client-test.jar and runs the
-#                tests of the client (test/TestMain.kt), of the gossip of lib/Gossip.kt (test/GossipTest.kt) and of the
-#                node (test/NodeTestMain.kt, which reads the cases that test/model_cases.py writes from the two Python
-#                models). make test-build compiles and runs nothing
+#                tests of the client (test/TestMain.kt) and of the node (test/NodeTestMain.kt, which reads the cases
+#                that test/model_cases.py writes from the two Python models). make test-build compiles and runs nothing
 #   make clean   removes build/
 #
 # Needs kotlinc and a JDK of release 27 or later: its TLS can offer the key exchange group X25519MLKEM768 (OpenJDK 25
@@ -51,7 +50,6 @@ $(CASES): $(HERE)/test/model_cases.py $(wildcard $(BEES_ROOT)/tools/bees_tempus_
 	@python3 "$(HERE)/test/model_cases.py" "$@"
 test: $(TEST_JAR) $(CASES)
 	@cd "$(BEES_ROOT)" && "$(JAVA)" -cp "$(TEST_JAR)" bees.tempus.test.TestMainKt "$(BEES_ROOT)"
-	@cd "$(BEES_ROOT)" && "$(JAVA)" -cp "$(TEST_JAR)" bees.tempus.test.GossipTestKt "$(BEES_ROOT)"
 	@cd "$(BEES_ROOT)" && "$(JAVA)" -cp "$(TEST_JAR)" bees.tempus.test.NodeTestMainKt "$(BEES_ROOT)" "$(CASES)"
 gossip: build
 	@JAVA="$(JAVA)" python3 "$(HERE)/../gossip/gossip_run.py" run kotlin

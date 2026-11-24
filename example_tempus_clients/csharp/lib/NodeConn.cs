@@ -1,4 +1,4 @@
-// EXAMPLE ONLY, not for production. See README.md in the directory above.
+// A usable example, to be used carefully. See README.md in the directory above.
 //
 // One tempus/1 connection of a node (design sections 4, 5, 8 and 10), dialed or accepted: the same until the request.
 // The order, the checks, the audit events and their texts are those of src/tempus/dangerous_bees_tempus_conn.silica

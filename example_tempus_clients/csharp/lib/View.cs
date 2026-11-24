@@ -1,4 +1,4 @@
-// EXAMPLE ONLY, not for production. See README.md in the directory above.
+// A usable example, to be used carefully. See README.md in the directory above.
 //
 // The view of one store and the steps of one store: the rules of development-plan/tempus-design.md section 3 (the
 // Cyclon view, with the rulings OQ-5, OQ-12, NQ-15 and NQ-16), equal in behaviour to the Silica units

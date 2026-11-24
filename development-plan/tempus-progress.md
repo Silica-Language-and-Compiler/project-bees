@@ -1140,3 +1140,28 @@ now every atom of src/tempus/bees_tempus.atoms and src/trust/bees_trust.atoms (6
 files and requires the list to equal their union. tempus-node-tests is 212 tests (was 207). No golden changed; c5, c8
 and c10 pass. The cases were not added to c8, because its steps are numbered and its audit lines carry connection
 counters, so new cases would change existing golden lines.
+
+## 2026-11-24, one gossip implementation per language, and "usable examples" (owner's rulings)
+
+Ruling 1: "select the implementation for each language that is the most complete, produces the smallest code, and
+will be the most usable and stable." In Python, Swift and Kotlin the node half was kept and main's `Peer` removed:
+Python lib/tempus_client/ and test_tempus_gossip.py, Kotlin lib/Gossip.kt and test/GossipTest.kt, Swift
+lib/TempusClient/Gossip.swift and the gossip part of tempus-client-tests, together with what existed only so two
+implementations could coexist (Kotlin's NodeStore and NodeHeld are Store and Held again; Swift's two-Store import is
+gone; Python's bees_tempus_client.py is a plain name for the one test support, and BEES_TEMPUS_TEST_SUPPORT is gone).
+Nothing had to be carried into the node halves: each already tells its application of view changes and takes a new
+token. Measured in lines of code that are not blank or comment: Python 5225 to 3787, Swift 4590 to 4120, Kotlin 3202
+to 2756; the Kotlin extension jar went from 101 classes to 89. Each driver's `gossip` command now runs a node, with its
+command line and output unchanged, so the gossip example's goldens did not change; the values a node requires and the
+example does not pass are stated once in each driver as its own choices (in-flight limit 16, clock_back follow,
+clock_fail continue, clock_read_ms 1000). Cases of the removed tests that the node tests lacked were ported: Python's
+random view and store comparisons with the models, Swift's and Kotlin's three peers in one process over TLS (the
+Kotlin one adds one line to the tests golden of c9_tempus_node_kotlin, the only golden that changed). The Python and
+Kotlin agents first given this were stopped part way by a usage limit; agents on another model finished their work
+from the tree.
+
+Ruling 2: "change the wording to be usable examples, use carefully." The directory README (now titled "TEMPUS
+extensions"), every extension's README, the two guides and the source headers say the extensions are usable examples
+to be used carefully, each with a list of what care means: no review as production code, one platform, no soak or
+load test, keys, certificates and tokens supplied by the application, test support kept out of what an application
+links, no bridge role, no promise that interfaces stay the same.

@@ -1,6 +1,6 @@
 // The Erlang external term format, the subset tempus/1 uses: maps with atom keys, atoms, binaries, integers, lists.
 // Written from development-plan/tempus-design.md section 5 and example_tempus_clients/writing-a-tempus-client.md.
-// An example only: not for production.
+// A usable example, to be used with care (README.md says what care means).
 
 /// A body or a token this client does not accept. `reason` says why.
 public struct Refused: Error, Equatable, CustomStringConvertible {

@@ -1,4 +1,4 @@
-// EXAMPLE ONLY, not for production. See README.md in the directory above.
+// A usable example, to be used carefully. See README.md in the directory above.
 //
 // Ed25519, SHA-512, random bytes and certificates, through OpenSSL (OpenSsl.cs). An Ed25519 signature made here is
 // the same bytes on every call (RFC 8032), so tokens and proofs can be compared byte for byte with the other

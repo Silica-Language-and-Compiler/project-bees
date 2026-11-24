@@ -1,4 +1,4 @@
-# The Rust TEMPUS extension: build and unit tests. An example only: not for production (README.md).
+# The Rust TEMPUS extension: build and unit tests. A usable example, to be used carefully (README.md).
 # Needs cargo and rustc (any way of installing Rust that provides them) and an installed OpenSSL with X25519MLKEM768
 # and Ed25519 (the one the BEES Makefiles use: native/macos/platform.mk, or OPENSSL_PREFIX=...).
 # Nothing is fetched: the workspace has no dependency outside itself, and cargo is run with --offline.

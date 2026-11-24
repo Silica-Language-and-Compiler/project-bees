@@ -4,77 +4,11 @@ This directory holds the Python extension for TEMPUS. An extension is code in a 
 application written in that language take part in a TEMPUS network. TEMPUS is the gossip membership mode of BEES: nodes
 find each other by exchanging small signed records over mutually authenticated TLS 1.3 connections.
 
-The statement at the top of [the directory's README](../README.md), that what is in this directory tree is an example
-and must not be used in production, stands until the project owner changes it. Its keys, certificates and tokens in
-the trials are test fixtures made from fixed seeds, part of it exists to misbehave on purpose, and it has had no review
-as production code. The section "What stands between this and production" below says more.
+The extension is a usable example, to be used carefully. The section "Using it carefully" at the end says what care
+means here: what was tested and what was not, what nobody has reviewed, and what an application must supply or decide
+for itself.
 
-## Two bodies of code, side by side
-
-Two lines of work each wrote Python code by which an application discovers other peers by gossip. Both are in this
-directory, both work, and each has its own tests, its own trial and its own callers. The project owner has not yet
-decided which of the two is the one to keep. Until that decision neither is to be removed and neither uses the other.
-
-| | The node half | The client library |
-| --- | --- | --- |
-| Where | `lib/bees_tempus_*.py` (seven modules) | `lib/tempus_client/` (a package) |
-| What an application imports | `bees_tempus_config` and `bees_tempus_node` to be a node; `bees_tempus_peer` to be a peer that is not a node | `tempus_client` |
-| What it is | a TEMPUS node, written after the Silica node decision for decision: an edge or a sentinel | a client with gossip discovery of its own: `Peer`, with three stores, the shuffle on a timer and the join |
-| Its test support | `testing/bees_tempus_testing.py` | `lib/tempus_client/testing.py` |
-| Its tests | `test_bees_tempus_node.py`, `test_bees_tempus_client.py` | `test_tempus_gossip.py`, `test_bees_tempus_client.py` |
-| Its trial | `trials/c7_tempus_node_python` | `trials/c7_tempus_gossip`, which runs `../gossip` |
-| Its program | `trials/c7_tempus_node_python/r_app.py` | `driver/tempus_peer.py` |
-
-What the node half does that the client library does not:
-
-- It accepts a connection from a certificate it has never seen, as a TEMPUS network requires. The client library
-  accepts only certificates it was given beforehand (`trusted=`), so it cannot be a full member of a network whose
-  members it does not know in advance.
-- It applies the `tempus` whitelist rule always. The client library applies it only when it is given a whitelist.
-- It has the node's clock rules (`clock_back` follow, hold or stop; `clock_fail` continue or pause; a join request
-  that waits for the clock), the limit on accepted connections (`inflight_max`), the node's close roles, and the
-  node's audit lines in the Silica node's words.
-- It has a configuration with the keys, bounds and refusals of the `tempus` section of `bees.config`.
-- It tells the application of an invalid own token, of `key_rotated`, of an unreadable clock and of a stop.
-- Its `dial` refuses a reply that is not the reply of its request and verifies every entry before any is used.
-- A test can step it by hand: its clock, timers and random source are given at construction.
-- Nothing of the trials is in its modules. The trial `trials/c7_tempus_node_python` and a unit test fail if anything is.
-
-What the client library does that the node half does not:
-
-- It is a package with a driver application (`driver/tempus_peer.py`), a command line an operator can run by hand.
-- Its rules are compared, step by random step, with the independent models `tools/bees_tempus_view_model.py` and
-  `tools/bees_tempus_store_model.py`.
-- It was run in one network with the Kotlin, Swift and Silica drivers (`../gossip`, the networks `mixed` and `trio`).
-  The node half was run with Silica nodes only.
-- Its `Verifier` takes the clock as a function the application supplies, and its settings are plain values with no
-  configuration layer.
-
-What both have, each in its own code: the codec and the frames, admission in both positions, the view rules, the store
-and its steps, the join through sentinels with retries, and the tick timers.
-
-The rest of this document describes the node half first and the client library second.
-
-## The layout
-
-| Path | What it is |
-| --- | --- |
-| `lib/bees_tempus_codec.py` and six more | The node half. The table in the next section names each module. |
-| `lib/tempus_client/` | The client library: `codec.py`, `frames.py`, `connection.py`, `gossip.py`, and the test-only `testing.py`. |
-| `testing/bees_tempus_testing.py` | The test support of the node half. Only tests and trials import it. |
-| `driver/tempus_peer.py` | The driver application of the client library: a command line over it. |
-| `bees_tempus_client.py` | The module name the trial tools import. See "The module the trial tools import". |
-| `test_bees_tempus_client.py` | Tests of the codec, the frames and single connections. They run over either body of code. |
-| `test_bees_tempus_node.py` | Tests of the node half. |
-| `test_tempus_gossip.py` | Tests of the gossip part of the client library. |
-| `Makefile` | `make test` runs every test; `make gossip` runs four instances of the driver as one network. |
-
-An application that uses the node half puts `lib/` on its module path and imports the modules by their names. An
-application that uses the client library puts `lib/` on its module path and imports `tempus_client`.
-
-## The node half: what an application can be
-
-With the node half a Python application can be one of two things:
+With this extension a Python application can be one of two things:
 
 - a TEMPUS peer that is not a node: it connects to nodes and makes requests of them, or listens and answers them. The
   document [What do I need to do to write a TEMPUS client?](../writing-a-tempus-client.md) describes what such a peer
@@ -87,9 +21,23 @@ A node of this extension can be an edge or a sentinel. It cannot be a bridge. A 
 of a TRUST network (TRUST is the other mode of BEES, for long-lived nodes that know each other in advance), and there
 is no TRUST in Python. A configuration that asks for the role `bridge` is refused.
 
+There is one implementation of each thing: one codec, one connection module, one node, one test support.
+
+## The layout
+
+| Path | What it is |
+| --- | --- |
+| `lib/` | The extension: seven modules. An application puts this directory on its module path. |
+| `testing/bees_tempus_testing.py` | The test support. Only tests and trials import it. |
+| `driver/tempus_peer.py` | The driver application: a command line over the extension. |
+| `bees_tempus_client.py` | A plain name for the test support, the name the trial tools import. An application never imports it. |
+| `test_bees_tempus_client.py` | Tests of the codec, the frames and single connections. |
+| `test_bees_tempus_node.py` | Tests of the node. |
+| `Makefile` | `make test` runs both test files; `make gossip` runs four instances of the driver as one network. |
+
 ## The files, and the line between the extension and the test support
 
-The node half is seven modules in `lib/`. An application imports these and nothing else.
+The extension is seven modules in `lib/`. An application imports these and nothing else.
 
 | Module | What it holds |
 | --- | --- |
@@ -108,11 +56,13 @@ peer), keys from fixed seeds that are written in this repository, fixed nonces, 
 also holds a clock, a timer source and a random source that a test steps by hand. No module of the extension imports
 it, and the trial `trials/c7_tempus_node_python` fails if any module of the extension contains any of those things.
 
+`bees_tempus_client.py` is a plain name for the test support. The trial tools of every language import that name
+(`import bees_tempus_client as c`), and it is a thin module that passes on every name of the test support.
+
 `test_bees_tempus_client.py` and `test_bees_tempus_node.py` are the tests. Run them from the BEES root directory:
 
 ```
-python3 example_tempus_clients/python/test_bees_tempus_client.py
-python3 example_tempus_clients/python/test_bees_tempus_node.py
+make -C example_tempus_clients/python test
 ```
 
 ## What an application must install
@@ -249,16 +199,67 @@ EVENT peer=... WHAT aN`). They have the wording of the Silica node's lines, so t
 They go to the function given as `log`, or to standard output when none is given, as the Silica node's do. No line
 holds a time of day, a key or a token.
 
-## What is tested of the node half, and by which trial
+## The driver application
+
+`driver/tempus_peer.py` is a program over the extension that an operator can run by hand. It has three commands, and
+with no arguments it prints every option.
+
+- `gossip` runs a node: an edge or a sentinel, by the type of its token. It prints the node's own lines, its audit
+  lines, a line `learned STORE ID16 HOST:PORT` for each peer the node comes to know, and at its end a line
+  `known STORE: ...` for each store.
+- `dial` connects to one peer, makes one request (`sample STORE N` or `shuffle STORE`) and prints the outcome.
+- `read-hex` reads one frame given as hex digits and prints what it is.
+
+```
+python3 example_tempus_clients/python/driver/tempus_peer.py gossip \
+    --cert node.pem --key node-key.pem --token node.token --addr 127.0.0.1:24801 \
+    --producer-pub HEX --kid k1 --skew 10 --timeout-ms 3000 \
+    --store-edge 8:4:500 --store-bridge 8:4:5000 --store-sentinel 8:4:1000 --join-retry-ms 500:2000 \
+    --sentinel 127.0.0.1:24800 --whitelist-cert sentinel.pem
+```
+
+The command line of `gossip` is older than the node and has fewer values than the node's configuration. The driver
+supplies the rest itself, and each of these is the driver's choice for the gossip example, not a default of the
+extension and not a recommendation:
+
+- `inflight_max` is 16, `clock_back` is `follow`, `clock_fail` is `continue`, and `clock_read_ms` is 1000. They are in
+  one place in the driver, `GOSSIP_CHOICES`.
+- The role is taken from the type of the token.
+- `--skew` is in seconds and becomes `clock_skew_ms`.
+- The certificates named with `--whitelist-cert` are copied into a directory made for the run, which becomes
+  `whitelist_cert_dir`. The configuration names one whitelist certificate for each sentinel, and the command line
+  gives a sentinel's address only, so the driver names the first whitelist certificate for every sentinel. The node
+  uses that name only to check that it is in the whitelist. Which certificate a sentinel presents is judged on each
+  connection by the whitelist rule.
+- `--now SECONDS` gives the node a clock that always reads that time, through the constructor argument a test uses.
+- `--trusted-cert` is read and not used. The node accepts a certificate it has never seen.
+
+Four instances of the driver as one TEMPUS network on this machine, one sentinel and three edges:
+
+```
+make -C example_tempus_clients/python gossip
+```
+
+Each edge is given the sentinel's address and nothing else. The run ends when every instance has learned of every
+edge. [The gossip README](../gossip/README.md) says what the printed check means. The same driver is one member of
+the networks there that mix the languages.
+
+## What is tested, and by which trial
 
 - `test_bees_tempus_node.py`:
   - the stores, by running the tools' own view and store tests with the extension's modules in the place of the two
     independent models, so that every line of the recorded outputs of `trials/t0_tempus_view` and
     `trials/t1_tempus_store` is computed again by the extension and compared;
+  - the stores again, by giving the same random inputs to the extension's view rules and store and to the two
+    independent models `tools/bees_tempus_view_model.py` and `tools/bees_tempus_store_model.py`, and requiring the
+    same view after each of 1200 steps;
   - the clock's decisions, by computing every line of the recorded output of `trials/t0_tempus_clock` again;
   - admission, with every case of `trials/t4_tempus_admission` and that trial's recorded reasons;
   - the configuration's refusals, with the cases and words of `tools/test_bees_tempus_conf.py` and the boot refusals
     of `trials/c4_tempus_boot`;
+  - the node's structure check, and that the atoms it holds are exactly the 68 of the Silica node's two atom files,
+    `src/tempus/bees_tempus.atoms` and `src/trust/bees_trust.atoms`, so that a `call` or `cast` naming any other
+    atom is refused as `unknown_atom`, as the Silica node refuses it;
   - that a reply must be the reply of its request and that its entries are verified;
   - nodes in one process, stepped by hand.
 - `trials/c7_tempus_node_python` runs Python nodes and Silica nodes in one network on the loopback address:
@@ -276,11 +277,12 @@ holds a time of day, a key or a token.
   - the extension's `dial` and `Listener` as a peer that is not a node, against a Silica node and against peers that
     answer wrongly.
 - The trials that existed before (`t2_tempus_frames`, `t3_tempus_nodes`, `t6_tempus_clock`, `c2_tempus_clients`,
-  `c3_tempus_bridge`, `c5_tempus_swift`, `c6_tempus_kotlin`) and the node trials of the other two extensions
-  (`c8_tempus_node_swift`, `c9_tempus_node_kotlin`) use the test support, which is built on the node half's codec,
-  admission checks and connection. Their recorded outputs did not change.
+  `c3_tempus_bridge`) and the client, node and bridge trials of the Swift, Kotlin, C# and Rust extensions (`c5`, `c6`
+  and `c8` to `c17`) use the test support, which is built on the extension's codec, admission checks and connection.
+- `../gossip` runs four instances of the driver as one network, and one instance in networks with the drivers of the
+  other languages. The trial `trials/c7_tempus_gossip` compares the checks of those runs with recorded ones.
 
-## What the node half does not cover
+## What is not covered
 
 - The bridge role, and with it everything of design section 17: serving `call` and `cast`, the permission specs, the
   per-peer score and its limit, the per-peer rate and requests in progress. A node of this extension refuses `call`
@@ -293,164 +295,52 @@ holds a time of day, a key or a token.
 - Any platform but the Mac the trials ran on. A Linux run of `trials/c7_tempus_node_python` has not been made, and
   its `platforms` file declares it for the Mac only until Linux goldens are recorded.
 
-## The module the trial tools import
+## Using it carefully
 
-`bees_tempus_client.py` exists because the trial tools were written against one module of that name
-(`import bees_tempus_client as c`). It holds no TEMPUS code of its own. It is the test support of one of the two bodies
-of code under the old name, and an application never imports it.
+The extension is usable. These are the things to know and to do before relying on it.
 
-- By default it is `testing/bees_tempus_testing.py`, the test support of the node half, with every name of that
-  module. It also passes on the few names that only the client library has (`Peer`, `PeerSettings`, `Store`,
-  `StoreSettings`, `peer8`, `secure_draws`, `certificate_fingerprint`), so that a tool written against either line
-  finds every name it used. This is what the trials run with.
-- With the environment variable `BEES_TEMPUS_TEST_SUPPORT=tempus_client.testing` it is the client library together
-  with `lib/tempus_client/testing.py`, as it was on the line of work that wrote the client library. The tests of
-  `test_bees_tempus_client.py` pass both ways, and `make test` runs them both ways. The trial
-  `trials/c7_tempus_node_python` needs the default, because it steps nodes with the node half's test clock and timers.
+What was tested and what was not:
 
-Both have the same command line, `bees_tempus_client.py dial ...` and `read-hex ...`, which signs tokens with the test
-producer's seed. It is for the trials only.
+- It was run on one machine: a Mac with Apple Silicon, Python 3.14.5, OpenSSL 3.6.2 and `cryptography` 46.0.3. No
+  Linux run was made, and no other version of Python was run.
+- Its behaviour is held to the Silica node's by the trial `trials/c7_tempus_node_python`, case by case, and by the
+  unit tests against the recorded outputs of the Silica trials. The section "What is not covered" lists what no test
+  reaches: the bridge role, calling a bridge from a node, host names, and any measurement of memory or of many hours
+  or many peers.
+- Nobody but its author has read it. It has had no security review.
 
-## The client library
+What an application must supply or decide:
 
-The library is the package `lib/tempus_client`. An application would start from these files.
+- The key, the certificate and the token. In the trials they are test fixtures made from seeds that are written in
+  this repository, and the test support makes tokens with a test producer's key. An application has its own key and
+  certificate files and gets its token from the real producer. It never imports `testing/bees_tempus_testing.py` or
+  `bees_tempus_client.py`.
+- Every value of the configuration. None has a default. The values the driver's `gossip` command states for itself
+  are choices for an example on one machine.
+- The refresh of its token, and the producer's new key when it changes. The node tells the application when its
+  token is no longer valid; getting a new one is the application's work.
+- The three choices under "The configuration" that differ from the Silica node's configuration and that the owner
+  has not ruled on.
 
-| Path | What it is |
-| --- | --- |
-| `lib/tempus_client/codec.py` | The part of the Erlang external term format that the frames use. |
-| `lib/tempus_client/frames.py` | Descriptors, the structure and checks of a token, every frame body, and `read_body`, which checks every bound. |
-| `lib/tempus_client/connection.py` | `Identity`, `Verifier`, `dial`, `Listener` and `Outcome`: one connection, in both positions. |
-| `lib/tempus_client/gossip.py` | The view rules, `Store` and `Peer`: the three stores, the shuffle on a timer, and the join. |
-| `lib/tempus_client/testing.py` | For the trials only. See below. |
-| `driver/tempus_peer.py` | The driver application: a command line over the library. |
+What in it deserves particular care:
 
-The library needs Python 3 and the `cryptography` package, for Ed25519 signatures and for reading certificates. TLS is
-Python's own `ssl` module. Nothing else is needed.
-
-### What is for the trials only
-
-`lib/tempus_client/testing.py` holds what a client must not contain: the two frames of the test unit (`tick` and
-`clock`), tokens signed with the test producer's fixed seed, identities made from fixed seeds, certificates that a
-node must refuse, and each way to misbehave on purpose. `from tempus_client import *` does not import it, and no
-module of the library and not the driver imports it; `test_tempus_gossip.py` fails if one does.
-
-Two things of the trials are still inside the library, because the connection code has to consult them. The node half
-has neither of them in its modules.
-
-- `dial` and `Listener` take a `misbehaviour` argument, and a listener's handler may return an instruction such as
-  "stay silent". A program that is not a trial passes neither.
-- `read_body` reads the `tick`, `clock` and `done` frames, because the trials' listeners must be able to show them.
-  The functions that write those frames are in `testing.py`.
-
-### The gossip part
-
-`gossip.py` adds what a client needs to find other peers by itself:
-
-- The view rules of the design's section 3: ageing, the choice of a partner, the merge, the eviction.
-- `Store`, one of a peer's three stores, with its steps: tick, reply, failed, request, sample, insert, drop.
-- `Peer`, which listens, joins through its sentinels, ticks each store on its own timer, and answers the shuffles
-  and samples of admitted peers from its stores. A peer whose token says `tempus_sentinel` also puts every peer that
-  asks it for a sample into its store of that peer's type.
-
-Nothing in it has a default. The capacity, shuffle length and tick of each store, the time bound of a connection,
-the sentinels and the retry delays of the join are values the application passes.
-
-```
-import time
-import tempus_client as tc
-
-me = tc.Identity.from_pem(cert_pem, key_pem, token, "192.0.2.7:7000")
-verifier = tc.Verifier(producer_pub, "k1", lambda: int(time.time()), 10, whitelist={tc.certificate_fingerprint(sentinel_pem)})
-store = tc.StoreSettings(capacity=8, shuffle_length=4, tick_ms=500)
-settings = tc.PeerSettings({t: store for t in tc.TYPES}, shuffle_timeout_ms=3000, sentinels=["192.0.2.1:7000"],
-                           join_retry_initial_ms=500, join_retry_max_ms=2000)
-peer = tc.Peer(me, verifier, settings, host="192.0.2.7", port=7000, trusted=certificates_of_peers,
-               on_learned=lambda store, d: print(store, d[tc.Atom("addr")])).start()
-```
-
-### How to run it
-
-All commands are run from the top of the BEES tree.
-
-Every test of this directory, of both bodies of code:
-
-```
-make -C example_tempus_clients/python test
-```
-
-Four instances of the driver as one TEMPUS network on this machine, one sentinel and three edges:
-
-```
-make -C example_tempus_clients/python gossip
-```
-
-Each edge is given the sentinel's address and nothing else. The run ends when every instance has learned of every
-edge. [The gossip README](../gossip/README.md) says what the printed check means.
-
-One instance by hand. `tempus_peer.py` with no arguments prints every option:
-
-```
-python3 example_tempus_clients/python/driver/tempus_peer.py gossip \
-    --cert node.pem --key node-key.pem --token node.token --addr 127.0.0.1:24801 \
-    --producer-pub HEX --kid k1 --skew 10 --timeout-ms 3000 \
-    --store-edge 8:4:500 --store-bridge 8:4:5000 --store-sentinel 8:4:1000 --join-retry-ms 500:2000 \
-    --sentinel 127.0.0.1:24800 --whitelist-cert sentinel.pem --trusted-cert sentinel.pem --trusted-cert other.pem
-```
-
-It prints the peer's own lines (the join, each tick) and a line `learned STORE ID16 HOST:PORT` for each peer it comes
-to know.
-
-### What it was checked against
-
-- `test_tempus_gossip.py` gives the same random steps to the rules in `gossip.py` and to the independent models in
-  `tools/bees_tempus_view_model.py` and `tools/bees_tempus_store_model.py`, and requires the same view after each
-  step. Those models are themselves compared with the node's Silica units by the tests in `tools/`.
-- The same file runs a sentinel and two edges of this library in one process, over TLS on loopback.
-- `trials/c7_tempus_gossip` runs four instances of the driver as one network, and one instance in a network with
-  the Silica, Kotlin and Swift drivers. Both were run and their checks are recorded.
-- The codec, the frames and single connections are checked as before, by `test_bees_tempus_client.py` and by the
-  trials that drive nodes with this client.
-- Two corrections were carried into the library from the node half, and `test_tempus_gossip.py` checks both: an atom
-  whose name is not UTF-8 is refused and no longer raises a Python error, and `Verifier` judges the channel binding
-  before anything of the token, as a node does. Before, a peer whose advert was not bound to its certificate and whose
-  token named an old `kid` was sent `key_rotated`; now it is refused without a frame. No recorded output changed.
-
-### What the client library does not cover
-
-- A Python peer of this library accepts a connection only from a certificate it was given beforehand. Python's `ssl` module
-  hands a server the client's certificate only when the server verifies it against loaded certificates. So every
-  peer that may dial a Python peer must be named with `--trusted-cert`, or `trusted=` in the library. A real TEMPUS
-  network admits any peer that holds a token, so a Python peer cannot be a full member of one. The Kotlin and Swift
-  examples do not have this limit. Two trusted certificates must also not share a subject name, because `ssl` finds
-  a trusted certificate by its subject.
-- It does not refresh its token. `Peer.new_token` takes a new one from the application.
-- It does not serve `call` or `cast`. Those are for a bridge.
-- Its clock choices are the application's: `Verifier` takes a function that returns the time. It has none of a
-  node's rules for a clock that fails or goes back.
-- It keeps no score of peers and has no limit on accepted connections.
-- `Verifier` applies the whitelist rule only when it is given a whitelist. The trials' clients are given none.
-- Its `dial` returns whatever reply the peer sent, of any kind, because the trials use the same function to see what
-  a node really answers. `Peer` itself accepts only the reply of its request for the same store and verifies every
-  entry before it uses any. An application that calls `dial` directly must make those checks itself. The node half's
-  `bees_tempus_peer.dial` makes them.
-
-## What stands between this and production
-
-- The owner's statement that nothing in this directory tree is for production has not been changed.
-- No review. The extension was written and tested by one author in one day. Nobody else has read it.
-- In the node half, a private hook of Python's `ssl` module. Python's `ssl` gives a server the client's certificate only when it
-  verifies it against trust anchors, and has no verification callback, while a TEMPUS node must accept a certificate
-  it has never seen. The extension solves this with `SSLContext._msg_callback`, which Python provides for debugging
-  and does not document: it reads the client's certificate out of the handshake and makes it the only trust anchor of
-  that one connection. The same hook is how the extension learns which key exchange group was negotiated. If a Python
-  release removes or changes that hook, the extension refuses to start a node and says why; it does not fall back to
-  something weaker. Python 3.15 has `SSLContext.set_groups`, which the extension calls when it exists, but it has not
-  been run on 3.15.
+- A private hook of Python's `ssl` module. A TEMPUS node must accept a connection from a certificate it has never
+  seen, and check the certificate itself afterwards. Python's `ssl` gives a server the client's certificate only when
+  it verifies it against trust anchors loaded beforehand, and it has no verification callback. The extension uses
+  `SSLContext._msg_callback`, an attribute whose name begins with an underscore, which Python provides for debugging
+  and does not document. Through it the extension reads the client's certificate out of the handshake messages and
+  makes that certificate the only trust anchor of that one connection, so the handshake completes and the extension's
+  own checks then judge the certificate. The same hook is how the extension learns which key exchange group the
+  handshake chose. If a Python release removes or changes the hook, the extension refuses to start a node and says
+  why. It does not fall back to something weaker. Check this on every new Python release before using it.
+- The key exchange group on Python 3.15. Before 3.15 Python cannot name the groups it offers; the extension relies on
+  OpenSSL 3.5 or later offering X25519MLKEM768 and refuses a connection that chose another group. Python 3.15 has
+  `SSLContext.set_groups`, and the extension calls it when it exists. That path was not run: every test and
+  trial ran on Python 3.14.
 - The third TLS 1.3 cipher suite, TLS_AES_128_GCM_SHA256, cannot be taken out of Python's offer. A connection that
   negotiated it is refused after the handshake. A Silica node never chooses it.
-- Threads. In the node half each connection has a thread of its own. `inflight_max` bounds the accepted connections that are served,
+- Threads. Each connection has a thread of its own. `inflight_max` bounds the accepted connections that are served,
   but a connection above the limit still gets a thread for its TLS handshake before it is closed, as the Silica node
   also completes that handshake. Nothing bounds the number of such handshakes in progress.
 - The private key is held in memory by the `cryptography` package's key object and by the TLS library, for the
   process's whole life. Python cannot wipe it.
-- The choices listed under "The configuration" and in the report of 2026-11-23 that the owner has not ruled on.

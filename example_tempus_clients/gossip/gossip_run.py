@@ -40,10 +40,11 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 CLIENTS = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 sys.path.insert(0, os.path.join(CLIENTS, "python", "lib"))
+sys.path.insert(0, os.path.join(CLIENTS, "python", "testing"))
 import bees_tempus_certs as certs  # noqa: E402
 import trial_ports  # noqa: E402
-from tempus_client import testing  # noqa: E402  TEST ONLY: the test producer's key signs the example's tokens
-from tempus_client import peer_id  # noqa: E402
+import bees_tempus_testing as testing  # noqa: E402  TEST ONLY: the test producer's key signs the example's tokens
+from bees_tempus_codec import peer_id  # noqa: E402
 
 CERTS = os.path.join(ROOT, "trials", "t5_tempus_tls", "certs")
 KID = "k1"

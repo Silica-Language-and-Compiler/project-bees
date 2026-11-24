@@ -1,4 +1,4 @@
-// EXAMPLE ONLY, not for production. See README.md beside the lib directory.
+// A usable example, to be used carefully. See README.md beside the lib directory.
 //
 // The tempus/1 messages a client writes and reads, with every bound of the design's section 8, and the token's
 // structure (section 4). The two test-only frames (tick and clock) and their answer (done) are not here: they are no

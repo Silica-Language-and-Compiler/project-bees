@@ -1,4 +1,4 @@
-// EXAMPLE ONLY, not for production. See README.md beside the lib directory.
+// A usable example, to be used carefully. See README.md beside the lib directory.
 //
 // What a client holds (its identity) and what it checks of another peer (the verifier): the token, the channel
 // binding, the tempus whitelist and the proof of possession. Design section 4; the order of the checks is the node's

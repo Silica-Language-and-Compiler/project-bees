@@ -1,4 +1,4 @@
-// The command line of the Rust TEMPUS extension's client half. An example only: not for production (README.md).
+// The command line of the Rust TEMPUS extension's client half. A usable example, to be used carefully (README.md).
 //
 //   tempus-client read-hex HEX SHUFFLE_LENGTH
 //   tempus-client test-token --seed HEX --kid KID TYP NBF EXP

@@ -1,4 +1,4 @@
-// EXAMPLE ONLY, not for production. See README.md in the directory above.
+// A usable example, to be used carefully. See README.md in the directory above.
 //
 // A TEMPUS node: an edge or a sentinel (never a bridge, which is also a TRUST node). It does what the Silica node of
 // src/tempus does (development-plan/tempus-design.md sections 3 to 6 and 8 to 11): it reads the clock, listens, joins

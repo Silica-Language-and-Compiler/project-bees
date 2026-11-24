@@ -11,7 +11,7 @@
 //     issuer equal to subject, and the certificate's signature verifying under its own key. The binding (that key is
 //     the advert's pub) is the verifier's check.
 //   - Certificate validity dates are not checked (ruling NQ-10: the producer token carries the validity window).
-// An example only: not for production.
+// A usable example, to be used with care (README.md says what care means).
 import COpenSSL
 import Darwin
 

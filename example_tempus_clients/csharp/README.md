@@ -7,9 +7,9 @@ take part. The extension has two halves. The client half connects to a node as a
 or listens and answers one. The node half makes the application a member of the network: a node, with stores of its
 own, that joins, shuffles, answers and admits as the Silica node of `src/tempus` does.
 
-The statement of the directory's [README](../README.md) applies to it as it stands: it is an example, and it must not
-be used in production. The section "What stands between this and production use" below says what has and what has not
-been done. Everything it was checked with uses keys, certificates and tokens made from fixed seeds that are written in
+It is a usable example, to be used carefully, as the directory's [README](../README.md) says of every extension. The
+section "What stands between this and production use" below says what has and what has not been done, and so what
+care means here. Everything it was checked with uses keys, certificates and tokens made from fixed seeds that are written in
 this repository. The documents [What do I need to do to write a TEMPUS client?](../writing-a-tempus-client.md) and
 [What do I need to do to write a TEMPUS node?](../writing-a-tempus-node.md) say what a client and a node have to do,
 in a form that does not depend on any one language.

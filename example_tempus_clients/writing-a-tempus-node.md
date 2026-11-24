@@ -8,14 +8,15 @@ answers other members, reads a clock, and tells its application what happened.
 
 The authority for what a node does is the ruled design, `development-plan/tempus-design.md`. "Design section 3" below
 means a section of that document. Every statement here was checked against the code of the BEES TEMPUS node, the
-Silica library in `src/tempus/`, and where a file is named in brackets that is where it was checked. The node half
-of the Python extension (the modules `python/lib/bees_tempus_*.py`) was written from this list, and the trial
+Silica library in `src/tempus/`, and where a file is named in brackets that is where it was checked. The node of the
+Python extension (the modules `python/lib/bees_tempus_*.py`) was written from this list, and the trial
 `trials/c7_tempus_node_python` runs its nodes and Silica nodes in one network; where that trial shows a statement, the
-section says so. Section 18 lists what is open and what could not be verified. Section 19 says how a node differs
-from the gossip discovery that the client libraries in this directory have.
+section says so. Section 18 lists what is open and what could not be verified. Section 19 says where each
+extension's node is and how to run one from a command line.
 
 An extension is code in a language other than Silica that lets an application in that language take part in a TEMPUS
-network. The Python, Swift and Kotlin code in this directory are extensions.
+network. The Python, Swift, Kotlin, C# and Rust code in this directory are extensions. They are usable examples, to be
+used carefully; the README of each says what care means for it.
 
 ## 1. More terms
 
@@ -301,7 +302,11 @@ A served connection runs admission (section 10) and then reads one request:
   store (5.6). When the node's role is sentinel, it then puts the asking peer into its store of the asking peer's
   type, at age 0, whoever asks and whichever store was asked. The sample is taken first and the insert follows, so a
   node that joins is not answered with itself the first time.
-- `call` and `cast`: a node that is not a bridge refuses both, with the audit event `request_refused`.
+- `call` and `cast`: a node that is not a bridge refuses both. Which refusal depends on the frame's atoms, because
+  the structure check of section 10 comes before the frame's kind is looked at. A `call` or `cast` that names an atom
+  the node does not hold, for example a module or function name as an atom, is refused with the audit event
+  `protocol_error` and the text `not a request: unknown_atom`. Only a `call` or `cast` whose atoms are all held gets
+  the audit event `request_refused`.
 - anything else, including the test-only `tick` and `clock` frames: refused, with the audit event `protocol_error`
   and the text `not a request: ` followed by the reason.
 
@@ -352,9 +357,15 @@ why a production Silica node refuses a `tick` frame with `not a request: unknown
 `tick`. A frame that is sound and whose `t` is a known atom that is no request is refused with `not a request:
 unknown kind`. [`src/trust/bees_trust_frame.silica`, `check`; `bees_tempus_frame.silica`, `kind`, `why_refused`]
 
-The trial `trials/c7_tempus_node_python` sends 44 hostile cases to a Silica sentinel and to a Python sentinel and
-requires the audit lines of the two to be the same. Its transcript, `walk.macos_applesilicon.scout`, is a list of the
-cases with the Silica node's exact line for each.
+The atoms a production Silica node holds are the atoms of two files together, `src/tempus/bees_tempus.atoms` and
+`src/trust/bees_trust.atoms`: 68 atoms. An extension's node must hold exactly that list, or its refusals differ from
+the Silica node's for some frame. Take the list from the two files and have a test that fails when the files and
+your list differ.
+
+Three trials send hostile cases to a Silica sentinel and to a sentinel of an extension, and require the audit lines
+of the two to be the same: `trials/c7_tempus_node_python` (44 cases, Python), `trials/c13_tempus_node_csharp` (42
+cases, C#) and `trials/c15_tempus_node_rust` (54 cases, Rust). The transcript of each, `walk.macos_applesilicon.scout`,
+is a list of the cases with the Silica node's exact line for each.
 
 ## 11. Limits and timeouts
 
@@ -467,6 +478,9 @@ same holds for an extension:
   does.
 - Compare with the Silica node, not only with yourself. Run both in one network, send both the same hostile bytes,
   and require the same lines.
+- A unit test that starts a node should have it listen on a port the system assigns, not on a fixed one. Several
+  trials run their unit tests at the same time on one machine, and two tests that ask for the same fixed port fail
+  for a reason that has nothing to do with the node.
 
 ## 17. What a bridge would need
 
@@ -517,41 +531,24 @@ the code for this document, see section 18):
 - Memory and time. Nothing in this document was measured: no soak, no number of peers, no rate of connections.
 - Platforms. The mixed trial was run on a Mac with Apple Silicon only.
 
-## 19. The client libraries have gossip discovery too, and it is not a node
+## 19. One node in each extension, and how to run one
 
-Each client library in this directory (`python/lib/tempus_client`, `kotlin/lib`, `swift/lib/TempusClient`) has a
-gossip part of its own, a class named `Peer`. It was written on another line of work than the node halves of the
-extensions, from section 16 of the client document. `gossip/` runs these peers as networks of one language and of
-several. The Silica example is different: its gossip part starts BEES's own node library and is a node.
+Each extension in this directory has one implementation of what this document describes, its node, and no second
+gossip implementation beside it. A client that takes part in gossip (section 16 of the client document) is a node.
 
-A `Peer` of a client library and a node have the same core. Both keep the three stores by the rules of section 5,
-join by section 7, shuffle on their own timers by section 8, answer shuffles and samples by section 9, verify every
-entry, and stop ticking when their own token is not valid. A program can find other members with either.
+| Extension | The node | Its trial among Silica nodes |
+| --- | --- | --- |
+| Python | `python/lib/bees_tempus_node.py` with `bees_tempus_config.py` | `trials/c7_tempus_node_python` |
+| Swift | `swift/lib/TempusNode` | `trials/c8_tempus_node_swift` |
+| Kotlin | `kotlin/lib/Node.kt` | `trials/c9_tempus_node_kotlin` |
+| C# | `csharp/lib` | `trials/c13_tempus_node_csharp` |
+| Rust | `rust/lib/tempus` | `trials/c15_tempus_node_rust` |
 
-What a node does, by this document, that a client library's `Peer` does not. This list was checked against the
-Python client library and its tests. The Kotlin and Swift client libraries were written from the same section 16 of
-the client document; their READMEs name their own limits, and they were not checked line by line for this section.
+The Silica example's gossip part starts BEES's own node library, so it is the Silica node itself.
 
-- The clock (section 12). A `Peer` takes the time from a function the application gives it and has no rule for a
-  clock that goes back or cannot be read. A node reads its own clock and follows the configured choices: follow,
-  hold or stop when the clock goes back, continue or pause when it cannot be read.
-- Limits (section 11). A `Peer` has one time bound for a connection. It has no limit on the number of accepted
-  connections it serves at once.
-- Configuration (section 4). A `Peer` is given plain values. A node has the keys, bounds and refusals of the
-  `tempus` section of `bees.config`, in the Silica node's words.
-- Audit lines (section 15) and the reasons of section 10. A `Peer` prints lines about its join and its ticks. It
-  does not write the node's audit lines, so its refusals cannot be compared with a Silica node's word for word.
-- What the application is told (section 14). A `Peer` tells its application of each peer it learns of. It does not
-  tell it of `key_rotated`, of an unreadable clock or of a stop, and it has no call to take a new producer key.
-- Testing by hand (section 16). A `Peer` runs real timers. Its store rules are functions that a test gives draws
-  to, but a test cannot fire the timers of a running `Peer` one at a time.
-- In Python only: the client library's `Peer` accepts a connection only from a certificate it was given beforehand,
-  so it cannot be a full member of a network whose members it does not know in advance. The node half of the Python
-  extension accepts a certificate it has never seen. `python/README.md` says how.
-
-What the client libraries' gossip was shown to do that the node halves were not: the `Peer` of each language was run
-in one network with the `Peer` of every other language (`gossip/`, the networks `mixed` and `trio`). Each node half
-was run in a network with Silica nodes only.
-
-Both exist side by side in each language's directory until the project owner decides between them. The READMEs of
-`python/`, `kotlin/` and `swift/` say where each is and what uses it.
+The drivers of the Python, Swift and Kotlin extensions have a command `gossip` that runs a node from a command line,
+and `gossip/` runs these drivers and the Silica driver as networks of one language and of several. A command line has
+fewer values than a node's configuration (section 4). A node library has no defaults, so each driver states the
+remaining values itself, in one visible place, as its own choices for the example: the limit on accepted connections,
+the clock's choices and how often the clock is read. An application makes each of those choices for itself. The
+README of each extension says what its driver states.

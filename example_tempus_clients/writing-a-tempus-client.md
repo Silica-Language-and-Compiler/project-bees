@@ -6,14 +6,13 @@ statement was checked against the code of the BEES TEMPUS node (`src/tempus/`) a
 directory. Section numbers below, such as "design section 5", refer to that design document. Where something could
 not be checked against the code, section 14 says so.
 
-The clients in this directory are examples only and must not be used in production. See [README.md](README.md). An
-application that is to be a member of the network, with stores of its own, is a node: see [What do I need to do to
-write a TEMPUS node?](writing-a-tempus-node.md).
+The extensions in this directory are usable examples, to be used carefully. [README.md](README.md) and the README of
+each language say what care means: the keys, certificates and tokens of the trials are test fixtures made from fixed
+seeds, the test support exists to misbehave on purpose and is no part of what an application uses, and none of the
+code has had a review by anyone but its author. An application that is to be a member of the network, with stores of
+its own, is a node: see [What do I need to do to write a TEMPUS node?](writing-a-tempus-node.md).
 
-Two names for Python code appear below. `python/` holds two bodies of code, kept side by side until the project owner
-decides between them (`python/README.md`). "The Python extension" means the modules `python/lib/bees_tempus_*.py`.
-"The Python example" means the code both bodies share by descent from the first Python client, which is also in the
-package `python/lib/tempus_client`. A statement about the Python extension was checked against those modules only.
+"The Python extension" and "the Python example" below both mean the modules `python/lib/bees_tempus_*.py`.
 
 ## 1. The terms used here
 
@@ -503,7 +502,10 @@ Sections 1 to 13 are enough for a client that sends one request to an address it
 find other peers by itself must also be a member of the network. A member keeps stores, shuffles them on a timer,
 joins through a sentinel and answers from its stores. The rules below are the node's own, from the design's sections
 3, 6 and 10 and from `src/tempus/bees_tempus_view.silica`, `bees_tempus_store.silica` and `bees_tempus_node.part`.
-Each example in this directory has them in its library, and `gossip/` runs them.
+A member is a node, and this section is the short form of [What do I need to do to write a TEMPUS
+node?](writing-a-tempus-node.md), which also gives the clock's rules, the limits, the configuration, the audit lines
+and what the application is told. Each extension in this directory has one implementation of these rules, its node,
+and `gossip/` runs them.
 
 ### What a member is configured with
 

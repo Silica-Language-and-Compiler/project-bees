@@ -1,26 +1,29 @@
-// The driver application of the Swift example TEMPUS client: a command line over the library (lib/TempusClient).
-// An example only: not for production (README.md). It reads its values from the command line and from the files the
-// command line names, hands them to the library, and prints what the library reports, one line each.
+// The driver application of the Swift TEMPUS extension: a command line over its two libraries (lib/TempusClient and
+// lib/TempusNode). A usable example, to be used with care (README.md). It reads its values from the command line and
+// from the files the command line names, hands them to the libraries, and prints what they report, one line each.
 //
 //   tempus-client gossip OPTIONS
-//       Be a member of a TEMPUS network: listen, join through the sentinels, shuffle the three stores on their timers,
-//       answer the peers that dial. Prints the peer's own lines and, for every peer it comes to know, `learned STORE
+//       Be a member of a TEMPUS network: a node of lib/TempusNode, whose role is the type its token carries. It
+//       listens, joins through the sentinels, shuffles the three stores on their timers and answers the peers that
+//       dial. Prints the node's own lines (with its audit lines) and, for every peer it comes to know, `learned STORE
 //       ID16 HOST:PORT`. Runs until it is interrupted or ended, or for --run-ms; then prints, per store, `known STORE:
-//       ID16 ...` (every peer it ever learned of, sorted).
+//       ID16 ...` (every peer it ever learned of, sorted). What a node requires and these options do not carry (the
+//       bound on accepted connections and the clock choices) is stated in GossipChoices below.
 //       OPTIONS, all required unless marked:
 //         --cert FILE --key FILE         this peer's certificate (PEM, self-signed over its Ed25519 key) and its private
 //                                        key (PEM, PKCS#8, not encrypted)
 //         --token FILE                   its token from the producer, as hex digits in a file
-//         --addr HOST:PORT               the address it advertises and listens on
+//         --addr HOST:PORT               the address it advertises and listens on (HOST an IPv4 literal)
 //         --producer-pub HEX --kid KID   the producer's current public key and its identifier
 //         --skew SECONDS                 the clock difference this peer allows
 //         --timeout-ms MS                the time bound of a whole connection
 //         --store-edge CAP:LEN:TICK_MS --store-bridge CAP:LEN:TICK_MS --store-sentinel CAP:LEN:TICK_MS
 //                                        capacity, shuffle length and tick of each store
 //         --join-retry-ms FIRST:MAX      the join's first and greatest retry delay
-//         --sentinel HOST:PORT           may be repeated; none for a first sentinel
+//         --sentinel HOST:PORT           may be repeated (1 to 16); none for a first sentinel
 //         --whitelist-cert PEM_FILE      optional, may be repeated: a bridge or sentinel this peer accepts
-//         --now SECONDS                  optional: the time for token checks, in place of the system clock
+//         --now SECONDS                  optional: one fixed reading in place of the machine's clock (the node
+//                                        accepts that on a loopback address only)
 //         --run-ms MS                    optional: stop after that long
 //
 // The commands below were written for the trial trials/c5_tempus_swift. They take the key as a seed and can make TEST
@@ -43,6 +46,7 @@
 import Foundation
 import TempusClient
 import TempusClientTesting
+import TempusNode
 
 func fail(_ text: String) -> Never {
     FileHandle.standardError.write(Data(("tempus-client: " + text + "\n").utf8))
@@ -180,13 +184,57 @@ func readText(_ path: String) -> String {
     return text
 }
 
-func storeSettings(_ o: Options, _ name: String) -> StoreSettings {
+func storeConfig(_ o: Options, _ name: String) -> StoreConfig {
     let p = o.need(name).split(separator: ":").map { Int($0) }
     guard p.count == 3, let capacity = p[0], let length = p[1], let tick = p[2] else { fail("\(name) is CAP:LEN:TICK_MS") }
-    do {
-        return try StoreSettings(capacity: capacity, shuffleLength: length, tickMs: tick)
-    } catch {
-        fail("\(name): \(error)")
+    return StoreConfig(capacity: capacity, shuffleLength: length, tickMs: tick)
+}
+
+/// The values a node requires and the `gossip` command line does not carry. The node library has no default for any
+/// of them; these are this driver's choices for the gossip example, stated here and nowhere else. An application of
+/// its own states its own (README.md, "The configuration").
+enum GossipChoices {
+    static let inflightMax = 16                      // accepted connections at once
+    static let clockBack = ClockBack.follow          // a clock that steps back is followed
+    static let clockBackLimitS: Int? = nil           // only `stop` takes a limit
+    static let clockFail = ClockFail.continue        // a reading that fails after a good one: go on with the last reading
+    static let clockReadMs = 1000                    // how often the clock is read
+}
+
+/// The clock of `--now SECONDS`: one fixed reading. The node accepts a clock of its caller's on a loopback listen
+/// address only.
+struct FixedClock: NodeClockSource {
+    let now: Int64
+    func seconds() -> Int64? { now }
+}
+
+/// What the instance has learned, per store, and the one lock under which every line is printed.
+final class Learned: @unchecked Sendable {
+    private let lock = NSLock()
+    private var known: [String: Set<String>] = [:]
+
+    func line(_ text: String) {
+        lock.lock()
+        say(text)
+        lock.unlock()
+    }
+
+    /// Prints `learned STORE ID16 HOST:PORT` for each entry of a view that this instance sees for the first time.
+    func view(_ store: String, _ entries: [ViewEntry<Descriptor>]) {
+        lock.lock()
+        for e in entries {
+            let id16 = hex(Array(e.id.prefix(8)))
+            if known[store, default: []].insert(id16).inserted {
+                say("learned \(store) \(id16) \(String(decoding: e.d.addr, as: UTF8.self))")
+            }
+        }
+        lock.unlock()
+    }
+
+    func all(_ store: String) -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return (known[store] ?? []).sorted()
     }
 }
 
@@ -196,55 +244,61 @@ func gossip(_ o: Options) {
     guard o.rest.isEmpty else { fail("gossip OPTIONS") }
     guard let seed = ed25519Seed(pkcs8PEM: readText(o.need("--key"))) else { fail("--key is not an unencrypted PKCS#8 Ed25519 key in PEM") }
     guard let token = unhex(readText(o.need("--token")).trimmingCharacters(in: .whitespacesAndNewlines)) else { fail("--token does not hold hex digits") }
-    let clock: () -> Int64
-    if o.one("--now") != nil {
-        let now = o.needInt("--now")
-        clock = { now }
-    } else {
-        clock = { Int64(Date().timeIntervalSince1970) }
-    }
+    // the node's role is the type its token carries
+    guard let typ = try? readToken(token).fields.typ, let role = PeerType(rawValue: typ) else { fail("--token does not hold a token") }
     let retry = o.need("--join-retry-ms").split(separator: ":").map { Int($0) }
     guard retry.count == 2, let first = retry[0], let most = retry[1] else { fail("--join-retry-ms is FIRST:MAX") }
+    func hostPort(_ text: String, _ name: String) -> (String, Int) {
+        guard let colon = text.lastIndex(of: ":"), let port = Int(text[text.index(after: colon)...]) else { fail("\(name) is HOST:PORT") }
+        return (String(text[..<colon]), port)
+    }
+    let (host, port) = hostPort(o.need("--addr"), "--addr")
+    // a member of a network always applies the whitelist rule: with no --whitelist-cert it accepts no bridge and no
+    // sentinel on a connection
+    let config = TempusConfig(
+        role: role, listenAddress: host, port: port,
+        sentinels: (o.values["--sentinel"] ?? []).map { let (h, p) = hostPort($0, "--sentinel"); return Sentinel(host: h, port: p) },
+        edge: storeConfig(o, "--store-edge"), bridge: storeConfig(o, "--store-bridge"), sentinel: storeConfig(o, "--store-sentinel"),
+        producerKid: Array(o.need("--kid").utf8), producerKey: o.needHex("--producer-pub", 32),
+        whitelist: (o.values["--whitelist-cert"] ?? []).map(pemDER),
+        shuffleTimeoutMs: Int(o.needInt("--timeout-ms")), inflightMax: GossipChoices.inflightMax,
+        clockSkewMs: Int(o.needInt("--skew")) * 1000,
+        clockBack: GossipChoices.clockBack, clockBackLimitS: GossipChoices.clockBackLimitS,
+        clockFail: GossipChoices.clockFail, clockReadMs: GossipChoices.clockReadMs,
+        joinRetryInitialMs: first, joinRetryMaxMs: most)
+    let identity = NodeIdentity(seed: seed, certificateDER: pemDER(o.need("--cert")), token: token, address: o.need("--addr"))
+    let learned = Learned()
+    let lines: @Sendable (String) -> Void = { learned.line($0) }
+    let events: @Sendable (NodeEvent) -> Void = { event in
+        switch event {
+        case .view(let store, let entries): learned.view(store.rawValue, entries)
+        case .ownTokenNotValid(let reason): learned.line("told: the node's own token is not valid any more: \(reason)")
+        case .keyRotated(let kid, _): learned.line("told: a peer answered key_rotated, its current kid is \(String(decoding: kid, as: UTF8.self))")
+        case .clockNotRead(let text), .stopped(let text): learned.line("told: \(text)")
+        case .listenFailed(let text): learned.line("told: the node does not listen: \(text)")
+        case .listening, .joined, .peerRefused: break
+        }
+    }
+    let node: TempusNode
     do {
-        let me = try Identity(seed: seed, token: token, addr: o.need("--addr"), certDER: pemDER(o.need("--cert")))
-        // a member of a network always applies the whitelist rule: with no --whitelist-cert it accepts no bridge and
-        // no sentinel on a connection
-        let listed = Set((o.values["--whitelist-cert"] ?? []).map { sha512(pemDER($0)) })
-        let verifier = Verifier(producerPub: o.needHex("--producer-pub", 32), kid: Array(o.need("--kid").utf8), clock: clock,
-                                skew: o.needInt("--skew"), whitelist: listed)
-        let settings = try PeerSettings(stores: ["tempus_edge": storeSettings(o, "--store-edge"),
-                                                 "tempus_bridge": storeSettings(o, "--store-bridge"),
-                                                 "tempus_sentinel": storeSettings(o, "--store-sentinel")],
-                                        shuffleTimeoutMs: Int(o.needInt("--timeout-ms")), sentinels: o.values["--sentinel"] ?? [],
-                                        joinRetryInitialMs: first, joinRetryMaxMs: most)
-        let peer = try Peer(identity: me, verifier: verifier, settings: settings)
-        let lock = NSLock()
-        var known: [String: Set<String>] = [:]
-        func line(_ text: String) {
-            lock.lock()
-            say(text)
-            lock.unlock()
-        }
-        peer.onLine = line
-        peer.onLearned = { store, d in
-            let id16 = hex(Array(d.id.prefix(8)))
-            lock.lock()
-            let isNew = known[store, default: []].insert(id16).inserted
-            if isNew { say("learned \(store) \(id16) \(String(decoding: d.addr, as: UTF8.self))") }
-            lock.unlock()
-        }
-        signal(SIGINT) { _ in interrupted = 1 }
-        signal(SIGTERM) { _ in interrupted = 1 }
-        try peer.start()
-        let until = o.one("--run-ms").map { _ in Date().addingTimeInterval(Double(o.needInt("--run-ms")) / 1000.0) }
-        while interrupted == 0 && (until.map { Date() < $0 } ?? true) { usleep(50_000) }
-        peer.stop()
-        for t in peerTypes {
-            let all = (known[t] ?? []).sorted()
-            line("known \(t): " + (all.isEmpty ? "(none)" : all.joined(separator: " ")))
+        if o.one("--now") != nil {
+            let sources = NodeSources(clock: FixedClock(now: o.needInt("--now")), timers: SystemTimers(), random: SecureRandom())
+            node = try TempusNode(config: config, identity: identity, sources: sources, lines: lines, events: events)
+        } else {
+            node = try TempusNode(config: config, identity: identity, lines: lines, events: events)
         }
     } catch {
-        fail("\(error)")
+        exit(1)          // the node has written the line that says why
+    }
+    signal(SIGINT) { _ in interrupted = 1 }
+    signal(SIGTERM) { _ in interrupted = 1 }
+    node.start()
+    let until = o.one("--run-ms").map { _ in Date().addingTimeInterval(Double(o.needInt("--run-ms")) / 1000.0) }
+    while interrupted == 0 && (until.map { Date() < $0 } ?? true) { usleep(50_000) }
+    node.stop()
+    for t in peerTypes {
+        let all = learned.all(t)
+        learned.line("known \(t): " + (all.isEmpty ? "(none)" : all.joined(separator: " ")))
     }
 }
 

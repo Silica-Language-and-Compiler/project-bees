@@ -1,5 +1,5 @@
 // Identities, the verifier (design section 4) and outcomes.
-// An example only: not for production.
+// A usable example, to be used with care (README.md says what care means).
 
 /// One peer: its Ed25519 key, pub, peer id = SHA-512(pub), the certificate self-signed over that key (DER), its token
 /// exactly as the producer gave it, and the listen address text "host:port" it advertises.

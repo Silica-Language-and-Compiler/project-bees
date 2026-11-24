@@ -1,13 +1,13 @@
 // swift-tools-version:6.0
-// The Swift TEMPUS extension: the wire and client code with its gossip discovery (TempusClient), the node
+// The Swift TEMPUS extension: the wire and client code (TempusClient), the node
 // (TempusNode), and what only tests and trials use (TempusClientTesting and the test programs). README.md says what an
 // application depends on.
 // No remote dependency: the system's Foundation, and the OpenSSL already installed on the machine through the module
 // map of lib/COpenSSL. The Makefile beside this file passes the place of OpenSSL's headers and libraries.
-//   lib/TempusClient              the client library, with the gossip discovery of Gossip.swift
+//   lib/TempusClient              the client library: the wire, admission, dial and a listener
 //   lib/TempusNode                the node library: an application that is a TEMPUS node depends on it
 //   lib/COpenSSL                  the module map for the installed OpenSSL
-//   driver/tempus-client          the driver application: a command line over the client library
+//   driver/tempus-client          the driver application: a command line over the two libraries (`gossip` runs a node)
 //   driver/tempus-node-example    an application that is a node: it links TempusNode and nothing of the tests
 //   testing/TempusClientTesting   TEST ONLY: tokens and identities from fixed seeds, and a clock, timers and draws set
 //                                 by hand, for the tests and the trials. No library target depends on it
@@ -44,7 +44,7 @@ let package = Package(
                           swiftSettings: v6),
         .target(name: "TempusClientTesting", dependencies: ["TempusClient", "TempusNode"],
                 path: "testing/TempusClientTesting", swiftSettings: v6),
-        .executableTarget(name: "tempus-client", dependencies: ["TempusClient", "TempusClientTesting"],
+        .executableTarget(name: "tempus-client", dependencies: ["TempusClient", "TempusNode", "TempusClientTesting"],
                           path: "driver/tempus-client", swiftSettings: v5),
         .executableTarget(name: "tempus-client-tests", dependencies: ["TempusClient", "TempusClientTesting"],
                           path: "test/tempus-client-tests", swiftSettings: v5),

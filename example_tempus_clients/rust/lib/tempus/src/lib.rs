@@ -1,5 +1,5 @@
 //! The Rust TEMPUS extension: what an application written in Rust uses to be a TEMPUS client or a TEMPUS node.
-//! An example only: not for production (README.md beside the workspace says what has and has not been reviewed).
+//! A usable example, to be used carefully (README.md beside the workspace says what has and has not been reviewed).
 //!
 //! The client half: `etf` and `frames` (the wire), `crypto` (Ed25519, SHA-512, certificates), `admission` (an identity,
 //! the verifier, the outcome of a connection), `client` (dial) and `listener` (the listening position).

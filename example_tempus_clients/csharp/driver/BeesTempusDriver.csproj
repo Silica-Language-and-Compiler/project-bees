@@ -1,5 +1,5 @@
 <!-- The driver of the C# extension for TEMPUS: the command line of the client half, and an example application that
-     is a node. It references the library and nothing of the tests. EXAMPLE ONLY, not for production. -->
+     is a node. It references the library and nothing of the tests. A usable example, to be used carefully. -->
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>

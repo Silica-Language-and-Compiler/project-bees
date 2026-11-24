@@ -1,4 +1,4 @@
-// EXAMPLE ONLY, not for production. See README.md in the directory above.
+// A usable example, to be used carefully. See README.md in the directory above.
 //
 // The driver application of the C# extension: a thin program over the library in ../lib. It reads its values from
 // the command line and from the files the command line names, hands them to the library, and prints what the library
@@ -14,7 +14,7 @@ namespace Bees.Tempus.Driver
 {
     static class Program
     {
-        const string Usage = @"bees-tempus: the driver of the EXAMPLE C# extension for TEMPUS. Not for production.
+        const string Usage = @"bees-tempus: the driver of the C# extension for TEMPUS. A usable example: use it carefully.
 
   dial HOST:PORT OPTIONS REQUEST      connect, be admitted, send one request, print the outcome as one line
       REQUEST: sample STORE N

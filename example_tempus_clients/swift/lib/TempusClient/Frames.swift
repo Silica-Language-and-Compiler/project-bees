@@ -1,7 +1,7 @@
 // The tempus/1 frame bodies a client writes and reads (design section 5), with every bound of design section 8, and
 // the token (design section 4). The test-only tick and clock frames of src/tempus_test are not here: they are no part
 // of a client, and this reader refuses both as it refuses any frame of no kind.
-// An example only: not for production.
+// A usable example, to be used with care (README.md says what care means).
 
 public let peerTypes = ["tempus_edge", "tempus_bridge", "tempus_sentinel"]
 /// The kinds this client reads as tempus/1 frames.

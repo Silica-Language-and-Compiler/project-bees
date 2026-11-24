@@ -6,9 +6,9 @@ signed records over mutually authenticated TLS 1.3 connections. A node is a prog
 network: it listens, keeps three lists of other members (its stores), and exchanges parts of them with other members.
 A client is a peer that connects to a node, makes one request and reads the answer.
 
-[The directory's README](../README.md) says that everything in `example_tempus_clients/` is an example only and must
-not be used in production. That statement is the project owner's to change, and it stands. The section "What stands
-between this extension and production use" below lists what has and has not been reviewed and tested.
+It is a usable example, to be used carefully, as [the directory's README](../README.md) says of every extension. The
+section "What stands between this extension and production use" below lists what has and has not been reviewed and
+tested, and so what care means here.
 
 The extension is one implementation. The other extensions in this directory hold two gossip implementations side by
 side (a lighter peer in the client library, and a node matched to the Silica node). The Rust extension holds only the
@@ -439,7 +439,6 @@ A bridge is not built. It would need, in Rust:
 
 ## What stands between this extension and production use
 
-- The owner's statement that this directory holds examples only.
 - Review. No person has reviewed the Rust code. In particular the 46 unsafe blocks that call OpenSSL, the two types
   marked as usable from several threads, the threads (one for each connection, with no bound on their number beyond
   `inflight_max` for accepted connections), and every error path want a reviewer.

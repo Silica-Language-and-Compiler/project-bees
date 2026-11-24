@@ -23,7 +23,7 @@ TLS, exactly, with Python's ssl module:
     (the same message callback) that certificate is loaded into that context as its only trust anchor, with the check
     of validity dates turned off (ruling NQ-10). OpenSSL then checks the handshake signature against it, and this
     module makes the same checks as when dialing. The message callback is `SSLContext._msg_callback`, which Python
-    provides for debugging and does not document as stable: see README.md, "What stands between this and production".
+    provides for debugging and does not document as stable: see README.md, "Using it carefully".
 Certificate validity dates are not checked (ruling NQ-10: the producer's token carries the validity window).
 
 No private key is logged or sent. The key file is read by the TLS library and once by this module, which keeps the key

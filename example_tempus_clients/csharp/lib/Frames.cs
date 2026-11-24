@@ -1,4 +1,4 @@
-// EXAMPLE ONLY, not for production. See README.md in the directory above.
+// A usable example, to be used carefully. See README.md in the directory above.
 //
 // The tempus/1 messages a peer writes and reads, with every bound of the design's section 8, and the token's
 // structure (section 4). The two test-only frames (tick and clock) and their answer (done) are not here: they are no

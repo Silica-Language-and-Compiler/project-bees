@@ -22,5 +22,6 @@ ok    start refusals: a node's own token must read, be of the node's type and na
 ok    the node's entry check, dangerous_admit.linux_aarch64.scout: the verdict and the reason the Silica node gave, on every descriptor case
 ok    the node's entry check, dangerous_admit.linux_x86_64.scout: the verdict and the reason the Silica node gave, on every descriptor case
 ok    the node's entry check, dangerous_admit.macos_applesilicon.scout: the verdict and the reason the Silica node gave, on every descriptor case
-24 passed, 0 failed
+ok    network: two edges that know only the sentinel's address come to hold each other
+25 passed, 0 failed
 exit=0

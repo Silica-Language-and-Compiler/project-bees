@@ -1,4 +1,4 @@
-# The Swift TEMPUS extension: build and unit tests. An example only: not for production (README.md).
+# The Swift TEMPUS extension: build and unit tests. A usable example, to be used with care (README.md).
 # Needs Apple's Command Line Tools (swiftc and the Swift Package Manager; Xcode is not needed) and an installed OpenSSL
 # with X25519MLKEM768 and Ed25519 (the one the BEES Makefiles use: native/macos/platform.mk, or OPENSSL_PREFIX=...).
 # Nothing is fetched: the package has no remote dependency.
@@ -7,7 +7,7 @@
 #                trials/t2_tempus_frames, t0_tempus_clock and t4_tempus_admission and the TEST ONLY certificates of
 #                trials/t5_tempus_tls/certs), the comparison of the node's stores with the Python models of tools/, and
 #                the check that no library depends on the TEST ONLY target
-#   make gossip  build, then four instances of the driver (tempus-client gossip) as one TEMPUS network on this machine
+#   make gossip  build, then four instances of the driver (tempus-client gossip, a node each) as one TEMPUS network on this machine
 #                (../gossip/gossip_run.py run swift; it needs python3 with the `cryptography` package for the test tokens)
 #   make clean   remove .build/
 HERE := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))

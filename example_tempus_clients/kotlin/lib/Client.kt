@@ -1,4 +1,4 @@
-// EXAMPLE ONLY, not for production. See README.md beside the lib directory.
+// A usable example, to be used carefully. See README.md beside the lib directory.
 //
 // The active part: an ordinary TEMPUS peer over TCP and mutual TLS 1.3, in both positions. dial() connects, is
 // admitted, sends ONE request and reads its reply. Listener accepts, is admitted, reads one request and answers it.
@@ -440,12 +440,9 @@ class Incoming(val body: Body, val peer: Descriptor, val typ: String, val index:
  * admitted and has ONE request read. A shuffle (every entry verified for its store first) and a sample are given to
  * the handler, which returns the entries of the reply, or null to close with no reply. Any other request is closed
  * with no reply. Every connection ends as one Outcome, kept in accept order.
- *
- * keep false: no Outcome is kept (a peer that runs for a long time). current, when given, is asked for the identity at
- * each connection (a peer whose token is replaced while it runs); otherwise every connection uses `identity`.
  */
 class Listener(val identity: Identity, val verifier: Verifier, val settings: Settings, host: String, port: Int,
-               val keep: Boolean = true, val current: (() -> Identity)? = null, val handler: (Incoming) -> List<Entry>?) : AutoCloseable {
+               val handler: (Incoming) -> List<Entry>?) : AutoCloseable {
     // A plain java.net.ServerSocket; TLS is layered on each accepted connection, with a trust manager of its own.
     private val server: ServerSocket = ServerSocket()
     private val done = HashMap<Int, Outcome>()
@@ -484,13 +481,10 @@ class Listener(val identity: Identity, val verifier: Verifier, val settings: Set
                     try { raw.close() } catch (x: IOException) {}
                     Outcome("closed", "tls", "internal error: ${e.javaClass.simpleName}: ${e.message}")
                 }
-                if (keep) synchronized(lock) { done[i] = out; lock.notifyAll() }
+                synchronized(lock) { done[i] = out; lock.notifyAll() }
             }
             t.isDaemon = true
-            synchronized(threads) {
-                if (!keep) threads.removeAll { !it.isAlive }
-                threads.add(t)
-            }
+            synchronized(threads) { threads.add(t) }
             t.start()
         }
     }
@@ -498,7 +492,6 @@ class Listener(val identity: Identity, val verifier: Verifier, val settings: Set
     private fun serve(raw: Socket, index: Int): Outcome {
         val deadline = System.nanoTime() + settings.timeoutMs * 1_000_000
         val trust = SelfSignedEd25519()
-        val identity = current?.invoke() ?: this.identity
         val socket = context(identity, trust).socketFactory.createSocket(raw, null, true) as SSLSocket
         try {
             socket.useClientMode = false

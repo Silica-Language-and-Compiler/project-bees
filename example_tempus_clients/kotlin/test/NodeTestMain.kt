@@ -8,10 +8,14 @@
 // same answer. Group 2, the clock: every line of the golden of trials/t0_tempus_clock is computed again. Group 3, the
 // configuration: the refusals of tools/test_bees_tempus_conf.py that a value can show, and the start refusals of
 // trials/c4_tempus_boot with their texts. Group 4, the node's own judgement of an entry on the cases of
-// trials/t4_tempus_admission. No Silica program runs and nothing listens. Every line printed is the same on every run.
+// trials/t4_tempus_admission. Group 5, three nodes of this extension in one process, over mutual TLS 1.3 on 127.0.0.1:
+// a sentinel and two edges that are given the sentinel's address only, with test clocks, timers the test runs and
+// literal draws; each edge must come to hold the other. No Silica program runs. Every line printed is the same on
+// every run.
 package bees.tempus.test
 
 import bees.tempus.*
+import java.net.ServerSocket
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.system.exitProcess
@@ -35,11 +39,11 @@ private fun eq(a: Any?, b: Any?, what: String = "") {
 }
 
 // ---------------------------------------------------------------- group 1: the models
-private fun ent(s: String): NodeHeld<String>? = if (s == "-") null else s.split('~').let { NodeHeld(it[0], it[1], it[2].toInt()) }
-private fun view(s: String): List<NodeHeld<String>> = if (s == "-") emptyList() else s.split(',').map { ent(it)!! }
+private fun ent(s: String): Held<String>? = if (s == "-") null else s.split('~').let { Held(it[0], it[1], it[2].toInt()) }
+private fun view(s: String): List<Held<String>> = if (s == "-") emptyList() else s.split(',').map { ent(it)!! }
 private fun draws(s: String): List<Long>? = when (s) { "N" -> null; "-" -> emptyList(); else -> s.split(',').map { it.toLong() } }
-private fun show(e: NodeHeld<String>?): String = if (e == null) "-" else "${e.id}~${e.d}~${e.age}"
-private fun show(v: List<NodeHeld<String>>): String = if (v.isEmpty()) "-" else v.joinToString(",") { show(it) }
+private fun show(e: Held<String>?): String = if (e == null) "-" else "${e.id}~${e.d}~${e.age}"
+private fun show(v: List<Held<String>>): String = if (v.isEmpty()) "-" else v.joinToString(",") { show(it) }
 private fun showDraws(d: List<Long>?): String = if (d == null) "N" else if (d.isEmpty()) "-" else d.joinToString(",")
 
 private fun viewCase(f: List<String>): Pair<String, String> = when (f[1]) {
@@ -56,12 +60,12 @@ private fun viewCase(f: List<String>): Pair<String, String> = when (f[1]) {
     else -> throw AssertionError("no such view function: ${f[1]}")
 }
 
-private fun state(s: NodeStore<String>): String =
+private fun state(s: Store<String>): String =
     listOf(s.selfId, s.selfD, if (s.own) "1" else "0", s.cap.toString(), s.count.toString(), show(s.view), show(s.sent), show(s.partner), showDraws(s.tickDraws),
         showDraws(s.replyDraws)).joinToString("|")
 
 private fun storeCase(f: List<String>): Pair<String, String> {
-    val s = NodeStore(f[1], f[2], f[3] == "1", f[4].toInt(), f[5].toInt())
+    val s = Store(f[1], f[2], f[3] == "1", f[4].toInt(), f[5].toInt())
     s.view = view(f[6]); s.sent = view(f[7]); s.partner = ent(f[8]); s.tickDraws = draws(f[9]); s.replyDraws = draws(f[10])
     val arg = f[12]
     val out = when (f[11]) {
@@ -255,12 +259,60 @@ private fun admission(root: Path) {
     }
 }
 
+// ---------------------------------------------------------------- group 5: nodes of this extension together
+private fun network(root: Path) {
+    val certs = Certs(root)
+    val names = listOf("sentinel", "node", "other")
+    val ports = names.map { ServerSocket(0).use { s -> s.localPort } }
+    val ids = names.mapIndexed { k, n -> certs.identity(n, if (k == 0) "tempus_sentinel" else "tempus_edge", 1000, 3000, "127.0.0.1:${ports[k]}") }
+    val idHex = ids.map { hex(it.peerId) }
+    val producerPub = unhex(constant(Files.readString(root.resolve("trials/c2_tempus_clients/lib/tempus_ids.silica")), "producer_pub_hex"))
+    val lines = names.map { Lines() }
+    val timers = names.map { ManualTimers() }
+    // the last view each node reported of each store
+    val views = names.map { HashMap<String, List<Entry>>() }
+    val nodes = ArrayList<TempusNode>()
+    fun holds(k: Int, store: String, other: Int) = synchronized(views) { views[k][store].orEmpty().any { hex(it.d.id) == idHex[other] } }
+    check("network: two edges that know only the sentinel's address come to hold each other") {
+        try {
+            for (k in names.indices) {
+                val config = TempusConfig(if (k == 0) "sentinel" else "edge", "127.0.0.1", ports[k],
+                    if (k == 0) emptyList() else listOf(SentinelAddress("127.0.0.1", ports[0], "s")), StoreConfig(4, 3, 1000), StoreConfig(4, 2, 1000),
+                    StoreConfig(4, 2, 1000), "k1".toByteArray(), producerPub, mapOf("s" to certs.cert("sentinel")), 3000, 4, 10000, "follow", null, "pause",
+                    1000, 200, 800)
+                nodes.add(TempusNode.start(config, ids[k], { _, e -> if (e is NodeEvent.ViewChanged) synchronized(views) { views[k][e.store] = e.entries } },
+                    testEnvironment(TestClock(1500), timers[k], listOf(0L, 1L, 2L, 3L), lines[k])))
+                // the node reads its clock at once, then listens and joins
+                val ready = if (k == 0) "^join: no sentinel is configured$" else "^join: done$"
+                lines[k].await(Regex(ready)) ?: throw AssertionError("${names[k]} did not write /$ready/: ${lines[k].snapshot()}")
+            }
+            // the second edge joined after the first and was given it by the sentinel; the first holds nobody yet
+            eq(holds(2, "tempus_edge", 1), true, "the second edge holds the first after its join")
+            eq(holds(1, "tempus_edge", 2), false, "the first edge holds the second after the joins")
+            // the second edge's edge store ticks: it shuffles with the first, which so learns of it
+            eq(timers[2].fire("tick tempus_edge"), true, "the second edge's tick was armed")
+            eq(lines[2].await(Regex("^tick tempus_edge: shuffle (merged|failed)$")), "tick tempus_edge: shuffle merged")
+            // the first edge took the second into its view before it answered
+            eq(holds(1, "tempus_edge", 2), true, "the first edge holds the second")
+            for (k in 1..2) eq(holds(k, "tempus_sentinel", 0), true, "${names[k]} holds the sentinel")
+            eq(holds(0, "tempus_edge", 1) && holds(0, "tempus_edge", 2), true, "the sentinel holds both edges")
+            for (k in names.indices) for ((store, v) in synchronized(views) { HashMap(views[k]) }) {
+                val vid = v.map { hex(it.d.id) }
+                eq(v.size <= 4 && vid.toSet().size == v.size && idHex[k] !in vid, true, "the view of $store at ${names[k]}")
+            }
+        } finally {
+            for (n in nodes) n.close()
+        }
+    }
+}
+
 fun main(argv: Array<String>) {
     val root = Path.of(argv.getOrElse(0) { "." })
     models(Path.of(argv[1]))
     clockGolden(root)
     configuration(root)
     admission(root)
+    network(root)
     println("$passed passed, $failed failed")
     exitProcess(if (failed == 0) 0 else 1)
 }

@@ -1,4 +1,4 @@
-// EXAMPLE ONLY, not for production. See README.md in the directory above.
+// A usable example, to be used carefully. See README.md in the directory above.
 //
 // What a peer holds (its identity) and what the client half checks of another peer (the verifier): the token, the
 // channel binding, the tempus whitelist and the proof of possession. Design section 4; the order of the checks is the

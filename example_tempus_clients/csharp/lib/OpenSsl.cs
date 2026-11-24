@@ -1,4 +1,4 @@
-// EXAMPLE ONLY, not for production. See README.md in the directory above.
+// A usable example, to be used carefully. See README.md in the directory above.
 //
 // The OpenSSL installed on the machine (4.1.0 or later), called as a C library through P/Invoke. Declarations only:
 // there is no C code in this extension. .NET's own TLS (SslStream) and cryptography cannot be used on macOS, where

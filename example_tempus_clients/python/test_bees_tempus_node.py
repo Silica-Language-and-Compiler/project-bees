@@ -14,7 +14,7 @@
                   reason text the Silica node printed; the order of an advert's checks; the tempus whitelist rule.
   configuration   the refusals of tools/test_bees_tempus_conf.py, with the same words, and the boot refusals of
                   trials/c4_tempus_boot.
-  the codec       what the extension must refuse and the old client did not; the node's structure check.
+  the codec       what the extension must refuse; the node's structure check.
   replies         a reply must be the reply of its request, and its entries must verify.
   a node          in this process, with a clock, timers and a random source the test steps by hand.
 
@@ -23,6 +23,7 @@ tools/bees_tempus_certs.py).
 """
 import glob
 import os
+import random
 import shutil
 import sys
 import tempfile
@@ -83,8 +84,80 @@ def tools_tests_with_the_extension():
                 sys.modules[k] = v
 
 
+def random_entries(rng, names, most):
+    picked = rng.sample(names, rng.randint(0, min(most, len(names))))
+    return [(n, "d-" + n, rng.randint(0, 40)) for n in picked]
+
+
+def view_rules_against_the_model(case):
+    """the same random inputs to the extension's view rules and to the independent model of tools/"""
+    import bees_tempus_view_model as model
+    rng = random.Random(7)
+    names = ["p%02d" % i for i in range(12)]
+    for _ in range(400):
+        mine, other = random_entries(rng, names, 8), random_entries(rng, names, 6)
+        draws = [rng.randint(0, 1000) for _ in range(9)]
+        cap, count = rng.randint(1, 8), rng.randint(1, 5)
+        case.assertEqual(view.age_all(mine), model.age_all(mine))
+        case.assertEqual(view.merge(mine, other, "p00", cap), model.merge(mine, other, "p00", cap))
+        case.assertEqual(view.prefer_sent(other, mine), model.prefer_sent(other, mine))
+        case.assertEqual(view.backfill(mine, other, cap), model.backfill(mine, other, cap))
+        case.assertEqual(view.sample(mine, count, draws), model.sample(mine, count, draws))
+        case.assertEqual(view.reply_select(mine, count, "p01", draws), model.reply_select(mine, count, "p01", draws))
+        if mine:
+            case.assertEqual(view.select(mine, count, draws), model.select(mine, count, draws))
+
+
+def store_steps_against_the_model(case):
+    """the same 600 random steps to the extension's Store and to the independent model of tools/, for a store of the
+    node's own type and for one that is not: the same answer and the same view after every step"""
+    import bees_tempus_store_model as store_model
+    import bees_tempus_view_model as view_model
+    rng = random.Random(11)
+    names = ["p%02d" % i for i in range(10)]
+    for own in (True, False):
+        mine = store.Store("me", "d-me", own, 5, 3)
+        model = store_model.Store("me", "d-me", own, 5, 3)
+        for step in range(600):
+            draws = [rng.randint(0, 1000) for _ in range(5)]
+            what = rng.choice(("tick", "tick", "reply", "failed", "request", "sample", "insert", "drop"))
+            if what == "tick":
+                mine.tick_draws, model.tick_draws = list(draws), list(draws)
+                case.assertEqual(mine.tick(), model.tick())
+            elif what == "reply":
+                received = random_entries(rng, names + ["me"], 4)
+                mine.reply(received)
+                model.reply(received)
+            elif what == "failed":
+                mine.failed()
+                model.failed()
+            elif what == "request":
+                received = random_entries(rng, names + ["me"], 4)
+                mine.reply_draws, model.reply_draws = list(draws), list(draws)
+                case.assertEqual(mine.request("p03", received), model.request("p03", received))
+            elif what == "sample":
+                n = rng.randint(1, 5)
+                mine.reply_draws, model.reply_draws = list(draws), list(draws)
+                case.assertEqual(mine.sample(n), model.sample(n))
+            elif what == "insert":
+                for x in random_entries(rng, names, 1):
+                    mine.insert(x)
+                    model.insert(x)
+            else:
+                name = rng.choice(names)
+                mine.drop(name)
+                model.drop(name)
+            case.assertEqual(mine.view, model.view, "step %d, %s" % (step, what))
+            case.assertTrue(view_model.valid(mine.view, "me", 5))
+
+
 class Stores(unittest.TestCase):
     def test_the_silica_goldens_of_t0_and_t1(self):
+        # Beside the goldens: the extension's rules against the two independent models, on random inputs. These two
+        # comparisons are made inside this test, and not as tests of their own, because the trial
+        # trials/c7_tempus_node_python records one line for each test of this file.
+        view_rules_against_the_model(self)
+        store_steps_against_the_model(self)
         suite = tools_tests_with_the_extension()
         self.assertGreaterEqual(suite.countTestCases(), 12)
         result = unittest.TestResult()
@@ -423,8 +496,11 @@ class Codec(unittest.TestCase):
                 self.assertFalse(hasattr(module, name), "%s.%s" % (module.__name__, name))
 
     def test_no_extension_module_imports_the_test_support(self):
-        for module in (codec, adm, peer, node, config, store, view):
-            with open(module.__file__) as f:
+        # the seven modules, and the driver application, which is a program an application's author copies from
+        for path in [m.__file__ for m in (codec, adm, peer, node, config, store, view)] + \
+                [os.path.join(HERE, "driver", "tempus_peer.py")]:
+            module = types.SimpleNamespace(__name__=os.path.basename(path))
+            with open(path) as f:
                 text = f.read()
             self.assertNotIn("import bees_tempus_testing", text, module.__name__)
             self.assertNotIn("from bees_tempus_testing", text, module.__name__)
@@ -446,6 +522,18 @@ class Codec(unittest.TestCase):
         self.assertEqual(codec.kind_of(codec.call_frame("r", "erlang", "ok", [1])), "call")
         hello = codec.etf_encode({A("t"): A("hello")})
         self.assertEqual((codec.structure_reason(hello), codec.kind_of(hello)), ("", "hello"))
+        # a call naming an atom the node does not hold is refused for that atom, before its kind is looked at
+        self.assertEqual(codec.structure_reason(codec.call_frame("r", "lists", "reverse", [1])), "unknown_atom")
+        # the atoms held are exactly those of the Silica node's two atom files, src/tempus/bees_tempus.atoms and
+        # src/trust/bees_trust.atoms (asserted here, and not as a test of its own, because the trial
+        # trials/c7_tempus_node_python records one line for each test of this file)
+        held = set()
+        for name in ("src/tempus/bees_tempus.atoms", "src/trust/bees_trust.atoms"):
+            with open(os.path.join(ROOT, name)) as f:
+                for ln in f:
+                    held.update(ln.split("#")[0].split())
+        self.assertEqual(set(codec.NODE_ATOMS), held)
+        self.assertEqual(len(held), 68)
 
 
 # ---------------------------------------------------------------- replies

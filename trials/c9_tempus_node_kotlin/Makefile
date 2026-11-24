@@ -2,7 +2,7 @@
 #   tests        the extension's node tests (example_tempus_clients/kotlin/test/NodeTestMain.kt): the view and the store
 #                against the two Python models and the goldens of trials/t0_tempus_view and trials/t1_tempus_store, the
 #                clock against the golden of trials/t0_tempus_clock, the configuration's refusals, the entry check on the
-#                cases of trials/t4_tempus_admission
+#                cases of trials/t4_tempus_admission, and a sentinel and two edges of the extension in one process
 #   dangerous_s  node S, a Silica sentinel, a test program; the Kotlin nodes KE and KH join through it
 #   dangerous_a  node A, a Silica edge, a test program; it joins through the Kotlin sentinel KS
 #   dangerous_q  node Q, a Silica edge, not a test program; it joins through the Kotlin sentinel KP by the machine's clock
